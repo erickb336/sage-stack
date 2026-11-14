@@ -158,6 +158,41 @@ test("T1087: a later active turn can use earlier owner authorization", async () 
   rmSync(GH_LOG);
 });
 
+function resumedWorld(boundary) {
+  const historical = { type: "event_msg", payload: { type: "task_started", turn_id: "unfinished-history" } };
+  const lines = withMode(RECORDS["exec-on"]);
+  lines.splice(1, 0, historical);
+  lines.push({ type: "event_msg", payload: { type: "task_started", turn_id: "resumed-merge" } });
+  return world({ lines, mark: { source: "resume", lines: boundary, pid: PPID } });
+}
+
+test("F-T1087-1: resumed unfinished history permits one current merge after a completed owner turn", async () => {
+  clearPermits();
+  const w = resumedWorld(2);
+  const call = "resumed-nested";
+  assert.equal(await w.run(w.input(COMMAND, { turn_id: "resumed-merge", tool_use_id: call })), undefined);
+  assert.deepEqual(w.checks, [{ pr: "41", sha: SHA, cwd: w.project }]);
+  assert.equal(permits().length, 1);
+  rmSync(GH_LOG, { force: true });
+  const execute = () => spawnSync(process.execPath, [MERGE, "41", SHA], { cwd: w.project, encoding: "utf8",
+    env: { ...w.env, CODEX_SESSION_ID: SESSION, CODEX_THREAD_ID: SESSION, CODEX_TOOL_CALL_ID: call } });
+  const first = execute();
+  assert.equal(first.status, 0, first.stderr);
+  assert.deepEqual(ghCalls(), [["pr", "merge", "41", "--repo", "example-owner/example.repo", "--squash", "--delete-branch", "--match-head-commit", SHA]]);
+  assert.deepEqual(permits(), []);
+  assert.equal(execute().status, 1, "the admitted call cannot consume its permit twice");
+  assert.equal(ghCalls().length, 1);
+  rmSync(GH_LOG);
+});
+
+test("F-T1087-1: two unfinished post-start turns refuse even when the requested turn starts last", async () => {
+  clearPermits();
+  const w = resumedWorld(1);
+  rmSync(GH_LOG, { force: true });
+  assert.equal((await w.run(w.input(COMMAND, { turn_id: "resumed-merge", tool_use_id: "ambiguous-nested" })))?.hookSpecificOutput?.permissionDecision, "deny");
+  assert.deepEqual([w.checks, permits(), ghCalls()], [[], [], []]);
+});
+
 test("T1087: final reread refuses changed startup, terminal turn, session and owner binding", async () => {
   for (const change of ["start", "complete", "ambiguous", "session", "owner", "missing record", "truncated record"]) {
     clearPermits();

@@ -78,6 +78,16 @@ test("T1087: root dispatch evidence uses recorded lifecycle and startup boundari
   assert.equal(dispatchBinding(read([META, call, base[1]]), mark, binding), null);
   assert.deepEqual(dispatchBinding(read([...base, call]), mark, binding), { turnStart: 1 });
 });
+
+test("F-T1087-1: active-turn ambiguity starts at the startup boundary", () => {
+  const session = META.payload.id, binding = { session, turn: TURN, callId: "resumed-nested" };
+  const mark = { session, source: "resume", lines: 2, pid: 4242 };
+  const history = [META, started("unfinished-history", "composer")];
+  assert.deepEqual(dispatchBinding(read([...history, started(TURN, "composer")]), mark, binding), { turnStart: 2 });
+  assert.equal(dispatchBinding(read([...history, started(TURN, "composer")]), { ...mark, lines: 1 }, binding), null);
+  assert.equal(dispatchBinding(read([...history, started("current-other", "composer"), started(TURN, "composer")]), mark, binding), null);
+  assert.equal(dispatchBinding(read([...history, started("unfinished-history", "composer"), started(TURN, "composer")]), mark, binding), null);
+});
 function withMode(lines) {
   const first = lines.findIndex((o) => o.payload.type === "task_started");
   return [...lines.slice(0, first), started("mode-turn", lines[first].payload.turn_attribution.turn_trigger), owner("mode-turn", "sage mode"), ...lines.slice(first)];

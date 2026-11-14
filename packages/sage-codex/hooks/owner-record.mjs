@@ -169,7 +169,11 @@ export function dispatchBinding(record, mark, { session, turn, callId, child = f
   if (!["startup", "resume", "clear", "fork"].includes(mark.source) || !Number.isInteger(mark.pid) || mark.pid <= 0) return null;
   if (!Number.isInteger(mark.lines) || mark.lines < 0 || mark.lines > record.lines) return null;
   const start = record.turns.get(turn);
-  if (!Number.isInteger(start) || start !== record.latestStart || start < mark.lines || record.active.size !== 1 || !record.active.has(turn) || record.aborted.has(turn)) return null;
+  if (!Number.isInteger(start) || start !== record.latestStart || start < mark.lines || !record.active.has(turn) || record.aborted.has(turn)) return null;
+  for (const active of record.active) {
+    const began = record.turns.get(active);
+    if (active !== turn && (!Number.isInteger(began) || began >= mark.lines)) return null;
+  }
   if (record.calls.has(callId) && !callInRecord(record, callId, Math.max(mark.lines, start))) return null;
   return { turnStart: start };
 }
