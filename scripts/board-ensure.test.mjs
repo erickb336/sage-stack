@@ -2,9 +2,10 @@ import "./test-env.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import fs, { chmodSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer, request } from "node:http";
 import { createServer } from "node:net";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { finished } from "node:stream/promises";
@@ -18,6 +19,7 @@ const PLUGIN_CLI = fileURLToPath(new URL("../plugins/sage/board/cli.mjs", import
 
 const TEST_CHILD = fileURLToPath(new URL("./board-test-child.mjs", import.meta.url));
 const owned = new Map();
+let beforeStop = () => {};
 function startBoard(cli, args, env, cwd) {
   const child = spawn(process.execPath, [TEST_CHILD, cli, ...args], { cwd, env, stdio: ["ignore", "pipe", "pipe", "ipc"] });
   const exited = new Promise((done, fail) => { child.once("error", fail); child.once("exit", done); });
@@ -25,6 +27,7 @@ function startBoard(cli, args, env, cwd) {
   owned.set(child, { home: env.HOME, closed });
   child.on("message", message => {
     if (message.kind === "stop-request") {
+      beforeStop();
       for (const [root, record] of owned) if (record.home === env.HOME && root.connected) root.send({ kind: "close-pid", pid: message.pid }, () => {});
     }
   });
@@ -319,6 +322,81 @@ test("T1079: board --port leaves a board of another config on the old port runni
     assert.match((await get(port)).board, new RegExp(`^id=${configId(otherConfig)};`), "the other config's board runs on");
     assert.match((await get(newPort)).board, new RegExp(`^id=${configId(config)};`));
   } finally { await other.close(); await stop(dir); }
+});
+
+test("T1079: board --port refuses a port that another program holds on 127.0.0.1, 0.0.0.0 or ::, and changes nothing (F-T1079-1, F-T1079-5)", async (t) => {
+  const { dir, env, config } = scratch(t);
+  const port = await freePort();
+  try {
+    assert.equal((await board(CLI, ["--ensure", "--port", String(port)], env)).status, 0);
+    const kept = snapshot(config), pidFile = join(dirname(config), "board.pid"), pid = readFileSync(pidFile, "utf8"), running = (await get(port)).board;
+    for (const host of ["127.0.0.1", "0.0.0.0", "::"]) {
+      const holder = createHttpServer((request, response) => response.end("another program\n"));
+      const held = await new Promise((accept) => { holder.once("error", (error) => accept(error.code)); holder.listen(0, host, () => accept(null)); });
+      if (held && host !== "::") throw new Error(`the test cannot hold a port on ${host} (${held})`);
+      await t.test(`a program on ${host}`, { skip: held ? `IPv6 is not available on this machine (${held})` : false }, async () => {
+        const busyPort = holder.address().port;
+        try {
+          const busy = await board(CLI, ["--port", String(busyPort)], env);
+          assert.equal(busy.status, 1);
+          assert.equal(busy.stderr, `sage board: port ${busyPort} is not free (EADDRINUSE): another program on this Mac uses it. Choose another port from 1024 to 65535. Nothing changed.\n`);
+          assert.deepEqual(snapshot(config), kept, "the config bytes and mode are as before");
+          assert.equal(readFileSync(pidFile, "utf8"), pid, "board.pid is as before");
+          assert.equal((await get(port)).board, running, "the same board still answers on its port");
+          assert.equal((await get(busyPort)).body, "another program\n", "the other program runs on");
+        } finally { await shut(holder); }
+      });
+    }
+  } finally { await stop(dir); }
+});
+
+test("T1079: when the config write fails after the board stopped, board --port starts the board again on the old port and says so (F-T1079-2, F-T1079-11)", async (t) => {
+  const { dir, env, config } = scratch(t);
+  const [oldPort, newPort] = [await freePort(), await freePort()];
+  const temporaries = () => readdirSync(dirname(config)).filter((name) => name.endsWith(".tmp"));
+  try {
+    assert.equal((await board(CLI, ["--ensure", "--port", String(oldPort)], env)).status, 0);
+    const kept = snapshot(config);
+    beforeStop = () => { for (const name of temporaries()) rmSync(join(dirname(config), name)); };
+    let moved;
+    try { moved = await board(CLI, ["--port", String(newPort)], env); } finally { beforeStop = () => {}; }
+    assert.equal(moved.status, 1);
+    assert.equal(moved.stderr, `sage board: this command cannot write ${config} (ENOENT), so the board config still names port ${oldPort}. The board on 127.0.0.1:${oldPort} stopped, and it started again there.\n`);
+    assert.deepEqual(snapshot(config), kept, "the config is as before");
+    assert.deepEqual(temporaries(), [], "no temporary copy of the config stays");
+    const pid = readFileSync(join(dirname(config), "board.pid"), "utf8").trim();
+    assert.match((await get(oldPort)).board, new RegExp(`^id=${configId(config)}; pid=${pid}; started=\\d+$`), "this config's board runs again on the old port");
+    assert.equal((await get(newPort)).error, "ECONNREFUSED", "nothing started on the new port");
+  } finally { await stop(dir); }
+});
+
+test("T1079: a config write that fails part way leaves no temporary copy of the config (F-T1079-7)", async (t) => {
+  const { dir, env, config } = scratch(t);
+  const [port, newPort] = [await freePort(), await freePort()];
+  createBoardConfig(config, { sources: [{ id: "sample", path: join(dir, "logbooks") }], port });
+  writeFileSync(config, `${JSON.stringify({ ...JSON.parse(readFileSync(config, "utf8")), secret: "old-secret-value" }, null, 2)}\n`);
+  const kept = snapshot(config), write = fs.writeFileSync;
+  fs.writeFileSync = (path, data, options) => {
+    if (String(path).startsWith(dirname(config))) { write(path, String(data).slice(0, 20), options); throw Object.assign(new Error("ENOSPC: no space left on device, write"), { code: "ENOSPC" }); }
+    return write(path, data, options);
+  };
+  syncBuiltinESMExports();
+  try {
+    await assert.rejects(runBoardCli(["board", "--port", String(newPort)], { env, output: () => {} }), { message: `this command cannot write ${config} (ENOSPC), so it cannot change the board config. Nothing changed.` });
+  } finally { fs.writeFileSync = write; syncBuiltinESMExports(); }
+  assert.deepEqual(snapshot(config), kept);
+  assert.deepEqual(readdirSync(dirname(config)).sort(), ["board.json"], "no temporary copy of the config, with its old secret key, stays in the folder");
+});
+
+test("T1079: a board server that cannot write board.port stops and leaves no board.pid (F-T1079-4)", async (t) => {
+  const { dir, env, config } = scratch(t);
+  const port = await freePort();
+  createBoardConfig(config, { sources: [{ id: "sample", path: join(dir, "logbooks") }], port });
+  mkdirSync(join(portFile(config), "in-the-way"), { recursive: true });
+  await assert.rejects(runBoardCli(["board", "--serve", "--config", config], { env, output: () => {} }));
+  assert.equal(existsSync(join(dirname(config), "board.pid")), false, "no stale board.pid");
+  assert.equal((await get(port)).error, "ECONNREFUSED", "the server stopped");
+  assert.deepEqual(readdirSync(dirname(config)).filter((name) => name.endsWith(".tmp")), [], "no temporary file stays");
 });
 
 test("F-T229-32: after an upgrade, ensure asks for a restart of a board that started before the new code", async (t) => {

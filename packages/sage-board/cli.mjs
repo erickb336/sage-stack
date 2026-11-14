@@ -158,17 +158,27 @@ function readPid(configPath) {
     return /^[1-9]\d{0,9}\n?$/.test(text) ? Number(text) : null;
   } finally { closeSync(fd); }
 }
-function replaceFile(path, text, mode = 0o600) {
+function stageFile(path, text, mode = 0o600) {
   const temporary = join(dirname(path), `.board-${randomBytes(6).toString("hex")}.tmp`);
-  writeFileSync(temporary, text, { flag: "wx", mode });
-  try { chmodSync(temporary, mode); renameSync(temporary, path); } catch (error) { rmSync(temporary, { force: true }); throw error; }
+  try { writeFileSync(temporary, text, { flag: "wx", mode }); chmodSync(temporary, mode); return temporary; }
+  catch (error) { if (error.code !== "EEXIST") rmSync(temporary, { force: true }); throw error; }
 }
+function commitFile(temporary, path) {
+  try { renameSync(temporary, path); } catch (error) { rmSync(temporary, { force: true }); throw error; }
+}
+const replaceFile = (path, text, mode) => commitFile(stageFile(path, text, mode), path);
 
-const free = port => new Promise(done => {
+const bind = port => new Promise(done => {
   const server = createNetServer();
   server.once("error", error => done(error.code ?? "EINVAL"));
   server.listen(port, "127.0.0.1", () => server.close(() => done(null)));
 });
+const free = async port => {
+  const taken = await bind(port);
+  if (taken) return taken;
+  const { kind } = await probe({ port });
+  return kind === "none" ? null : kind === "blocked" ? "EPERM" : "EADDRINUSE";
+};
 async function movePort(configPath, value, env, kill) {
   const port = /^[1-9]\d{3,4}$/.test(value) ? Number(value) : 0;
   if (port < 1024 || port > 65535) throw new TypeError(`board --port needs a whole number from 1024 to 65535, not ${JSON.stringify(value.slice(0, 20))}. Nothing changed.`);
@@ -185,9 +195,21 @@ async function movePort(configPath, value, env, kill) {
   const found = await probe(old);
   if (found.kind === "blocked") throw new Error(`${notOurs(found, configPath, old, env)} Nothing changed.`);
   const stopped = found.kind === "board" && found.id === configId(configPath) ? ` The board on 127.0.0.1:${old.port} stopped.` : "";
-  if (stopped) await stopBoard(configPath, old, env, kill);
-  try { replaceFile(configPath, text, mode); }
-  catch (error) { throw new Error(`this command cannot write ${configPath} (${error.code ?? error.message}), so the board config still names port ${old.port}.${stopped} Ask for the board again to start it there.`); }
+  const cannotWrite = error => `this command cannot write ${configPath} (${error.code ?? error.message}), so`;
+  let staged;
+  try { staged = stageFile(configPath, text, mode); }
+  catch (error) { throw new Error(`${cannotWrite(error)} it cannot change the board config. Nothing changed.`); }
+  if (stopped) {
+    try { await stopBoard(configPath, old, env, kill); }
+    catch (error) { rmSync(staged, { force: true }); throw new Error(`${error.message} The board config still names port ${old.port}.`); }
+  }
+  try { commitFile(staged, configPath); }
+  catch (error) {
+    const back = !stopped ? "" : await ensureBoard(configPath, old, env).then(
+      () => ` The board on 127.0.0.1:${old.port} stopped, and it started again there.`,
+      failed => ` The board on 127.0.0.1:${old.port} stopped, and it did not start again: ${failed.message}`);
+    throw new Error(`${cannotWrite(error)} the board config still names port ${old.port}.${back}`);
+  }
   const moved = `Board moved to port ${port}: ${configPath} names it now.${stopped}`;
   let ready;
   try { ready = await ensureBoard(configPath, config, env); } catch (error) { throw new Error(`${moved} But ${error.message}`); }
@@ -274,9 +296,10 @@ export async function runBoardCli(argv, { output = line => process.stdout.write(
     if (value !== "all" || options.out || options.project) throw new TypeError("server uses all configured sources; no output or project option");
     const configPath = boundedPath(options.config), server = createBoardServer({ ...config, sources: readSources(config.sources, env), providerRoots: providerRoots(env), id: configId(configPath), stateDir: stateFolder(configPath) });
     try { await server.start(); } catch (error) { throw error.code === "EADDRINUSE" ? new Error(`${error.message} ${moveHint(configPath, config, env)}`) : error; }
-    try { writePid(configPath, process.pid); replaceFile(join(dirname(configPath), PORT_FILE), `${config.port}\n`); } catch (error) { await server.close(); throw error; }
+    const close = () => server.close().finally(() => { if (readPid(configPath) === process.pid) rmSync(pidPath(configPath), { force: true }); });
+    try { writePid(configPath, process.pid); replaceFile(join(dirname(configPath), PORT_FILE), `${config.port}\n`); } catch (error) { await close(); throw error; }
     output(`Sage board: http://127.0.0.1:${config.port}/ · only on this Mac.`);
-    return { ...server, close: () => server.close().finally(() => { if (readPid(configPath) === process.pid) rmSync(pidPath(configPath), { force: true }); }) };
+    return { ...server, close };
   }
   const taskId = /^T[1-9]\d*$/.test(value) ? value : null;
   if (options.scope && !taskId) throw new TypeError("--scope selects the exact project of a task lookup");
