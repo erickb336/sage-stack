@@ -1,19 +1,8 @@
 import { useEffect, useState } from "react";
+import { AgentMark, LOOK, clock } from "./agent.jsx";
 import { Panel, taskLink } from "./panel.jsx";
 
 const PAGE = "agents", MIN = 60_000;
-const STATE = { stuck: "may be stuck", stop: "helper stopped", long: "running long", wait: "waits for its helpers", work: "working", unk: "running" };
-const LOOK = ["stuck", "stop", "long"];
-const ORDINAL = ["th", "st", "nd", "rd"];
-const ordinal = n => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : ORDINAL[n % 10] ?? "th"}`;
-const clock = at => Number.isFinite(Date.parse(at)) ? new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "a time not recorded";
-export function span(ms) {
-  if (!Number.isFinite(ms)) return "–";
-  const m = Math.max(0, Math.floor(ms / MIN));
-  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
-}
-const tokens = n => n === null ? "–" : n < 1000 ? `${n}` : `${Math.round(n / 1000)} k`;
-const age = (run, now) => span((run.ended ? Date.parse(run.ended) : now) - Date.parse(run.started));
 const chiefKey = id => id ?? "none";
 const title = text => text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : "provider not known";
 const chiefTitle = chief => chief.id ? `${chief.id} · ${title(chief.provider)}` : chief.name;
@@ -42,43 +31,18 @@ export function LimitCounts({ agents }) {
   );
 }
 
-function StateBadge({ run }) {
-  if (run.status === "queued") return <span className="badge queued">Queued · {ordinal(run.place ?? 0)}</span>;
-  if (run.status !== "running") return <span className={`badge ${run.status === "done" ? "done" : "failed"}`}>{run.status === "done" ? "Done" : run.status}</span>;
-  return <span className={`badge ${LOOK.includes(run.state) ? "look" : "running"}`} title={run.why ?? undefined}>{STATE[run.state] ?? "running"}</span>;
-}
-
-function AgentRow({ run, now, selected, task = true }) {
-  return (
-    <li>
-      <a className={`arow${run.status === "running" ? "" : " ended"}`} href={taskLink(run.task.key, PAGE)} data-task={run.task.key} data-run={run.id} aria-current={selected ? "true" : undefined}>
-        <span className="who"><span className="role">{run.role}</span><span className="mono faint">{run.id}</span></span>
-        <span className="atask"><StateBadge run={run} />{task && <span className="tline">{run.task.id} · {run.task.title}</span>}{run.why && LOOK.includes(run.state) && <span className="why">{run.why}</span>}</span>
-        <span className="mdl">{run.model ?? "model not recorded"}</span>
-        <span className="num">{age(run, now)}</span>
-        <span className="num">{tokens(run.tokens)}</span>
-      </a>
-    </li>
-  );
-}
-
 function LeadCard({ lead, helpers, queued, now, selected }) {
   const [open, setOpen] = useState(false);
   const live = helpers.filter(run => run.status === "running"), ended = helpers.filter(run => run.status !== "running");
   return (
     <section className="acard" aria-label={`${lead.role} ${lead.id} on ${lead.task.id}`}>
-      <a className="acard-h" href={taskLink(lead.task.key, PAGE)} data-task={lead.task.key} data-run={lead.id} aria-current={selected === lead.task.key ? "true" : undefined}>
-        <span className="lead-id"><b className="mono">lead · {lead.id}</b> <StateBadge run={lead} /></span>
-        <span className="big">{age(lead, now)}</span>
-        <span className="tline">{lead.task.id} · {lead.task.title}</span>
-        <span className="faint">{lead.model ?? "model not recorded"}</span>
-      </a>
-      {live.length > 0 && <ul className="arows">{live.map(run => <AgentRow key={run.id} run={run} now={now} selected={selected === run.task.key} task={false} />)}</ul>}
+      <AgentMark run={lead} now={now} kind="lead" selected={selected === lead.task.key} />
+      {live.length > 0 && <ul className="arows">{live.map(run => <li key={run.id}><AgentMark run={run} now={now} kind="helper" selected={selected === run.task.key} /></li>)}</ul>}
       <div className="acard-f">
         <span>{live.length ? `${live.length} ${live.length === 1 ? "helper" : "helpers"} running` : "No helper running"}{queued > 0 && ` · ${queued} queued`}</span>
         {ended.length > 0 && <button type="button" className="more-ended" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Hide" : "Show"} {ended.length} ended {ended.length === 1 ? "helper" : "helpers"}</button>}
       </div>
-      {open && <ul className="arows">{ended.map(run => <AgentRow key={run.id} run={run} now={now} selected={false} task={false} />)}</ul>}
+      {open && <ul className="arows">{ended.map(run => <li key={run.id}><AgentMark run={run} now={now} kind="helper" /></li>)}</ul>}
     </section>
   );
 }
@@ -88,17 +52,7 @@ function Queued({ runs, now }) {
   return (
     <section className="queue" aria-label="Queued">
       <p className="queue-h"><b>Queued</b> <span className="faint">Each run waits for an agent slot. The oldest starts first, when an agent of any chief ends.</span></p>
-      <ol className="arows">{runs.map(run => (
-        <li key={run.id}>
-          <a className="arow" href={taskLink(run.task.key, PAGE)} data-task={run.task.key} data-run={run.id}>
-            <span className="who"><span className="role">{run.role}</span><span className="mono faint">{run.id}</span></span>
-            <span className="atask"><StateBadge run={run} /><span className="tline">{run.task.id} · {run.task.title}</span></span>
-            <span className="mdl">queued {clock(run.started)}</span>
-            <span className="num">waits {age(run, now)}</span>
-            <span className="num">{ordinal(run.place ?? 0)} in line</span>
-          </a>
-        </li>
-      ))}</ol>
+      <ol className="arows">{runs.map(run => <li key={run.id}><AgentMark run={run} now={now} kind="queued" /></li>)}</ol>
     </section>
   );
 }
@@ -134,7 +88,7 @@ function ChiefBox({ chief, runs, tasks, now, selected }) {
           {own.length > 0 && (
             <section className="acard own" aria-label={`${chief.id ?? "Chief"}'s own runs`}>
               <div className="acard-h plain"><b className="mono">{chief.id ?? "Chief"} own runs</b><span className="faint">steps that the chief runs with no lead, such as design and PE</span></div>
-              <ul className="arows">{own.map(run => <AgentRow key={run.id} run={run} now={now} selected={selected === run.task.key} />)}</ul>
+              <ul className="arows">{own.map(run => <li key={run.id}><AgentMark run={run} now={now} kind="own" selected={selected === run.task.key} /></li>)}</ul>
             </section>
           )}
         </div>
