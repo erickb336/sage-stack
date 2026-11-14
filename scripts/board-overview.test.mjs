@@ -1,5 +1,6 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { buildBoardModel } from "../packages/sage-core/board-model.mjs";
 import { boardOverview } from "../packages/sage-core/board-overview.mjs";
@@ -44,9 +45,9 @@ test("T1054: milestones come by the top priority of their open tasks, with progr
 
 test("T1054: the counts cover the last 24 hours: a merge 2 h ago counts and one 30 h ago does not; a failed run counts as stuck", () => {
   const { counts, next } = overview();
-  assert.deepEqual(counts, { merged: 1, stuck: 1, stuckNow: 0, added: null });
+  assert.deepEqual(counts, { merged: 1, stuck: 1, added: null });
   assert.equal(next, Date.parse("2026-11-14T10:00:00.000Z") + 1, "T1's merge leaves the window first");
-  assert.deepEqual(overview(undefined, "2026-11-14T13:00:00.000Z").counts, { merged: 0, stuck: 0, stuckNow: 0, added: null });
+  assert.deepEqual(overview(undefined, "2026-11-14T13:00:00.000Z").counts, { merged: 0, stuck: 0, added: null });
 });
 
 test("F-T1065-2: a Codex run that writes nothing to the logbook for 30 minutes counts as stuck, and the board wakes when one goes silent", () => {
@@ -58,16 +59,51 @@ test("F-T1065-2: a Codex run that writes nothing to the logbook for 30 minutes c
     return overview(tables, NOW, "codex");
   };
   const silentNow = codex(40), [book] = silentNow.agents;
-  assert.deepEqual(silentNow.counts, { merged: 1, stuck: 2, stuckNow: 1, added: null }, "R2 started 40 min ago, and T3 has no later write");
+  assert.deepEqual(silentNow.counts, { merged: 1, stuck: 2, added: null }, "R2 started 40 min ago, and T3 has no later write");
   assert.equal(book.look, silentNow.counts.stuck, "the Agents page counts the same runs as the Overview");
   assert.deepEqual(book.runs.filter(run => run.status === "running").map(run => [run.id, run.state, run.look, run.why]), [["R2", "stuck", true, "no logbook write for 40 min"]]);
-  assert.deepEqual(codex(40, [{ at: minutesAgo(5), task: "T3", decision: "round 1", why: "sample" }]).counts, { merged: 1, stuck: 1, stuckNow: 0, added: null }, "a write on T3 5 min ago shows that the run is alive");
+  assert.deepEqual(codex(40, [{ at: minutesAgo(5), task: "T3", decision: "round 1", why: "sample" }]).counts, { merged: 1, stuck: 1, added: null }, "a write on T3 5 min ago shows that the run is alive");
   const quiet = codex(10);
-  assert.deepEqual(quiet.counts, { merged: 1, stuck: 1, stuckNow: 0, added: null });
+  assert.deepEqual(quiet.counts, { merged: 1, stuck: 1, added: null });
   assert.equal(quiet.next, Date.parse(NOW) + 20 * 60_000, "the board reads again when R2 reaches 30 silent minutes");
-  assert.equal(overview(undefined, NOW, "claude").counts.stuckNow, 0, "a Claude run with no hook notes is not known, so it is not counted");
-  const slots = { projects: [{ agents: [{ state: "stuck", children: [] }, { state: "wait", children: [{ state: "stuck", children: [] }, { state: "work", children: [] }] }] }] };
-  assert.equal(boardOverview({ at: NOW, tasks: [], needsOwner: [], milestones: [], projects: [], agents: slots }).counts.stuckNow, 2, "F-T1065-3: a lead and a helper whose hook notes are silent for 30 min count");
+  assert.equal(overview(undefined, NOW, "claude").counts.stuck, 1, "a Claude run with no hook notes is not known, so only the failed run R1 counts");
+});
+
+const LOGBOOK = "f".repeat(64), minutesAgo = minutes => new Date(Date.parse(NOW) - minutes * 60_000).toISOString();
+function hooked({ runs = [], slots = [], helpers = [], archived = false } = {}) {
+  const tables = appTables(NOW), claude = source(tables);
+  tables.runs.push(...runs.map(([id, task, role, status, started, ended = ""]) => ({ id, task, role, round: "0", candidate: "", branch: "", status, tokens: "", report: "", started: minutesAgo(started), ended: ended === "" ? "" : minutesAgo(ended) })));
+  claude.provider = "claude";
+  Object.assign(claude.projects[0], { logbook: LOGBOOK, archived });
+  claude.hooks = { present: true, problem: null, helpers, slots: slots.map(([run, idle], i) => ({ name: `slot-${i + 1}`, marks: ["ok", "project-sample-app", ...(run ? [`run-${run}`] : [])], at: Date.parse(NOW) - idle * 60_000 })) };
+  return boardOverview(buildBoardModel([claude], { now: NOW }));
+}
+const leadKey = id => createHash("sha256").update(`${LOGBOOK}:${id}`).digest("hex");
+const lookRuns = book => book.runs.filter(run => run.look).map(run => run.id).sort();
+
+test("F-T1062-21, F-T1062-24, F-T1065-3: Stuck counts the one list: failed in 24 hours, silent for 30 min, or stopped; never running long, and never a slot with no logbook run", () => {
+  const world = hooked({
+    runs: [
+      ["R50", "T2", "lead", "running", 90], ["R51", "T3", "implementer", "running", 60], ["R52", "T2", "qa", "running", 50],
+      ...[1, 2, 3, 4, 5].map(i => [`R${70 + i}`, "T21", "designer", "done", 300 + 20 * i, 290 + 20 * i]), ["R53", "T11", "designer", "running", 60],
+    ],
+    slots: [["R50", 40], ["R51", 40], ["R53", 1], ["R2", 1], ["R99", 40], [null, 40]],
+    helpers: [{ lead: leadKey("R50"), run: "R52", stopped: true, at: Date.parse(NOW) - 5 * 60_000 }],
+  });
+  const [book] = world.agents, byId = Object.fromEntries(book.runs.map(run => [run.id, run]));
+  assert.deepEqual([byId.R50.state, byId.R51.state, byId.R52.state, byId.R53.state, byId.R2.state], ["stuck", "stuck", "stop", "long", "work"]);
+  assert.deepEqual(lookRuns(book), ["R1", "R50", "R51", "R52"], "the failed run, the two silent agents and the stopped helper; R53 only runs long");
+  assert.equal(world.counts.stuck, 4, "the two slots with no running logbook run (R99, and one with no run mark) count on neither page");
+  assert.equal(book.look, world.counts.stuck, "one list: the Agents page's 'need a look' is the Overview's Stuck");
+});
+
+test("F-T1062-27, F-T1062-29: an archived project and a run that failed after the model's time count on neither page", () => {
+  const future = hooked({ runs: [["R60", "T2", "qa", "failed", 10, -30]], slots: [["R2", 1]] });
+  assert.equal(future.counts.stuck, 1, "R60's end is 30 min after the model's time, so only R1 counts");
+  assert.deepEqual(lookRuns(future.agents[0]), ["R1"]);
+  const archived = hooked({ runs: [["R50", "T2", "lead", "running", 90]], slots: [["R50", 40], ["R2", 1]], archived: true });
+  assert.deepEqual([archived.counts.stuck, archived.agents], [0, []], "an archived project's silent lead and failed run count nowhere");
+  assert.equal(hooked({ runs: [["R50", "T2", "lead", "running", 90]], slots: [["R50", 40], ["R2", 1]] }).counts.stuck, 2, "the same lead counts when the project is not archived");
 });
 
 test("F-T1065-1: a milestone names its abandoned tasks", () => {

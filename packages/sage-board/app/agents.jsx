@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AgentMark, LOOK, clock } from "./agent.jsx";
+import { AgentMark, clock } from "./agent.jsx";
 import { Panel, taskLink } from "./panel.jsx";
 
 const PAGE = "agents", MIN = 60_000;
@@ -31,14 +31,17 @@ export function LimitCounts({ agents }) {
   );
 }
 
-function LeadCard({ lead, helpers, queued, now, selected }) {
+const More = ({ count }) => count > 0 && <p className="more-done">and {count.toLocaleString("en-US")} more failed</p>;
+
+function LeadCard({ lead, helpers, queued, more, now, selected }) {
   const [open, setOpen] = useState(false);
   const shown = helpers.filter(run => run.status === "running" || run.look), ended = helpers.filter(run => !shown.includes(run));
   const live = shown.filter(run => run.status === "running").length, total = lead.endedHelpers ?? ended.length;
   return (
     <section className="acard" aria-label={`${lead.role} ${lead.id} on ${lead.task.id}`}>
-      <AgentMark run={lead} now={now} kind="lead" selected={selected === lead.task.key} look={shown.filter(run => run.look).length} />
+      <AgentMark run={lead} now={now} kind="lead" selected={selected === lead.task.key} look={shown.filter(run => run.look).length + more} />
       {shown.length > 0 && <ul className="arows">{shown.map(run => <li key={run.id}><AgentMark run={run} now={now} kind="helper" selected={selected === run.task.key} /></li>)}</ul>}
+      <More count={more} />
       <div className="acard-f">
         <span>{live ? `${live} ${live === 1 ? "helper" : "helpers"} running` : "No helper running"}{queued > 0 && ` · ${queued} queued`}</span>
         {ended.length > 0 && <button type="button" className="more-ended" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Hide" : "Show"} {total > ended.length ? `the last ${ended.length} of ${total.toLocaleString("en-US")}` : ended.length} ended {total === 1 ? "helper" : "helpers"}</button>}
@@ -58,17 +61,19 @@ function Queued({ runs, now }) {
   );
 }
 
-function RunList({ label, note, runs, now, selected }) {
+function RunList({ label, note, runs, more = 0, now, selected }) {
   if (!runs.length) return null;
   return (
     <section className="acard own" aria-label={label}>
       <div className="acard-h plain"><b className="mono">{label}</b><span className="faint">{note}</span></div>
       <ul className="arows">{runs.map(run => <li key={run.id}><AgentMark run={run} now={now} kind="own" selected={selected === run.task.key} /></li>)}</ul>
+      <More count={more} />
     </section>
   );
 }
 
-function ChiefBox({ chief, runs, tasks, now, selected }) {
+function ChiefBox({ chief, runs, failedMore, tasks, now, selected }) {
+  const more = lead => failedMore.find(item => item.lead === lead && (lead || item.chief === chief.id))?.count ?? 0;
   const leads = runs.filter(run => run.role === "lead" && run.status === "running");
   const loose = runs.filter(run => !leads.some(lead => lead.id === run.lead));
   const own = loose.filter(run => run.role !== "lead" && run.status === "running");
@@ -97,9 +102,9 @@ function ChiefBox({ chief, runs, tasks, now, selected }) {
       {!stopped && !running && !queued.length && <p className="empty">No agent runs now.</p>}
       {(leads.length > 0 || own.length > 0 || failed.length > 0) && (
         <div className="acards">
-          {leads.map(lead => <LeadCard key={lead.id} lead={lead} helpers={runs.filter(run => run.lead === lead.id && run.status !== "queued")} queued={runs.filter(run => run.lead === lead.id && run.status === "queued").length} now={now} selected={selected} />)}
+          {leads.map(lead => <LeadCard key={lead.id} lead={lead} helpers={runs.filter(run => run.lead === lead.id && run.status !== "queued")} queued={runs.filter(run => run.lead === lead.id && run.status === "queued").length} more={more(lead.id)} now={now} selected={selected} />)}
           <RunList label={`${chief.id ?? "Chief"} own runs`} note="steps that the chief runs with no lead, such as design and PE" runs={own} now={now} selected={selected} />
-          <RunList label="Failed in the last 24 hours" note="runs with no running lead" runs={failed} now={now} selected={selected} />
+          <RunList label="Failed in the last 24 hours" note="runs with no running lead" runs={failed} more={more(null)} now={now} selected={selected} />
         </div>
       )}
       <Queued runs={queued} now={now} />
@@ -126,7 +131,7 @@ function Timeline({ groups, now }) {
             <p className="lane-h">{group.title}</p>
             {group.lanes.map(({ run, indent }) => {
               const from = Date.parse(run.started), to = run.ended ? Date.parse(run.ended) : now;
-              const bar = run.status === "queued" ? "queued" : run.status === "running" ? LOOK.includes(run.state) ? "look" : "running" : run.status === "done" ? "done" : "failed";
+              const bar = run.status === "queued" ? "queued" : run.status === "running" ? run.look ? "look" : "running" : run.status === "done" ? "done" : "failed";
               return (
                 <div className="lane" key={run.id}>
                   <span className={`lane-l${indent ? " in" : ""}`}>{run.role} <span className="mono faint">{run.id}</span></span>
@@ -156,12 +161,9 @@ function lanesOf(chief, runs) {
 
 function Book({ book, model, chief, selected, now, many }) {
   const chiefs = model.chiefs.filter(item => item.logbook === book.key);
-  const leadChief = new Map(book.runs.filter(run => run.role === "lead" && run.status === "running").map(run => [run.id, run.chief]));
-  const boxChief = run => leadChief.has(run.lead) ? leadChief.get(run.lead) : run.chief;
-  const loose = book.runs.filter(run => !chiefs.some(item => item.id === boxChief(run)));
-  const boxes = [...chiefs, ...(loose.length ? [{ key: `${book.key}/none`, id: null, name: "No chief recorded", provider: null, stopped: null, autopilot: null }] : [])]
+  const boxes = [...chiefs, ...(book.runs.some(run => !run.chief) ? [{ key: `${book.key}/none`, id: null, name: "No chief recorded", provider: null, stopped: null, autopilot: null }] : [])]
     .filter(item => !chief || item.key === chief.key)
-    .map(item => ({ chief: item, runs: item.id ? book.runs.filter(run => boxChief(run) === item.id) : loose }));
+    .map(item => ({ chief: item, runs: book.runs.filter(run => run.chief === item.id) }));
   const look = book.look;
   const full = book.running >= book.limit, leads = book.leads >= book.leadLimit;
   return (
@@ -174,7 +176,7 @@ function Book({ book, model, chief, selected, now, many }) {
         <div className={`kpi${look ? " look" : ""}`} data-count="look"><div className="n">{look}</div><div className="l">{look === 1 ? "needs" : "need"} a look</div></div>
       </div>
       <p className="hint limits-note">One limit for the whole project, shared by every chief in Claude and Codex, from the project's logbook. Chiefs do not count; only running agents do. A lead counts while it runs or waits in the queue.</p>
-      {boxes.length ? boxes.map(({ chief: item, runs }) => <ChiefBox key={item.key} chief={item} runs={runs} tasks={model.tasks} now={now} selected={selected} />)
+      {boxes.length ? boxes.map(({ chief: item, runs }) => <ChiefBox key={item.key} chief={item} runs={runs} failedMore={book.failedMore} tasks={model.tasks} now={now} selected={selected} />)
         : <p className="empty card">{chief ? `${chief.id} has no agent in this project.` : "No agent runs now. When a chief starts an agent, it shows here within a few seconds."}</p>}
       <Timeline groups={boxes.map(({ chief: item, runs }) => lanesOf(item, runs)).filter(group => group.lanes.length)} now={now} />
     </div>

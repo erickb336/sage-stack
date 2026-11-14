@@ -192,11 +192,40 @@ test("T1062 F-T1062-13: the Agents page's 'need a look' counts the same runs as 
   assert.deepEqual(book.runs.filter(run => !run.look && run.status === "failed"), [], "a run that does not need a look is not marked");
 });
 
+function addRuns(logbook, rows) {
+  const file = join(logbook, "runs.tsv"), [head] = readFileSync(file, "utf8").split("\n"), columns = head.split("\t"), at = minutes => new Date(Date.parse(NOW) - minutes * 60_000).toISOString();
+  appendFileSync(file, rows.map(([id, task, role, chief, started, ended]) => {
+    const row = { id, task, role, round: "0", status: "failed", started: at(started), ended: at(ended), chief };
+    return `${columns.map(column => row[column] ?? "").join("\t")}\n`;
+  }).join(""));
+}
+
+test("T1062 F-T1062-32: failed runs travel as rows up to 20 for each lead and each chief, with how many more; the count stays the true total", t => {
+  const { sources, logbook } = world(t, { agents: true });
+  addRuns(logbook, [
+    ...Array.from({ length: 433 }, (_, i) => [`R${3000 + i}`, "T2", "qa", "C1", 60 - i * 0.1, 10]),
+    ...Array.from({ length: 25 }, (_, i) => [`R${4000 + i}`, "T21", "pe", "C2", 120 - i, 100]),
+  ]);
+  const overview = boardOverview(modelOf(sources)), [book] = overview.agents;
+  assert.equal(book.runs.filter(run => run.lead === "R20" && run.status === "failed").length, 20, "R20's newest 20 failed helpers");
+  assert.equal(book.runs.filter(run => run.chief === "C2" && !run.lead && run.status === "failed").length, 20, "C2's newest 20 failed runs with no running lead");
+  assert.deepEqual(book.failedMore, [{ lead: "R20", chief: null, count: 413 }, { lead: null, chief: "C2", count: 5 }]);
+  assert.deepEqual([book.look, overview.counts.stuck], [4 + 433 + 25, 4 + 433 + 25], "both pages count every failed run");
+  assert.ok(JSON.stringify(book).length < 20_000, `the agents part of the stream stays small: ${JSON.stringify(book).length} B`);
+});
+
+test("T1062 F-T1062-22: a helper counts for the chief of its running lead, so the top bar's count of each chief is the number of running rows in its box", t => {
+  const { sources } = world(t, { agents: true, agentEdges: true, chiefCases: true });
+  const [book] = boardOverview(modelOf(sources)).agents;
+  assert.deepEqual(book.byChief, [{ chief: "C1", count: 7 }, { chief: "C2", count: 3 }], "R36 has no chief of its own and runs under C1's lead R20");
+  assert.equal(book.byChief.reduce((sum, item) => sum + item.count, 0), book.running, "the total stays the same");
+});
+
 test("T1062 F-T1062-9, F-T1062-11, F-T1062-14, F-T1062-18, F-T1062-19: helpers, lapsed admissions, failure reasons and the count of ended helpers", t => {
   const { sources } = world(t, { agents: true, agentEdges: true, chiefCases: true });
   const model = modelOf(sources), [book] = boardOverview(model).agents, byId = Object.fromEntries(book.runs.map(run => [run.id, run]));
   assert.deepEqual([byId.R34.lead, byId.R35.lead], [null, null], "a pe run after the lead and a run admitted in the lead's second are not its helpers");
-  assert.deepEqual([byId.R36.lead, byId.R36.chief], ["R20", null], "a running helper with no chief still belongs to its task's lead");
+  assert.deepEqual([byId.R36.lead, byId.R36.chief], ["R20", "C1"], "a running helper with no chief belongs to its task's lead, and shows and counts under the lead's chief");
   assert.deepEqual([byId.R38.look, byId.R38.why], [true, "no agent started within 10 minutes of its admission"], "a failed run shows its reason from the logbook");
   assert.equal(byId.R20.endedHelpers, 1300, "the lead knows how many ended helpers it has");
   assert.equal(book.runs.filter(run => run.lead === "R20" && run.status === "done").length, 20, "only the last 20 ended helpers travel to the page");

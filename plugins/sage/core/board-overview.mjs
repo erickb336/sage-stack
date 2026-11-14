@@ -5,7 +5,7 @@ import { AGENT_QUIET_MS } from "./board-model.mjs";
 import { TEAM } from "./role-policy.mjs";
 import { taskWord } from "./state-words.mjs";
 
-const DAY = 86_400_000, DONE_DAYS = 7, EVENT_DAYS = 30;
+const DAY = 86_400_000, DONE_DAYS = 7;
 const ENDED = ["merged", "concluded", "abandoned"];
 const MOVING = ["design", "building", "review", "ready"];
 const time = value => {
@@ -19,8 +19,7 @@ const STATE_ORDER = ["stuck", "lost", "active", "changing", "proposed", "done"];
 const stateRank = state => STATE_ORDER.includes(state) ? STATE_ORDER.indexOf(state) : STATE_ORDER.length;
 const number = id => Number(String(id).replace(/^\D+/, "")) || 0;
 
-const failedLately = (run, recent) => run.status === "failed" && recent(run.ended);
-const silent = agent => agent?.state === "stuck";
+const LOOK = ["stuck", "stop"];
 function everyAgent(agents) {
   const all = [], walk = agent => { all.push(agent); for (const child of agent.children ?? []) walk(child); };
   for (const project of agents?.projects ?? []) for (const agent of project.agents) walk(agent);
@@ -96,27 +95,41 @@ const count = value => /^\d+$/.test(String(value ?? "")) ? Number(value) : null;
 
 const failReason = (task, run) => (task.decisionRows ?? []).findLast(row => String(row.decision ?? "").startsWith(`${run.id} failed: `))?.decision.slice(`${run.id} failed: `.length) ?? null;
 
-function agentsOf(model, recent, agents) {
+function agentsOf(model, recent, agents, chiefs) {
   const states = new Map(agents.filter(agent => agent.task?.key && agent.runId).map(agent => [`${agent.task.key.slice(0, agent.task.key.lastIndexOf("/"))}/${agent.runId}`, agent]));
   const groups = new Map((model.projects ?? []).map(project => [project.key, project]));
-  return (model.agents?.limits ?? []).filter(book => !groups.get(book.group)?.archived).map(book => {
+  const look = [];
+  const books = (model.agents?.limits ?? []).filter(book => !groups.get(book.group)?.archived).map(book => {
     const all = model.tasks.filter(task => task.project === book.key).flatMap(task => task.runs.map(run => {
-      const agent = run.status === "running" ? states.get(`${book.key}/${run.id}`) : null;
-      return { run, task, agent, look: run.status === "failed" ? !task.archived && failedLately(run, recent) : silent(agent) };
+      const agent = run.status === "running" ? states.get(`${book.key}/${run.id}`) : null, state = run.status !== "running" ? null : agent?.state ?? (run.clock.stale ? "stuck" : "unk");
+      return { run, task, agent, state, look: run.status === "failed" ? !task.archived && recent(run.ended) : LOOK.includes(state) };
     }));
+    look.push(...all.filter(item => item.look));
     const leads = new Map(all.filter(({ run }) => run.role === "lead" && LIVE.includes(run.status)).map(item => [item.task.key, item.run]));
     const leadOf = ({ run, task }) => {
       const lead = TEAM.has(run.role) && leads.get(task.key);
-      return lead && time(run.started) !== null && time(run.started) > time(lead.started) ? lead.id : null;
+      return lead && time(run.started) !== null && time(run.started) > time(lead.started) ? lead : null;
     };
-    const endedOf = new Map([...leads.values()].map(lead => [lead.id, all.filter(item => !LIVE.includes(item.run.status) && !item.look && leadOf(item) === lead.id)]));
-    const ended = [...endedOf.values()].flatMap(list => [...list].sort((a, b) => time(b.run.started) - time(a.run.started)).slice(0, HELPERS_MAX));
-    const runs = [...all.filter(item => LIVE.includes(item.run.status) || item.look && item.run.status !== "running"), ...ended].map(item => {
-      const { run, task, agent, look } = item;
+    const known = new Set(chiefs.filter(chief => chief.logbook === book.key).map(chief => chief.id));
+    const chiefOf = item => { const lead = leadOf(item), id = (lead?.status === "running" ? lead : item.run).chief; return known.has(id) ? id : null; };
+    const endedOf = new Map([...leads.values()].map(lead => [lead.id, all.filter(item => !LIVE.includes(item.run.status) && !item.look && leadOf(item)?.id === lead.id)]));
+    const newest = list => [...list].sort((a, b) => time(b.run.started) - time(a.run.started));
+    const ended = [...endedOf.values()].flatMap(list => newest(list).slice(0, HELPERS_MAX));
+    const failedBy = new Map();
+    for (const item of all.filter(item => item.look && item.run.status === "failed")) {
+      const lead = leadOf(item), key = lead?.status === "running" ? `lead ${lead.id}` : `chief ${chiefOf(item)}`;
+      failedBy.set(key, [...failedBy.get(key) ?? [], item]);
+    }
+    const failed = [...failedBy.values()].flatMap(list => newest(list).slice(0, HELPERS_MAX));
+    const failedMore = [...failedBy].filter(([, list]) => list.length > HELPERS_MAX).map(([key, list]) => {
+      const [kind, id] = key.split(" ");
+      return { lead: kind === "lead" ? id : null, chief: kind === "chief" && id !== "null" ? id : null, count: list.length - HELPERS_MAX };
+    });
+    const runs = [...all.filter(item => LIVE.includes(item.run.status)), ...failed, ...ended].map(item => {
+      const { run, task, agent, state, look } = item;
       return {
-        id: run.id, role: run.role, status: run.status, chief: run.chief || null, lead: leadOf(item), model: run.model || null,
-        task: { key: task.key, id: task.id, title: task.title }, started: iso(run.started), ended: iso(run.ended), tokens: count(run.tokens), place: run.place ?? null, look,
-        state: run.status !== "running" ? null : agent?.state ?? (run.clock.stale ? "stuck" : "unk"),
+        id: run.id, role: run.role, status: run.status, chief: chiefOf(item), lead: leadOf(item)?.id ?? null, model: run.model || null,
+        task: { key: task.key, id: task.id, title: task.title }, started: iso(run.started), ended: iso(run.ended), tokens: count(run.tokens), place: run.place ?? null, look, state,
         why: run.status === "failed" ? failReason(task, run) : agent?.why || (run.clock.stale ? run.clock.text : null),
         ...(endedOf.has(run.id) && { endedHelpers: endedOf.get(run.id).length }),
       };
@@ -124,8 +137,9 @@ function agentsOf(model, recent, agents) {
     const byChief = new Map();
     for (const run of runs) if (run.status === "running") byChief.set(run.chief, (byChief.get(run.chief) ?? 0) + 1);
     return { key: book.key, project: groups.get(book.group)?.name ?? book.key, running: book.running, limit: book.limit, leads: book.leads, leadLimit: book.leadLimit, queued: book.queued.length,
-      look: runs.filter(run => run.look).length, byChief: [...byChief].map(([chief, n]) => ({ chief, count: n })).sort((a, b) => number(a.chief) - number(b.chief)), runs };
+      look: all.filter(item => item.look).length, failedMore, byChief: [...byChief].map(([chief, n]) => ({ chief, count: n })).sort((a, b) => number(a.chief) - number(b.chief)), runs };
   });
+  return { books, look };
 }
 
 export function boardOverview(model) {
@@ -165,7 +179,6 @@ export function boardOverview(model) {
   }).sort((a, b) => rank(a.priority) - rank(b.priority) || stateRank(a.state) - stateRank(b.state) || number(a.id) - number(b.id));
 
   const merged = tasks.filter(task => task.state === "merged" && recent(task.completedAt));
-  const failed = tasks.flatMap(task => task.runs).filter(run => failedLately(run, recent));
   const chiefs = (model.projects ?? []).filter(project => !project.archived).flatMap(project => (project.chiefs ?? []).map(chief => ({ ...chief, project: project.name, logbook: chief.key.slice(0, chief.key.lastIndexOf("/")) })));
   const lastWrite = agent => agent.how === "logbook" ? time(byKey.get(agent.task?.key)?.lastActivity) ?? time(agent.run?.started) : null;
   const agents = everyAgent(model.agents).map(agent => {
@@ -173,8 +186,8 @@ export function boardOverview(model) {
     return when !== null && at - when >= AGENT_QUIET_MS ? { ...agent, state: "stuck", why: `no logbook write for ${Math.floor((at - when) / 60_000)} min` } : agent;
   });
   const lastWrites = agents.map(lastWrite).filter(when => when !== null);
-  const stuckNow = agents.filter(silent).length;
-  const leaving = [...merged.map(task => time(task.completedAt)), ...failed.map(run => time(run.ended))].map(when => when + DAY + 1)
+  const { books, look } = agentsOf(model, recent, agents, chiefs);
+  const leaving = [...merged.map(task => time(task.completedAt)), ...look.filter(item => item.run.status === "failed").map(item => time(item.run.ended))].map(when => when + DAY + 1)
     .concat(chiefs.filter(chief => chief.stopped === false && !chief.agents && !chief.waitsForOwner).map(chief => time(chief.heartbeat) + STOPPED_MS + 1))
     .concat(lastWrites.filter(when => at - when < AGENT_QUIET_MS).map(when => when + AGENT_QUIET_MS));
 
@@ -187,11 +200,10 @@ export function boardOverview(model) {
     needs,
     answered: tasks.flatMap(task => task.boardAnswers.map(item => ({ ...item, task: { key: task.key, id: task.id, title: task.title }, project: task.projectName }))).sort((a, b) => (time(a.at) ?? 0) - (time(b.at) ?? 0)),
     tasks: tasks.map(task => taskRow(task, chiefs)),
-    failedAt: tasks.flatMap(task => task.runs).filter(run => run.status === "failed" && time(run.ended) > at - EVENT_DAYS * DAY).map(run => iso(run.ended)),
     milestones,
     hiddenDone,
-    agents: agentsOf(model, recent, agents),
-    counts: { merged: merged.length, stuck: failed.length + stuckNow, stuckNow, added: tasks.some(task => task.addedAt) ? tasks.filter(task => recent(task.addedAt)).length : null },
+    agents: books,
+    counts: { merged: merged.length, stuck: look.length, added: tasks.some(task => task.addedAt) ? tasks.filter(task => recent(task.addedAt)).length : null },
     next: leaving.length ? Math.min(...leaving) : null,
   };
 }

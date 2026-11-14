@@ -1,12 +1,13 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { startPairing } from "../packages/sage-board/access.mjs";
 import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
 import { HOSTILE_TEXT, writeTasksLogbook } from "./fixtures/board-app.mjs";
 import { measureContrast } from "./fixtures/contrast.mjs";
@@ -28,11 +29,18 @@ async function freePort() {
   return port;
 }
 
-async function open(t, options = {}, { path = "/app/", theme = "dark", width = 1440 } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), "sage-board-agents-page-")), port = await freePort(), saved = process.env.SAGE_WORKTREES;
+async function open(t, options = {}, { path = "/app/", theme = "dark", width = 1440, failed = [], seen } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "sage-board-agents-page-")), port = await freePort(), saved = process.env.SAGE_WORKTREES, now = Date.now();
   process.env.SAGE_WORKTREES = join(dir, "worktrees");
-  writeTasksLogbook(join(dir, "logbooks"), join(dir, "worktrees"), new Date().toISOString(), { agents: true, chiefCases: true, ...options });
-  const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port, app: APP, settleReads: [] });
+  const logbook = writeTasksLogbook(join(dir, "logbooks"), join(dir, "worktrees"), new Date(now).toISOString(), { agents: true, chiefCases: true, ...options });
+  const at = minutes => new Date(now - minutes * 60_000).toISOString(), columns = readFileSync(join(logbook, "runs.tsv"), "utf8").split("\n")[0].split("\t");
+  appendFileSync(join(logbook, "runs.tsv"), failed.map(([id, task, role, chief, started, ended]) => {
+    const row = { id, task, role, chief, round: "0", status: "failed", started: at(started), ended: at(ended) };
+    return `${columns.map(column => row[column] ?? "").join("\t")}\n`;
+  }).join(""));
+  const stateDir = seen === undefined ? null : join(dir, "state");
+  if (stateDir) { mkdirSync(stateDir, { mode: 0o700 }); writeFileSync(join(stateDir, "seen.json"), JSON.stringify({ at: at(seen) }), { mode: 0o600 }); }
+  const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port, app: APP, settleReads: [], stateDir });
   await server.start();
   const base = `http://127.0.0.1:${port}`;
   const context = await browser.newContext({ viewport: { width, height: 1000 }, colorScheme: theme, reducedMotion: "reduce" });
@@ -45,6 +53,11 @@ async function open(t, options = {}, { path = "/app/", theme = "dark", width = 1
   if (theme === "light") await page.addInitScript(() => localStorage.setItem("board-theme", "light"));
   await page.goto(`${base}${path}`);
   await page.locator("main h1").waitFor();
+  if (stateDir) {
+    await page.getByPlaceholder("ABCD-EFGH").fill(startPairing(stateDir));
+    await page.getByRole("button", { name: "Pair", exact: true }).click();
+    await page.locator("#counts-h", { hasText: "Since you looked" }).waitFor();
+  }
   return { page, base, requests, problems };
 }
 
@@ -181,4 +194,42 @@ test("T1062 F-T1062-8, F-T1062-14, F-T1062-17, F-T1062-18, F-T1062-19: every cou
     if (width === 1440) await shoot(page, `agents-round1-${theme}.png`);
     assert.deepEqual(problems, []);
   }
+});
+
+test("F-T1062-26, F-T1062-29: in a paired browser, the Overview's Stuck counts the Agents page's list, for a last look 10 min or 3 days ago", async t => {
+  const failed = [["R97", "T40", "qa", "C1", 2900, 2880], ["R98", "T40", "qa", "C1", 10, -30]];
+  for (const seen of [10, 3 * 1440]) {
+    const { page, problems } = await open(t, {}, { seen, failed });
+    const stuck = await page.locator('.counts .kpi[data-count="stuck"] .n').textContent();
+    if (seen === 10) await shoot(page, "overview-round2-paired.png");
+    await page.locator("header.top a.limit").first().click();
+    await page.locator("main h1", { hasText: "Agents" }).waitFor();
+    const look = await page.locator('.agents-kpis .kpi[data-count="look"] .n').textContent();
+    assert.deepEqual([stuck, look], ["4", "4"], `last look ${seen} min ago: R97 failed 2 days ago and R98 ends after now, so neither counts on either page`);
+    assert.deepEqual(problems, []);
+  }
+});
+
+test("F-T1062-22, F-T1062-24, F-T1062-32: each chief's count is the same in the top bar and its box; only what the count counts has the look colour; long lists of failed runs say how many more", async t => {
+  const failed = Array.from({ length: 30 }, (_, i) => [`R${3000 + i}`, "T2", "qa", "C1", 60 - i, 10]);
+  const { page, problems } = await open(t, { agentEdges: true }, { path: "/app/#agents", failed });
+  await page.locator(".chief-box").first().waitFor();
+  const top = Object.fromEntries([...(await page.locator("header.top a.limit").first().textContent()).matchAll(/ · (\S+(?: chief)?) (\d+)(?= ·|$)/g)].map(([, chief, n]) => [chief, Number(n)]));
+  const boxes = Object.fromEntries((await page.locator("section.chief-box").evaluateAll(list => list.map(box => [box.querySelector("h2").textContent.split(" · ")[0], box.querySelector(".card-h .hint").textContent])))
+    .flatMap(([chief, hint]) => { const n = Number(/(\d+) running/.exec(hint)[1]); return n ? [[chief === "No chief recorded" ? "no chief" : chief, n]] : []; }));
+  assert.deepEqual(top, boxes, "each chief's running count is the same in both places");
+  assert.deepEqual(top, { C1: 7, C2: 3 });
+  const r20 = box(page, "C1").locator("section.acard", { has: page.locator('[data-run="R20"]') });
+  assert.equal(await r20.locator(".acard-h .badge.look").textContent(), "30 helpers need a look", "the lead counts every failed helper");
+  assert.equal(await r20.locator(".arow.ended .badge.failed").count(), 20, "20 failed helpers are rows");
+  assert.equal(await r20.locator("p.more-done").textContent(), "and 10 more failed");
+  const long = page.locator('.arow[data-run="R22"] .badge');
+  assert.deepEqual([await long.textContent(), await long.getAttribute("class")], ["running long", "badge running"], "running long is calm: it does not need a look");
+  assert.equal(await page.locator('.arow[data-run="R22"] .why').getAttribute("class"), "why", "and so is its note");
+  const looks = await page.locator('.agents-kpis .kpi[data-count="look"] .n').textContent();
+  assert.equal(Number(looks), 4 + 1 + 30, "the base 4, R38 and the 30 failed helpers");
+  const marked = await page.locator("main [data-run]").evaluateAll(list => list.filter(mark => /\b(look|failed)\b/.test(mark.querySelector(".badge").className)).length);
+  assert.equal(marked, Number(looks) - 10, "each counted row, and nothing else, has the look colour; 10 hide behind 'and 10 more failed'");
+  await shoot(page, "agents-round2-dark.png");
+  assert.deepEqual(problems, []);
 });
