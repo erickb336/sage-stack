@@ -43,6 +43,7 @@ export function projectLimits(logbook, roots, names) {
   };
 }
 export const ADMIT_LEASE_MS = 10 * 60_000;
+export const LAPSED = `no agent started within ${ADMIT_LEASE_MS / 60_000} minutes of its admission`;
 export const queueOrder = runs => runs.filter(run => run.status === "queued").sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)));
 
 export const HIDDEN = /[\0-\x08\x0b-\x1f\x7f-\x9f\u061c\u200b\u200e\u200f\u2060\ufeff\ufe00-\ufe0e\u202a-\u202e\u2066-\u2069\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]|(?<![\p{Extended_Pictographic}0-9#*])\ufe0f|(?<![\p{L}\p{M}](?=[\u200c\u200d]\p{L})|[\p{Extended_Pictographic}\p{Emoji_Modifier}]\ufe0f?(?=\u200d\p{Extended_Pictographic}))[\u200c\u200d]/gu;

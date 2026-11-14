@@ -9,7 +9,7 @@ import { homedir, hostname, platform, tmpdir, uptime } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { boardView, sessionRoots, sessionSources } from "./board-view.mjs";
 import { projectName as shownName } from "./board-model.mjs";
-import { ADMIT_LEASE_MS, agentCaps, capNames, projectLimits, queueOrder, slug } from "./logbook-fields.mjs";
+import { ADMIT_LEASE_MS, LAPSED, agentCaps, capNames, projectLimits, queueOrder, slug } from "./logbook-fields.mjs";
 import { logbookIdentity } from "./board-reader.mjs";
 import { PR, pullRequestHead } from "./pull-request.mjs";
 import { REPORT_FIELDS } from "./report.mjs";
@@ -554,7 +554,7 @@ function admit(dir, project, env, runs) {
     Object.assign(r, { status: "failed", ended: stamp });
     notes.push(`${r.id} failed: admitted at ${utc(r.admitted)}, its agent did not start within ${ADMIT_LEASE_MS / 60_000} minutes`);
   }
-  if (lapsed.length) write(dir, "decisions", [...read(dir, "decisions"), ...lapsed.map((r) => ({ at: stamp, task: r.task, decision: `${r.id} failed: no agent started within ${ADMIT_LEASE_MS / 60_000} minutes of its admission`, why: "an admitted run keeps its place for 10 minutes; the next queued run takes it" }))]);
+  if (lapsed.length) write(dir, "decisions", [...read(dir, "decisions"), ...lapsed.map((r) => ({ at: stamp, task: r.task, decision: `${r.id} failed: ${LAPSED}`, why: "an admitted run keeps its place for 10 minutes; the next queued run takes it" }))]);
   let count = runningOf(runs).length;
   const cap = projectCap(dir, project, env);
   for (const r of queueOrder(runs)) {

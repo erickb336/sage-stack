@@ -169,15 +169,37 @@ test("T1062 F-T1062-5, F-T1062-6: a queued run shows once in the task's log, as 
   assert.match(taskPanel(model, KEY("T2")).now, /at work/, "a running agent of the task still comes first");
 });
 
-test("T1062: the stream's agents hold running and queued runs and the ended helpers of running leads only, with each chief's count against the logbook's limits", t => {
+test("T1062: the stream's agents hold running and queued runs, recent failures, and the ended helpers of running leads only, with each chief's count against the logbook's limits", t => {
   const { sources } = world(t, { agents: true, endedRuns: 1300 });
   const model = modelOf(sources), [book] = boardOverview(model).agents;
   assert.deepEqual([book.running, book.limit, book.leads, book.leadLimit, book.queued], [7, 20, 4, 5, 3]);
   assert.deepEqual(book.byChief, [{ chief: "C1", count: 4 }, { chief: "C2", count: 3 }]);
   const byId = Object.fromEntries(book.runs.map(run => [run.id, run]));
-  assert.deepEqual(Object.keys(byId).sort(), ["R20", "R21", "R22", "R23", "R24", "R25", "R26", "R27", "R30", "R31", "R32", "R33", "R6"].sort(), "the 1,300 ended runs of no running lead stay out");
+  assert.deepEqual(Object.keys(byId).sort(), ["R1", "R20", "R21", "R22", "R23", "R24", "R25", "R26", "R27", "R30", "R31", "R32", "R33", "R6"].sort(), "the 1,300 ended runs of no running lead stay out; a run that failed in the last 24 hours stays in");
   assert.deepEqual([byId.R22.lead, byId.R24.lead, byId.R6.lead, byId.R31.lead, byId.R5], ["R20", "R20", "R30", null, undefined], "a helper belongs to its task's running lead when it started after the lead");
   assert.deepEqual([byId.R24.status, byId.R24.place, byId.R32.place, byId.R33.place], ["queued", 1, 2, 3]);
   assert.deepEqual([byId.R21.tokens, byId.R21.model, byId.R20.model, byId.R6.model], [210000, "sonnet", "opus", null]);
   assert.ok(JSON.stringify(book).length < 8000, "the agents part of the stream stays small");
+});
+
+test("T1062 F-T1062-13: the Agents page's 'need a look' counts the same runs as the Overview's Stuck count, and each one is a row of the page", t => {
+  const { sources } = world(t, { agents: true });
+  const overview = boardOverview(modelOf(sources)), [book] = overview.agents;
+  assert.equal(book.look, overview.counts.stuck, "one rule for both pages");
+  assert.deepEqual(book.runs.filter(run => run.look).map(run => [run.id, run.status, run.lead]), [["R1", "failed", null], ["R27", "failed", "R25"]],
+    "the failed run of the last 24 hours with no running lead and the lead's failed helper are both rows");
+  assert.deepEqual(book.runs.filter(run => !run.look && run.status === "failed"), [], "a run that does not need a look is not marked");
+});
+
+test("T1062 F-T1062-9, F-T1062-11, F-T1062-14, F-T1062-18, F-T1062-19: helpers, lapsed admissions, failure reasons and the count of ended helpers", t => {
+  const { sources } = world(t, { agents: true, agentEdges: true, chiefCases: true });
+  const model = modelOf(sources), [book] = boardOverview(model).agents, byId = Object.fromEntries(book.runs.map(run => [run.id, run]));
+  assert.deepEqual([byId.R34.lead, byId.R35.lead], [null, null], "a pe run after the lead and a run admitted in the lead's second are not its helpers");
+  assert.deepEqual([byId.R36.lead, byId.R36.chief], ["R20", null], "a running helper with no chief still belongs to its task's lead");
+  assert.deepEqual([byId.R38.look, byId.R38.why], [true, "no agent started within 10 minutes of its admission"], "a failed run shows its reason from the logbook");
+  assert.equal(byId.R20.endedHelpers, 1300, "the lead knows how many ended helpers it has");
+  assert.equal(book.runs.filter(run => run.lead === "R20" && run.status === "done").length, 20, "only the last 20 ended helpers travel to the page");
+  const log = taskPanel(model, KEY("T40")).log;
+  assert.deepEqual(log.filter(event => event.who === "R38").map(event => event.text), ["qa ended: failed", "qa admitted from the queue, but its agent did not start"], "a lapsed admission never says started");
+  assert.deepEqual(log.filter(event => event.who === "R39").map(event => event.text), ["code-reviewer ended: done", "code-reviewer started after its place in the queue"]);
 });

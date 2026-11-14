@@ -1,6 +1,7 @@
-import { LINE, PRIORITIES, boardAnswer } from "./logbook-fields.mjs";
+import { LAPSED, LINE, PRIORITIES, boardAnswer } from "./logbook-fields.mjs";
 import { milestoneName } from "./milestone-rules.mjs";
 import { STOPPED_MS } from "./chief-live.mjs";
+import { TEAM } from "./role-policy.mjs";
 import { taskWord } from "./state-words.mjs";
 
 const DAY = 86_400_000, DONE_DAYS = 7, EVENT_DAYS = 30;
@@ -17,9 +18,11 @@ const STATE_ORDER = ["stuck", "lost", "active", "changing", "proposed", "done"];
 const stateRank = state => STATE_ORDER.includes(state) ? STATE_ORDER.indexOf(state) : STATE_ORDER.length;
 const number = id => Number(String(id).replace(/^\D+/, "")) || 0;
 
+const failedLately = (run, recent) => run.status === "failed" && recent(run.ended);
+const silent = agent => agent?.state === "stuck";
 function stuckAgents(agents) {
   let count = 0;
-  const walk = agent => { if (agent.state === "stuck") count++; for (const child of agent.children ?? []) walk(child); };
+  const walk = agent => { if (silent(agent)) count++; for (const child of agent.children ?? []) walk(child); };
   for (const project of agents?.projects ?? []) for (const agent of project.agents) walk(agent);
   return count;
 }
@@ -100,29 +103,36 @@ function agentStates(agents) {
   return states;
 }
 
-function agentsOf(model) {
+const failReason = (task, run) => (task.decisionRows ?? []).findLast(row => String(row.decision ?? "").startsWith(`${run.id} failed: `))?.decision.slice(`${run.id} failed: `.length) ?? null;
+
+function agentsOf(model, recent) {
   const states = agentStates(model.agents), groups = new Map((model.projects ?? []).map(project => [project.key, project]));
   return (model.agents?.limits ?? []).filter(book => !groups.get(book.group)?.archived).map(book => {
-    const all = model.tasks.filter(task => task.project === book.key).flatMap(task => task.runs.map(run => ({ run, task })));
+    const all = model.tasks.filter(task => task.project === book.key).flatMap(task => task.runs.map(run => {
+      const agent = run.status === "running" ? states.get(`${book.key}/${run.id}`) : null;
+      return { run, task, agent, look: run.status === "failed" ? !task.archived && failedLately(run, recent) : silent(agent) };
+    }));
     const leads = new Map(all.filter(({ run }) => run.role === "lead" && LIVE.includes(run.status)).map(item => [item.task.key, item.run]));
     const leadOf = ({ run, task }) => {
-      const lead = run.role !== "lead" && leads.get(task.key);
-      return lead && time(run.started) !== null && time(run.started) >= time(lead.started) ? lead.id : null;
+      const lead = TEAM.has(run.role) && leads.get(task.key);
+      return lead && time(run.started) !== null && time(run.started) > time(lead.started) ? lead.id : null;
     };
-    const ended = [...leads.values()].flatMap(lead => all.filter(item => !LIVE.includes(item.run.status) && leadOf(item) === lead.id)
-      .sort((a, b) => time(b.run.started) - time(a.run.started)).slice(0, HELPERS_MAX));
-    const runs = [...all.filter(({ run }) => LIVE.includes(run.status)), ...ended].map(item => {
-      const { run, task } = item, agent = run.status === "running" ? states.get(`${book.key}/${run.id}`) : null;
+    const endedOf = new Map([...leads.values()].map(lead => [lead.id, all.filter(item => !LIVE.includes(item.run.status) && !item.look && leadOf(item) === lead.id)]));
+    const ended = [...endedOf.values()].flatMap(list => [...list].sort((a, b) => time(b.run.started) - time(a.run.started)).slice(0, HELPERS_MAX));
+    const runs = [...all.filter(item => LIVE.includes(item.run.status) || item.look && item.run.status !== "running"), ...ended].map(item => {
+      const { run, task, agent, look } = item;
       return {
         id: run.id, role: run.role, status: run.status, chief: run.chief || null, lead: leadOf(item), model: run.model || null,
-        task: { key: task.key, id: task.id, title: task.title }, started: iso(run.started), ended: iso(run.ended), tokens: count(run.tokens), place: run.place ?? null,
-        state: run.status !== "running" ? null : agent?.state ?? (run.clock.stale ? "stuck" : "unk"), why: agent?.why || (run.clock.stale ? run.clock.text : null),
+        task: { key: task.key, id: task.id, title: task.title }, started: iso(run.started), ended: iso(run.ended), tokens: count(run.tokens), place: run.place ?? null, look,
+        state: run.status !== "running" ? null : agent?.state ?? (run.clock.stale ? "stuck" : "unk"),
+        why: run.status === "failed" ? failReason(task, run) : agent?.why || (run.clock.stale ? run.clock.text : null),
+        ...(endedOf.has(run.id) && { endedHelpers: endedOf.get(run.id).length }),
       };
     }).sort((a, b) => (time(a.started) ?? 0) - (time(b.started) ?? 0) || number(a.id) - number(b.id));
     const byChief = new Map();
     for (const run of runs) if (run.status === "running") byChief.set(run.chief, (byChief.get(run.chief) ?? 0) + 1);
     return { key: book.key, project: groups.get(book.group)?.name ?? book.key, running: book.running, limit: book.limit, leads: book.leads, leadLimit: book.leadLimit, queued: book.queued.length,
-      byChief: [...byChief].map(([chief, n]) => ({ chief, count: n })).sort((a, b) => number(a.chief) - number(b.chief)), runs };
+      look: runs.filter(run => run.look).length, byChief: [...byChief].map(([chief, n]) => ({ chief, count: n })).sort((a, b) => number(a.chief) - number(b.chief)), runs };
   });
 }
 
@@ -164,7 +174,7 @@ export function boardOverview(model) {
   }).sort((a, b) => rank(a.priority) - rank(b.priority) || stateRank(a.state) - stateRank(b.state) || number(a.id) - number(b.id));
 
   const merged = tasks.filter(task => task.state === "merged" && recent(task.completedAt));
-  const failed = tasks.flatMap(task => task.runs).filter(run => run.status === "failed" && recent(run.ended));
+  const failed = tasks.flatMap(task => task.runs).filter(run => failedLately(run, recent));
   const chiefs = (model.projects ?? []).filter(project => !project.archived).flatMap(project => (project.chiefs ?? []).map(chief => ({ ...chief, project: project.name, logbook: chief.key.slice(0, chief.key.lastIndexOf("/")) })));
   const leaving = [...merged.map(task => time(task.completedAt)), ...failed.map(run => time(run.ended))].map(when => when + DAY + 1)
     .concat(chiefs.filter(chief => chief.stopped === false && !chief.agents && !chief.waitsForOwner).map(chief => time(chief.heartbeat) + STOPPED_MS + 1));
@@ -181,7 +191,7 @@ export function boardOverview(model) {
     failedAt: tasks.flatMap(task => task.runs).filter(run => run.status === "failed" && time(run.ended) > at - EVENT_DAYS * DAY).map(run => iso(run.ended)),
     milestones,
     hiddenDone,
-    agents: agentsOf(model),
+    agents: agentsOf(model, recent),
     counts: { merged: merged.length, stuck: failed.length + stuckAgents(model.agents), stuckNow: stuckAgents(model.agents), added: tasks.some(task => task.addedAt) ? tasks.filter(task => recent(task.addedAt)).length : null },
     next: leaving.length ? Math.min(...leaving) : null,
   };
@@ -194,7 +204,7 @@ function logOf(task) {
   const events = [
     ...(task.decisionRows ?? []).map(row => ({ at: row.at, who: "chief", text: `${row.decision}${row.why ? ` · ${row.why}` : ""}` })),
     ...task.runs.flatMap(run => run.status === "queued" ? [{ at: run.started, who: run.id, text: `${run.role} queued for an agent slot${run.place ? `, place ${run.place}` : ""}` }] : [
-      { at: run.started, who: run.id, text: `${run.role} started${run.admitted ? " after its place in the queue" : ""}` },
+      { at: run.started, who: run.id, text: failReason(task, run) === LAPSED ? `${run.role} admitted from the queue, but its agent did not start` : `${run.role} started${run.admitted ? " after its place in the queue" : ""}` },
       ...(run.status === "running" ? [] : [{ at: run.ended, who: run.id, text: `${run.role} ended: ${run.status}` }]),
     ]),
     ...task.ledger.map(row => ({ at: row.at, who: row.run || "CI", text: `${row.kind}${row.cycle ? ` · cycle ${row.cycle}` : ""}${row.sha ? ` on ${String(row.sha).slice(0, 7)}` : ""}` })),

@@ -89,7 +89,7 @@ function addPullRequests(tables, records, at, hostile) {
 }
 
 const MIN = 60_000;
-function addAgentRuns(tables, now, { atLimit, hostile, ended }) {
+function addAgentRuns(tables, now, { atLimit, hostile, ended, edges }) {
   const at = minutes => new Date(Date.parse(now) - minutes * MIN).toISOString();
   const run = (id, task, role, chief, status, started, extra = {}) => ({ id, task, role, round: "0", candidate: "", branch: "", status, tokens: "", report: "", started: at(started), ended: "", chief, model: "", ...extra });
   tables.runs.push(
@@ -109,10 +109,23 @@ function addAgentRuns(tables, now, { atLimit, hostile, ended }) {
   tables.tasks.push({ ...tables.tasks.find(task => task.id === "T40"), id: "T41", title: "Sample queued build", priority: "P2", kind: "", branch: "sage/t41-queued" });
   for (let i = 0; i < ended; i++) tables.runs.push(run(`R${200 + i}`, "T21", "implementer", "C1", "done", 6000 + i * 30, { ended: at(5990 + i * 30) }));
   if (hostile) tables.runs.push(run("R40", "T50", "implementer", "C2", "running", 3, { model: `<img src=x onerror="window.hacked=12">model` }));
+  if (edges) {
+    tables.runs.push(
+      run("R34", "T2", "pe", "C1", "running", 5),
+      run("R35", "T40", "qa", "C1", "running", 82),
+      run("R36", "T2", "ux-reviewer", "", "running", 8),
+      run("R37", "T41", "code-reviewer", "C1", "queued", 525),
+      run("R38", "T40", "qa", "C1", "failed", 30, { admitted: at(30), ended: at(19) }),
+      run("R39", "T40", "code-reviewer", "C1", "done", 15, { admitted: at(15), ended: at(5), tokens: "40000" }),
+      run("R41", "T70", "qa", "C3", "queued", 10),
+    );
+    for (let i = 0; i < 1299; i++) tables.runs.push(run(`R${2000 + i}`, "T2", "code-reviewer", "C1", "done", 72 - i * 0.05, { ended: at(71 - i * 0.05) }));
+    tables.decisions.push({ at: at(19), task: "T40", decision: "R38 failed: no agent started within 10 minutes of its admission", why: "an admitted run keeps its place for 10 minutes; the next queued run takes it" });
+  }
   return { max_agents: atLimit ? 7 + (hostile ? 1 : 0) : 20, max_leads: atLimit ? 4 : 5 };
 }
 
-export function writeTasksLogbook(root, worktrees, now, { hostile = false, many = 0, edge = false, chiefCases = false, stuck = false, prs = false, waits = {}, crowd = 0, documents = false, agents = false, atLimit = false, endedRuns = 0 } = {}) {
+export function writeTasksLogbook(root, worktrees, now, { hostile = false, many = 0, edge = false, chiefCases = false, stuck = false, prs = false, waits = {}, crowd = 0, documents = false, agents = false, atLimit = false, endedRuns = 0, agentEdges = false } = {}) {
   const at = hours => new Date(Date.parse(now) - hours * HOUR).toISOString();
   const tables = appTables(now), dir = join(root, "sample-app-abc123");
   const chiefs = { T1: "C1", T2: "C1", T3: "C2", T4: "C1", T10: "C1", T11: "C2", T20: "C1", T21: "C1", T30: "C2" };
@@ -145,7 +158,7 @@ export function writeTasksLogbook(root, worktrees, now, { hostile = false, many 
       { id: "O6", task: "T50", kind: "artifact", source: "chief", basis: "reported", observedAt: at(1), recordedAt: at(1), data: { type: "artifact", label: `<img src=x onerror="window.hacked=6">label`, url: "https://example.com/a?b=%22%3E%3Cscript%3E" } });
   }
   if (prs) addPullRequests(tables, records, at, hostile);
-  const limits = agents ? addAgentRuns(tables, now, { atLimit, hostile, ended: endedRuns }) : null;
+  const limits = agents ? addAgentRuns(tables, now, { atLimit, hostile, ended: endedRuns, edges: agentEdges }) : null;
   if (documents) addDocumentRows(tables, at, join(worktrees, "sample-app-abc123", "pages"));
   tables.tasks = tables.tasks.map(task => task.id in waits ? { ...task, waits: waits[task.id] } : task);
   for (let i = 0; i < crowd; i++) {
