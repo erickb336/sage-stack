@@ -33,14 +33,15 @@ export function LimitCounts({ agents }) {
 
 function LeadCard({ lead, helpers, queued, now, selected }) {
   const [open, setOpen] = useState(false);
-  const live = helpers.filter(run => run.status === "running"), ended = helpers.filter(run => run.status !== "running");
+  const shown = helpers.filter(run => run.status === "running" || run.look), ended = helpers.filter(run => !shown.includes(run));
+  const live = shown.filter(run => run.status === "running").length, total = lead.endedHelpers ?? ended.length;
   return (
     <section className="acard" aria-label={`${lead.role} ${lead.id} on ${lead.task.id}`}>
-      <AgentMark run={lead} now={now} kind="lead" selected={selected === lead.task.key} />
-      {live.length > 0 && <ul className="arows">{live.map(run => <li key={run.id}><AgentMark run={run} now={now} kind="helper" selected={selected === run.task.key} /></li>)}</ul>}
+      <AgentMark run={lead} now={now} kind="lead" selected={selected === lead.task.key} look={shown.filter(run => run.look).length} />
+      {shown.length > 0 && <ul className="arows">{shown.map(run => <li key={run.id}><AgentMark run={run} now={now} kind="helper" selected={selected === run.task.key} /></li>)}</ul>}
       <div className="acard-f">
-        <span>{live.length ? `${live.length} ${live.length === 1 ? "helper" : "helpers"} running` : "No helper running"}{queued > 0 && ` · ${queued} queued`}</span>
-        {ended.length > 0 && <button type="button" className="more-ended" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Hide" : "Show"} {ended.length} ended {ended.length === 1 ? "helper" : "helpers"}</button>}
+        <span>{live ? `${live} ${live === 1 ? "helper" : "helpers"} running` : "No helper running"}{queued > 0 && ` · ${queued} queued`}</span>
+        {ended.length > 0 && <button type="button" className="more-ended" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Hide" : "Show"} {total > ended.length ? `the last ${ended.length} of ${total.toLocaleString("en-US")}` : ended.length} ended {total === 1 ? "helper" : "helpers"}</button>}
       </div>
       {open && <ul className="arows">{ended.map(run => <li key={run.id}><AgentMark run={run} now={now} kind="helper" /></li>)}</ul>}
     </section>
@@ -57,9 +58,21 @@ function Queued({ runs, now }) {
   );
 }
 
+function RunList({ label, note, runs, now, selected }) {
+  if (!runs.length) return null;
+  return (
+    <section className="acard own" aria-label={label}>
+      <div className="acard-h plain"><b className="mono">{label}</b><span className="faint">{note}</span></div>
+      <ul className="arows">{runs.map(run => <li key={run.id}><AgentMark run={run} now={now} kind="own" selected={selected === run.task.key} /></li>)}</ul>
+    </section>
+  );
+}
+
 function ChiefBox({ chief, runs, tasks, now, selected }) {
   const leads = runs.filter(run => run.role === "lead" && run.status === "running");
-  const own = runs.filter(run => run.role !== "lead" && !run.lead && run.status === "running");
+  const loose = runs.filter(run => !leads.some(lead => lead.id === run.lead));
+  const own = loose.filter(run => run.role !== "lead" && run.status === "running");
+  const failed = loose.filter(run => run.look && run.status !== "running");
   const queued = runs.filter(run => run.status === "queued").sort((a, b) => a.place - b.place);
   const running = runs.filter(run => run.status === "running").length;
   const stopped = chief.stopped === true;
@@ -77,20 +90,16 @@ function ChiefBox({ chief, runs, tasks, now, selected }) {
       </div>
       {stopped && (
         <div className="stopped-note">
-          <p>No agent runs. Last event {clock(chief.heartbeat)}: the heartbeat stopped. Nothing moves on its own.</p>
+          <p>{running || queued.length ? "No run of this chief shows activity, although the logbook lists the runs below." : "No agent runs."} Last event {clock(chief.heartbeat)}: the heartbeat stopped. Nothing moves on its own.</p>
           {owned.length > 0 && <p>It owns {owned.map((task, i) => <span key={task.key}>{i > 0 && ", "}<a href={taskLink(task.key, PAGE)} data-task={task.key}>{task.id} · {task.title}</a></span>)}. To give a task to another chief, use the Overview.</p>}
         </div>
       )}
       {!stopped && !running && !queued.length && <p className="empty">No agent runs now.</p>}
-      {(leads.length > 0 || own.length > 0) && (
+      {(leads.length > 0 || own.length > 0 || failed.length > 0) && (
         <div className="acards">
           {leads.map(lead => <LeadCard key={lead.id} lead={lead} helpers={runs.filter(run => run.lead === lead.id && run.status !== "queued")} queued={runs.filter(run => run.lead === lead.id && run.status === "queued").length} now={now} selected={selected} />)}
-          {own.length > 0 && (
-            <section className="acard own" aria-label={`${chief.id ?? "Chief"}'s own runs`}>
-              <div className="acard-h plain"><b className="mono">{chief.id ?? "Chief"} own runs</b><span className="faint">steps that the chief runs with no lead, such as design and PE</span></div>
-              <ul className="arows">{own.map(run => <li key={run.id}><AgentMark run={run} now={now} kind="own" selected={selected === run.task.key} /></li>)}</ul>
-            </section>
-          )}
+          <RunList label={`${chief.id ?? "Chief"} own runs`} note="steps that the chief runs with no lead, such as design and PE" runs={own} now={now} selected={selected} />
+          <RunList label="Failed in the last 24 hours" note="runs with no running lead" runs={failed} now={now} selected={selected} />
         </div>
       )}
       <Queued runs={queued} now={now} />
@@ -147,11 +156,13 @@ function lanesOf(chief, runs) {
 
 function Book({ book, model, chief, selected, now, many }) {
   const chiefs = model.chiefs.filter(item => item.logbook === book.key);
-  const loose = book.runs.filter(run => !chiefs.some(item => item.id === run.chief));
+  const leadChief = new Map(book.runs.filter(run => run.role === "lead" && run.status === "running").map(run => [run.id, run.chief]));
+  const boxChief = run => leadChief.has(run.lead) ? leadChief.get(run.lead) : run.chief;
+  const loose = book.runs.filter(run => !chiefs.some(item => item.id === boxChief(run)));
   const boxes = [...chiefs, ...(loose.length ? [{ key: `${book.key}/none`, id: null, name: "No chief recorded", provider: null, stopped: null, autopilot: null }] : [])]
     .filter(item => !chief || item.key === chief.key)
-    .map(item => ({ chief: item, runs: item.id ? book.runs.filter(run => run.chief === item.id) : loose }));
-  const look = book.runs.filter(run => run.status === "running" && LOOK.includes(run.state)).length;
+    .map(item => ({ chief: item, runs: item.id ? book.runs.filter(run => boxChief(run) === item.id) : loose }));
+  const look = book.look;
   const full = book.running >= book.limit, leads = book.leads >= book.leadLimit;
   return (
     <div className="book" data-book={book.key}>

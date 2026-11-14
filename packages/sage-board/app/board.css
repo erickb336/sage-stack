@@ -348,7 +348,7 @@ input:not([type]), input[type="text"] { font: inherit; color: inherit; backgroun
 .acard-h { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); text-decoration: none; font-size: 13px; }
 a.acard-h:hover, .arow:hover, .arow[aria-current="true"], .acard-h[aria-current="true"] { background: var(--hover); }
 .acard-h.plain { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
-.lead-id { display: flex; align-items: center; gap: 8px; }
+.lead-id { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .big { font-size: 18px; font-weight: 600; text-align: right; }
 .tline { overflow-wrap: anywhere; }
 .acard-f { display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--faint); }
@@ -358,6 +358,7 @@ a.acard-h:hover, .arow:hover, .arow[aria-current="true"], .acard-h[aria-current=
 .arow { display: grid; grid-template-columns: 130px minmax(0, 1fr) 110px 70px 48px; gap: 10px; align-items: center; padding: 9px 16px; border-top: 1px solid var(--line); text-decoration: none; font-size: 13px; }
 .arows li:first-child > .arow { border-top: 0; }
 .arow.ended { color: var(--muted); }
+.arow.queued { grid-template-columns: 130px minmax(0, 1fr) auto auto auto; }
 .who { display: flex; flex-direction: column; min-width: 0; }
 .who .role { font-weight: 500; overflow-wrap: anywhere; }
 .arow .atask { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
