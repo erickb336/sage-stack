@@ -140,6 +140,11 @@ header.top { position: sticky; top: 0; z-index: 20; height: 52px; display: flex;
 .seg button, .more-ended, .tabs button, .close { background: none; border: 1px solid transparent; border-radius: var(--r-s); padding: 4px 10px; cursor: pointer; color: var(--muted); }
 .seg button[aria-pressed="true"] { background: var(--hover); border-color: var(--line-2); color: var(--text); }
 .filter { display: flex; align-items: center; gap: 6px; }
+.filter.on select { border-color: var(--accent); }
+.seg .clear { color: var(--text); text-decoration: underline; }
+.why { margin: 0 18px 10px; padding: 8px 12px; border-left: 3px solid var(--need); font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.why b { color: var(--text); font-weight: 500; }
+.lost .none { padding: 0 18px 14px; }
 .filter select { font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--line-2); border-radius: var(--r-s); padding: 3px 6px; }
 .group { margin-bottom: 16px; }
 .group.focus { border-color: var(--accent); }
@@ -151,11 +156,12 @@ header.top { position: sticky; top: 0; z-index: 20; height: 52px; display: flex;
 .row .title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; overflow: hidden; }
 .row .text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 12ch; max-width: max-content; min-width: 0; }
 .row .kind { font-size: 12px; color: var(--faint); }
-.row .badge.warn { white-space: normal; }
 @media (max-width: 1279px) { .row { grid-template-columns: 34px 52px minmax(0, 1fr) 92px 110px 110px; } .row :is(.pr, .age) { display: none; } }
 .main:has(.panel) .row { grid-template-columns: 34px 52px minmax(0, 1fr) 92px 110px; }
 .main:has(.panel) .row :is(.step, .pr, .age) { display: none; }
-@media (min-width: 1280px) { .main:has(.panel) { padding-right: calc(min(500px, 42vw) + 24px); } }
+@media (min-width: 1280px) { .main:has(.panel) { padding-right: calc(min(500px, 34vw) + 24px); } }
+@media (max-width: 1279px) { .panel { width: auto; left: 232px; } }
+@media (max-width: 899px) { .panel { left: 0; } }
 .row .chief { display: flex; align-items: center; gap: 6px; color: var(--muted); overflow-wrap: anywhere; }
 .row .chief .dot.live { background: var(--done); }
 .row .chief .dot.unknown { background: none; box-shadow: inset 0 0 0 1.5px var(--faint); }
@@ -173,11 +179,11 @@ header.top { position: sticky; top: 0; z-index: 20; height: 52px; display: flex;
 .more-ended { display: block; width: 100%; text-align: left; border-top: 1px solid var(--line); border-radius: 0 0 var(--r) var(--r); padding: 9px 18px; font-size: 13px; }
 .more-ended:hover, .seg button:hover, .tabs button:hover, .close:hover { color: var(--text); background: var(--hover); }
 
-.panel { position: fixed; top: 52px; right: 0; bottom: 0; width: min(500px, 42vw); background: var(--side); border-left: 1px solid var(--line); box-shadow: var(--shadow); display: flex; flex-direction: column; z-index: 30; }
+.panel { position: fixed; top: 52px; right: 0; bottom: 0; width: min(500px, 34vw); background: var(--side); border-left: 1px solid var(--line); box-shadow: var(--shadow); display: flex; flex-direction: column; z-index: 30; }
 .panel-top { display: flex; align-items: center; gap: 10px; padding: 10px 18px; border-bottom: 1px solid var(--line); color: var(--muted); }
 .close { font-size: 20px; line-height: 1; padding: 2px 9px; }
 .panel-body { overflow-y: auto; padding: 18px 20px 40px; display: flex; flex-direction: column; gap: 18px; }
-.panel-body h2 { font-size: 18px; overflow-wrap: anywhere; }
+.panel-body h2 { font-size: 18px; overflow-wrap: anywhere; max-height: 5.5lh; overflow-y: auto; flex: none; }
 .stale { font-size: 13px; color: var(--muted); border: 1px solid var(--line-2); border-radius: var(--r-s); padding: 8px 12px; }
 .panel h3, .panel h4 { font-size: 12px; font-weight: 500; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; margin: 0 0 8px; }
 .panel h4 { margin-top: 14px; }
@@ -188,6 +194,7 @@ header.top { position: sticky; top: 0; z-index: 20; height: 52px; display: flex;
 .facts { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 6px 12px; margin: 0; font-size: 13px; }
 .facts dt { color: var(--muted); }
 .facts dd { margin: 0; overflow-wrap: anywhere; }
+.facts .chief { display: flex; align-items: center; gap: 6px; }
 .sec-h { display: flex; align-items: baseline; gap: 10px; }
 .sec-h .hint, .panel .faint, .none { font-size: 12.5px; color: var(--faint); }
 .steps { list-style: none; margin: 0; padding: 0; }

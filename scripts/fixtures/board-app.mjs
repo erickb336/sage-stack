@@ -59,6 +59,7 @@ export function writeAppLogbook(root, now) {
 const HEAD = "b".repeat(40);
 const HOSTILE = { title: `<img src=x onerror="window.hacked=1">Hostile "quotes" & 'apostrophes'`, path: "<script>window.hacked=3</script>\nsrc/evil\u202egnp\u009b.js", invisible: "src/a\u061cb\u2060c\u00add\u180ee\u{e0001}f.js", link: `<a href="javascript:window.hacked=5">click</a>` };
 export const HOSTILE_TEXT = HOSTILE;
+export const UNICODE_TEXT = { hidden: "src/a\u034fb\u115fc\u3164d\uffa0e\u180bf\u17b4g\u200dh\u200ci\ufe0fj\u{e0100}k.js", emoji: "docs/\u{1f469}\u200d\u{1f4bb}-\u{1f3f4}\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}-\u2764\ufe0f-1\ufe0f\u20e3.md", word: "fa/\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645.md" };
 
 const REPOSITORY = "https://github.com/sample-owner/sample-app";
 function addPullRequests(tables, records, at, hostile) {
@@ -88,7 +89,7 @@ function addPullRequests(tables, records, at, hostile) {
   }
 }
 
-export function writeTasksLogbook(root, worktrees, now, { hostile = false, many = 0, edge = false, chiefCases = false, stuck = false, prs = false, waits = {}, crowd = 0, documents = false } = {}) {
+export function writeTasksLogbook(root, worktrees, now, { unicode = false, hostile = false, many = 0, edge = false, chiefCases = false, stuck = false, prs = false, waits = {}, crowd = 0, documents = false } = {}) {
   const at = hours => new Date(Date.parse(now) - hours * HOUR).toISOString();
   const tables = appTables(now), dir = join(root, "sample-app-abc123");
   const chiefs = { T1: "C1", T2: "C1", T3: "C2", T4: "C1", T10: "C1", T11: "C2", T20: "C1", T21: "C1", T30: "C2" };
@@ -120,6 +121,13 @@ export function writeTasksLogbook(root, worktrees, now, { hostile = false, many 
     records.push({ id: "O5", task: "T50", kind: "files", source: "git diff", basis: "observed", observedAt: at(1), recordedAt: at(1), data: { head: "d".repeat(40), paths: [HOSTILE.path, HOSTILE.invisible, "javascript:window.hacked=4", "src/shared.js"], truncated: false } },
       { id: "O6", task: "T50", kind: "artifact", source: "chief", basis: "reported", observedAt: at(1), recordedAt: at(1), data: { type: "artifact", label: `<img src=x onerror="window.hacked=6">label`, url: "https://example.com/a?b=%22%3E%3Cscript%3E" } });
   }
+  if (unicode) {
+    const paths = [UNICODE_TEXT.hidden, UNICODE_TEXT.emoji, UNICODE_TEXT.word, "src/shared.js"];
+    for (const record of records.filter(item => item.kind === "files")) record.data.paths = [...new Set([...paths, ...record.data.paths])];
+    tables.tasks = tables.tasks.map(task => task.id === "T40" ? { ...task, title: "Sample \u202eevil title" } : task);
+    tables.gates.push({ id: "G13", task: "T40", question: "Ship \u2066now\u2069?", options: "A|B", recommendation: "A", default: "", answer: "A", at: at(0.4) });
+    tables.decisions.push({ at: at(0.1), task: "T40", decision: "state building \u202eevil", why: "" });
+  }
   if (prs) addPullRequests(tables, records, at, hostile);
   if (documents) addDocumentRows(tables, at, join(worktrees, "sample-app-abc123", "pages"));
   tables.tasks = tables.tasks.map(task => task.id in waits ? { ...task, waits: waits[task.id] } : task);
@@ -133,6 +141,7 @@ export function writeTasksLogbook(root, worktrees, now, { hostile = false, many 
     tables.tasks = tables.tasks.map(task => task.id === "T20" ? { ...task, state: "abandoned" } : task);
     tables.milestones = tables.milestones.map(milestone => milestone.id === "M3" ? { ...milestone, pilot: "T20" } : milestone);
     tables.tasks.push({ ...tables.tasks.find(task => task.id === "T21"), id: "T22", state: "framed" });
+    tables.milestones.push({ id: "M10", name: "Empty stuck", goal: "Sample goal", pilot: "T999", gate: "G11", at: at(10) });
   }
   if (edge) tables.tasks.push({ ...tables.tasks[1], id: "T60", title: "Sample".repeat(500), state: "building", milestone: "", priority: "P3", kind: "", chief: "C1", branch: "" });
   for (let i = 0; tables.tasks.length < many; i++) tables.tasks.push({ ...tables.tasks[0], id: `T${1000 + i}`, title: `Sample ended task ${i}`, milestone: "", state: i % 7 ? "merged" : "abandoned", chief: i % 2 ? "C1" : "C2", priority: ["P1", "P2", "P3"][i % 3] });

@@ -2,7 +2,13 @@ import { useEffect, useRef, useState } from "react";
 
 export const taskLink = (key, page = "tasks") => `#${page}?task=${encodeURIComponent(key)}`;
 export const milestoneLink = key => `#tasks?milestone=${encodeURIComponent(key)}`;
-export const chiefName = chief => chief ? [chief.id, chief.provider].filter(Boolean).join(" · ") || "Chief not known" : "No chief";
+export const chiefName = chief => chief ? chief.old ?? ([chief.id, chief.provider].filter(Boolean).join(" · ") || "Chief not known") : "No chief";
+const LIVENESS = { live: "live", stopped: "stopped", unknown: "liveness not known" };
+const liveness = stopped => stopped === false ? "live" : stopped ? "stopped" : "unknown";
+export function ChiefDot({ stopped }) {
+  const state = liveness(stopped);
+  return state === "stopped" ? <span className="dot" aria-hidden="true" /> : <span className={`dot ${state}`} role="img" aria-label={`Chief ${LIVENESS[state]}`} title={`Chief ${LIVENESS[state]}`} />;
+}
 const MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(" ");
 const pad = n => String(n).padStart(2, "0");
 function when(at, now) {
@@ -12,7 +18,15 @@ function when(at, now) {
   return date.toDateString() === today.toDateString() ? clock : `${date.getDate()} ${MONTHS[date.getMonth()]} ${clock}`;
 }
 const hex = c => c.codePointAt(0).toString(16).padStart(4, "0");
-export const controlsShown = text => String(text ?? "").replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, c => ({ "\n": "\\n", "\r": "\\r", "\t": "\\t" })[c] ?? (c.length > 1 ? `\\u{${hex(c)}}` : `\\u${hex(c)}`));
+const JOINS = /[\p{L}\p{M}]/u, NOT_JOINED = /[\p{Script=Latin}\p{Script=Greek}\p{Script=Cyrillic}\p{Script=Common}]/u, PICTURE = /\p{Extended_Pictographic}[\u{FE0F}\p{Emoji_Modifier}]?$/u;
+const joined = (c, before, after) => JOINS.test(before.slice(-1)) && JOINS.test(after[0] ?? "") && !NOT_JOINED.test(before.slice(-1)) && !NOT_JOINED.test(after[0])
+  || c === "\u200d" && PICTURE.test(before) && /^\p{Extended_Pictographic}/u.test(after);
+const kept = (c, before, after) => /[\u200c\u200d]/.test(c) ? joined(c, before, after)
+  : /[\u{fe00}-\u{fe0f}\u{e0100}-\u{e01ef}]/u.test(c) ? /[\p{Extended_Pictographic}\p{Ideographic}]$/u.test(before) || /[#*0-9]$/.test(before) && after[0] === "\u20e3"
+  : /[\u{e0020}-\u{e007f}]/u.test(c) && /\u{1f3f4}[\u{e0020}-\u{e007e}]*$/u.test(before);
+export const controlsShown = text => String(text ?? "").replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/gu, (c, at, all) =>
+  kept(c, all.slice(Math.max(0, at - 40), at), all.slice(at + c.length, at + c.length + 2)) ? c
+  : ({ "\n": "\\n", "\r": "\\r", "\t": "\\t" })[c] ?? (c.length > 1 ? `\\u{${hex(c)}}` : `\\u${hex(c)}`));
 export const encodeKey = key => btoa(String.fromCharCode(...new TextEncoder().encode(key))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 export function readLink(key, kind, arg, back = "tasks") {
   const query = new URLSearchParams({ ...(document.documentElement.dataset.theme === "light" && { theme: "light" }), ...(back !== "tasks" && { back }) }).toString();
@@ -47,13 +61,14 @@ function Cycle({ task }) {
             <span className="mark" aria-hidden="true" />
             <div>
               <p className="lbl">{step.label}{STATUS[step.status] && <span className="sw">{STATUS[step.status]}</span>}</p>
-              {step.detail && <p className="detail">{step.detail}</p>}
+              {step.detail && <p className="detail">{controlsShown(step.detail)}</p>}
               {step.parts.length > 0 && <p className="parts">{step.parts.map(part => `${part.name}: ${STATUS[part.status] || "waits"}`).join(" · ")}</p>}
             </div>
           </li>
         ))}
       </ol>
-      <p className="now">{task.now}{task.next && <> Next: {task.next}</>}</p>
+      {task.now.map((line, i) => <p className="now" key={i}>{controlsShown(line)}</p>)}
+      {task.next && <p className="now">Next: {task.next}</p>}
     </section>
   );
 }
@@ -90,7 +105,7 @@ function Artifacts({ task, back }) {
         <h4>Recorded artifacts</h4>
         <ul className="files">{task.artifacts.map(item => (
           <li key={item.id}>
-            {item.url ? <a href={item.url} target="_blank" rel="noopener noreferrer">{item.label}</a> : <span>{item.label}</span>}
+            {item.url ? <a href={item.url} target="_blank" rel="noopener noreferrer">{controlsShown(item.label)}</a> : <span>{controlsShown(item.label)}</span>}
             <span className="faint">{[item.type, item.run, when(item.at, task.at), item.path && (item.verified ? "in the logbook · digest checked" : "in the logbook · not checked")].filter(Boolean).join(" · ")}</span>
             {item.path && <code>{controlsShown(item.path)}</code>}
           </li>
@@ -100,16 +115,17 @@ function Artifacts({ task, back }) {
         <h4>Kept reports</h4>
         <ul className="files">{files.kept.map(item => (
           <li key={item.run}>
-            <a href={read("report", item.run)}>{item.run} · {item.role}{item.status && ` · ${item.status}`}</a>
-            {item.result && <span className="detail">{item.result}</span>}
+            <a href={read("report", item.run)}>{item.run} · {item.role}{item.status && ` · ${controlsShown(item.status)}`}</a>
+            {item.result && <span className="detail">{controlsShown(item.result)}</span>}
             <span className="faint">{[when(item.at, task.at), item.sha && `on ${item.sha.slice(0, 7)}`].filter(Boolean).join(" · ")}</span>
           </li>
         ))}</ul>
       </>}
-      {[["Brief files", files.briefs], ["Report files", files.reports]].map(([name, list]) => list.length > 0 && (
+      {[["Brief files", files.briefs, files.unlisted.briefs], ["Report files", files.reports, files.unlisted.reports]].map(([name, list, more]) => list.length > 0 && (
         <div key={name}>
           <h4>{name}</h4>
           <ul className="files">{list.map(item => <li key={item.name}><code>{controlsShown(item.name)}</code>{item.run && <span className="faint">{item.run}</span>}</li>)}</ul>
+          {more > 0 && <p className="none">The list stops here: the logbook holds {more} more {more === 1 ? "file" : "files"} for this task.</p>}
         </div>
       ))}
     </div>
@@ -120,7 +136,7 @@ function Log({ task }) {
   if (!task.log.length) return <p className="none">No event recorded.</p>;
   return (
     <>
-      <ol className="log">{task.log.map((event, i) => <li key={i}><span className="t">{when(event.at, task.at)}</span><span className="who">{event.who}</span><span>{event.text}</span></li>)}</ol>
+      <ol className="log">{task.log.map((event, i) => <li key={i}><span className="t">{when(event.at, task.at)}</span><span className="who">{event.who}</span><span>{controlsShown(event.text)}</span></li>)}</ol>
       {task.logMore > 0 && <p className="none">{task.logMore} older events are not shown.</p>}
     </>
   );
@@ -131,8 +147,8 @@ function Decisions({ task }) {
   return (
     <ul className="decs">{task.decisions.map(gate => (
       <li key={gate.id}>
-        <p>{gate.question}</p>
-        <p className={gate.answer || gate.pending ? "by" : "by need"}>{gate.answer ? `You answered: ${gate.answer}` : gate.pending ? `You answered on the board: ${gate.pending}. It waits for the chief to pick it up.` : "Open: it waits for your answer."}{gate.recommendation && !gate.answer && !gate.pending && ` Recommended: ${gate.recommendation}.`}</p>
+        <p>{controlsShown(gate.question)}</p>
+        <p className={gate.answer || gate.pending || !gate.waits ? "by" : "by need"}>{gate.answer ? `You answered: ${controlsShown(gate.answer)}` : gate.pending ? `You answered on the board: ${controlsShown(gate.pending)}. It waits for the chief to pick it up.` : gate.waits ? "Open: it waits for your answer." : "Not answered. No chief waits for this answer now."}{gate.recommendation && gate.waits && !gate.pending && ` Recommended: ${controlsShown(gate.recommendation)}.`}</p>
         <p className="faint">{gate.id} · {when(gate.at, task.at)}</p>
       </li>
     ))}</ul>
@@ -144,7 +160,9 @@ export function Panel({ taskKey, at, back = "tasks" }) {
   const [tab, setTab] = useState(TABS[0]);
   const heading = useRef(null), tabs = useRef([]);
   const close = () => {
-    location.hash = back;
+    const rest = new URLSearchParams(location.hash.split("?")[1] ?? "");
+    rest.delete("task");
+    location.hash = `${back}${rest.size ? `?${rest}` : ""}`;
     requestAnimationFrame(() => document.querySelector(`[data-task="${CSS.escape(taskKey)}"]`)?.focus());
   };
   useEffect(() => { heading.current?.focus(); }, [taskKey, !task]);
@@ -154,9 +172,10 @@ export function Panel({ taskKey, at, back = "tasks" }) {
     return () => removeEventListener("keydown", key);
   });
   const move = event => {
-    const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
-    if (!step) return;
-    const next = TABS[(TABS.indexOf(tab) + step + TABS.length) % TABS.length];
+    const at = { ArrowRight: TABS.indexOf(tab) + 1, ArrowLeft: TABS.indexOf(tab) - 1, Home: 0, End: TABS.length - 1 }[event.key];
+    if (at === undefined) return;
+    event.preventDefault();
+    const next = TABS[(at + TABS.length) % TABS.length];
     setTab(next); tabs.current[TABS.indexOf(next)]?.focus();
   };
   const counts = task && { Artifacts: task.runs.length + (task.files.designs.versions ? 1 : 0) + task.files.recorded.length + task.artifacts.length + (task.files.pages?.length ?? 0) + task.files.kept.length, Log: task.log.length + task.logMore, Decisions: task.decisions.length };
@@ -169,31 +188,32 @@ export function Panel({ taskKey, at, back = "tasks" }) {
         <button type="button" className="close" onClick={close} aria-label="Close the task panel">×</button>
       </div>
       <div className="panel-body">
-        <h2 id="panel-h" ref={heading} tabIndex={-1}>{task ? task.title : problem === "gone" ? "This task is not on the board" : problem ? "The board cannot read this task now" : "Reading the task"}</h2>
+        <h2 id="panel-h" ref={heading} tabIndex={-1}>{task ? controlsShown(task.title) : problem === "gone" ? "This task is not on the board" : problem ? "The board cannot read this task now" : "Reading the task"}</h2>
         {problem && !task && <p className="none" role="alert">{problem === "gone" ? "The logbook has no task with this name. Close the panel and pick a task from the list." : "It tries again when the logbook changes."}</p>}
         {problem && task && <p className="stale" role="status">{problem === "gone" ? "This task is no longer on the board. The panel shows what it read last." : "The panel could not refresh. It shows what it read last, and tries again when the logbook changes."}</p>}
         {task && <>
           {task.conflicts.map(other => (
             <div className="callout" key={other.key}>
-              <p><strong>May conflict with {other.id}</strong> ({other.chief}). Both open branches change:</p>
+              <p><strong>May conflict with {other.id}</strong> ({controlsShown(other.chief)}). Both open branches change:</p>
               <ul>{other.paths.slice(0, 20).map(path => <li key={path}><code>{controlsShown(path)}</code></li>)}</ul>
               {other.paths.length > 20 && <p className="faint">and {other.paths.length - 20} more files.</p>}
               <p className="faint">A warning only: nothing waits. The pull request that merges second may need a rebase.</p>
             </div>
           ))}
           <dl className="facts">
-            <dt>Chief</dt><dd>{chiefName(task.chief)}{task.chief?.stopped && " · stopped"}</dd>
+            <dt>Chief</dt><dd className="chief">{task.chief && !task.chief.old && <ChiefDot stopped={task.chief.stopped} />}{chiefName(task.chief)}{task.chief && !task.chief.old && ` · ${LIVENESS[liveness(task.chief.stopped)]}`}</dd>
+            {task.chief?.old && <><dt>Logbook</dt><dd>An old logbook. The task stays there, read-only: the move did not take it to the shared logbook.</dd></>}
             <dt>Priority</dt><dd>{task.priority ?? "None"}{task.kind && ` · ${task.kind}`}</dd>
             <dt>Size</dt><dd>{task.size ?? "not known"}{task.risk && ` · risk flag ${task.risk}`}</dd>
             <dt>Pull request</dt><dd>{task.pr ? task.prUrl ? <a href={task.prUrl} target="_blank" rel="noopener noreferrer">#{task.pr}</a> : `#${task.pr}` : "None yet"}</dd>
             <dt>Branch</dt><dd>{task.branch ? <code>{controlsShown(task.branch)}</code> : "None yet"}</dd>
-            <dt>Milestone</dt><dd>{task.milestone?.title ?? "None"}</dd>
-            {task.waits && <><dt>Waits</dt><dd>{task.waits}</dd></>}
+            <dt>Milestone</dt><dd>{controlsShown(task.milestone?.title ?? "None")}</dd>
+            {task.waits && <><dt>Waits</dt><dd>{controlsShown(task.waits)}</dd></>}
           </dl>
           <Cycle task={task} />
           <section aria-labelledby="last-h">
             <h3 id="last-h">Last event</h3>
-            <p className="last">{task.lastEvent ? <>{when(task.lastEvent.at, task.at)} · {task.lastEvent.who} · {task.lastEvent.text}</> : "No event recorded."}</p>
+            <p className="last">{task.lastEvent ? <>{when(task.lastEvent.at, task.at)} · {task.lastEvent.who} · {controlsShown(task.lastEvent.text)}</> : "No event recorded."}</p>
           </section>
           <div className="tabs" role="tablist" aria-label="Task details" onKeyDown={move}>
             {TABS.map((name, i) => <button type="button" role="tab" key={name} id={`tab-${name}`} ref={el => { tabs.current[i] = el; }} aria-selected={tab === name} aria-controls="tab-panel" tabIndex={tab === name ? 0 : -1} onClick={() => setTab(name)}>{name} <span className="faint">{counts[name]}</span></button>)}
