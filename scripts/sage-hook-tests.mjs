@@ -3018,7 +3018,7 @@ test("T229, T1059: the board config rule refuses the ordinary shapes, the board'
     ["cat ~/.config/sage-board/*", CONFIG], ["cat ~/.config/sage-b*/board.json", OK], ["cat ~/.config/sage-board/board.js?n", OK], ["D=/tmp/x; cat $D/board.json", OK],
     ["cat $HOME/.config/sage-board/board.json", OK], ["cat ${HOME}/.config/sage-board/board.json", OK],
     ["cat ~/.config/sage-board/.board-0123456789ab.json", CONFIG], ["cat board.json", CONFIG, folder], ["cat ./x/../board.json", CONFIG, folder], ["cat ../sage-board/board.json", CONFIG, folder],
-    ["cd ~/.config && cat sage-board/board.json", CONFIG], [`cd ${home}/.config && cat sage-board/board.json`, CONFIG], [`cd ${home} && cat .config/sage-board/board.json`, CONFIG],
+    ["cd ~/.config && cat sage-board/board.json", CONFIG], ["cd ~/.config && cat sage-board/state/paired.json", CONFIG], [`cd ${home}/.config && head sage-board/state/pair-code.json`, CONFIG], [`cd ${home}/.config && cat sage-board/board.json`, CONFIG], [`cd ${home} && cat .config/sage-board/board.json`, CONFIG],
     ["pushd ~/.config && cat sage-board/board.json", CONFIG], [`pushd ${home}/.config && cat sage-board/board.json`, CONFIG],
     [`pushd ${home}/.config && popd && cat sage-board/board.json`, OK], ["pushd ~/.config && popd && cat sage-board/board.json", OK],
     [`cat ${dir}/plain-name.txt`, OK], [`cat ${dir}/linked-config/sage-board/board.json`, OK], ["head < ~/.config/sage-board/board.json", CONFIG],

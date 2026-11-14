@@ -168,11 +168,12 @@ test("F-T1065-14: the app stream sends a model only when it changed, and refuses
   assert.match(await extra.text(), /too many open board streams/);
 });
 
-test("F-T1065-14: the server reads again when a merge leaves the 24-hour window, with no change in the logbook", async t => {
-  const { base } = await board(t, { now: new Date(Date.now() - 22 * 3_600_000 + 1_500).toISOString() });
-  const [first, second] = await models(`${base}/app/events`, 2, () => {}, 20_000);
-  assert.equal(first.counts.merged, 1, "T1 merged 24 h minus 1.5 s ago");
-  assert.equal(second?.counts.merged, 0, "1.5 s later the merge leaves the window, and the server sends the new count");
+test("F-T1065-14, F-T1076-14: the server reads again when a merge leaves the 24-hour window, with no change in the logbook", async t => {
+  const margin = 8_000;
+  const { base } = await board(t, { now: new Date(Date.now() - 22 * 3_600_000 + margin).toISOString() });
+  const [first, second] = await models(`${base}/app/events`, 2, () => {}, margin + 20_000);
+  assert.equal(first.counts.merged, 1, "T1 merged 24 h minus 8 s ago: the setup and the first read get 8 s, as a loaded test machine can take seconds to start a server");
+  assert.equal(second?.counts.merged, 0, "8 s later the merge leaves the window, and the server sends the new count");
 });
 
 test("F-T1065-15, -16: a package that npm puts inside another package's folder gets its own pin check and its own licence", t => {
