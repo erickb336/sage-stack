@@ -14,7 +14,7 @@ const SCRATCH = realpathSync(mkdtempSync(join(tmpdir(), "sage-autopilot-gate-"))
 process.on("exit", () => rmSync(SCRATCH, { recursive: true, force: true }));
 process.env.HOME = SCRATCH;
 process.env.SAGE_HOME = join(SCRATCH, "sage");
-delete process.env.CODEX_HOME;
+process.env.CODEX_HOME = join(SCRATCH, "codex");
 const INSTALL_HOME = join(SCRATCH, "install-codex-home");
 const PLUGIN = join(INSTALL_HOME, "plugins/cache/sage/sage/0.0.0");
 cpSync(BUILT, PLUGIN, { recursive: true });
@@ -63,14 +63,14 @@ function withMode(lines) {
   const turn = "mode-turn";
   const start = { ...lines[first], payload: { ...lines[first].payload, turn_id: turn, turn_attribution: { ...lines[first].payload.turn_attribution, turn_id: turn } } };
   const mode = { ...template, payload: { ...template.payload, content: [{ type: "input_text", text: "sage mode" }], internal_chat_message_metadata_passthrough: { ...template.payload.internal_chat_message_metadata_passthrough, turn_id: turn } } };
-  return [...lines.slice(0, first), start, mode, ...lines.slice(first)];
+  return [...lines.slice(0, first), start, mode, { type: "event_msg", payload: { type: "task_complete", turn_id: turn } }, ...lines.slice(first)];
 }
 let worlds = 0;
-function world({ lines = withMode(RECORDS["exec-on"]), mode = { sage: true, autopilot: true, given: true, onTurn: TURN }, mark = { lines: 0, pid: PPID } } = {}) {
+function world({ lines = withMode(RECORDS["exec-on"]).filter((row) => row.payload.type !== "task_complete" || row.payload.turn_id !== TURN), mode = { sage: true, autopilot: true, given: true, onTurn: TURN }, mark = { lines: 0, pid: PPID } } = {}) {
   const home = join(SCRATCH, `world-${++worlds}`);
   const project = join(home, "project");
   mkdirSync(project, { recursive: true });
-  const env = { PATH: `${ARG0}:${FAKES}`, HOME: home, SAGE_HOME: join(home, "sage"), SAGE_SHARED_HOME: process.env.SAGE_SHARED_HOME, TMPDIR: join(home, "tmp") };
+  const env = { PATH: `${ARG0}:${FAKES}`, HOME: home, CODEX_HOME: join(home, "codex"), SAGE_HOME: join(home, "sage"), SAGE_SHARED_HOME: process.env.SAGE_SHARED_HOME, TMPDIR: join(home, "tmp"), ZDOTDIR: process.env.ZDOTDIR };
   const transcript = join(home, `rollout-2026-11-07T09-00-00-${SESSION}.jsonl`);
   writeFileSync(transcript, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
   const dir = join(env.SAGE_HOME, ".hooks", "codex");
@@ -92,6 +92,94 @@ const clearPermits = () => permitFolder && rmSync(permitFolder, { recursive: tru
 const ALLOW = { hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "allow" } } };
 const READY = "Report the pull request as ready: the owner merges it in GitHub";
 const OFF = 'sage: autopilot is off, so the owner merges. Report the pull request as ready. To turn autopilot on while sage mode is on, the owner sends "autopilot on" alone, as a new message while Codex is idle (press Esc first if Codex is busy)';
+
+test("T1087: a trusted nested dispatch needs no standalone call row", async () => {
+  clearPermits();
+  const lines = withMode(RECORDS["exec-on"]).filter((row) => row.payload.type !== "task_complete" || row.payload.turn_id !== TURN);
+  const w = world({ lines });
+  const nested = "nested-dispatch-2";
+  assert.equal(await w.run(w.input(COMMAND, { tool_use_id: nested })), undefined);
+  rmSync(GH_LOG, { force: true });
+  const result = spawnSync(process.execPath, [MERGE, "41", SHA], { cwd: w.project, encoding: "utf8",
+    env: { ...w.env, CODEX_SESSION_ID: SESSION, CODEX_THREAD_ID: SESSION, CODEX_TOOL_CALL_ID: nested } });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(ghCalls().length, 1);
+  assert.equal(ghCalls()[0].at(-1), SHA);
+  rmSync(GH_LOG);
+});
+
+test("T1087: dispatch identity and current-turn evidence fail closed", async () => {
+  const event = (type, turn_id = TURN) => ({ type: "event_msg", payload: { type, turn_id } });
+  const cases = [
+    ["missing call", { tool_use_id: undefined }], ["malformed call", { tool_use_id: "bad/id" }],
+    ["oversized call", { tool_use_id: "x".repeat(257) }], ["missing turn", { turn_id: undefined }],
+    ["malformed turn", { turn_id: "bad turn" }], ["wrong turn", { turn_id: "other-turn" }],
+    ["child", { agent_id: "child" }], ["wrong session", { session_id: "other-session" }],
+    ["completed", {}, [event("task_complete")]], ["cancelled", {}, [event("turn_aborted")]],
+    ["ambiguous", {}, [event("task_started", "other-turn")]], ["duplicate", {}, [event("task_started")]],
+  ];
+  for (const [name, fields, extra = []] of cases) {
+    clearPermits();
+    const w = world();
+    for (const row of extra) appendFileSync(w.transcript, JSON.stringify(row) + "\n");
+    rmSync(GH_LOG, { force: true });
+    assert.equal((await w.run(w.input(COMMAND, fields)))?.hookSpecificOutput?.permissionDecision, "deny", name);
+    assert.deepEqual([w.checks, permits(), ghCalls()], [[], [], []], name);
+  }
+  for (const name of ["pre-start call", "pre-start turn", "wrong mark session"]) {
+    clearPermits();
+    const w = world();
+    const rows = readFileSync(w.transcript, "utf8").trim().split("\n").map(JSON.parse);
+    const current = "dispatch-turn";
+    rows.push(event("task_complete"), event("task_started", current));
+    writeFileSync(w.transcript, rows.map(JSON.stringify).join("\n") + "\n");
+    const mark = { session: SESSION, source: "resume", lines: name === "pre-start turn" ? rows.length : 0, pid: PPID, sage: true };
+    if (name === "wrong mark session") mark.session = "other-session";
+    writeFileSync(join(dirname(w.modeFile), "marks", `${stateKey({ session_id: SESSION })}.json`), JSON.stringify(mark));
+    rmSync(GH_LOG, { force: true });
+    assert.equal((await w.run(w.input(COMMAND, { turn_id: current })))?.hookSpecificOutput?.permissionDecision, "deny", name);
+    assert.deepEqual([w.checks, permits(), ghCalls()], [[], [], []], name);
+  }
+});
+
+test("T1087: a later active turn can use earlier owner authorization", async () => {
+  clearPermits();
+  const w = world();
+  appendFileSync(w.transcript, [
+    { type: "event_msg", payload: { type: "task_complete", turn_id: TURN } },
+    { type: "event_msg", payload: { type: "task_started", turn_id: "later-merge" } },
+  ].map(JSON.stringify).join("\n") + "\n");
+  assert.equal(await w.run(w.input(COMMAND, { turn_id: "later-merge", tool_use_id: "later-nested" })), undefined);
+  rmSync(GH_LOG, { force: true });
+  const result = spawnSync(process.execPath, [MERGE, "41", SHA], { cwd: w.project, encoding: "utf8",
+    env: { ...w.env, CODEX_SESSION_ID: SESSION, CODEX_THREAD_ID: SESSION, CODEX_TOOL_CALL_ID: "later-nested" } });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(ghCalls().length, 1);
+  rmSync(GH_LOG);
+});
+
+test("T1087: final reread refuses changed startup, terminal turn, session and owner binding", async () => {
+  for (const change of ["start", "complete", "ambiguous", "session", "owner", "missing record", "truncated record"]) {
+    clearPermits();
+    const w = world();
+    assert.equal(await w.run(w.input()), undefined);
+    const file = join(permitFolder, permits()[0]);
+    const saved = JSON.parse(readFileSync(file, "utf8"));
+    if (change === "start") writeFileSync(saved.startFile, JSON.stringify({ ...saved.mark, pid: PPID + 1 }));
+    if (change === "complete") appendFileSync(w.transcript, JSON.stringify({ type: "event_msg", payload: { type: "task_complete", turn_id: TURN } }) + "\n");
+    if (change === "ambiguous") appendFileSync(w.transcript, JSON.stringify({ type: "event_msg", payload: { type: "task_started", turn_id: "later" } }) + "\n");
+    if (change === "session") writeFileSync(w.transcript, readFileSync(w.transcript, "utf8").replaceAll(SESSION, "other-session"));
+    if (change === "owner") writeFileSync(w.modeFile, JSON.stringify({ sage: true, autopilot: true, onTurn: "other-owner-turn" }));
+    if (change === "missing record") rmSync(w.transcript);
+    if (change === "truncated record") appendFileSync(w.transcript, "{");
+    rmSync(GH_LOG, { force: true });
+    const result = spawnSync(process.execPath, [MERGE, "41", SHA], { cwd: w.project, encoding: "utf8",
+      env: { ...w.env, CODEX_SESSION_ID: SESSION, CODEX_THREAD_ID: SESSION, CODEX_TOOL_CALL_ID: CALL } });
+    assert.equal(result.status, 1, change);
+    assert.deepEqual(ghCalls(), [], change);
+    assert.deepEqual(permits(), [], change);
+  }
+});
 
 test("T1069: long-history admission keeps the final reread for a later off or cancellation", async () => {
   for (const stopped of ["off", "cancel"]) {
@@ -118,7 +206,7 @@ test("admission: with the mode file on, the owner's on, the call in the record a
   assert.deepEqual(w.checks, [{ pr: "41", sha: SHA, cwd: w.project }], "checkMerge ran once, unchanged, for this pull request and head");
   assert.equal(permits().length, 1);
   const permit = JSON.parse(readFileSync(join(permitFolder, permits()[0]), "utf8"));
-  assert.deepEqual({ ...permit, time: typeof permit.time }, { session: SESSION, repo: "example-owner/example.repo", pr: "41", sha: SHA, command: COMMAND, cwd: w.project, turn: TURN,
+  assert.deepEqual({ ...permit, time: typeof permit.time }, { session: SESSION, callId: CALL, turnStart: 4, ownerTurn: TURN, startFile: join(dirname(w.modeFile), "marks", `${stateKey({ session_id: SESSION })}.json`), repo: "example-owner/example.repo", pr: "41", sha: SHA, command: COMMAND, cwd: w.project, turn: TURN,
     transcript: w.transcript, mark: { session: SESSION, source: "startup", lines: 0, pid: PPID }, mode: w.modeFile, gh: join(FAKES, "gh"), path: `${ARG0}:${FAKES}`, time: "number" });
   assert.deepEqual(ghCalls(), [["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]], "the gate sets the repository from gh in the call's folder");
   rmSync(GH_LOG);
@@ -128,7 +216,7 @@ test("admission: with the mode file on, the owner's on, the call in the record a
     assert.equal(await w.run(request), undefined, name);
   }
   const r = spawnSync(process.execPath, [MERGE, "41", SHA], { cwd: w.project, encoding: "utf8",
-    env: { PATH: FAKES, HOME: w.home, CODEX_SESSION_ID: SESSION, CODEX_THREAD_ID: SESSION, CODEX_TOOL_CALL_ID: CALL } });
+    env: { ...w.env, PATH: FAKES, CODEX_SESSION_ID: SESSION, CODEX_THREAD_ID: SESSION, CODEX_TOOL_CALL_ID: CALL } });
   assert.deepEqual({ status: r.status, stdout: r.stdout, stderr: r.stderr }, { status: 0, stdout: "FAKE-gh T677\n", stderr: "" });
   assert.deepEqual(ghCalls(), [["pr", "merge", "41", "--repo", "example-owner/example.repo", "--squash", "--delete-branch", "--match-head-commit", SHA]]);
   rmSync(GH_LOG);
@@ -182,7 +270,7 @@ test("F-T663-1: the gate checks the version of the Codex that runs, also when th
     for (const version of ["0.168.0", "0.169.0", "1.0.0"]) {
       writeFileSync(VERSION, `${version}\n`);
       clearPermits();
-      const [meta, ...rest] = withMode(RECORDS["exec-on"]);
+      const [meta, ...rest] = withMode(RECORDS["exec-on"]).filter((row) => row.payload.type !== "task_complete" || row.payload.turn_id !== TURN);
       const fresh = world({ lines: [{ ...meta, payload: { ...meta.payload, cli_version: version } }, ...rest] });
       assert.equal(await fresh.run(fresh.input()), undefined, `a new session of ${version}`);
       assert.equal(permits().length, 1, version);
@@ -194,7 +282,7 @@ test("F-T663-1: the gate checks the version of the Codex that runs, also when th
     const offTurn = app.findLast((o) => o.payload.type === "task_started");
     const call = RECORDS["exec-on"].find((o) => o.payload.type === "function_call");
     const onTurn = app.slice(0, app.indexOf(offTurn)).findLast((o) => o.payload.role === "user" && o.payload.content?.[0]?.text === "autopilot on").payload.internal_chat_message_metadata_passthrough.turn_id;
-    const desktop = world({ lines: [{ ...app[0], payload: { ...app[0].payload, id: SESSION } }, ...app.slice(1, app.indexOf(offTurn)), call], mode: { sage: true, autopilot: true, given: true, onTurn } });
+    const desktop = world({ lines: [{ ...app[0], payload: { ...app[0].payload, id: SESSION } }, ...app.slice(1, app.indexOf(offTurn)), { type: "event_msg", payload: { type: "task_started", turn_id: TURN } }, call], mode: { sage: true, autopilot: true, given: true, onTurn } });
     assert.equal(app[0].payload.cli_version, "0.167.0-alpha.3.2");
     assert.equal(await desktop.run(desktop.input()), undefined, "the desktop app's Codex 0.167.0-alpha.3.2");
     rmSync(GH_LOG);
@@ -223,12 +311,10 @@ test("F-T663-9, F-T663-22: a start mark of another Codex process refuses; a miss
   assert.deepEqual(permits(), []);
 });
 
-test("the call must be in Codex's record after the start mark, and the owner's on must be after it too", async () => {
+test("the owner's on must be after the start mark", async () => {
   clearPermits();
-  const w = world();
-  assert.equal(denied(await w.run(w.input(COMMAND, { tool_use_id: "call_not_in_record" }))), "sage: this merge call is not in Codex's record of this session, so sage refuses it. Ask for the merge again");
   const lines = withMode(RECORDS["exec-on"]);
-  const late = world({ mark: { lines: lines.length, pid: PPID } });
+  const late = world({ lines, mark: { lines: lines.length, pid: PPID } });
   assert.match(denied(await late.run(late.input())), /^sage: the owner has not turned autopilot on, with sage mode on, since this session started, so the owner merges/);
   const [meta, ...rest] = withMode(RECORDS["tui-on-then-off"]);
   const off = world({ lines: [{ ...meta, payload: { ...meta.payload, id: SESSION } }, ...rest] });
@@ -349,12 +435,15 @@ test("F-T677-3, F-T677-34: the gate allows no network approval of the admitted c
 });
 
 test("a failing merge check refuses with its own reason, and saves no permit", async () => {
-  clearPermits();
-  const w = world();
-  const reason = "sage: the merge check refuses: no verdicts recorded";
-  assert.equal(denied(await w.run(w.input(), { check: async () => ({ ok: false, reason }) })), reason);
-  assert.deepEqual(permits(), []);
-  rmSync(GH_LOG, { force: true });
+  for (const cause of ["no verdicts recorded", "missing exact-head checks", "incomplete required clean cycles"]) {
+    clearPermits();
+    const w = world();
+    const reason = `sage: the merge check refuses: ${cause}`;
+    assert.equal(denied(await w.run(w.input(), { check: async () => ({ ok: false, reason }) })), reason);
+    assert.deepEqual(permits(), []);
+    assert.equal(ghCalls().filter((call) => call.includes("merge")).length, 0);
+    rmSync(GH_LOG, { force: true });
+  }
 });
 
 test("the off path never blocks and is never missed: an off after the admission stops the merge command, also when the mode hook cannot save it", async () => {
@@ -483,7 +572,7 @@ test("F-T677-33, F-T677-18: after an off from a fork, an on that joins the main 
     assert.equal(denied(await w.run(w.input(COMMAND, { tool_use_id: "call-x", turn_id: "X" }))), refusal, `${name}: the gate refuses the merge`);
     assert.deepEqual([w.checks.length, permits()], [1, []], `${name}: no merge check after the off, and no permit`);
     assert.equal(out?.hookSpecificOutput?.additionalContext.startsWith('sage: this "autopilot on" did not count') ? out.hookSpecificOutput.additionalContext : undefined, said, `${name}: the chief's note`);
-    append(w, [startOf("Y")]);
+    append(w, [{ type: "event_msg", payload: { type: "task_complete", turn_id: TURN } }, { type: "event_msg", payload: { type: "task_complete", turn_id: "X" } }, startOf("Y")]);
     const again = prompt(w, SESSION, "Y", "autopilot on", w.transcript)?.hookSpecificOutput?.additionalContext;
     if (!early) assert.match(again ?? "", /^sage: autopilot is on\./, `${name}: the new on switches`);
     assert.deepEqual(JSON.parse(readFileSync(w.modeFile, "utf8")), { sage: true, autopilot: true, given: true, onTurn: "Y" }, `${name}: the mode file saves the new on's turn`);

@@ -12,6 +12,7 @@ const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const detached = (value) => typeof value === "string" ? Buffer.from(value, "utf16le").toString("utf16le")
   : value && typeof value === "object" ? JSON.parse(JSON.stringify(value)) : value;
+export const dispatchId = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(value);
 
 const refusal = (cause, step, detail) => ({ refused: `${cause}. ${step}${detail ? ` (${detail})` : ""}` });
 const IN_GITHUB = "The owner merges the pull request in GitHub";
@@ -78,7 +79,7 @@ export function readRecord(path, { pause = sleep, read = readSync, now = () => p
   const budget = { ...RECORD_BUDGET, ...overrides };
   const deadline = now() + budget.milliseconds;
   for (let attempt = 0; ; attempt++) {
-    const record = { trigger: new Map(), opener: new Map(), calls: new Map(), aborted: new Set(), switches: [], start: 0 };
+    const record = { trigger: new Map(), opener: new Map(), calls: new Map(), aborted: new Set(), switches: [], start: 0, turns: new Map(), active: new Set() };
     let values = 0, facts = 0;
     const retain = (...items) => {
       const bytes = items.reduce((sum, item) => sum + (typeof item === "string" ? item.length * 2 : isObject(item) || Array.isArray(item) ? JSON.stringify(item).length * 2 : 8), 64);
@@ -89,10 +90,25 @@ export function readRecord(path, { pause = sleep, read = readSync, now = () => p
     };
     const project = (entry, i) => {
       const p = entry.payload;
-      if (entry.type === "session_meta") record.start = i + 1;
+      if (entry.type === "session_meta") {
+        const failed = retain(p.id); if (failed) return failed;
+        record.session = detached(p.id);
+        record.root = !(isObject(p.source) && (Object.hasOwn(p.source, "subagent") || Object.hasOwn(p.source, "internal")));
+        record.start = i + 1;
+        record.turns.clear();
+        record.active.clear();
+      }
       if (entry.type === "event_msg" && p.type === "task_started") {
-        if (!record.trigger.has(p.turn_id)) { const failed = retain(p.turn_id); if (failed) return failed; }
+        if (!dispatchId(p.turn_id)) return FORM("invalid task_started turn id");
+        if (!record.turns.has(p.turn_id)) { const failed = retain(p.turn_id, p.turn_id, p.turn_id); if (failed) return failed; }
+        record.turns.set(detached(p.turn_id), record.turns.has(p.turn_id) ? null : i);
+        record.latestStart = i;
+        record.active.add(detached(p.turn_id));
         record.trigger.set(detached(p.turn_id), PERSON.has(p.turn_attribution?.turn_trigger));
+      }
+      if (entry.type === "event_msg" && ["task_complete", "turn_aborted"].includes(p.type)) {
+        if (!dispatchId(p.turn_id)) return FORM("invalid terminal turn id");
+        record.active.delete(p.turn_id);
       }
       if (entry.type === "event_msg" && p.type === "turn_aborted" && !record.aborted.has(p.turn_id)) {
         const failed = retain(p.turn_id); if (failed) return failed;
@@ -146,6 +162,17 @@ function userMessage(entry) {
 
 export const callInRecord = (record, callId, from) =>
   record.calls.has(callId) && record.calls.get(callId) >= from;
+
+export function dispatchBinding(record, mark, { session, turn, callId, child = false }) {
+  if (!dispatchId(session) || !dispatchId(turn) || !dispatchId(callId) || child) return null;
+  if (record.session !== session || !record.root || mark?.session !== session) return null;
+  if (!["startup", "resume", "clear", "fork"].includes(mark.source) || !Number.isInteger(mark.pid) || mark.pid <= 0) return null;
+  if (!Number.isInteger(mark.lines) || mark.lines < 0 || mark.lines > record.lines) return null;
+  const start = record.turns.get(turn);
+  if (!Number.isInteger(start) || start !== record.latestStart || start < mark.lines || record.active.size !== 1 || !record.active.has(turn) || record.aborted.has(turn)) return null;
+  if (record.calls.has(callId) && !callInRecord(record, callId, Math.max(mark.lines, start))) return null;
+  return { turnStart: start };
+}
 
 export function onCanCount(record, turn) {
   const { trigger, opener } = record;

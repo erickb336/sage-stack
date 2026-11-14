@@ -1,7 +1,7 @@
 import "./test-env.mjs";
 import { appendSyntheticHistory } from "./fixtures/codex-history-padding.mjs";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,7 +19,7 @@ cpSync(BUILT, PLUGIN, { recursive: true });
 const MERGE = join(PLUGIN, "skills/sage/merge.mjs");
 process.env.HOME = SCRATCH;
 process.env.SAGE_HOME = join(SCRATCH, "sage");
-delete process.env.CODEX_HOME;
+process.env.CODEX_HOME = join(SCRATCH, "codex");
 
 const FAKES = join(SCRATCH, "fakes");
 const GH = join(FAKES, "gh");
@@ -58,7 +58,7 @@ function withMode(lines) {
   const start = { ...lines[first], payload: { ...lines[first].payload, turn_id: turn, turn_attribution: { ...lines[first].payload.turn_attribution, turn_id: turn } } };
   const mode = { ...template, payload: { ...p, content: [{ type: "input_text", text: "sage mode" }],
     internal_chat_message_metadata_passthrough: { ...p.internal_chat_message_metadata_passthrough, turn_id: turn } } };
-  return [...lines.slice(0, first), start, mode, ...lines.slice(first)];
+  return [...lines.slice(0, first), start, mode, { type: "event_msg", payload: { type: "task_complete", turn_id: turn } }, ...lines.slice(first)];
 }
 let homes = 0;
 function session(recordName = "exec-on", { mode = true } = {}) {
@@ -66,22 +66,26 @@ function session(recordName = "exec-on", { mode = true } = {}) {
   const project = join(home, "project");
   mkdirSync(project, { recursive: true });
   const transcript = join(home, "record.jsonl");
-  const lines = mode ? withMode(RECORDS[recordName]) : RECORDS[recordName];
+  const lines = structuredClone(mode ? withMode(RECORDS[recordName]) : RECORDS[recordName]);
+  lines[0].payload.id = SESSION;
+  lines.push({ type: "event_msg", payload: { type: "task_started", turn_id: "merge-turn" } });
   writeFileSync(transcript, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
   const env = { PATH: FAKES, HOME: home, CODEX_HOME: join(home, "codex"), SAGE_HOME: join(home, "sage"), SAGE_SHARED_HOME: process.env.SAGE_SHARED_HOME,
     CODEX_SESSION_ID: SESSION, CODEX_THREAD_ID: SESSION, CODEX_TOOL_CALL_ID: `call_${homes}`, GH_HOST: "other.example", GH_REPO: "other/repository",
     GH_ENTERPRISE_TOKEN: "fake-enterprise-1", GITHUB_ENTERPRISE_TOKEN: "fake-enterprise-2", GH_CONFIG_DIR: join(home, "gh-config") };
-  const turn = RECORDS[recordName].find((line) => line.payload.type === "task_started").payload.turn_id;
+  const turn = "merge-turn";
   const onTurn = lines.findLast((line) => line.payload.role === "user" && line.payload.content?.at(-1)?.text === "autopilot on")?.payload.internal_chat_message_metadata_passthrough.turn_id;
   const modeFile = join(home, "mode.json");
   writeFileSync(modeFile, JSON.stringify({ sage: true, autopilot: true, given: true, onTurn }), { mode: 0o600 });
-  return { env, project, transcript, turn, lines, mode: modeFile };
+  const startFile = join(home, "start.json");
+  writeFileSync(startFile, JSON.stringify({ session: SESSION, source: "startup", lines: 0, pid: 4242 }));
+  return { env, project, transcript, turn, lines, mode: modeFile, startFile, onTurn };
 }
 function permit(s, fields = {}) {
   const file = permitFile(s.env.CODEX_TOOL_CALL_ID);
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-  const saved = { session: SESSION, repo: REPO, pr: "41", sha: SHA, command: mergeCommand("41", SHA), cwd: s.project, turn: s.turn, transcript: s.transcript,
-    mark: { session: SESSION, source: "startup", lines: 0, pid: 1 }, mode: s.mode, gh: GH, path: TRUSTED_PATH, time: Date.now(), ...fields };
+  const saved = { session: SESSION, callId: s.env.CODEX_TOOL_CALL_ID, turnStart: s.lines.length - 1, ownerTurn: s.onTurn ?? "no-owner-turn", startFile: s.startFile, repo: REPO, pr: "41", sha: SHA, command: mergeCommand("41", SHA), cwd: s.project, turn: s.turn, transcript: s.transcript,
+    mark: { session: SESSION, source: "startup", lines: 0, pid: 4242 }, mode: s.mode, gh: GH, path: TRUSTED_PATH, time: Date.now(), ...fields };
   writeFileSync(file, typeof fields === "string" ? fields : JSON.stringify(saved), { mode: 0o600 });
   return file;
 }
@@ -113,13 +117,26 @@ test("with a valid merge permit and the owner's on switch, it runs gh pr merge o
   assertRefused(merge(s), `this command has no merge permit, or its merge permit was used. ${AGAIN}`, "the same call again");
 });
 
+test("T1087: concurrent consumption executes one fake merge", async () => {
+  const s = session();
+  permit(s);
+  const execute = () => new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [MERGE, "41", SHA], { cwd: s.project, env: s.env, stdio: "ignore" });
+    child.on("error", reject);
+    child.on("close", resolve);
+  });
+  assert.deepEqual((await Promise.all([execute(), execute()])).sort(), [0, 1]);
+  assert.equal(ghCalls().length, 1);
+  rmSync(GH_LOG);
+});
+
 test("F-T663-21: a permit that the caller writes in a folder of its own SAGE_HOME, CODEX_HOME or HOME is not taken", () => {
   const s = session();
   const forged = join(SCRATCH, `forged-${s.env.CODEX_TOOL_CALL_ID}`);
   const name = `${createHash("sha256").update(s.env.CODEX_TOOL_CALL_ID).digest("hex")}.json`;
   const fields = { session: SESSION, repo: REPO, pr: "41", sha: SHA, command: mergeCommand("41", SHA), cwd: s.project, turn: s.turn, transcript: s.transcript,
     mark: { session: SESSION, source: "startup", lines: 0, pid: 1 }, mode: s.mode, gh: GH, time: Date.now() };
-  const { SAGE_HOME, CODEX_HOME, ...rest } = s.env;
+  const rest = s.env;
   for (const [variable, folder] of [["SAGE_HOME", forged], ["CODEX_HOME", join(forged, "sage")], ["HOME", join(forged, ".codex", "sage")]]) {
     const permits = join(folder, ".hooks", "codex", "permits");
     mkdirSync(permits, { recursive: true, mode: 0o700 });
@@ -162,7 +179,8 @@ test("only the root thread merges, and only with Codex's tool call id; a refused
   }
   const { CODEX_THREAD_ID, CODEX_SESSION_ID, ...noIds } = s.env;
   assertRefused(merge({ ...s, env: noIds }), chief, "no ids");
-  assertRefused(merge(s, undefined, { CODEX_TOOL_CALL_ID: "" }), `Codex gave this command no tool call id. ${AGAIN}`, "no call id");
+  assertRefused(merge(s, undefined, { CODEX_TOOL_CALL_ID: "" }), `Codex gave this command no valid tool call id. ${AGAIN}`, "no call id");
+  for (const id of ["bad/id", "bad id", "x".repeat(257)]) assertRefused(merge(s, undefined, { CODEX_TOOL_CALL_ID: id }), `Codex gave this command no valid tool call id. ${AGAIN}`, "malformed call id");
   assertRefused(merge(s, undefined, { CODEX_TOOL_CALL_ID: "call_other" }), `this command has no merge permit, or its merge permit was used. ${AGAIN}`, "another call's id");
   assert.equal(existsSync(file), true);
   assert.equal(merge(s).status, 0, "the root thread's own call still merges");
@@ -171,6 +189,10 @@ test("only the root thread merges, and only with Codex's tool call id; a refused
 
 test("a merge permit that is damaged, old, or for another session, pull request, SHA or command refuses", () => {
   const cases = [
+    [{ callId: "different-call" }, "the merge permit is for another tool call"],
+    [{ cwd: SCRATCH }, "the merge permit is for another project"],
+    [{ turn: "other-turn" }, "the admitted root turn or owner authorization changed"],
+    [{ turnStart: 0 }, "the admitted root turn or owner authorization changed"],
     [{ time: Date.now() - 301_000 }, "the merge permit is not from the last 300 s"],
     [{ time: Date.now() + 60_000 }, "the merge permit is not from the last 300 s"],
     [{ session: "019a0000-0000-7000-8000-000000000bad" }, "the merge permit is for another session"],
@@ -242,7 +264,9 @@ test("right before gh it reads the record again: the owner's switch must be on, 
   permit(modeOff);
   assertRefused(merge(modeOff), NONE, "the on without the mode phrase");
   const resumed = session("exec-on-then-resume");
-  permit(resumed, { mark: { session: SESSION, source: "resume", lines: resumed.lines.findIndex((line) => line.payload.type === "task_complete") + 1, pid: 1 } });
+  const resumedMark = { session: SESSION, source: "resume", lines: resumed.lines.findIndex((line) => line.payload.type === "task_complete") + 1, pid: 4242 };
+  writeFileSync(resumed.startFile, JSON.stringify(resumedMark));
+  permit(resumed, { mark: resumedMark });
   assert.equal(merge(resumed).status, 0, "the owner's on after the resume");
   rmSync(GH_LOG);
   const marked = session();
@@ -273,10 +297,11 @@ test("right before gh it reads the record again: the owner's switch must be on, 
   permit(form);
   assertRefused(merge(form), `sage does not know the form of Codex's record of this session. The owner merges the pull request in GitHub (line ${form.lines.length + 1} is not JSON)`, "a record of an unknown form");
   const esc = session("tui-on-then-esc");
+  writeFileSync(esc.transcript, `${readFileSync(esc.transcript, "utf8")}${JSON.stringify({ type: "event_msg", payload: { type: "turn_aborted", turn_id: esc.turn } })}\n`);
   permit(esc);
   assertRefused(merge(esc), "the owner stopped the turn of this merge with Esc. Ask for the merge again only if the owner wants it", "turn_aborted for the permit's turn");
   const other = session("tui-on-then-esc");
-  permit(other, { turn: "019a0000-0000-7000-8000-0000000a0a0a" });
+  permit(other);
   assert.equal(merge(other).status, 0, "turn_aborted of another turn stops nothing");
   rmSync(GH_LOG);
 });
