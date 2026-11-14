@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import * as claude from "../plugins/sage/skills/sage/sage.mjs";
 import { runBoardCli } from "../plugins/sage/board/cli.mjs";
-import { createBoardServer, loadBoardApp } from "../plugins/sage/board/server.mjs";
+import { createBoardServer, loadBoardApp, withoutPaths } from "../plugins/sage/board/server.mjs";
 import { writeInWorker } from "../plugins/sage/board/writes.mjs";
 
 const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
@@ -351,7 +351,7 @@ function holdLock(w) {
   const lock = join(w.dir, ".lock");
   mkdirSync(lock);
   writeFileSync(join(lock, "00000000-0000-4000-8000-000000000000.json"), JSON.stringify({ pid: 424242, host: hostname(), machineId: "test-machine", boot: Date.now() - uptime() * 1000, start: 0, at: Date.now() }));
-  return () => rmSync(lock, { recursive: true, force: true });
+  return function moveAsideSoAWaitingWriteNeverMeetsAHalfDeletedLock() { renameSync(lock, `${lock}-released`); rmSync(`${lock}-released`, { recursive: true }); };
 }
 
 test("F-T1076-7: a question whose message file cannot be read opens without the message, and the board stays up", async t => {
@@ -409,10 +409,37 @@ test("F-T1076-11: a busy logbook and an unexpected state tool error reach the bo
   if (process.getuid?.() === 0) return t.skip("root writes into any folder");
   chmodSync(w.dir, 0o500);
   const broken = await answer().finally(() => chmodSync(w.dir, 0o700));
-  assert.equal(broken.status, 409, broken.text);
+  assert.equal(broken.status, 202, `F-T1076-16: the board cannot say whether the write landed, so it does not answer as a refusal (which the page shows as "Not recorded."): ${broken.text}`);
+  assert.equal(broken.json.pending, true, "F-T1076-16: the page shows it as a note that the write may have landed");
   assert.equal(broken.json.text, "The logbook write stopped with an unexpected error, so the board cannot say whether it landed. Reload the board to see it before you try again.");
   assert.doesNotMatch(broken.json.text, /\n\s+at |\.mjs:\d+/, "no stack trace");
   assert.doesNotMatch(broken.json.text, LOCAL_PATH);
+});
+
+test("F-T1076-21: no full local path leaves the board after a colon, in a file URL or with spaces in a folder name; a web address and an owner/repo name stay", () => {
+  const cases = [
+    ["remove /Users/sample/work/.lock first.", "remove …/.lock first."],
+    ["path:/Users/sample/work/logbook", "path:…/logbook"],
+    ["see file:///Users/sample/work/plan.md now", "see file:…/plan.md now"],
+    ["held /Users/sample/My Big Folder/logbook/.lock for 1.2 s.", "held …/.lock for 1.2 s."],
+    ["no checkout at ~/My Projects/app here", "no checkout at …/app here"],
+    ["open http://127.0.0.1:43124/pages/T1/plan.html for sample-owner/sage", "open http://127.0.0.1:43124/pages/T1/plan.html for sample-owner/sage"],
+  ];
+  for (const [text, shown] of cases) {
+    assert.equal(withoutPaths(text), shown, text);
+    assert.doesNotMatch(withoutPaths(text), /(?:Users|My Projects)\//, text);
+  }
+});
+
+test("F-T1076-9: about 12 KiB of other apps' cookies for 127.0.0.1 do not stop the board's reads or writes", async t => {
+  const w = await board(t), p = await pair(w);
+  const cookies = [0, 1, 2].map(i => `sample_auth.${i}=${"a".repeat(4000)}`).concat(p.cookie).join("; ");
+  assert.ok(cookies.length > 12_000, `${cookies.length} bytes of cookies`);
+  for (const path of ["/app/", "/"]) assert.equal((await call(w.port, path, { method: "GET", headers: { Cookie: cookies } })).status, 200, `GET ${path}`);
+  const open = await needs(w), need = open.needs.find(item => item.gate === "G1");
+  const answered = await call(w.port, "/api/answer", { headers: { ...p.headers, Cookie: cookies }, body: { logbook: w.logbook, gate: "G1", option: 1, digest: need.digest } });
+  assert.equal(answered.status, 200, answered.text);
+  assert.equal(JSON.parse(w.gate("G1").answered).answer, "yes", "the answer landed");
 });
 
 test("F-T1076-2: closing the board waits for a write that the board stopped waiting for, so the write ends before the board does", async t => {

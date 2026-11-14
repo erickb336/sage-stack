@@ -85,6 +85,7 @@ function appPolicy(origin) {
 const forwarded = name => name === "forwarded" || name.startsWith("x-forwarded-");
 
 const BODY_MAX = 16 * 1024;
+const HEADERS_MAX = 64 * 1024;
 const GATE = /^G[1-9]\d*$/, TASK = /^T[1-9]\d*$/, CHIEF = /^C[1-9]\d*$/, LOGBOOK = /^([A-Za-z0-9_-]{1,80})\/([a-z0-9-]+-[0-9a-f]{6})$/;
 const JOBS = {
   answer: body => GATE.test(body.gate) && Number.isInteger(body.option) && body.option >= 1 && body.option <= 99 && /^[0-9a-f]{16}$/.test(body.digest ?? "") && ["gate", "answer", body.gate, "--via", "board", "--option", String(body.option), "--seen", body.digest],
@@ -92,7 +93,8 @@ const JOBS = {
   give: body => TASK.test(body.task) && CHIEF.test(body.to) && ["gate", "give", body.task, "--to", body.to],
   name: body => CHIEF.test(body.chief) && typeof body.name === "string" && body.name.length <= 240 && ["chief", "name", body.chief, ...(body.name.trim() ? [body.name.trim()] : [])],
 };
-const LOCAL_PATH = /(?<![\w.:/~-])~?\/[^\s"'`]+/g;
+const LOCAL_PATH = /(?<![\w.~/-])~?\/(?!\/[^/])[^\s"'`]+(?:(?: [^\s"'`/]+){0,3} [^\s"'`/]+\/[^\s"'`]*)*/g;
+export const withoutPaths = text => text.replace(LOCAL_PATH, path => `…/${basename(path)}`);
 const jsonCell = text => { try { const value = JSON.parse(text || "null"); return value && typeof value === "object" && !Array.isArray(value) ? value : null; } catch { return null; } };
 
 function json(response, status, body, headers = {}) {
@@ -287,7 +289,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     if (Number.isFinite(boundary)) { boundaryTimer = setTimeout(schedule, Math.min(boundary - now, 2_147_483_647)); boundaryTimer.unref(); }
   }
 
-  const server = createServer({ maxHeaderSize: 8192 }, (request, response) => {
+  const server = createServer({ maxHeaderSize: HEADERS_MAX }, (request, response) => {
     securityHeaders(response);
     if (pagesRequest(request.url)) return servePages(request, response, { onMac, model });
     const fail = (status, text) => { response.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" }); response.end(request.method === "HEAD" ? undefined : `${text}\n`); };
@@ -348,7 +350,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     const argv = Object.hasOwn(JOBS, name) && JOBS[name](body);
     if (!argv || !source || !model?.sources.some(item => item.id === source.id && item.shared)) return reply(400, { problem: "The board cannot send this write: it names no question, task or chief of a shared logbook." });
     const done = await write({ shared: source.path, folder: book[2], argv });
-    return reply(done.pending ? 202 : done.code ? 409 : 200, { ok: !done.code, ...(done.pending && { pending: true }), text: String(done.text).replace(/^sage: /, "").replace(LOCAL_PATH, path => `…/${basename(path)}`) });
+    return reply(done.pending ? 202 : done.code ? 409 : 200, { ok: !done.code, ...(done.pending && { pending: true }), text: withoutPaths(String(done.text).replace(/^sage: /, "")) });
   }
 
   function gateDetail(key) {
