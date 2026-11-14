@@ -406,14 +406,33 @@ test("T1080 (F-T1080-6): a very long title takes a few lines of the panel, scrol
   assert.ok(box.facts < 1000, `the facts start on the first screen, at ${box.facts} px`);
 });
 
-test("T1080 (F-T1080-7): below 1280 px the open panel covers the whole list, so no row shows cut at its edge", async t => {
+test("T1080 (F-T1080-7, F-T1080-25): below 1280 px the open panel reaches the right edge and covers the whole list, so no row shows beside it", async t => {
   const { page } = await open(t, {}, `/app/#tasks?task=${encodeURIComponent(KEY("T40"))}`);
-  for (const width of [1100, 960]) {
+  for (const width of [1279, 1100, 900]) {
     await page.setViewportSize({ width, height: 1000 });
     await panelTitle(page).filter({ hasText: "Sample crash fix" }).waitFor();
-    const cut = await page.locator("a.row").evaluateAll(rows => { const panel = document.querySelector(".panel").getBoundingClientRect(); return rows.map(row => row.getBoundingClientRect()).filter(box => box.left < panel.left && box.right > panel.left).length; });
-    assert.equal(cut, 0, `${width} px: no row runs under the panel edge`);
+    const seen = await page.locator("a.row").evaluateAll(rows => { const panel = document.querySelector(".panel").getBoundingClientRect(); return { right: Math.round(panel.right), beside: rows.map(row => row.getBoundingClientRect()).filter(box => box.left < panel.left - 0.5 || box.right > panel.right + 0.5).length }; });
+    assert.deepEqual(seen, { right: width, beside: 0 }, `${width} px: the panel ends at the right edge and no row shows beside it`);
   }
+});
+
+test("T1080 (F-T1080-27): at 1280 px with the panel open, the filter row wraps left of the panel, so each control shows", async t => {
+  const { page } = await open(t, {}, `/app/#tasks?task=${encodeURIComponent(KEY("T40"))}`);
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await panelTitle(page).filter({ hasText: "Sample crash fix" }).waitFor();
+  const under = await page.locator(".toolbar :is(button, select)").evaluateAll(controls => { const panel = document.querySelector(".panel").getBoundingClientRect(); return controls.filter(control => control.getBoundingClientRect().right > panel.left).map(control => control.getAttribute("aria-label") ?? control.textContent); });
+  assert.deepEqual(under, [], "no filter or group control runs under the panel");
+});
+
+test("T1080 (F-T1080-23, F-T1080-26): a group name in the address that is a built-in object key gives the default view, and the other pages still show", async t => {
+  const { page, base, problems } = await open(t, {}, "/app/#tasks");
+  for (const name of ["constructor", "toString", "__proto__"]) {
+    await page.goto(`${base}/app/#tasks?group=${name}`);
+    await settles(() => groupTitles(page), ["Milestone 2: Offline sync", "Milestone 1: Board redesign", "No milestone", "Milestone 3: Sign-in rework"], `group=${name} gives the milestone groups`);
+    await page.evaluate(() => { location.hash = "#overview"; });
+    await page.locator("main h1").filter({ hasText: "Overview" }).waitFor();
+  }
+  assert.deepEqual(problems, []);
 });
 
 test("T1080 (F-T1080-8, F-T1080-9, F-T1080-12): invisible characters show as escapes in paths and in prose, while emoji, flags and joined words show whole", async t => {
@@ -430,6 +449,15 @@ test("T1080 (F-T1080-8, F-T1080-9, F-T1080-12): invisible characters show as esc
   assert.match(await page.locator("#tab-panel").textContent(), /Ship \\u2066now\\u2069\?/);
   await page.getByRole("tab", { name: /Log/ }).click();
   assert.match(await page.locator("#tab-panel").textContent(), /state building \\u202eevil/);
+});
+
+test("T1080 (F-T1080-24): only a whole subdivision flag keeps its tag characters; any other tag character shows as an escape", async t => {
+  const tags = text => [...text].map(c => String.fromCodePoint(0xe0000 + c.codePointAt(0))).join("");
+  const escaped = text => [...text].map(c => /[\u{e0000}-\u{e007f}]/u.test(c) ? `\\u{${c.codePointAt(0).toString(16)}}` : c).join("");
+  const flag = "\u{1f3f4}", scotland = `docs/${flag}${tags("gbsct")}\u{e007f}.md`, long = `src/${flag}${tags("run rm -rf now")}\u{e007f}.js`, uncancelled = `src/${flag}${tags("gbsct")}.js`, bare = `src/a${tags("gb")}\u{e007f}.js`;
+  const { page } = await open(t, { unicode: [scotland, long, uncancelled, bare] }, `/app/#tasks?task=${encodeURIComponent(KEY("T40"))}`);
+  await panelTitle(page).filter({ hasText: "Sample \\u202eevil title" }).waitFor();
+  assert.deepEqual(await page.locator(".callout code").allTextContents(), [scotland, escaped(long), escaped(uncancelled), escaped(bare), "src/shared.js"]);
 });
 
 test("T1080 (F-T1080-15, F-T1080-20): a milestone link from Needs you lands on a group that says why it is stuck and shows its ended tasks, or on a note when no task is there", async t => {

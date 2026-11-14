@@ -122,7 +122,7 @@ export function writeTasksLogbook(root, worktrees, now, { unicode = false, hosti
       { id: "O6", task: "T50", kind: "artifact", source: "chief", basis: "reported", observedAt: at(1), recordedAt: at(1), data: { type: "artifact", label: `<img src=x onerror="window.hacked=6">label`, url: "https://example.com/a?b=%22%3E%3Cscript%3E" } });
   }
   if (unicode) {
-    const paths = [UNICODE_TEXT.hidden, UNICODE_TEXT.emoji, UNICODE_TEXT.word, "src/shared.js"];
+    const paths = [...Array.isArray(unicode) ? unicode : [UNICODE_TEXT.hidden, UNICODE_TEXT.emoji, UNICODE_TEXT.word], "src/shared.js"];
     for (const record of records.filter(item => item.kind === "files")) record.data.paths = [...new Set([...paths, ...record.data.paths])];
     tables.tasks = tables.tasks.map(task => task.id === "T40" ? { ...task, title: "Sample \u202eevil title" } : task);
     tables.gates.push({ id: "G13", task: "T40", question: "Ship \u2066now\u2069?", options: "A|B", recommendation: "A", default: "", answer: "A", at: at(0.4) });

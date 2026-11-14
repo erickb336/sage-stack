@@ -22,10 +22,9 @@ const JOINS = /[\p{L}\p{M}]/u, NOT_JOINED = /[\p{Script=Latin}\p{Script=Greek}\p
 const joined = (c, before, after) => JOINS.test(before.slice(-1)) && JOINS.test(after[0] ?? "") && !NOT_JOINED.test(before.slice(-1)) && !NOT_JOINED.test(after[0])
   || c === "\u200d" && PICTURE.test(before) && /^\p{Extended_Pictographic}/u.test(after);
 const kept = (c, before, after) => /[\u200c\u200d]/.test(c) ? joined(c, before, after)
-  : /[\u{fe00}-\u{fe0f}\u{e0100}-\u{e01ef}]/u.test(c) ? /[\p{Extended_Pictographic}\p{Ideographic}]$/u.test(before) || /[#*0-9]$/.test(before) && after[0] === "\u20e3"
-  : /[\u{e0020}-\u{e007f}]/u.test(c) && /\u{1f3f4}[\u{e0020}-\u{e007e}]*$/u.test(before);
-export const controlsShown = text => String(text ?? "").replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/gu, (c, at, all) =>
-  kept(c, all.slice(Math.max(0, at - 40), at), all.slice(at + c.length, at + c.length + 2)) ? c
+  : /[\u{fe00}-\u{fe0f}\u{e0100}-\u{e01ef}]/u.test(c) && (/[\p{Extended_Pictographic}\p{Ideographic}]$/u.test(before) || /[#*0-9]$/.test(before) && after[0] === "\u20e3");
+export const controlsShown = text => String(text ?? "").replace(/\u{1f3f4}[\u{e0030}-\u{e0039}\u{e0061}-\u{e007a}]{2,6}\u{e007f}|[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/gu, (c, at, all) =>
+  c.length > 2 || kept(c, all.slice(Math.max(0, at - 40), at), all.slice(at + c.length, at + c.length + 2)) ? c
   : ({ "\n": "\\n", "\r": "\\r", "\t": "\\t" })[c] ?? (c.length > 1 ? `\\u{${hex(c)}}` : `\\u${hex(c)}`));
 export const encodeKey = key => btoa(String.fromCharCode(...new TextEncoder().encode(key))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 export function readLink(key, kind, arg, back = "tasks") {

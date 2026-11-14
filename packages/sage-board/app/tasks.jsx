@@ -87,7 +87,7 @@ export function Tasks({ model, params, chief = null }) {
   const [opened, setOpened] = useState(() => new Set());
   const now = useNow();
   const selected = params.get("task"), focus = params.get("milestone");
-  const group = focus || !GROUPS[params.get("group")] ? "milestone" : params.get("group");
+  const group = focus || !Object.hasOwn(GROUPS, params.get("group")) ? "milestone" : params.get("group");
   const filters = Object.fromEntries(FILTERS.map(([key]) => [key, params.get(key) ?? ""]));
   const go = changes => { location.hash = hashOf(location.hash.split("?")[1] ?? "", changes); };
   const link = key => hashOf(params, { task: key });
