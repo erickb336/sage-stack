@@ -31,7 +31,7 @@ export async function post(path, body) {
       setAccess(response.status === 403 && stored.get() ? "paired" : "unpaired");
     }
     return { ok: response.ok && json.ok !== false, text: clocks(json.text ?? json.problem ?? (response.ok ? "" : `The board refused the write (${response.status}).`)), json };
-  } catch { return { ok: false, text: "The board cannot reach its server on this Mac. Nothing was written." }; }
+  } catch { return { ok: false, text: "The board lost its connection to its server on this Mac, so it cannot say whether the write landed. Reload the board to see it before you try again.", json: { pending: true } }; }
 }
 
 export function PairBox() {

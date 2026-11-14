@@ -9,7 +9,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 import * as claude from "../plugins/sage/skills/sage/sage.mjs";
 import { runBoardCli } from "../plugins/sage/board/cli.mjs";
-import { createBoardServer, loadBoardApp } from "../plugins/sage/board/server.mjs";
+import { createBoardServer, loadBoardApp, withoutPaths } from "../plugins/sage/board/server.mjs";
+import { writeInWorker } from "../plugins/sage/board/writes.mjs";
 
 const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
 const CLI = new URL("../plugins/sage/board/cli.mjs", import.meta.url).pathname, TEST_CHILD = new URL("./board-test-child.mjs", import.meta.url).pathname;
@@ -41,7 +42,7 @@ function call(port, path, { method = "POST", headers = {}, body } = {}) {
   });
 }
 
-async function board(t) {
+async function board(t, options = {}) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-writes-")));
   const saved = { ...process.env };
   t.after(async () => {
@@ -69,7 +70,7 @@ async function board(t) {
   const port = await freePort();
   await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify([{ id: "shared", path: env.SAGE_SHARED_HOME }])], { output: () => {}, env });
   const stateDir = join(base, "home", ".config", "sage-board", "state");
-  const server = createBoardServer({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port, app: APP, settleReads: [], stateDir });
+  const server = createBoardServer({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port, app: APP, settleReads: [], stateDir, ...options });
   await server.start();
   t.after(() => server.close());
   const origin = `http://127.0.0.1:${port}`;
@@ -343,4 +344,114 @@ test("F-T1059-47: while a takeover question for a task is open, to any chief, a 
   claude.sage(["gate", "undo", "G2", "--project", w.project], w.env);
   claude.sage(["gate", "answer", "G2", "--option", "2", "--via", "chat", "--project", w.project], w.env);
   assert.match((await give("C3")).json.text, /^G3 open · Hand T1 from C1 \(claude\) to C3 \(claude\)\?/, "after the decline, the task can be given again");
+});
+
+const LOCAL_PATH = /(?:^|[\s(])~?\/(?:Users|home|private|tmp|var|Volumes)\//;
+function holdLock(w) {
+  const lock = join(w.dir, ".lock");
+  mkdirSync(lock);
+  writeFileSync(join(lock, "00000000-0000-4000-8000-000000000000.json"), JSON.stringify({ pid: 424242, host: hostname(), machineId: "test-machine", boot: Date.now() - uptime() * 1000, start: 0, at: Date.now() }));
+  return function moveAsideSoAWaitingWriteNeverMeetsAHalfDeletedLock() { renameSync(lock, `${lock}-released`); rmSync(`${lock}-released`, { recursive: true }); };
+}
+
+test("F-T1076-7: a question whose message file cannot be read opens without the message, and the board stays up", async t => {
+  const w = await board(t);
+  const fields = ["Where this is", "What you approve", "The one real choice in it", "If you do not answer", "Needed by", "After you answer"].map(label => ({ t: "field", label, text: `Sample: ${label}.` }));
+  const table = { t: "table", head: ["Answer", "What happens next", "Cost"], rows: [["yes", "The chief ships it.", "None."], ["no", "The chief waits.", "None."]], pick: 0 };
+  writeFileSync(join(w.base, "message.json"), JSON.stringify({ kind: "question", title: "Ship the share sheet?", blocks: [...fields.slice(0, 3), table, ...fields.slice(3)] }));
+  w.as("gate", "add", "T1", "--question", "Ship the share sheet?", "--options", "yes|no", "--recommend", "yes", "--message", join(w.base, "message.json"));
+  const url = `/app/gate/${Buffer.from(`${w.logbook}/G2`).toString("base64url")}`;
+  await waitFor(async () => (await call(w.port, url, { method: "GET" })).json?.message?.title === "Ship the share sheet?", "the question view has its message");
+  renameSync(join(w.dir, "gates", "G2.json"), join(w.dir, "gates", "kept.json"));
+  symlinkSync("kept.json", join(w.dir, "gates", "G2.json"));
+  const linked = await call(w.port, url, { method: "GET" });
+  assert.equal(linked.status, 200, linked.text);
+  assert.deepEqual([linked.json.question, linked.json.message], ["Ship the share sheet?", null], "the question shows without the message that the board cannot open");
+  assert.equal((await call(w.port, "/app/", { method: "GET" })).status, 200, "the board still serves pages");
+});
+
+test("F-T1076-12: a write whose body holds an object or an array is refused as a bad body, not blamed on the state folder", async t => {
+  const w = await board(t), p = await pair(w), before = w.gates();
+  for (const [path, body, headers] of [["pair", { code: { toString: 1 } }, w.own], ["undo", { logbook: w.logbook, gate: { toString: "G1" } }, p.headers], ["undo", { logbook: w.logbook, gate: ["G1"] }, p.headers], ["give", { logbook: w.logbook, task: "T1", to: ["C2"] }, p.headers]]) {
+    const got = await call(w.port, `/api/${path}`, { headers, body });
+    assert.equal(got.status, 400, `${path} ${JSON.stringify(body)}: ${got.text}`);
+    assert.equal(got.text, "A write is one JSON object of strings and numbers, of at most 16 KiB.\n");
+  }
+  assert.equal(w.gates(), before, "nothing reached the logbook");
+});
+
+test("F-T1076-8: a pairing that cannot write paired.json keeps its code, so the same code pairs once the file is fixed", async t => {
+  const w = await board(t);
+  const lines = [];
+  await runBoardCli(["board", "--pair", "--config", w.config], { output: line => lines.push(line), env: w.env, input: { isTTY: true } });
+  const code = /Pairing code: (\S+)/.exec(lines.join("\n"))[1];
+  writeFileSync(join(w.stateDir, "kept.json"), JSON.stringify({ browsers: [] }));
+  symlinkSync("kept.json", join(w.stateDir, "paired.json"));
+  const failed = await call(w.port, "/api/pair", { headers: w.own, body: { code } });
+  assert.equal(failed.status, 500, failed.text);
+  assert.match(failed.json.problem, /so nothing changed\./);
+  rmSync(join(w.stateDir, "paired.json"));
+  const again = await call(w.port, "/api/pair", { headers: w.own, body: { code } });
+  assert.equal(again.status, 200, `the code still works, as the refusal said: ${again.text}`);
+});
+
+test("F-T1076-11: a busy logbook and an unexpected state tool error reach the board with no stack trace and no local path", async t => {
+  const w = await board(t), p = await pair(w);
+  const open = await needs(w), need = open.needs.find(item => item.gate === "G1");
+  const answer = () => call(w.port, "/api/answer", { headers: p.headers, body: { logbook: w.logbook, gate: "G1", option: 1, digest: need.digest } });
+  const free = holdLock(w);
+  const busy = await answer();
+  free();
+  assert.equal(busy.status, 409, busy.text);
+  assert.match(busy.json.text, /^the logbook is busy: .* remove …\/\.lock first\.$/);
+  assert.doesNotMatch(busy.text, LOCAL_PATH);
+  assert.equal((await call(w.port, "/api/answer", { headers: p.headers, body: { logbook: w.logbook, gate: "G9", option: 1, digest: need.digest } })).json.text, "no gate G9. The latest: G1.", "a refusal comes through as the state tool says it");
+  if (process.getuid?.() === 0) return t.skip("root writes into any folder");
+  chmodSync(w.dir, 0o500);
+  const broken = await answer().finally(() => chmodSync(w.dir, 0o700));
+  assert.equal(broken.status, 202, `F-T1076-16: the board cannot say whether the write landed, so it does not answer as a refusal (which the page shows as "Not recorded."): ${broken.text}`);
+  assert.equal(broken.json.pending, true, "F-T1076-16: the page shows it as a note that the write may have landed");
+  assert.equal(broken.json.text, "The logbook write stopped with an unexpected error, so the board cannot say whether it landed. Reload the board to see it before you try again.");
+  assert.doesNotMatch(broken.json.text, /\n\s+at |\.mjs:\d+/, "no stack trace");
+  assert.doesNotMatch(broken.json.text, LOCAL_PATH);
+});
+
+test("F-T1076-21: no full local path leaves the board after a colon, in a file URL or with spaces in a folder name; a web address and an owner/repo name stay", () => {
+  const cases = [
+    ["remove /Users/sample/work/.lock first.", "remove …/.lock first."],
+    ["path:/Users/sample/work/logbook", "path:…/logbook"],
+    ["see file:///Users/sample/work/plan.md now", "see file:…/plan.md now"],
+    ["held /Users/sample/My Big Folder/logbook/.lock for 1.2 s.", "held …/.lock for 1.2 s."],
+    ["no checkout at ~/My Projects/app here", "no checkout at …/app here"],
+    ["open http://127.0.0.1:43124/pages/T1/plan.html for sample-owner/sage", "open http://127.0.0.1:43124/pages/T1/plan.html for sample-owner/sage"],
+  ];
+  for (const [text, shown] of cases) {
+    assert.equal(withoutPaths(text), shown, text);
+    assert.doesNotMatch(withoutPaths(text), /(?:Users|My Projects)\//, text);
+  }
+});
+
+test("F-T1076-9: about 12 KiB of other apps' cookies for 127.0.0.1 do not stop the board's reads or writes", async t => {
+  const w = await board(t), p = await pair(w);
+  const cookies = [0, 1, 2].map(i => `sample_auth.${i}=${"a".repeat(4000)}`).concat(p.cookie).join("; ");
+  assert.ok(cookies.length > 12_000, `${cookies.length} bytes of cookies`);
+  for (const path of ["/app/", "/"]) assert.equal((await call(w.port, path, { method: "GET", headers: { Cookie: cookies } })).status, 200, `GET ${path}`);
+  const open = await needs(w), need = open.needs.find(item => item.gate === "G1");
+  const answered = await call(w.port, "/api/answer", { headers: { ...p.headers, Cookie: cookies }, body: { logbook: w.logbook, gate: "G1", option: 1, digest: need.digest } });
+  assert.equal(answered.status, 200, answered.text);
+  assert.equal(JSON.parse(w.gate("G1").answered).answer, "yes", "the answer landed");
+});
+
+test("F-T1076-2: closing the board waits for a write that the board stopped waiting for, so the write ends before the board does", async t => {
+  const w = await board(t, { write: job => writeInWorker(job, { timeout: 0 }) }), p = await pair(w);
+  const open = await needs(w), need = open.needs.find(item => item.gate === "G1");
+  const free = holdLock(w);
+  const sent = await call(w.port, "/api/answer", { headers: p.headers, body: { logbook: w.logbook, gate: "G1", option: 2, digest: need.digest } });
+  assert.equal(sent.status, 202, sent.text);
+  const closing = w.server.close();
+  await new Promise(wake => setTimeout(wake, 300));
+  assert.equal(w.gate("G1").answered ?? "", "", "the write waits for the logbook lock");
+  free();
+  await closing;
+  assert.equal(JSON.parse(w.gate("G1").answered).answer, "no", "the board closed only after its open write ended");
 });
