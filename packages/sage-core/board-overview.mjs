@@ -1,6 +1,7 @@
 import { LAPSED, LINE, PRIORITIES, boardAnswer } from "./logbook-fields.mjs";
 import { milestoneName } from "./milestone-rules.mjs";
 import { STOPPED_MS } from "./chief-live.mjs";
+import { AGENT_QUIET_MS } from "./board-model.mjs";
 import { TEAM } from "./role-policy.mjs";
 import { taskWord } from "./state-words.mjs";
 
@@ -20,11 +21,10 @@ const number = id => Number(String(id).replace(/^\D+/, "")) || 0;
 
 const failedLately = (run, recent) => run.status === "failed" && recent(run.ended);
 const silent = agent => agent?.state === "stuck";
-function stuckAgents(agents) {
-  let count = 0;
-  const walk = agent => { if (silent(agent)) count++; for (const child of agent.children ?? []) walk(child); };
+function everyAgent(agents) {
+  const all = [], walk = agent => { all.push(agent); for (const child of agent.children ?? []) walk(child); };
   for (const project of agents?.projects ?? []) for (const agent of project.agents) walk(agent);
-  return count;
+  return all;
 }
 
 function gateNeeds(task) {
@@ -93,20 +93,12 @@ function taskRow(task, chiefs) {
 const LIVE = ["running", "queued"], HELPERS_MAX = 20;
 const count = value => /^\d+$/.test(String(value ?? "")) ? Number(value) : null;
 
-function agentStates(agents) {
-  const states = new Map();
-  const walk = agent => {
-    if (agent.task?.key && agent.runId) states.set(`${agent.task.key.slice(0, agent.task.key.lastIndexOf("/"))}/${agent.runId}`, agent);
-    for (const child of agent.children ?? []) walk(child);
-  };
-  for (const project of agents?.projects ?? []) for (const agent of project.agents) walk(agent);
-  return states;
-}
 
 const failReason = (task, run) => (task.decisionRows ?? []).findLast(row => String(row.decision ?? "").startsWith(`${run.id} failed: `))?.decision.slice(`${run.id} failed: `.length) ?? null;
 
-function agentsOf(model, recent) {
-  const states = agentStates(model.agents), groups = new Map((model.projects ?? []).map(project => [project.key, project]));
+function agentsOf(model, recent, agents) {
+  const states = new Map(agents.filter(agent => agent.task?.key && agent.runId).map(agent => [`${agent.task.key.slice(0, agent.task.key.lastIndexOf("/"))}/${agent.runId}`, agent]));
+  const groups = new Map((model.projects ?? []).map(project => [project.key, project]));
   return (model.agents?.limits ?? []).filter(book => !groups.get(book.group)?.archived).map(book => {
     const all = model.tasks.filter(task => task.project === book.key).flatMap(task => task.runs.map(run => {
       const agent = run.status === "running" ? states.get(`${book.key}/${run.id}`) : null;
@@ -163,11 +155,10 @@ export function boardOverview(model) {
       priority: PRIORITIES.find(priority => open.some(task => task.priority === priority)) ?? null,
       merged: milestone.progress.merged,
       total: milestone.progress.total,
-      abandoned: milestone.progress.abandoned.length,
+      abandoned: milestone.progress.abandoned,
       moving: open.filter(task => MOVING.includes(task.column)).length,
       waiting: milestone.waiting,
       needsYou: open.filter(task => task.reasons.length).length + (milestone.need ? 1 : 0),
-      progressText: milestone.progressText,
       pilot: milestone.pilot,
       doneAt: milestone.state === "done" && Number.isFinite(lastDone) ? new Date(lastDone).toISOString() : null,
     }];
@@ -176,8 +167,16 @@ export function boardOverview(model) {
   const merged = tasks.filter(task => task.state === "merged" && recent(task.completedAt));
   const failed = tasks.flatMap(task => task.runs).filter(run => failedLately(run, recent));
   const chiefs = (model.projects ?? []).filter(project => !project.archived).flatMap(project => (project.chiefs ?? []).map(chief => ({ ...chief, project: project.name, logbook: chief.key.slice(0, chief.key.lastIndexOf("/")) })));
+  const lastWrite = agent => agent.how === "logbook" ? time(byKey.get(agent.task?.key)?.lastActivity) ?? time(agent.run?.started) : null;
+  const agents = everyAgent(model.agents).map(agent => {
+    const when = lastWrite(agent);
+    return when !== null && at - when >= AGENT_QUIET_MS ? { ...agent, state: "stuck", why: `no logbook write for ${Math.floor((at - when) / 60_000)} min` } : agent;
+  });
+  const lastWrites = agents.map(lastWrite).filter(when => when !== null);
+  const stuckNow = agents.filter(silent).length;
   const leaving = [...merged.map(task => time(task.completedAt)), ...failed.map(run => time(run.ended))].map(when => when + DAY + 1)
-    .concat(chiefs.filter(chief => chief.stopped === false && !chief.agents && !chief.waitsForOwner).map(chief => time(chief.heartbeat) + STOPPED_MS + 1));
+    .concat(chiefs.filter(chief => chief.stopped === false && !chief.agents && !chief.waitsForOwner).map(chief => time(chief.heartbeat) + STOPPED_MS + 1))
+    .concat(lastWrites.filter(when => at - when < AGENT_QUIET_MS).map(when => when + AGENT_QUIET_MS));
 
   return {
     at: model.at,
@@ -191,8 +190,8 @@ export function boardOverview(model) {
     failedAt: tasks.flatMap(task => task.runs).filter(run => run.status === "failed" && time(run.ended) > at - EVENT_DAYS * DAY).map(run => iso(run.ended)),
     milestones,
     hiddenDone,
-    agents: agentsOf(model, recent),
-    counts: { merged: merged.length, stuck: failed.length + stuckAgents(model.agents), stuckNow: stuckAgents(model.agents), added: tasks.some(task => task.addedAt) ? tasks.filter(task => recent(task.addedAt)).length : null },
+    agents: agentsOf(model, recent, agents),
+    counts: { merged: merged.length, stuck: failed.length + stuckNow, stuckNow, added: tasks.some(task => task.addedAt) ? tasks.filter(task => recent(task.addedAt)).length : null },
     next: leaving.length ? Math.min(...leaving) : null,
   };
 }

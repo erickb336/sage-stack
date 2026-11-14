@@ -60,7 +60,7 @@ test("T1062: J4 is one click from the Overview: the top bar counts open the Agen
   await counts.first().click(); clicks++;
   await page.locator("main h1", { hasText: "Agents" }).waitFor();
   assert.equal(clicks, 1, "J4: one click from the Overview");
-  assert.deepEqual(await page.locator(".agents-kpis .kpi").allTextContents(), ["7 of 20agents running", "4 of 5leads", "3queued", "2need a look"]);
+  assert.deepEqual(await page.locator(".agents-kpis .kpi").allTextContents(), ["7 of 20agents running", "4 of 5leads", "3queued", "4need a look"], "2 failed runs, and the Codex runs R30 and R6 with no logbook write for 30 min");
   assert.deepEqual(await page.locator("section.chief-box h2").allTextContents(), ["C1 · Claude", "C2 · Codex", "C3 · Claude"], "every chief, Claude and Codex alike");
   assert.deepEqual(await box(page, "C1").locator(".acard-h .lead-id b").allTextContents(), ["lead · R25", "lead · R20"], "the oldest lead first");
   const r20 = box(page, "C1").locator("section.acard", { has: page.locator('[data-run="R20"]') });

@@ -170,7 +170,7 @@ test("T308: two clones of one name show the end of their paths only on the Mac's
   const model = buildBoardModel([claude([twin("trip-aaaaaa", "one"), twin("trip-bbbbbb", "two")], [])], { now: NOW });
   const mac = renderAgentsHtml(model, { live: true, paths: true }), remote = renderAgentsHtml(model, { live: true });
   assert.match(mac, /…\/one\/trip · sample\/trip/);
-  assert.ok(!remote.includes("/one/trip") && remote.includes("clone 1"), "a tunnel viewer sees clone 1 and clone 2");
+  assert.ok(!remote.includes("/one/trip") && remote.includes("clone 1"), "the offline snapshot shows clone 1 and clone 2");
 });
 
 test("T1062 F-T1062-1, F-T1062-2: a shared project shows its logbook's limit and its running runs, not a provider root's cap", () => {

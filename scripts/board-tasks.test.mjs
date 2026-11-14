@@ -186,8 +186,9 @@ test("T1062 F-T1062-13: the Agents page's 'need a look' counts the same runs as 
   const { sources } = world(t, { agents: true });
   const overview = boardOverview(modelOf(sources)), [book] = overview.agents;
   assert.equal(book.look, overview.counts.stuck, "one rule for both pages");
-  assert.deepEqual(book.runs.filter(run => run.look).map(run => [run.id, run.status, run.lead]), [["R1", "failed", null], ["R27", "failed", "R25"]],
-    "the failed run of the last 24 hours with no running lead and the lead's failed helper are both rows");
+  assert.deepEqual(book.runs.filter(run => run.look).map(run => [run.id, run.status, run.lead, run.why]),
+    [["R1", "failed", null, null], ["R30", "running", null, "no logbook write for 30 min"], ["R6", "running", "R30", "no logbook write for 30 min"], ["R27", "failed", "R25", null]],
+    "the failed run of the last 24 hours with no running lead, the lead's failed helper, and the Codex runs whose task has no logbook write for 30 min are all rows");
   assert.deepEqual(book.runs.filter(run => !run.look && run.status === "failed"), [], "a run that does not need a look is not marked");
 });
 
