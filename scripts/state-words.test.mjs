@@ -240,6 +240,8 @@ test("T1096: the guide's mark key and Agents page key show the table's marks and
   for (const word of WORDS) assert.ok(guide.includes(`| ${word} | ${MARKS_TABLE[word]} |`), word);
   for (const state of ["work", "wait", "stuck", "long", "stop"]) { const { mark, text } = shown(OBJECTS.agent.states[state]); assert.ok(guide.includes(`| ${mark} ${text} |`), state); }
   assert.ok(guide.includes(`\`${MARKS_TABLE.problem}\` is a problem: ${FLAGS.slice(0, -1).join(", ")} or ${FLAGS.at(-1)}.`) && guide.includes(`\`${MARKS_TABLE.unknown}\` is a state that the board does not know.`), "the two more marks");
+  const render = readFileSync(new URL("../packages/sage-core/board-render.mjs", import.meta.url), "utf8");
+  for (const mark of ["⊘", "🔴"]) assert.ok(render.includes(mark) && new RegExp(`^- \`?${mark}\`? `, "m").test(guide), `F-T1099-58: the guide's key explains ${mark}, which the boards show`);
 });
 
 test("T1096: the board app and the message command take their words from the table, and keep no copy of the six words", () => {
