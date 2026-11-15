@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync, watch } from "node:fs";
 import { createServer } from "node:http";
-import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readBoardSources, buildBoardModel, boardOverview, taskPanel, landingRule, pageTaskFolder, renderBoardHtml, renderAgentsHtml, renderMilestonesHtml, renderReleasesHtml, BOARD_PORT } from "../core/index.mjs";
+import { AGENT_QUIET_MS, readActions, readHookNotes, readBoardSources, buildBoardModel, boardOverview, taskPanel, landingRule, pageTaskFolder, renderBoardHtml, renderAgentsHtml, renderMilestonesHtml, renderReleasesHtml, BOARD_PORT } from "../core/index.mjs";
 import { COOKIE, boardAccess, readJson } from "./access.mjs";
 import { pagesRequest, servePages, taskFiles } from "./pages.mjs";
 import { designSummary, logbookDir, readerPage, recordedPages } from "./reader.mjs";
-import { writeInWorker } from "./writes.mjs";
+import { writeInWorker, writesEnded } from "./writes.mjs";
 
 const MARKDOWN = await import("./markdown.mjs").then(module => module.renderMarkdown, () => null);
 const NO_READER = "The reader's Markdown renderer is not in this copy of the board. Run the board from the sage plugin, or run npm ci and npm run build.";
@@ -20,6 +20,14 @@ const TOO_LARGE = "The page that you opened is too large to show (over 8 MB), so
 const NO_STREAM = " This page does not update: reload the address to try again.";
 const own = (object, name) => Object.hasOwn(object, name);
 const SETTLE_READS = [250, 1000, 3000, 7000, 15000];
+const LIGHT_EVERY = 2000;
+const BOOK = /^[a-z0-9-]+-[0-9a-f]{6}$/;
+const agentRows = model => {
+  const all = [], walk = agent => { all.push(agent); for (const child of agent.children ?? []) walk(child); };
+  for (const project of model?.agents?.projects ?? []) for (const agent of project.agents) walk(agent);
+  return all;
+};
+const hookShape = notes => JSON.stringify([notes.present, notes.problem, notes.slots.map(slot => [slot.name, [...slot.marks].sort()]), notes.helpers]);
 
 function oneHeader(request, name) {
   const values = [];
@@ -65,14 +73,15 @@ function securityHeaders(response, html = null) {
 const APP_DIR = fileURLToPath(new URL("./app/", import.meta.url));
 const APP_FILE = /^(?:app|vendor|graph)-[A-Z0-9]{8}\.(?:js|css)$/;
 const APP_TYPES = { js: "text/javascript; charset=utf-8", css: "text/css; charset=utf-8" };
-const NO_APP = "The board app is not built in this copy of the board. Run the board from the sage plugin, or run npm run build.";
+const NO_APP = "The board app is not built in this copy of the board. npm run build writes it only into the plugins, so start the board from the sage plugin's board/cli.mjs.";
 
 export function loadBoardApp(dir = APP_DIR) {
   let manifest;
   try { manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")); } catch { return null; }
   const names = [manifest?.script, manifest?.style, manifest?.vendor, manifest?.graph];
   if (!names.every(name => typeof name === "string" && APP_FILE.test(name)) || !manifest.script.endsWith(".js") || !manifest.style.endsWith(".css") || !manifest.vendor.endsWith(".js") || !manifest.graph.endsWith(".js")) return null;
-  const files = new Map(names.map(name => [name, { type: APP_TYPES[name.split(".").pop()], body: readFileSync(join(dir, name)) }]));
+  let files;
+  try { files = new Map(names.map(name => [name, { type: APP_TYPES[name.split(".").pop()], body: readFileSync(join(dir, name)) }])); } catch { return null; }
   const shell = (writes = "off") => `<!doctype html><html lang="en" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="sage-writes" content="${writes}"><title>Sage board</title><link rel="stylesheet" href="/app/${manifest.style}"><link rel="modulepreload" href="/app/${manifest.vendor}"><script type="module" src="/app/${manifest.script}"></script></head><body><div id="root"></div><noscript><p>This board needs scripts. The board in the chat needs none: send a message that starts with "show board".</p></noscript></body></html>`;
   return { files, shell };
 }
@@ -84,6 +93,7 @@ function appPolicy(origin) {
 const forwarded = name => name === "forwarded" || name.startsWith("x-forwarded-");
 
 const BODY_MAX = 16 * 1024;
+const HEADERS_MAX = 64 * 1024;
 const GATE = /^G[1-9]\d*$/, TASK = /^T[1-9]\d*$/, CHIEF = /^C[1-9]\d*$/, LOGBOOK = /^([A-Za-z0-9_-]{1,80})\/([a-z0-9-]+-[0-9a-f]{6})$/;
 const JOBS = {
   answer: body => GATE.test(body.gate) && Number.isInteger(body.option) && body.option >= 1 && body.option <= 99 && /^[0-9a-f]{16}$/.test(body.digest ?? "") && ["gate", "answer", body.gate, "--via", "board", "--option", String(body.option), "--seen", body.digest],
@@ -91,6 +101,8 @@ const JOBS = {
   give: body => TASK.test(body.task) && CHIEF.test(body.to) && ["gate", "give", body.task, "--to", body.to],
   name: body => CHIEF.test(body.chief) && typeof body.name === "string" && body.name.length <= 240 && ["chief", "name", body.chief, ...(body.name.trim() ? [body.name.trim()] : [])],
 };
+const LOCAL_PATH = /(?<![\w.~/-])~?\/(?!\/[^/])[^\s"'`]+(?:(?: [^\s"'`/]+){0,3} [^\s"'`/]+\/[^\s"'`]*)*/g;
+export const withoutPaths = text => text.replace(LOCAL_PATH, path => `…/${basename(path)}`);
 const jsonCell = text => { try { const value = JSON.parse(text || "null"); return value && typeof value === "object" && !Array.isArray(value) ? value : null; } catch { return null; } };
 
 function json(response, status, body, headers = {}) {
@@ -104,12 +116,12 @@ function jsonBody(request) {
   return new Promise((accept, reject) => {
     const parts = []; let size = 0;
     request.on("data", part => { size += part.length; if (size > BODY_MAX) { reject(new Error("too large")); request.destroy(); } else parts.push(part); });
-    request.on("end", () => { try { const value = JSON.parse(Buffer.concat(parts).toString("utf8")); value && typeof value === "object" && !Array.isArray(value) ? accept(value) : reject(new Error("not an object")); } catch (error) { reject(error); } });
+    request.on("end", () => { try { const value = JSON.parse(Buffer.concat(parts).toString("utf8")); value && typeof value === "object" && !Array.isArray(value) && Object.values(value).every(item => typeof item === "string" || typeof item === "number") ? accept(value) : reject(new Error("not an object")); } catch (error) { reject(error); } });
     request.on("error", reject);
   });
 }
 
-export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () => new Date().toISOString(), settleReads = SETTLE_READS, duringRead = null, providerRoots = [], app = loadBoardApp(), markdown = MARKDOWN, stateDir = null, write = writeInWorker } = {}) {
+export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () => new Date().toISOString(), settleReads = SETTLE_READS, lightEvery = LIGHT_EVERY, duringRead = null, providerRoots = [], app = loadBoardApp(), markdown = MARKDOWN, stateDir = null, write = writeInWorker } = {}) {
   if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) throw new TypeError("board port must be an integer from 1024 through 65535");
   if (typeof clock !== "function") throw new TypeError("the board clock must be a function that gives an ISO time");
   if (!Array.isArray(sources) || !sources.length || sources.length > 32) throw new TypeError("board needs 1 to 32 explicit sources");
@@ -128,6 +140,8 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
   const access = stateDir ? boardAccess(stateDir) : null;
   const watchers = new Map(), watchErrors = new Map(), clients = new Set();
   let model, overview, lastGood, revision = 0, refreshTimer, boundaryTimer, settleTimer, startTimer, startPromise, closePromise, closed = false;
+  let lastRead = null, lightTimer, lightAt = 0, activity = new Map();
+  const dirty = { hooks: new Set(), books: new Set(), folders: false };
 
   function onMac(request) {
     if (!["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(request.socket.remoteAddress) || !local.has(oneHeader(request, "host").toLowerCase())) return false;
@@ -142,13 +156,13 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
       (site === undefined || ["none", "same-origin"].includes(site));
   }
 
-  const render = (state, view, paths, live = true) => view.agents ? renderAgentsHtml(state, { live, paths }) : view.releases ? renderReleasesHtml(state, { live, paths }) : view.milestones || view.milestone ? renderMilestonesHtml(state, { milestoneKey: view.milestone ?? null, live, paths })
-    : renderBoardHtml(state, { taskKey: view.task, snapshot: false, live, paths });
+  const render = (state, view, live = true) => view.agents ? renderAgentsHtml(state, { live, paths: true }) : view.releases ? renderReleasesHtml(state, { live, paths: true }) : view.milestones || view.milestone ? renderMilestonesHtml(state, { milestoneKey: view.milestone ?? null, live, paths: true })
+    : renderBoardHtml(state, { taskKey: view.task, snapshot: false, live, paths: true });
   const fits = html => Buffer.byteLength(html) <= MAX_HTML;
-  function pageFor(view, paths = false, stream = false) {
-    const html = render(model, view, paths);
+  function pageFor(view, stream = false) {
+    const html = render(model, view);
     if (fits(html)) return { html, stale: model.stale, diagnostics: model.diagnostics };
-    const other = render({ ...model, pageNote: stream ? TOO_LARGE : TOO_LARGE + NO_STREAM }, { milestones: !!view.milestone }, paths, false);
+    const other = render({ ...model, pageNote: stream ? TOO_LARGE : TOO_LARGE + NO_STREAM }, { milestones: !!view.milestone }, false);
     if (!fits(other)) throw new RangeError("board rendering exceeds the size limit");
     return { html: other, stale: model.stale, diagnostics: model.diagnostics };
   }
@@ -156,7 +170,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
   function removeClient(client) {
     clients.delete(client);
     clearTimeout(client.deadline);
-    client.pending = null;
+    client.pending = null; client.activity = null;
   }
 
   function send(client, message) {
@@ -168,27 +182,88 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
       client.deadline.unref();
       client.response.once("drain", () => {
         clearTimeout(client.deadline); client.blocked = false;
-        const next = client.pending; client.pending = null;
+        const next = client.pending, keys = client.activity; client.pending = null; client.activity = null;
         if (next) send(client, next);
+        if (keys) sendActivity(client, Object.fromEntries([...keys].filter(key => activity.has(key)).map(key => [key, activity.get(key)])));
       });
     }
   }
 
   function publish(client) {
     if (client.app) {
-      const data = JSON.stringify(overview);
-      if (client.sent === data) return;
-      client.sent = data;
+      const data = JSON.stringify(overview), sent = digest(data).toString("base64");
+      if (client.sent === sent) return;
+      client.sent = sent;
       if (Buffer.byteLength(data) > MAX_HTML) { client.response.end(); removeClient(client); return; }
       return send(client, `id: ${revision}\nevent: model\ndata: ${data}\n\n`);
     }
     try {
-      const payload = { revision: String(revision), ...pageFor(client, client.paths, true) };
+      const payload = { revision: String(revision), ...pageFor(client, true) };
       const sent = digest(JSON.stringify([payload.html, payload.stale, payload.diagnostics])).toString("base64");
       if (client.sent === sent) return;
       client.sent = sent;
       send(client, `id: ${revision}\nevent: board\ndata: ${JSON.stringify(payload)}\n\n`);
     } catch { client.response.end(); removeClient(client); }
+  }
+
+  function sendActivity(client, changes) {
+    if (!client.app || !Object.keys(changes).length) return;
+    if (client.blocked) { client.activity = new Set([...client.activity ?? [], ...Object.keys(changes)]); return; }
+    send(client, `event: activity\ndata: ${JSON.stringify(changes)}\n\n`);
+  }
+
+  function lightOf(path, filename) {
+    const name = filename == null ? null : String(filename);
+    for (const source of configured) {
+      if (path !== source.path && !path.startsWith(source.path + sep)) continue;
+      const parts = path === source.path ? [] : path.slice(source.path.length + 1).split(sep);
+      if (parts[0] === ".hooks" || !parts.length && name === ".hooks") return { hooks: source.id };
+      if (BOOK.test(parts[0] ?? "") && (parts[1] === "actions" || parts.length === 1 && name === "actions")) return { book: `${source.id}/${parts[0]}`, folder: parts.length === 1 };
+    }
+    return null;
+  }
+
+  function lightSchedule(light) {
+    if (light.hooks) dirty.hooks.add(light.hooks);
+    if (light.book) dirty.books.add(light.book);
+    if (light.folder) dirty.folders = true;
+    if (closed || lightTimer) return;
+    lightTimer = setTimeout(lightRead, Math.max(20, lightAt + lightEvery - Date.now()));
+    lightTimer.unref();
+  }
+
+  function lightRead() {
+    lightTimer = undefined; lightAt = Date.now();
+    const hooks = [...dirty.hooks], books = [...dirty.books], folders = dirty.folders;
+    dirty.hooks.clear(); dirty.books.clear(); dirty.folders = false;
+    if (closed || !lastRead) return;
+    const changes = {}, rows = agentRows(model), at = Date.parse(clock());
+    const update = (key, change) => {
+      const entry = activity.get(key), next = { ...entry, ...change };
+      if (JSON.stringify(next) !== JSON.stringify(entry)) { activity.set(key, next); changes[key] = next; }
+    };
+    try {
+      if (folders) reconcileWatchers(true);
+      for (const id of hooks) {
+        const notes = readHookNotes(configured.find(source => source.id === id).path), before = lastRead.find(source => source.id === id)?.hooks;
+        if (!before || hookShape(notes) !== hookShape(before)) { schedule(); continue; }
+        for (const slot of notes.slots) for (const row of rows.filter(row => row.source === id && row.slot?.name === slot.name)) {
+          const key = row.logbook && row.runId ? `${row.logbook}/${row.runId}` : null, was = key ? activity.get(key)?.activity : row.activity;
+          if (was === undefined || was === slot.at) continue;
+          if (was === null || at - was >= AGENT_QUIET_MS) schedule();
+          if (key) update(key, { activity: slot.at });
+        }
+      }
+      for (const book of books) {
+        const source = configured.find(item => book.startsWith(`${item.id}/`)), dir = join(source.path, book.slice(source.id.length + 1));
+        for (const key of activity.keys()) if (key.startsWith(`${book}/`) && /^R[1-9]\d*$/.test(key.slice(book.length + 1))) {
+          let now = null;
+          try { now = readActions(dir, key.slice(book.length + 1), 1).actions[0] ?? null; } catch {}
+          update(key, { now });
+        }
+      }
+    } catch { schedule(); }
+    for (const client of clients) sendActivity(client, changes);
   }
 
   function schedule() {
@@ -228,7 +303,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     settleTimer.unref();
   }
 
-  function reconcileWatchers() {
+  function reconcileWatchers(light = false) {
     const plans = watchPlans();
     let added = false;
     for (const [key, item] of watchers) if (!plans.has(key) || plans.get(key).identity !== item.plan.identity) { item.watcher.close(); watchers.delete(key); }
@@ -240,7 +315,9 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
         const item = { plan, watcher: null };
         item.watcher = watch(plan.path, (event, filename) => {
           if (event !== "rename" && !item.plan.all && filename && !item.plan.children.has(String(filename))) return;
-          watchErrors.clear(); schedule();
+          watchErrors.clear();
+          const light = lightOf(item.plan.path, filename);
+          if (light) lightSchedule(light); else schedule();
         });
         item.watcher.on("error", () => {
           item.watcher.close(); watchers.delete(key);
@@ -250,7 +327,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
         watchers.set(key, item); added = true;
       } catch { watchErrors.set(key, { source: "board", message: "File watching is unavailable; the displayed board may be stale." }); }
     }
-    if (added) settle();
+    if (added && !light) settle();
   }
 
   function refresh() {
@@ -260,6 +337,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     try {
       reconcileWatchers();
       const read = readBoardSources(configured, { duringRead, providerRoots }), notSetUp = [];
+      lastRead = read;
       for (const [index, source] of read.entries()) {
         if (lstatSync(configured[index].path, { throwIfNoEntry: false })) continue;
         source.diagnostics = source.diagnostics.filter(message => message !== "ENOENT");
@@ -276,6 +354,13 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     else if (!next.diagnostics.length) model = lastGood ? { ...lastGood, stale: false, changing: changing.map(item => ({ project: item.project, at: lastGood.at })) } : { ...next, stale: false };
     else model = { ...(lastGood ?? next), stale: true, diagnostics: next.diagnostics, notSetUp: next.notSetUp, changing };
     overview = boardOverview(model);
+    const known = activity;
+    activity = new Map();
+    for (const row of agentRows(model)) if (row.logbook && row.runId) {
+      const key = `${row.logbook}/${row.runId}`;
+      activity.set(key, { activity: row.activity, now: known.get(key)?.now ?? null });
+      if (!known.has(key)) lightSchedule({ book: row.logbook });
+    }
     revision++;
     for (const client of clients) publish(client);
     const now = Date.now(), boundary = model.tasks.reduce((first, task) => {
@@ -285,12 +370,13 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     if (Number.isFinite(boundary)) { boundaryTimer = setTimeout(schedule, Math.min(boundary - now, 2_147_483_647)); boundaryTimer.unref(); }
   }
 
-  const server = createServer({ maxHeaderSize: 8192 }, (request, response) => {
+  const server = createServer({ maxHeaderSize: HEADERS_MAX }, (request, response) => {
     securityHeaders(response);
     if (pagesRequest(request.url)) return servePages(request, response, { onMac, model });
     const fail = (status, text) => { response.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" }); response.end(request.method === "HEAD" ? undefined : `${text}\n`); };
     if (!browserBoundary(request) || !onMac(request)) return fail(403, "This request is not permitted.");
     if (boardHeader) response.setHeader("X-Sage-Board", boardHeader);
+    if (request.url.startsWith("/api/actions/")) return serveActions(request, response, fail);
     if (request.url.startsWith("/api/")) return serveApi(request, response, fail).catch(error => response.headersSent ? response.destroy() : json(response, 500, { problem: broken(error) }));
     if (!["GET", "HEAD"].includes(request.method)) { response.setHeader("Allow", "GET, HEAD"); return fail(405, "This method is not permitted."); }
     if (request.url === "/app" || request.url.startsWith("/app/")) return serveApp(request, response, fail);
@@ -312,12 +398,12 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
       response.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "X-Accel-Buffering": "no" });
       if (request.method === "HEAD") return response.end();
       response.flushHeaders();
-      const client = { response, task: selected.task, agents: !!selected.agents, releases: !!selected.releases, milestones: !!selected.milestones, milestone: selected.milestone ?? null, paths: true, blocked: false, pending: null, deadline: null, sent: null };
+      const client = { response, task: selected.task, agents: !!selected.agents, releases: !!selected.releases, milestones: !!selected.milestones, milestone: selected.milestone ?? null, blocked: false, pending: null, deadline: null, sent: null };
       clients.add(client); response.once("close", () => removeClient(client)); publish(client);
       return;
     }
     try {
-      const { html } = pageFor(selected, true);
+      const { html } = pageFor(selected);
       securityHeaders(response, html);
       response.writeHead(missing ? 404 : 200, { "Content-Type": "text/html; charset=utf-8", "Content-Length": Buffer.byteLength(html) });
       response.end(request.method === "HEAD" ? undefined : html);
@@ -331,7 +417,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     if (!/^application\/json(?:;\s*charset=utf-8)?$/i.test(oneHeader(request, "content-type") ?? "")) return fail(415, "A write sends JSON.");
     if (!access) return fail(503, "This board writes nothing: it started without its config folder.");
     let body;
-    try { body = await jsonBody(request); } catch { return response.destroyed ? undefined : fail(400, "A write is one JSON object of at most 16 KiB."); }
+    try { body = await jsonBody(request); } catch { return response.destroyed ? undefined : fail(400, "A write is one JSON object of strings and numbers, of at most 16 KiB."); }
     const name = request.url.slice("/api/".length);
     if (name === "pair") {
       const paired = access.pair(body.code);
@@ -346,7 +432,21 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     const argv = Object.hasOwn(JOBS, name) && JOBS[name](body);
     if (!argv || !source || !model?.sources.some(item => item.id === source.id && item.shared)) return reply(400, { problem: "The board cannot send this write: it names no question, task or chief of a shared logbook." });
     const done = await write({ shared: source.path, folder: book[2], argv });
-    return reply(done.pending ? 202 : done.code ? 409 : 200, { ok: !done.code, ...(done.pending && { pending: true }), text: String(done.text).replace(/^sage: /, "") });
+    return reply(done.pending ? 202 : done.code ? 409 : 200, { ok: !done.code, ...(done.pending && { pending: true }), text: withoutPaths(String(done.text).replace(/^sage: /, "")) });
+  }
+
+  function serveActions(request, response, fail) {
+    if (!["GET", "HEAD"].includes(request.method)) { response.setHeader("Allow", "GET, HEAD"); return fail(405, "This method is not permitted."); }
+    const mark = request.url.indexOf("?"), path = mark === -1 ? request.url : request.url.slice(0, mark), query = new URLSearchParams(mark === -1 ? "" : request.url.slice(mark + 1));
+    const run = /^\/api\/actions\/(R[1-9]\d{0,8})$/.exec(path)?.[1], book = [...query.keys()].join(" ") === "logbook" ? LOGBOOK.exec(query.get("logbook")) : null;
+    const project = run && book && lastRead?.find(source => source.id === book[1])?.projects.find(item => item.key === book[0] && !item.old);
+    if (!project?.tables.runs?.some(item => item.id === run)) return fail(404, "This run is not on the board.");
+    const dir = join(configured.find(source => source.id === book[1]).path, book[2]);
+    let found;
+    try { found = readActions(dir, run); } catch (error) {
+      return ["ELOOP", "ENOTDIR"].includes(error.code) ? fail(403, "The board does not open links: this run's action file or its folder is a link or not a plain file.") : fail(503, "The board cannot read this run's actions now. Try again.");
+    }
+    return json(response, 200, { logbook: book[0], run, ...found });
   }
 
   function gateDetail(key) {
@@ -354,7 +454,8 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     const task = GATE.test(id) && model?.tasks.find(item => item.project === logbook && item.gateRows?.some(gate => gate.id === id));
     if (!task) return null;
     const gate = task.gateRows.find(row => row.id === id), source = configured.find(item => item.id === task.source);
-    const kept = source && LOGBOOK.test(logbook) ? readJson(join(source.path, logbook.slice(logbook.indexOf("/") + 1), "gates"), `${id}.json`, 1 << 20) : null;
+    let kept = null;
+    try { kept = source && LOGBOOK.test(logbook) ? readJson(join(source.path, logbook.slice(logbook.indexOf("/") + 1), "gates"), `${id}.json`, 1 << 20) : null; } catch {}
     const answered = jsonCell(gate.answered), picked = jsonCell(gate.picked), need = model.needsOwner.flatMap(item => item.reasons).find(reason => reason.key === key);
     return { key, id, logbook, task: { key: task.key, id: task.id, title: task.title }, project: task.projectName, question: String(gate.question ?? ""), options: String(gate.options ?? "").split("|").map(option => option.trim()).filter(Boolean),
       recommendation: gate.recommendation || null, default: gate.default || null, at: gate.at || null, answer: gate.answer || null, answered: answered && { at: String(answered.at ?? ""), via: String(answered.via ?? ""), answer: answered.answer == null ? null : String(answered.answer) },
@@ -371,8 +472,9 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
       response.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "X-Accel-Buffering": "no" });
       if (request.method === "HEAD") return response.end();
       response.flushHeaders();
-      const client = { response, app: true, blocked: false, pending: null, deadline: null, sent: null };
+      const client = { response, app: true, blocked: false, pending: null, activity: null, deadline: null, sent: null };
       clients.add(client); response.once("close", () => removeClient(client)); publish(client);
+      sendActivity(client, Object.fromEntries(activity));
       return;
     }
     if (name.startsWith("task/")) {
@@ -424,7 +526,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
         refresh();
         const failed = error => {
           for (const { watcher } of watchers.values()) watcher.close(); watchers.clear();
-          clearTimeout(refreshTimer); clearTimeout(boundaryTimer); clearTimeout(settleTimer);
+          clearTimeout(refreshTimer); clearTimeout(boundaryTimer); clearTimeout(settleTimer); clearTimeout(lightTimer);
           reject(Object.assign(new Error(error.code === "EADDRINUSE" ? `Board port ${port} is already in use.` : "The board listener could not start."), { code: error.code }));
         };
         server.once("error", failed);
@@ -445,10 +547,11 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
       if (closePromise) return closePromise;
       closed = true;
       for (const { watcher } of watchers.values()) watcher.close(); watchers.clear();
-      clearTimeout(refreshTimer); clearTimeout(boundaryTimer); clearTimeout(settleTimer);
+      clearTimeout(refreshTimer); clearTimeout(boundaryTimer); clearTimeout(settleTimer); clearTimeout(lightTimer);
       for (const client of clients) { client.response.destroy(); removeClient(client); }
       closePromise = (async () => {
         if (startPromise) await startPromise.catch(() => {});
+        await writesEnded();
         if (server.listening) { server.closeAllConnections(); await new Promise((accept, reject) => server.close(error => error ? reject(error) : accept())); }
       })();
       return closePromise;

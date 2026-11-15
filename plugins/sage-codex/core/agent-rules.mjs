@@ -2,7 +2,7 @@ import { realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { programsRun } from "./command-reader.mjs";
-import { gitSubcommand, programName, unreadable } from "./command-policy.mjs";
+import { GIT_VALUE, gitSubcommand, programName, unreadable } from "./command-policy.mjs";
 import { canonical } from "./protected-paths.mjs";
 import { commandWrites, gitDestroysWork } from "./shell-write-policy.mjs";
 import { worktreeRoot } from "./worktrees.mjs";
@@ -37,25 +37,69 @@ export const READ_ONLY_SHELL_WAY = "To keep output or a probe, redirect it into 
 const inTemp = (file) => !!file && TEMP.some((t) => file.startsWith(`${t}/`));
 const PROCESS_TEXT = new RegExp(`(?:^|[\\s;&|(\`'"/<>])(?:${UNIX_PROCESS}|${POWERSHELL_PROCESS})(?:\\.exe)?(?=$|[\\s;&|)\`'"<>])`, "im");
 
-export function agentCommandProblem(command, cwd, path = process.env.PATH ?? "") {
+const COMMIT_WORDS = "commit|commit-tree|merge|pull|cherry-pick|revert|am|rebase";
+const COMMITS = new RegExp(`^(?:${COMMIT_WORDS})$`);
+const STOPS = /^--(?:abort|quit)$/;
+const sh = (text) => /^[\w.@+-]+$/.test(text) ? text : `'${text.replace(/'/g, "'\\''")}'`;
+const IDENTITY_FORM = ({ email, name }, sub = "commit") => `git ${name ? `-c user.name=${sh(name)} ` : ""}-c user.email=${sh(email)} ${sub} <its arguments>`;
+const NO_IDENTITY = (identity, sub, used) => `an agent commits only with the project's no-reply identity (the logbook setting commit_email), so this git ${sub} is refused: ${used}. With HOME in a scratch folder, git cannot read the global config and falls back to a machine-name email. Pass the identity on the command, before the subcommand: ${IDENTITY_FORM(identity, sub)}.`;
+function commitEmails(args, vars) {
+  const config = {}, env = {};
+  let k = 0;
+  for (; args[k]?.startsWith("-"); k += GIT_VALUE.test(args[k]) ? 2 : 1) {
+    if (args[k] !== "-c") continue;
+    const at = String(args[k + 1] ?? "").indexOf("=");
+    if (at > 0) config[args[k + 1].slice(0, at).toLowerCase()] = args[k + 1].slice(at + 1);
+  }
+  for (const word of vars) env[word.slice(0, word.indexOf("="))] = word.slice(word.indexOf("=") + 1);
+  let author;
+  for (let j = k + 1; j < args.length && args[j] !== "--"; j++) {
+    if (args[j] === "--author") author = args[++j] ?? "";
+    else if (args[j].startsWith("--author=")) author = args[j].slice(9);
+  }
+  return {
+    sub: args[k] ?? "",
+    rest: args.slice(k + 1),
+    author: author !== undefined ? (/<([^<>]*)>\s*$/.exec(author)?.[1] ?? author) : env.GIT_AUTHOR_EMAIL ?? config["author.email"] ?? config["user.email"],
+    committer: env.GIT_COMMITTER_EMAIL ?? config["committer.email"] ?? config["user.email"],
+  };
+}
+function identityProblem(args, vars, identity) {
+  const { sub, rest, author, committer } = commitEmails(args, vars);
+  if (!COMMITS.test(sub) || rest.some((a) => STOPS.test(a))) return undefined;
+  const wanted = identity();
+  if (!wanted) return undefined;
+  const same = (email) => typeof email === "string" && email.toLowerCase() === wanted.email.toLowerCase();
+  if (same(author) && same(committer)) return undefined;
+  const used = author === undefined && committer === undefined ? "the command sets no email, so git would take it from a config file or the machine's name"
+    : [["author", author], ["committer", committer]].filter(([, email]) => !same(email)).map(([who, email]) => email === undefined ? `it sets no ${who} email` : `the ${who} email would be ${quoted(email)}`).join(", and ");
+  return NO_IDENTITY(wanted, sub, used);
+}
+
+export function agentCommandProblem(command, cwd, path = process.env.PATH ?? "", { identity = () => undefined } = {}) {
   let runs;
   try {
     runs = programsRun(command, cwd, path);
   } catch (e) {
     const text = bare(command), program = PROCESS_TEXT.exec(text)?.[0].replace(/^\W/, "");
-    const [what, why] = gitThen(text, "stash") ? ["git stash", NO_STASH] : program ? [`a process program (${quoted(program)})`, NO_PROCESS(program)] : [];
+    const commits = COMMIT_WORDS.split("|").some((word) => gitThen(text, word)) && identity();
+    const [what, why] = gitThen(text, "stash") ? ["git stash", NO_STASH] : program ? [`a process program (${quoted(program)})`, NO_PROCESS(program)]
+      : commits ? ["a git command that can write a commit", `run it plainly, with the identity on the command: ${IDENTITY_FORM(commits)}.`] : [];
     return why && `${unreadable(e, what)} ${why[0].toUpperCase()}${why.slice(1)}`;
   }
-  for (const { word, file, args } of runs) {
+  for (const { word, file, args, vars = [] } of runs) {
     const name = programName(word);
     if (name === "git" && /^stash$/i.test(gitSubcommand(args, 0))) return NO_STASH;
     if ((isProcess(name) || isProcess(file ?? "")) && !inTemp(file)) return NO_PROCESS(word);
+    const commit = name === "git" ? identityProblem(args, vars, identity) : undefined;
+    if (commit) return commit;
   }
   return undefined;
 }
 
 const BOARD_CONFIG = "the board config rule (T229): no agent reads, copies or replaces the board config (~/.config/sage-board/board.json), or lists, searches, copies or moves the board's folder or a folder that holds it, because only the owner and the board command change the board's state. The board command's own output (board --ensure, the chat board) says what you need. The rule covers the board's state folder (~/.config/sage-board/state) too, because it holds the browser pairing (T1059).";
 const BOARD_PAIR = "the board pairing rule (T1059): no agent runs board --pair. It pairs the owner's browser with the board, so that the browser can answer questions and rename chiefs, and it prints a one-time code for the owner's eyes only. The owner runs it in Terminal; give the owner the command, and do not run it.";
+const BOARD_MOVE = "the board port rule (T1079): no agent runs board --port. It moves the owner's board to another port: it stops the board, changes the board config and starts the board again. The owner runs it in Terminal, or asks the chief to run it; give the owner the command, and do not run it.";
 const VARIABLE = /[$`]/;
 function boardFolders(home) {
   const folder = join(home, ".config", "sage-board");
@@ -96,7 +140,7 @@ const WHOLE = (name, args) => /^(?:rg|ag|ack|fd|ditto|tar|bsdtar|zip|rsync|mv|ln
   (/^(?:e|f)?grep$/.test(name) && args.some((a) => /^-[^-]*[rR]|^--(?:recursive|dereference-recursive|directories=recurse)$|^recurse$/.test(a))) ||
   (/^(?:cp|gcp|scp)$/.test(name) && args.some((a) => /^-[^-]*[rRa]|^--(?:recursive|archive)$/.test(a)));
 const BOARD_RUN = ({ word, args }) => (basename(word) === "cli.mjs" || args.some((a) => /(?:^|\/)cli\.mjs$/i.test(a)) || /^(?:npm|pnpm|yarn|bun)$/.test(programName(word))) && args.includes("board");
-export function boardCommandProblem(text, cwd, { home = process.env.HOME || homedir(), uncertain = false } = {}) {
+export function boardCommandProblem(text, cwd, { home = process.env.HOME || homedir(), uncertain = false, chief = false } = {}) {
   let read;
   try {
     read = programsRun(text, cwd, undefined, { contextEvidence: true, uncertainDirectory: uncertain, home });
@@ -112,6 +156,7 @@ export function boardCommandProblem(text, cwd, { home = process.env.HOME || home
   for (const { run, uncertainDirectory } of read.programs) {
     const name = programName(run.word), board = BOARD_RUN(run);
     if (board && run.args.some((a) => /^--pair(?:=|$)/.test(a))) return BOARD_PAIR;
+    if (board && !chief && run.args.some((a) => /^--port(?:=|$)/.test(a)) && !run.args.some((a) => /^--(?:setup|ensure)$/.test(a))) return BOARD_MOVE;
     const whole = WHOLE(name, run.args);
     const start = uncertainDirectory ? undefined : run.dir;
     let dir = start;

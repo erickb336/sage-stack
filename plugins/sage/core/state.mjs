@@ -9,26 +9,27 @@ import { homedir, hostname, platform, tmpdir, uptime } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { boardView, sessionRoots, sessionSources } from "./board-view.mjs";
 import { projectName as shownName } from "./board-model.mjs";
-import { ADMIT_LEASE_MS, agentCaps, agentLimit, queueOrder } from "./logbook-fields.mjs";
+import { ADMIT_LEASE_MS, KEPT_FILE_MAX, KEPT_TEXT_MAX, LAPSED, agentCaps, capNames, projectLimits, queueOrder, slug } from "./logbook-fields.mjs";
 import { logbookIdentity } from "./board-reader.mjs";
 import { PR, pullRequestHead } from "./pull-request.mjs";
 import { REPORT_FIELDS } from "./report.mjs";
 import { cleanReport, fieldsOf, proofResults, readReport } from "./report-reader.mjs";
 import { ROLES } from "./roles.mjs";
 import { TEAM } from "./role-policy.mjs";
-import { AGENT_CAPS, BREAKS, FINDING_CLASSES, HIDDEN, LINE, NAME_MAX, PRIORITIES, PRIORITY_SCALE, START_SAGE_MODE, TABLES as PLAIN_TABLES, TASK_ADDED, TASK_KINDS, boardAnswer, breakdownLine, countOf, gateDigest, nameProblem, proposalOf } from "./logbook-fields.mjs";
+import { AGENT_CAPS, BREAKS, COMMIT_EMAIL, COMMIT_NAME, FINDING_CLASSES, HIDDEN, LINE, NAME_MAX, PRIORITIES, PRIORITY_SCALE, START_SAGE_MODE, TABLES as PLAIN_TABLES, TASK_ADDED, TASK_KINDS, boardAnswer, breakdownLine, countOf, gateDigest, nameProblem, proposalOf } from "./logbook-fields.mjs";
 import { BREAKDOWN, ENDED, GATE_ID, MET, MILESTONE_ID, TASK_ID, breakdownGate, renameRows, renamedIds, byIds, dead, droppedBy, gateLines, lostClause, milestoneState, milestoneWordOf, progressOf, progressText, releaseKey, releaseNameProblem, releasesOf, shownGraph, shownMilestoneState, shownWaits, unmetWaits, waitGraph, waitWords, waitsOf, waitsWithState } from "./milestone-rules.mjs";
 import { FILES_MAX, FILE_PATH_MAX_BYTES, OBSERVATIONS_MAX_BYTES, OBSERVATION_DATA_MAX_BYTES, validateObservation, validateObservations } from "./observations.mjs";
 import { pushedBranches } from "./push-policy.mjs";
 import { MOVES, PLAN_MAX, checkoutGone, createSharedRoot, sharedRoot, unreadableFolder } from "./shared-root.mjs";
 import { changedText, countsOf, endText, gateQuestion, gateText, localTime, mapHtml, mismatchText, previewText, providersOf, reconciliationText, startText, stepText, stoppedText, title } from "./move-text.mjs";
 import { pagesFolder, worktreeRoot, worktrees } from "./worktrees.mjs";
+import { storageClean, storagePlan, storageView } from "./storage.mjs";
 import { CHIEF, TAKEOVER_OPTIONS, chiefOnly, createChiefs, crossed, offerOf, replaceOf, replaceQuestion, writerClass } from "./chiefs.mjs";
 import { NAMES_FILE, chiefNames } from "./chief-live.mjs";
 import { LEAD_COMMANDS, leadProblem as leadPolicy, leadRequest } from "./lead-policy.mjs";
 import { renderMessage } from "./message-checks.mjs";
 import { MAX_SECTIONS, PAGE_MAX, PAGE_TYPES, pageType, pageUrl } from "./message.mjs";
-import { pageFile, pageTaskFolder } from "./page-files.mjs";
+import { boardPort, pageFile, pageTaskFolder } from "./page-files.mjs";
 import { taskWord } from "./state-words.mjs";
 import { AST_GREP_VERSION, LINT_CONFIG, LINT_KINDS, astGrepBinary, lintBase, lintChange } from "./lint.mjs";
 import { adoptBrief, languageList, placeToolFiles, projectLanguages } from "./lint-offer.mjs";
@@ -61,6 +62,7 @@ const SIZES = {
   investigate: ["investigate", "evidence-review"],
 };
 const BLOCKS = ["design", "arena", "pe", "build", "code-review", "security-review", "ux-review", "qa", "investigate", "evidence-review"];
+const ARENA_KINDS = ["ui", "design"];
 const RISKS = ["auth", "data", "schema", "money", "secrets", "input"];
 const VERDICT = { build: "checks-pass", "code-review": "review-clean", "security-review": "security-clean", "ux-review": "ux-clean", qa: "qa-pass", "evidence-review": "evidence-clean" };
 const FOUND = ["findings", "qa-fail"];
@@ -108,7 +110,7 @@ const SPARSE = { tasks: [CHIEF_COLUMN, "offer", RELEASE_COLUMN], runs: [CHIEF_CO
 const TABLES = { ...PLAIN_TABLES, ...Object.fromEntries(Object.entries(SPARSE).map(([t, cols]) => [t, [...PLAIN_TABLES[t], ...cols]])) };
 const ADDED = { ...FILLED, ...Object.fromEntries(Object.entries(SPARSE).map(([t, cols]) => [t, [...(FILLED[t] ?? []), ...cols]])) };
 const RUN_ENDS = ["done", "blocked", "question", "failed"];
-const COMMANDS = ["init", "logbook", "standing", "pages", "message", "task", "task-adopt", "milestone", "release", "round", "run", "finding", "verdict", "lint", "gate", "log", "status", "stats", "merge-check", "config", "projects", "board", "observe", "link", "claim", "offer", "cancel", "accept", "unclaim", "move", "worktrees", "chief"];
+const COMMANDS = ["init", "logbook", "standing", "pages", "message", "task", "task-adopt", "milestone", "release", "round", "run", "finding", "verdict", "lint", "gate", "log", "status", "stats", "merge-check", "config", "projects", "board", "observe", "link", "claim", "offer", "cancel", "accept", "unclaim", "move", "worktrees", "storage", "chief"];
 const OPTIONS = {
   "logbook repair": ["accept-loss", "accept-change-loss"],
   link: ["to", "separate"],
@@ -120,7 +122,7 @@ const OPTIONS = {
   "gate replace": ["to"],
   "gate give": ["to"],
   "projects rebuild": ["accept-listing"],
-  "task add": ["title", "size", "risk", "add", "why", "priority", "kind", "waits", "milestone"],
+  "task add": ["title", "size", "risk", "add", "no-arena", "why", "priority", "kind", "waits", "milestone"],
   task: ["why"],
   round: ["why"],
   "task-adopt": ["source-logbook", "source-provider", "source-task", "pr", "branch"],
@@ -193,7 +195,6 @@ const checkout = (dir, project, env) => {
   if (!isShared(dir, env)) put(join(dir, "checkout.txt"), `${projectRoot(resolve(project))}\n`);
 };
 
-const slug = (name) => String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "project";
 
 const pagesRoot = (project, env = process.env) => pagesFolder(basename(storeDir(project, env)), env);
 const pagesDir = (project, task, env) => join(pagesRoot(project, env), task);
@@ -310,13 +311,8 @@ function saved(env, dir) {
 function limitsOf(dir, env) {
   const held = pick(savedIn(dir), LIMIT_KEYS);
   if (LIMIT_KEYS.every((k) => Object.hasOwn(held, k))) return { values: held, moved: true };
-  const folder = basename(dir), names = new Set([folder.replace(/-[0-9a-f]{6}$/, ""), ...bindings(dirname(dir)).filter((r) => r.folder === folder).map((r) => slug(basename(r.root)))]);
-  const roots = [...new Set([sageRoot(env), ...legacyRoots(env)])].map(savedIn), own = (s, k) => valid(k, s[k]);
-  const largest = (key, of) => {
-    const set = roots.flatMap(of).filter((v) => v !== undefined);
-    return set.length ? Math.max(...set) : DEFAULTS[key];
-  };
-  return { values: { max_agents: agentLimit({}, roots, [...names]), max_leads: largest("max_leads", (s) => [own(s, "max_leads")]), ...held }, moved: false };
+  const roots = [...new Set([sageRoot(env), ...legacyRoots(env)])].map(savedIn);
+  return { values: { ...projectLimits({}, roots, capNames(basename(dir), bindings(dirname(dir)))), ...held }, moved: false };
 }
 
 function moveLimits(dir, env, fresh = false) {
@@ -560,12 +556,12 @@ function admit(dir, project, env, runs) {
     Object.assign(r, { status: "failed", ended: stamp });
     notes.push(`${r.id} failed: admitted at ${utc(r.admitted)}, its agent did not start within ${ADMIT_LEASE_MS / 60_000} minutes`);
   }
-  if (lapsed.length) write(dir, "decisions", [...read(dir, "decisions"), ...lapsed.map((r) => ({ at: stamp, task: r.task, decision: `${r.id} failed: no agent started within ${ADMIT_LEASE_MS / 60_000} minutes of its admission`, why: "an admitted run keeps its place for 10 minutes; the next queued run takes it" }))]);
+  if (lapsed.length) write(dir, "decisions", [...read(dir, "decisions"), ...lapsed.map((r) => ({ at: stamp, task: r.task, decision: `${r.id} failed: ${LAPSED}`, why: "an admitted run keeps its place for 10 minutes; the next queued run takes it" }))]);
   let count = runningOf(runs).length;
   const cap = projectCap(dir, project, env);
   for (const r of queueOrder(runs)) {
     if (count++ >= cap) break;
-    Object.assign(r, { status: "running", admitted: stamp });
+    Object.assign(r, { status: "running", admitted: stamp, started: stamp });
     notes.push(`${r.id} admitted · ${r.role} on ${r.task}${r.chief ? ` · chief ${r.chief}` : ""}: start its agent within ${ADMIT_LEASE_MS / 60_000} minutes, or the run ends as failed`);
   }
   return notes;
@@ -661,14 +657,13 @@ function enrichUsage(dir, id, opt) {
 }
 
 const BACKS = { "code-reviewer": ["review-clean", "findings"], "security-reviewer": ["security-clean", "findings"], "ux-reviewer": ["ux-clean", "findings"], qa: ["qa-pass", "qa-fail"] };
-const KEPT_MAX = 1 << 20;
 const keptFile = (dir, run) => join(dir, "kept", `${run}.json`);
 
 function keepReport(project, { task, run, role, sha = "", text } = {}, env = process.env) {
   const dir = storeDir(project, env);
   if (!existsSync(join(dir, "tasks.tsv"))) refuse(`no logbook for the project ${visible(project)}, so no report is kept.`);
   if (lstatSync(join(dir, "moved.json"), { throwIfNoEntry: false })) refuse(`this logbook moved to the shared root (${join(dir, "moved.json")}), so no report is kept.`);
-  if (!/^R[1-9]\d*$/.test(String(run)) || typeof text !== "string" || Buffer.byteLength(text) > KEPT_MAX || !/^(?:[0-9a-f]{40})?$/.test(String(sha))) {
+  if (!/^R[1-9]\d*$/.test(String(run)) || typeof text !== "string" || Buffer.byteLength(text) > KEPT_TEXT_MAX || !/^(?:[0-9a-f]{40})?$/.test(String(sha))) {
     refuse("a kept report needs its run id, its text (at most 1 MiB) and the full SHA of its commit or none. No report is kept.");
   }
   const row = read(dir, "runs").find((r) => r.id === run);
@@ -764,7 +759,7 @@ function keptUsage(dir, run) {
 }
 
 function keptOf(dir, run) {
-  const text = readRegular(keptFile(dir, run), { link: false, max: 6 * KEPT_MAX + 4096 });
+  const text = readRegular(keptFile(dir, run), { link: false, max: KEPT_FILE_MAX });
   if (text === undefined) return undefined;
   try {
     const kept = JSON.parse(text);
@@ -796,7 +791,7 @@ function compareRetainedReport(input, env = process.env) {
     if (!folderStat) return result("missing");
     if (!folderStat.isDirectory()) return result("damaged");
     let bytes;
-    try { bytes = readRegular(keptFile(dir, input.run), { link: false, max: 6 * KEPT_MAX + 4096, encoding: null }); }
+    try { bytes = readRegular(keptFile(dir, input.run), { link: false, max: KEPT_FILE_MAX, encoding: null }); }
     catch (error) {
       if (error instanceof Refusal || ["ELOOP", "ENOTDIR"].includes(error.code)) return result("damaged");
       throw error;
@@ -810,7 +805,7 @@ function compareRetainedReport(input, env = process.env) {
       || typeof kept.sha !== "string" || !/^(?:[0-9a-f]{40})?$/.test(kept.sha)
       || typeof kept.at !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(kept.at)
       || !Number.isFinite(Date.parse(kept.at)) || new Date(kept.at).toISOString() !== kept.at.replace("Z", ".000Z")
-      || typeof kept.text !== "string" || Buffer.byteLength(kept.text, "utf8") > KEPT_MAX
+      || typeof kept.text !== "string" || Buffer.byteLength(kept.text, "utf8") > KEPT_TEXT_MAX
       || Buffer.from(kept.text, "utf8").toString("utf8") !== kept.text) return result("damaged");
     const digest = createHash("sha256").update(kept.text, "utf8").digest("hex");
     return result(digest === input.sha256 ? "match" : "mismatch");
@@ -1821,8 +1816,11 @@ function planTaskChanges(before, id, changes, at, facts) {
       }
       if (v === "verified") {
         const rows = facts.ledger.filter((r) => r.task === task.id);
-        const head = rows.at(-1)?.sha ?? refuse(`${task.id} has no verdicts yet`);
-        const r = judge("", task, facts.findings, decisions, task.id, rows.filter((r) => r.sha === head), 1);
+        const tip = task.branch && branchTip(facts.project, task.branch, facts.env);
+        const head = tip || rows.at(-1)?.sha || refuse(`${task.id} has no verdicts yet`);
+        const checkout = tip ? branchCheckout(storeDir(facts.project, facts.env), facts.project, task.branch, facts.env) : undefined;
+        const carry = carryOver(checkout, task, head, rows);
+        const r = judge("", task, facts.findings, decisions, task.id, carry.rows, 1);
         if (!r.ok) refuse(`${task.id} is not verified on ${head.slice(0, 7)}: ${r.reason}`);
       }
       if (["merged", "concluded", "abandoned"].includes(v)) decided.push({ at: at, task: task.id, decision: `state ${v}`, why: (v === "abandoned" && facts.why) || "task set" });
@@ -1964,7 +1962,8 @@ function judge(dir, task, findings, decisions, id, rows, cycles, repaired, cfg, 
 const cleanKinds = (task) => list(task.route).map((b) => VERDICT[b]).filter((k) => k && k !== "checks-pass");
 const cleanCycles = (task, rows) => [...new Set(rows.map((r) => r.cycle))].filter((c) => cleanKinds(task).every((k) => rows.some((r) => r.cycle === c && r.kind === k))).length;
 
-function carryOver(checkout, task, head, own, all) {
+function carryOver(checkout, task, head, all) {
+  const own = all.filter((r) => String(r.sha).toLowerCase() === String(head).toLowerCase());
   if (!task || checkout === undefined) return { rows: own };
   const earlier = new Map();
   for (const r of all) if (r.sha !== head && /^[0-9a-f]{40}$/.test(r.sha) && REVIEWED.includes(r.kind)) (earlier.get(r.sha) ?? earlier.set(r.sha, []).get(r.sha)).push(r);
@@ -2195,7 +2194,7 @@ function judgeMerge(sha, env, { cycles, pr, readOnly, head, project, locked, ses
       const [tasks, findings, decisions, runs] = book ? [rowsOf(book.tasks), rowsOf(book.findings), rowsOf(book.decisions), rowsOf(book.runs)] : [[], [], [], []];
       const repaired = decisions.some((d) => d.decision.startsWith("tasks.tsv started again without rows"));
       const ofPr = pr && (mine === undefined || basename(dir) === mine) ? prHistory(pr, tasks, decisions, ledger) : new Set();
-      const [byId, ownOf, findingsOf, runsOf, decisionsOf, ledgerOf] = [new Map(tasks.map((t) => [t.id, t])), group(rows), group(findings), group(runs), group(decisions), group(ledger)];
+      const [byId, findingsOf, runsOf, decisionsOf, ledgerOf] = [new Map(tasks.map((t) => [t.id, t])), group(findings), group(runs), group(decisions), group(ledger)];
       const candidates = runs.filter(isCandidate);
       const ranOn = new Map();
       for (const r of runs) if (sameBranch(r.branch, head) && !ranOn.has(r.task)) ranOn.set(r.task, r.id);
@@ -2210,7 +2209,7 @@ function judgeMerge(sha, env, { cycles, pr, readOnly, head, project, locked, ses
       const chief = basename(dir) !== mine ? undefined : merger ?? (session !== undefined ? chiefFor(project, session, env) : undefined);
       const lint = lintNeed(gitOf(dir));
       const checked =[...new Set([...rows.map((r) => r.task), ...ofPr])].map((id) => {
-        const task = byId.get(id), carry = carryOver(gitOf(dir), task, sha, ownOf.get(id) ?? [], ledgerOf.get(id) ?? []), own = carry.rows;
+        const task = byId.get(id), carry = carryOver(gitOf(dir), task, sha, ledgerOf.get(id) ?? []), own = carry.rows;
         const held = task?.state === "held" && { ok: false, reason: `${id} is held: only the sage moves a held task, and it does not merge until then.` };
         const judged = judge(dir, task, findingsOf.get(id) ?? [], decisionsOf.get(id) ?? [], id, own, task ? Math.max(cycles ?? 0, cyclesFor(task, cfg)) : cycles, repaired, cfg, pr, carry.from, lint);
         const note = carry.from ? `cycles from ${carry.from} carried to ${sha}: clean merge of main, same patch-id` : carry.why;
@@ -2410,8 +2409,11 @@ function logbookView(project, env = process.env, { max = Infinity } = {}) {
     shas: (task) => new Set(rows("ledger").filter((r) => r.task === task && r.sha).map((r) => r.sha)),
     verdicts: (task) => rows("ledger").filter((r) => r.task === task),
     cleanCycles: (id, sha) => {
-      const task = one(rows("tasks").filter((t) => t.id === id)), on = rows("ledger").filter((r) => r.task === id && String(r.sha).toLowerCase() === String(sha).toLowerCase());
-      return !task ? 0 : cleanKinds(task).length ? cleanCycles(task, on) : null;
+      const task = one(rows("tasks").filter((t) => t.id === id));
+      if (!task) return 0;
+      const carry = carryOver(branchCheckout(dir, project, task.branch, env), task, sha, rows("ledger").filter((r) => r.task === id));
+      if (carry.from && !judge(dir, task, rows("findings"), rows("decisions"), id, carry.rows, 1).ok) return 0;
+      return cleanKinds(task).length ? cleanCycles(task, carry.rows) : null;
     },
     endedLeadRuns: () => rows("runs").filter((r) => r.role === "lead" && RUN_ENDS.includes(r.status)),
     prTasks: (pr) => prHistory(prNumber(pr), rows("tasks"), rows("decisions"), rows("ledger")),
@@ -2423,7 +2425,7 @@ function fileOrNone(file) {
   const st = lstatSync(file, { throwIfNoEntry: false });
   if (st && !st.isFile()) refuse(`${file} is ${st.isSymbolicLink() ? "a link" : st.isDirectory() ? "a folder" : st.isFIFO() ? "a named pipe" : st.isSocket() ? "a socket" : "a device"}, not a regular file, so config writes nothing. Replace it with a regular file.`);
 }
-const ownKey = (kv) => /^(name|archived|start|lint_offer)(=|$)/.test(kv);
+const ownKey = (kv) => /^(name|archived|start|lint_offer|commit_email|commit_name)(=|$)/.test(kv);
 
 function jsonObject(file) {
   try {
@@ -2443,20 +2445,22 @@ function logbookConfig(dir, pairs) {
   const set = {};
   for (const kv of pairs) {
     const at = kv.indexOf("="), k = at < 0 ? kv : kv.slice(0, at), v = at < 0 ? undefined : kv.slice(at + 1);
-    if (!ownKey(kv)) refuse(`"${visible(k)}" is a key for all projects, and name=, archived=, start= and lint_offer= are keys of one logbook: set them in a config command of their own.`);
+    if (!ownKey(kv)) refuse(`"${visible(k)}" is a key for all projects, and name=, archived=, start=, lint_offer=, commit_email= and commit_name= are keys of one logbook: set them in a config command of their own.`);
     if (v === undefined) refuse(`${k} needs a value: write ${k}=<value>`);
     if (k === "name") {
       const name = v.normalize("NFC"), why = name && nameProblem(name);
       if (why) refuse(`the name "${visible(name)}" ${why}. Nothing changed.`);
       set.name = name || undefined;
     } else if (k === "lint_offer") set.lint_offer = v === "never" ? v : v === "ask" ? undefined : refuse(`lint_offer is never or ask, not "${visible(v)}". Nothing changed.`);
+    else if (k === "commit_email") set.commit_email = !v ? undefined : COMMIT_EMAIL.test(v) ? v : refuse(`commit_email is one email address with no space, quote or $, such as 12345+name@users.noreply.github.com, not "${visible(v)}". Nothing changed.`);
+    else if (k === "commit_name") set.commit_name = !v.trim() ? undefined : COMMIT_NAME.test(v.trim()) ? v.trim() : refuse(`commit_name is 1 to 100 characters with no control character, single quote, < or >, not "${visible(v)}". Nothing changed.`);
     else if (k === "start") set.start = v === START_SAGE_MODE ? v : v === "normal" ? undefined : refuse(`start is ${START_SAGE_MODE} or normal, not "${visible(v)}". Nothing changed.`);
     else set.archived = v === "yes" ? true : v === "no" ? undefined : refuse(`archived is yes or no, not "${visible(v)}". Nothing changed.`);
   }
   const next = { ...logbookJson(dir), ...set };
   for (const k of Object.keys(set)) if (set[k] === undefined) delete next[k];
   swap(join(dir, "config.json"), JSON.stringify(next, null, 2) + "\n");
-  return `name=${visible(typeof next.name === "string" ? next.name : "")} archived=${next.archived === true ? "yes" : "no"} start=${next.start === START_SAGE_MODE ? START_SAGE_MODE : "normal"}${next.lint_offer === "never" ? " lint_offer=never" : ""}`;
+  return `name=${visible(typeof next.name === "string" ? next.name : "")} archived=${next.archived === true ? "yes" : "no"} start=${next.start === START_SAGE_MODE ? START_SAGE_MODE : "normal"}${next.lint_offer === "never" ? " lint_offer=never" : ""}${next.commit_email ? ` commit_email=${visible(next.commit_email)}` : ""}${next.commit_name ? ` commit_name=${visible(next.commit_name)}` : ""}`;
 }
 
 
@@ -2561,7 +2565,7 @@ function sageCommand(argv, env) {
     const printed = visible(project);
     refuse(`no logbook for the project ${printed}. ${printed === project ? `Run: sage init --project ${shell(project)}` : "Its path has control characters, so no command is printed to paste. Rename the folder, or run sage init from inside it."}`);
   }
-  if (readOnly || (cmd === "logbook" && !repair) || cmd === "status" || cmd === "stats" || (cmd === "standing" && pos[0] !== "add") || (cmd === "pages" && pos[1] !== "record") || cmd === "message" || cmd === "worktrees") return act(cmd, pos, opt, dir, env, [], project);
+  if (readOnly || (cmd === "logbook" && !repair) || cmd === "status" || cmd === "stats" || (cmd === "standing" && pos[0] !== "add") || (cmd === "pages" && pos[1] !== "record") || cmd === "message" || cmd === "worktrees" || (cmd === "storage" && pos[0] !== "clean")) return act(cmd, pos, opt, dir, env, [], project);
   notePlugin(env);
   if (place.row && !place.row.commits && fillCommits(place.checkout, env)) locate(project, env);
   const run = () => change(cmd, pos, opt, dir, env, skip, project, place.shared);
@@ -2777,7 +2781,7 @@ function readMessage(file, json, project, env) {
     if (!TASK_ID.test(String(b.task)) || typeof b.file !== "string" || !pageType(b.file))
       refuse(`a page block names its page as { t: page, title, task, file }: a task id and a file in that task's pages folder that the board serves: 1 to 3 parts of letters, digits and . _ - (none that starts with a dot or holds ..), ending in .${Object.keys(PAGE_TYPES).join(", .")}; not ${JSON.stringify({ task: b.task, file: b.file })}. Nothing written.`);
     b.path = join(pagesDir(project, b.task, env), b.file);
-    b.url = pageUrl(logbook, b.task, b.file);
+    b.url = pageUrl(logbook, b.task, b.file, boardPort(env));
     let there;
     try { there = lstatSync(b.path); } catch {}
     if (!there) refuse(`the page block "${b.title}" names ${b.path}, and it does not exist. Save the page there first. Nothing written.`);
@@ -2789,7 +2793,7 @@ function readMessage(file, json, project, env) {
 }
 function writeMessage(project, taskId, { input, logbook }, shape, env) {
   const folder = taskId && pagesDir(project, taskId, env);
-  const out = renderMessage(input, folder ? { pagePath: (name) => join(folder, name), pageUrl: (name) => pageUrl(logbook, taskId, name) } : {});
+  const out = renderMessage(input, folder ? { pagePath: (name) => join(folder, name), pageUrl: (name) => pageUrl(logbook, taskId, name, boardPort(env)) } : {});
   if (out.problems) refuse(`the message is not in its kind's shape, so ${shape}. Nothing written.\n${out.problems.map((p) => `- ${p}`).join("\n")}`);
   if (!out.page) return out.text;
   if (!folder) refuse("the message has a long form, a picture or a toggle, so it needs a page, and a page lives in a task's pages folder: give the gate its task. Nothing written.");
@@ -3155,12 +3159,21 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         const graph = graphOf(dir), next = { id: nextId(dir, "T"), state: "framed" };
         if (opt.waits !== undefined) tags.waits = waitsValue(next, opt.waits, [...graph.byId.values()]);
         if (opt.milestone !== undefined) tags.milestone = milestoneValue(next, opt.milestone, graph);
-        const task = frame(dir, need(opt.title, "--title"), size, risk, list(opt.add), tags);
+        const byDefault = size === "large" && ARENA_KINDS.includes(tags.kind) && !list(opt.add).includes("arena");
+        const noArena = opt["no-arena"] === undefined ? undefined : cell(opt["no-arena"]);
+        if (noArena !== undefined && !byDefault) refuse(`--no-arena takes the arena out of a large task of kind ${ARENA_KINDS.join(" or ")}, which gets it by default, and this task ${list(opt.add).includes("arena") ? "adds it with --add arena" : "has no arena by default"}. Nothing changed.`);
+        if (noArena === "") refuse(`--no-arena needs the reason: --no-arena "<reason>". Nothing changed.`);
+        const arena = byDefault && noArena === undefined;
+        const task = frame(dir, need(opt.title, "--title"), size, risk, [...list(opt.add), ...(arena ? ["arena"] : [])], tags);
         checkout(dir, project, env);
-        const at = now(), joined = milestoneDecision(task, "", at, "task add", graph);
-        const decided = [...(opt.add ? [{ at, task: task.id, decision: `added ${opt.add}`, why }] : []), ...waitsDecision(task, "", at, "task add"), ...joined.rows];
+        const at = now(), joined = milestoneDecision(task, "", at, "task add", graph), count = config(env, dir).arena;
+        const decided = [...(opt.add ? [{ at, task: task.id, decision: `added ${opt.add}`, why }] : []),
+          ...(arena ? [{ at, task: task.id, decision: `added arena · ${count} candidates`, why: `by default: a large ${tags.kind} task` }] : []),
+          ...(noArena ? [{ at, task: task.id, decision: "no arena", why: noArena }] : []),
+          ...waitsDecision(task, "", at, "task add"), ...joined.rows];
         if (decided.length) write(dir, "decisions", [...read(dir, "decisions"), ...decided]);
-        return `${framed(task)}${joined.note}`;
+        const arenaNote = arena ? ` · arena of ${count} by default for a large ${tags.kind} task (one designer instead: frame it with --no-arena "<reason>")` : "";
+        return `${framed(task)}${arenaNote}${joined.note}`;
       }
       const { tasks, task } = taskOf(dir, need(sub, "the task id"));
       let note = "";
@@ -3168,7 +3181,7 @@ function act(cmd, pos, opt, dir, env, skip, project) {
       const why = opt.why === undefined ? undefined : [cell(opt.why), opt.chief && `abandoned by ${opt.chief}${task.chief ? "" : ", with no owning chief"}`].filter(Boolean).join(" · ");
       if (id === "set") {
         const before = { tasks, runs: read(dir, "runs"), decisions: read(dir, "decisions") };
-        const planned = planTaskChanges(before, task.id, more, now(), { ...Object.fromEntries(["findings", "ledger", "gates", "milestones", "releases"].map((t) => [t, read(dir, t)])), maxRounds: config(env, dir).max_rounds, why });
+        const planned = planTaskChanges(before, task.id, more, now(), { ...Object.fromEntries(["findings", "ledger", "gates", "milestones", "releases"].map((t) => [t, read(dir, t)])), maxRounds: config(env, dir).max_rounds, why, project, env });
         const bar = moveBar(more, planned);
         if (bar) refuse(bar);
         if (JSON.stringify(planned.decisions) !== JSON.stringify(before.decisions)) write(dir, "decisions", planned.decisions);
@@ -3534,8 +3547,8 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         if (sub === "give" && more.length) refuse("gate give takes one task id and --to <C id>: sage gate give <T> --to C<n>. Nothing changed.");
         const { task } = taskOf(dir, need(id, "the task id")), to = chiefNamed(dir, opt.to);
         if (task.chief === to) refuse(`${task.id} already belongs to ${to}. Nothing changed.`);
-        const other = sub === "give" && gates.find((g) => g.kind === "replace" && !g.answer && g.task === task.id && ((p) => p && p.from === task.chief && p.to !== to)(replaceOf(g)));
-        if (other) refuse(`${other.id} is open already: it asks to hand ${task.id} to ${chiefLabel(dir, replaceOf(other).to)}. A task has one open takeover question at a time: answer ${other.id} first (or undo your board answer to it), then give ${task.id} again. Nothing changed.`);
+        const other = gates.find((g) => g.kind === "replace" && !g.answer && g.task === task.id && ((p) => p && p.from === task.chief && p.to !== to)(replaceOf(g)));
+        if (other) refuse(`${other.id} is open already: it asks to hand ${task.id} to ${chiefLabel(dir, replaceOf(other).to)}. A task has one open takeover question at a time: ${sub === "give" ? `answer ${other.id} first (or undo your board answer to it), then give ${task.id} again` : `ask the owner to answer ${other.id} first, then ask for ${task.id} again`}. Nothing changed.`);
         return takeoverGate(dir, task, to);
       }
       if (sub === "answer" || sub === "undo") {
@@ -3580,6 +3593,16 @@ function act(cmd, pos, opt, dir, env, skip, project) {
       const root = projectRoot(project);
       try { git(["-C", root, "rev-parse", "--git-dir"], env); } catch { refuse(`${visible(root)} is not a git repository, so it has no worktrees. Nothing changed.`); }
       return worktrees({ git: (args) => git(args, env), root, tasks: read(dir, "tasks"), runs: read(dir, "runs"), ledger: read(dir, "ledger"), here: [folderHere(), project], prune });
+    }
+    case "storage": {
+      if (!(sub === undefined || (sub === "plan" && id === undefined) || (sub === "clean" && more.length === 0))) refuse("storage takes no words, plan, or clean <token>: sage storage, then sage storage plan, then, after the owner's yes, sage storage clean <the plan's token>.");
+      assertNoPendingWrite(dir);
+      const root = projectRoot(project);
+      try { git(["-C", root, "rev-parse", "--git-dir"], env); } catch { refuse(`${visible(root)} is not a git repository, so it has no worktrees. Nothing changed.`); }
+      const input = { git: (args) => git(args, env), root, dir, folder: dirname(pagesRoot(project, env)), tasks: read(dir, "tasks"), runs: read(dir, "runs"), ledger: read(dir, "ledger"), here: [folderHere(), project] };
+      if (sub === undefined) return storageView(input);
+      if (sub === "plan") return storagePlan(input);
+      return storageClean(input, id, { refuse, record: (row) => write(dir, "decisions", [...read(dir, "decisions"), { at: now(), ...row }]) });
     }
     case "message": {
       const taskId = taskOf(dir, need(sub, "the task id")).task.id;

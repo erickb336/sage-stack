@@ -10,7 +10,7 @@ Design v3 · the sage plugin · 4 Oct 2026 · status: **the kitchen and the team
 
 **New in v2.** Your decisions ([section 15](#decide)), autopilot as "everything merges through a pull request after a set number of cycles", the [arena](#arena) block, and a [sample session](#prototype) that shows the experience.
 
-**What I need from you.** Two details and your go to build, in [the last section](#decide).
+**Needs you.** Two details and your go to build, in [the last section](#decide).
 
 <a id="fit"></a>
 
@@ -155,7 +155,7 @@ The Design block is Orchestrator's Vision, made smaller. It works in rounds, one
 
 ### Arena: N candidates, a judge takes the best of each
 
-For a design with no clear answer, or for an implementation that's hard to undo, the chief can run an arena. It follows pstack's arena, within Claude's models:
+The design step of a large task of kind ui or design runs an arena by default: the state tool adds the arena block at `task add`, and you can say "no arena" for one task. For another design with no clear answer, or for an implementation that's hard to undo, the chief can run an arena. It follows pstack's arena, within Claude's models:
 
 1. **The rubric first.** The chief writes 3 to 6 criteria that a judge can grade. The candidates don't see it.
 
@@ -187,7 +187,7 @@ A candidate's branch never merges. Candidate branches and pages stay until you d
 
 | Question | Design |
 | --- | --- |
-| When does it run? | When you say "arena" (for example "arena 4"), for a Design block that has no clear answer, or for an implementation the PE marks as hard to undo |
+| When does it run? | By default for the design of a large task of kind ui or design (you can say "no arena" for one task, and the state tool keeps your reason). Also when you say "arena" (for example "arena 4"), for a Design block that has no clear answer, or for an implementation the PE marks as hard to undo |
 | How many? | N = 3 by default, at most 5. Each candidate costs a full design or build |
 | How are the candidates different? | The chief gives each one an angle, for example "fewest taps", "most control", "reuse existing screens". N copies of one prompt give N similar answers |
 | What does the judge return? | A score per candidate against each rubric line, the base, each graft with its source, what it rejected, and the check of the final version |

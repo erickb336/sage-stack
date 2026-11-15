@@ -250,6 +250,21 @@ for (const provider of ["claude", "codex"]) {
   });
 }
 
+for (const provider of ["claude", "codex"]) {
+  test(`F-T1076-10: in ${provider}, gate replace refuses a second takeover question for a task while one is open to another chief`, (t) => {
+    const w = shared(t);
+    w.as("claude", "task", "add", "--title", "a", ...ADD);
+    writeFileSync(join(w.dir, "chiefs.tsv"), `${readFileSync(join(w.dir, "chiefs.tsv"), "utf8")}C3\tclaude\tclaude-3\t2026-01-01T00:00:00Z\n`);
+    assert.match(w.owner(provider, "gate", "give", "T1", "--to", "C2"), /^G1 open · /);
+    const before = readFileSync(join(w.dir, "gates.tsv"), "utf8");
+    const third = (...args) => ({ claude, codex })[provider].sage([...args, "--project", w.project, "--chief", "C3"], w.env);
+    assert.throws(() => third("gate", "replace", "T1", "--to", "C3"), { message: "G1 is open already: it asks to hand T1 to C2 (codex). A task has one open takeover question at a time: ask the owner to answer G1 first, then ask for T1 again. Nothing changed." });
+    assert.equal(readFileSync(join(w.dir, "gates.tsv"), "utf8"), before, "no second takeover question");
+    w.owner(provider, "gate", "answer", "G1", "--option", "2", "--via", "chat");
+    assert.match(third("gate", "replace", "T1", "--to", "C3"), /^G2 open · Hand T1 from C1 \(claude\) to C3 \(claude\)\?/);
+  });
+}
+
 test("a board answer that cannot act at the pickup is cleared, the gate opens again, and the chief hears why", (t) => {
   const w = shared(t);
   w.as("claude", "task", "add", "--title", "a", ...ADD);
@@ -267,10 +282,10 @@ test("gate add --message keeps the checked question message as gates/G<n>.json, 
   w.as("claude", "task", "add", "--title", "a", ...ADD);
   const file = join(w.base, "question.json");
   const message = { kind: "question", title: "Ship the new board?", blocks: [
-    { t: "field", label: "Where this is", text: "The board is built." }, { t: "field", label: "What you approve", text: "The release of the board." },
-    { t: "field", label: "The one real choice in it", text: "Now or later." },
-    { t: "table", head: ["Answer", "What happens next", "Cost"], rows: [["now", "It ships today.", "none"], ["later", "It waits a week.", "none"]], pick: 0 },
-    { t: "field", label: "If you do not answer", text: "It waits." }, { t: "field", label: "Needed by", text: "Friday." }, { t: "field", label: "After you answer", text: "I ship it." }] };
+    { t: "field", label: "Where", text: "The board is built." }, { t: "field", label: "Approve", text: "The release of the board." },
+    { t: "field", label: "Choice", text: "Now or later." },
+    { t: "table", head: ["Answer", "Next", "Cost"], rows: [["now", "It ships today.", "none"], ["later", "It waits a week.", "none"]], pick: 0 },
+    { t: "field", label: "Default", text: "It waits." }, { t: "field", label: "Due", text: "Friday." }, { t: "field", label: "Next", text: "I ship it." }] };
   writeFileSync(file, JSON.stringify(message));
   const out = w.as("claude", "gate", "add", "T1", "--question", "Ship the new board?", "--options", "now|later", "--recommend", "now", "--message", file);
   assert.equal(out, `G1 open · Ship the new board? · its message: ${join(w.dir, "gates", "G1.json")}`);
@@ -443,9 +458,9 @@ test("gate add refuses a task id that is not a task of the logbook, and writes n
   w.as("claude", "task", "add", "--title", "a", ...ADD);
   const file = join(w.base, "question.json"), root = claude.pagesRoot(w.project, w.env);
   writeFileSync(file, JSON.stringify({ kind: "question", title: "Ship it?", long: { title: "Ship it, in short", main: "the page holds the whole question." }, blocks: [
-    { t: "field", label: "Where this is", text: "a" }, { t: "field", label: "What you approve", text: "b" }, { t: "field", label: "The one real choice in it", text: "c" },
-    { t: "table", head: ["Answer", "What happens next", "Cost"], rows: [["yes", "d", "none"], ["no", "e", "none"]], pick: 0 },
-    { t: "field", label: "If you do not answer", text: "f" }, { t: "field", label: "Needed by", text: "g" }, { t: "field", label: "After you answer", text: "h" }] }));
+    { t: "field", label: "Where", text: "a" }, { t: "field", label: "Approve", text: "b" }, { t: "field", label: "Choice", text: "c" },
+    { t: "table", head: ["Answer", "Next", "Cost"], rows: [["yes", "d", "none"], ["no", "e", "none"]], pick: 0 },
+    { t: "field", label: "Default", text: "f" }, { t: "field", label: "Due", text: "g" }, { t: "field", label: "Next", text: "h" }] }));
   for (const id of ["T99", "../../../escape-a", "T1/../../escape-b", "t1"]) {
     for (const message of [[], ["--message", file]]) {
       assert.throws(() => w.as("claude", "gate", "add", id, "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes", ...message), (e) => e.message.startsWith(`no task ${id}. The latest: T1.`), `${id} ${message.length ? "with" : "without"} a message`);

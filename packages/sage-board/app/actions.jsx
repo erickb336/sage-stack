@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { when } from "./use-model.js";
+import { UNKNOWN, chiefName } from "../../sage-core/state-words.mjs";
+import { chiefState, chiefSub } from "./panel.jsx";
 
 const TOKEN_KEY = "board-token";
 const stored = { get: () => { try { return localStorage.getItem(TOKEN_KEY) ?? ""; } catch { return ""; } }, set: value => { try { value ? localStorage.setItem(TOKEN_KEY, value) : localStorage.removeItem(TOKEN_KEY); } catch {} } };
@@ -14,7 +16,7 @@ const clock = at => Number.isFinite(Date.parse(at)) ? new Date(at).toLocaleTimeS
 const clocks = text => String(text).replace(/\b\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d+)?)?Z\b/g, clock);
 export const questionLink = key => `#question?key=${encodeURIComponent(key)}`;
 export const chiefOf = (chiefs, logbook, id) => chiefs.find(chief => chief.logbook === logbook && chief.id === id) ?? null;
-export const chiefLabel = (chiefs, logbook, id) => { const chief = chiefOf(chiefs, logbook, id); return chief ? `${chief.id} · ${chief.name}` : id ?? "the chief"; };
+export const chiefLabel = (chiefs, logbook, id) => { const chief = chiefOf(chiefs, logbook, id); return chief ? `${chiefName(chief.id, chief.provider)} · ${chiefSub(chief)}` : id ?? "the chief"; };
 
 export function useAccess() {
   const [state, setState] = useState(access.writes);
@@ -31,7 +33,7 @@ export async function post(path, body) {
       setAccess(response.status === 403 && stored.get() ? "paired" : "unpaired");
     }
     return { ok: response.ok && json.ok !== false, text: clocks(json.text ?? json.problem ?? (response.ok ? "" : `The board refused the write (${response.status}).`)), json };
-  } catch { return { ok: false, text: "The board cannot reach its server on this Mac. Nothing was written." }; }
+  } catch { return { ok: false, text: "The board lost its connection to its server on this Mac, so it cannot say whether the write landed. Reload the board to see it before you try again.", json: { pending: true } }; }
 }
 
 export function PairBox() {
@@ -71,7 +73,7 @@ export function useSeen(writes) {
 }
 
 const dot = chief => chief.stopped ? "stopped" : chief.waitsForOwner ? "waits" : chief.stopped === false ? "live" : "unknown";
-const STATE = { live: "live", stopped: "stopped", waits: "waits for you", unknown: "liveness not known" };
+const STATE = { live: chiefState("live"), stopped: chiefState("stopped"), waits: chiefState("waits"), unknown: UNKNOWN };
 
 function ChiefMenu({ chief, onFilter, close }) {
   const [name, setName] = useState(chief.named ? chief.name.replace(new RegExp(` · ${chief.id}$`), "") : ""), [said, setSaid] = useState(null);
@@ -82,13 +84,13 @@ function ChiefMenu({ chief, onFilter, close }) {
     setSaid(result);
   };
   return (
-    <div className="menu" role="dialog" aria-label={`${chief.id} · ${chief.provider}`}>
-      <p className="menu-h"><span className={`dot ${dot(chief)}`} aria-hidden="true" />{chief.id} · {chief.provider}<span className="grow" />{STATE[dot(chief)]}</p>
+    <div className="menu" role="dialog" aria-label={chiefName(chief.id, chief.provider)}>
+      <p className="menu-h"><span className={`dot ${dot(chief)}`} aria-hidden="true" />{chiefName(chief.id, chief.provider)}<span className="grow" />{STATE[dot(chief)]}</p>
       <dl className="facts">
-        <dt>Started</dt><dd>{chief.startedAt ? when(chief.startedAt) : "not known"}</dd>
-        <dt>Last event</dt><dd>{chief.heartbeat ? clock(chief.heartbeat) : "not known"}</dd>
+        <dt>Started</dt><dd>{chief.startedAt ? when(chief.startedAt) : UNKNOWN}</dd>
+        <dt>Last event</dt><dd>{chief.heartbeat ? clock(chief.heartbeat) : UNKNOWN}</dd>
         <dt>Agents</dt><dd>{chief.agents} running</dd>
-        <dt>Autopilot</dt><dd>{chief.autopilot === null ? "not known" : chief.autopilot ? "on" : "off"} · you switch it in the chief's chat</dd>
+        <dt>Autopilot</dt><dd>{chief.autopilot === null ? UNKNOWN : chief.autopilot ? "on" : "off"} · you switch it in the chief's chat</dd>
       </dl>
       {writes === "paired" ? (
         <form onSubmit={save} className="rename">
@@ -118,7 +120,7 @@ export function ChiefChips({ chiefs, filter, setFilter, many }) {
         <span className="chip-wrap" key={chief.key}>
           <button type="button" className="chip" aria-pressed={filter === chief.key} data-chief={chief.key} onClick={() => setFilter(filter === chief.key ? null : chief.key)}
             title={`${STATE[dot(chief)]} · show only this chief's work`}>
-            <span className={`dot ${dot(chief)}`} aria-hidden="true" /><b>{chief.id}</b> {chief.named && `${chief.provider} `}<span className="faint">{chief.name}</span>
+            <span className={`dot ${dot(chief)}`} aria-hidden="true" /><b>{chiefName(chief.id, chief.provider)}</b> <span className="faint">{chiefSub(chief)}</span>
             {many && <span className="faint"> · {chief.project}</span>}
             <span className="state">{STATE[dot(chief)]}{dot(chief) === "live" && chief.autopilot !== null && ` · autopilot ${chief.autopilot ? "on" : "off"}`}</span>
           </button>
@@ -141,7 +143,7 @@ export function GiveBox({ task, logbook, from, chiefs, close }) {
       {sorted.length ? sorted.map((chief, i) => (
         <label key={chief.id} className="pickable">
           <input type="radio" name={`give-${task.key}`} checked={to === chief.id} onChange={() => setTo(chief.id)} />
-          <span><b>{chief.id}</b> · {chief.provider} · {chief.name}{i === 0 && <span className="badge pick">Recommended</span>}</span>
+          <span><b>{chiefName(chief.id, chief.provider)}</b> · {chiefSub(chief)}{i === 0 && <span className="badge pick">Recommended</span>}</span>
         </label>
       )) : <p className="hint">No other chief of this project is live. Start a chief, then give the task to it.</p>}
       <p className="hint">The board opens the takeover question. Nothing moves until you answer it in Needs you.</p>
@@ -168,7 +170,7 @@ function Blocks({ blocks }) {
 
 const same = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
 function answerRows(message) {
-  const found = { head: ["Answer", "What happens next", "Cost"], rows: [] };
+  const found = { head: ["Answer", "Next", "Cost"], rows: [] };
   const walk = blocks => (blocks ?? []).forEach(block => { if (block.t === "section") walk(block.body); if (block.t === "table" && same(block.head[0], "Answer")) { found.head = block.head; found.rows.push(...block.rows); } });
   walk(message?.blocks);
   return found;
@@ -223,9 +225,9 @@ export function QuestionView({ needKey, model, theme }) {
       <p className="facts-line">{owner} · <span className="mono">{gate.id}</span> · asked {gate.at ? clock(gate.at) : "at a time not recorded"} · <a href={`#tasks?task=${encodeURIComponent(gate.task.key)}`}>{gate.task.id} · {gate.task.title}</a> · <a href={`/read/${encodeKey(gate.task.key)}/question/${gate.id}${theme === "light" ? "?theme=light" : ""}`}>Read the full question</a></p>
       <h1 id="question-h" tabIndex={-1}>{gate.message?.title ?? gate.text ?? gate.question}</h1>
       {gate.message ? <div className="context"><Blocks blocks={gate.message.blocks.filter(block => !(block.t === "table" && same(block.head[0], "Answer")))} /></div>
-        : <p className="hint">This question has no kept message, so the board shows its question and its options only.{gate.default && ` If you do not answer: ${gate.default}.`}</p>}
-      <h2 className="lbl">The answers</h2>
-      <div className="answers" role="radiogroup" aria-label="The answers">
+        : <p className="hint">This question has no kept message, so the board shows its question and its options only.{gate.default && ` Default: ${gate.default}.`}</p>}
+      <h2 className="lbl">Answers</h2>
+      <div className="answers" role="radiogroup" aria-label="Answers">
         {gate.options.map((option, i) => {
           const row = rows.rows.find(item => same(item[0], option) || same(item[0].replace(/^[A-Z]\s*[·:.)-]\s*/, ""), option));
           const chosen = gate.answer === option || gate.answered?.answer === option;
@@ -233,7 +235,7 @@ export function QuestionView({ needKey, model, theme }) {
             <label key={option} className={`answer${pick === i ? " picked" : ""}${chosen ? " chosen" : ""}`}>
               <input type="radio" name="answer" disabled={!open || writes !== "paired" || said?.ok} checked={pick === i} onChange={() => setPick(i)} />
               <span className="what"><b>{option}</b>{gate.recommendation === option && <span className="badge pick">{gate.owner ?? "The chief"}'s pick</span>}{chosen && <span className="badge done">The answer</span>}</span>
-              {row && <span className="more">{row.slice(1).map((cell, k) => <span key={k}><span className="faint">{rows.head[k + 1]}</span> {cell}</span>)}</span>}
+              {row && <span className="more">{row.slice(1).map((cell, k) => <span key={k}><span className="col">{rows.head[k + 1]}</span>{cell}</span>)}</span>}
             </label>
           );
         })}

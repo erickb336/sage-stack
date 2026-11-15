@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 export const PRIORITIES = ["P0", "P1", "P2", "P3"];
 export const PRIORITY_SCALE = "A task needs a priority: P0 the owner's current focus and what blocks it; P1 next: function or safety bugs, work in flight, pre-pilot items; P2 later: polish, hardening lows, follow-ups; P3 parked but kept.";
@@ -28,17 +28,27 @@ export function agentCaps(config) {
   const max = countOf(c.max_agents) ?? AGENT_CAPS.max_agents;
   return { total: countOf(c.cap_total) ?? AGENT_CAPS.cap_total, cap: project => countOf(c[`cap.${project}`]) ?? max };
 }
-export function agentLimit(logbook, roots, names) {
-  const held = countOf(logbook?.max_agents);
-  if (held !== undefined) return held;
-  const set = roots.flatMap(c => names.map(n => countOf(c?.[`cap.${n}`]) ?? countOf(c?.max_agents))).filter(v => v !== undefined);
-  return set.length ? Math.max(...set) : AGENT_CAPS.max_agents;
+export const slug = name => String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "project";
+export const capNames = (folder, bindings) => [...new Set([folder.replace(/-[0-9a-f]{6}$/, ""), ...bindings.filter(row => row.folder === folder).map(row => slug(basename(row.root)))])];
+export function projectLimits(logbook, roots, names) {
+  const held = logbook && typeof logbook === "object" && !Array.isArray(logbook) ? logbook : {};
+  const of = (key, values) => {
+    if (Object.hasOwn(held, key)) return countOf(held[key]) ?? AGENT_CAPS[key];
+    const set = values.filter(v => v !== undefined);
+    return set.length ? Math.max(...set) : AGENT_CAPS[key];
+  };
+  return {
+    max_agents: of("max_agents", roots.flatMap(c => names.map(n => countOf(c?.[`cap.${n}`]) ?? countOf(c?.max_agents)))),
+    max_leads: of("max_leads", roots.map(c => countOf(c?.max_leads))),
+  };
 }
 export const ADMIT_LEASE_MS = 10 * 60_000;
+export const LAPSED = `no agent started within ${ADMIT_LEASE_MS / 60_000} minutes of its admission`;
 export const queueOrder = runs => runs.filter(run => run.status === "queued").sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)));
 
 export const HIDDEN = /[\0-\x08\x0b-\x1f\x7f-\x9f\u061c\u200b\u200e\u200f\u2060\ufeff\ufe00-\ufe0e\u202a-\u202e\u2066-\u2069\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]|(?<![\p{Extended_Pictographic}0-9#*])\ufe0f|(?<![\p{L}\p{M}](?=[\u200c\u200d]\p{L})|[\p{Extended_Pictographic}\p{Emoji_Modifier}]\ufe0f?(?=\u200d\p{Extended_Pictographic}))[\u200c\u200d]/gu;
 export const LINE = "\u2028";
+export const KEPT_TEXT_MAX = 1 << 20, KEPT_FILE_MAX = 6 * KEPT_TEXT_MAX + 4096;
 export const BREAKS = /[\n\r\u0085\u2028\u2029]/g;
 const FIRST_LINE = /^Approve (?:milestone (M[1-9]\d*)|program (PG[1-9]\d*))[ ?]/;
 export const proposalOf = (gate, renamed) => {
@@ -75,28 +85,42 @@ export const TABLES = {
 export const START_SAGE_MODE = "sage-mode";
 
 export function logbookSettings(config) {
-  if (!config || typeof config !== "object" || Array.isArray(config)) return { name: null, archived: false, sageModeStart: false, limit: null, warnings: ["config: config is not an object"] };
+  if (!config || typeof config !== "object" || Array.isArray(config)) return { name: null, archived: false, sageModeStart: false, limits: {}, warnings: ["config: config is not an object"] };
   const why = config.name === undefined ? null : nameProblem(config.name);
   const warnings = [
     ...(why ? [`config: the name ${why}`] : []),
     ...(config.archived !== undefined && typeof config.archived !== "boolean" ? ["config: archived is not true or false"] : []),
     ...(config.start !== undefined && config.start !== START_SAGE_MODE ? [`config: start is not "${START_SAGE_MODE}"`] : []),
   ];
-  return { name: config.name === undefined || why ? null : config.name, archived: config.archived === true, sageModeStart: config.start === START_SAGE_MODE, limit: countOf(config.max_agents) ?? null, warnings };
+  return { name: config.name === undefined || why ? null : config.name, archived: config.archived === true, sageModeStart: config.start === START_SAGE_MODE, limits: Object.fromEntries(["max_agents", "max_leads"].filter(key => Object.hasOwn(config, key)).map(key => [key, config[key]])), warnings };
 }
 
-export function startsInSageMode(logbook) {
+function logbookConfigFile(logbook) {
   let fd;
   try {
     fd = openSync(join(logbook, "config.json"), constants.O_RDONLY | constants.O_NONBLOCK);
     const info = fstatSync(fd);
-    if (!info.isFile() || info.size > 64 * 1024) return false;
+    if (!info.isFile() || info.size > 64 * 1024) return undefined;
     const bytes = Buffer.alloc(info.size);
     const read = readSync(fd, bytes, 0, info.size, 0);
-    return logbookSettings(JSON.parse(bytes.toString("utf8", 0, read))).sageModeStart;
+    return JSON.parse(bytes.toString("utf8", 0, read));
   } catch {
-    return false;
+    return undefined;
   } finally {
     if (fd !== undefined) closeSync(fd);
   }
+}
+
+export function startsInSageMode(logbook) {
+  const config = logbookConfigFile(logbook);
+  return config !== undefined && logbookSettings(config).sageModeStart;
+}
+
+export const COMMIT_EMAIL = /^[^\s<>"'`$\\@]+@[^\s<>"'`$\\@]+$/;
+export const COMMIT_NAME = /^[^\p{Cc}\p{Cf}'<>]{1,100}$/u;
+export function commitIdentity(logbook) {
+  const config = logbookConfigFile(logbook);
+  const email = config?.commit_email, name = config?.commit_name;
+  if (typeof email !== "string" || !COMMIT_EMAIL.test(email)) return undefined;
+  return { email, name: typeof name === "string" && COMMIT_NAME.test(name.trim()) ? name.trim() : undefined };
 }

@@ -26,14 +26,15 @@ Before you send a message, read it as the owner would after a week away, with no
 ## Rules for every message
 
 - **The first line** is the kind's head, for example `QUESTION` or `INCIDENT · Resolved`. The checks read the kind from it.
-- **Where this is**: release › milestone or single task › step, for example "Release 1.0 › milestone 5, Sage feel › step: review". Leave out the release when the logbook has none.
+- **Where**: release › milestone or single task › step, for example "Release 1.0 › milestone 5, Sage feel › step: review". Leave out the release when the logbook has none.
 - **State words**: a task, a milestone or a release is not started, waiting, needs you, in progress, done or stopped. Use these six words, not the tool's states.
-- **A heading for each part**: start each part with a `### <label>` heading line, such as `### Where this is`, with a blank line before and after it. Never write a part's label as a bold line: it looks like one more progress line. Bold inside the text is still allowed for a word that needs it.
+- **A heading for each part**: start each part with a `### <label>` heading line, such as `### Where`, with a blank line before and after it. Never write a part's label as a bold line: it looks like one more progress line. Bold inside the text is still allowed for a word that needs it.
+- **Short labels, full text**: each label is one or two plain words, above its text, in one column. The text under a label is as full as the reader needs. Use the labels of the kind's parts below, word for word.
 - **One blank line** between the parts. A table becomes numbered rows, with one line for each column.
 - **Progress lines stay plain**: between tool calls, write one plain sentence, such as "Starting the lead for the new words now." No heading, no bold, no list.
 - **A rule before the message**: when the turn had progress lines, start the final message with a `---` line and a blank line, so that the message is separate from them. The checks read the kind from the first line after the rule.
 - **No raw ids** (a task, run, gate, milestone, chief, finding or pull request number) in the text or in a picture. Put them in one last line: `Ref: T12 · PR 40`.
-- **Large choices only**: "Judged by" and "The bad side of my pick" go in a question only when the choice is large.
+- **Large choices only**: "Judged by" and "Weak points" go in a question only when the choice is large.
 
 ## Pictures
 
@@ -48,7 +49,7 @@ Draw each picture as fixed-width text first. The page draws its image from the s
 
 ## Pages
 
-A message with a picture, and a message too long for the chat, get a page: one file in the task's pages folder that holds the whole message, with each picture as an image. The message names it in a Page block: `Page · <title>`, then the board's link to the page (`http://127.0.0.1:43123/pages/<logbook>/<task>/<file>`), then its file path. The owner clicks the link: it opens the page from the board, in the Claude desktop app, in the Codex app and from a terminal. When the board does not run, the owner opens the path. Do not send a page with Claude's file tool: it sends a copy through Anthropic's servers. A long message holds only its main point and the Page block; the page holds the rest.
+A message with a picture, and a message too long for the chat, get a page: one file in the task's pages folder that holds the whole message, with each picture as an image. The message names it in a Page block: `Page · <title>`, then the board's link to the page (`http://127.0.0.1:<port>/pages/<logbook>/<task>/<file>`, with the port of the owner's board: 43123 unless the owner moved it), then its file path. The owner clicks the link: it opens the page from the board, in the Claude desktop app, in the Codex app and from a terminal. When the board does not run, the owner opens the path. Do not send a page with Claude's file tool: it sends a copy through Anthropic's servers. A long message holds only its main point and the Page block; the page holds the rest.
 
 A page loads nothing and runs only its own switch. Known limit: a page that the owner opens can still send its own content out through a link or a change of address.
 
@@ -100,11 +101,11 @@ Use the tool only for a choice that is the owner's: product direction, or an act
 
 The owner's rules for the chat message and the text form (12 Nov 2026), because the parts ran together and a table made long answers hard to read. Then the owner asked for clearer labels, because a bold label looked like one more progress line, so each label is now a heading:
 
-1. **Separate segments.** Give each part a `###` heading line, such as `### Where this is` or `### If you do not answer`, with a blank line before and after it, and its text under it. Keep each part to one or two short sentences.
+1. **Separate segments.** Give each part a `###` heading line, such as `### Where` or `### Default`, with a blank line before and after it, and its text under it. Keep each part to one or two short sentences.
 2. **No tables for answers or explanations.** On the card, the long text goes in the option's description. In the text form, the answers are a short numbered list, with what happens next and the cost under each answer. Use a table only for short, uniform data, such as numbers or dates.
 3. **The same rules with no tool.** The text form has the same headings and the same list of answers, your pick first. `sage message` prints it so, and the message check notes a bold label, a label in the line, a table of answers or a pick that is not answer 1.
 
-**A batch in the text form.** Put each question under its own `### Question <n>: <short title>` heading, with the question in one sentence and its own numbered answers, your pick first. In the JSON, each question is a `section` with that label, a `p` and a `table`. The check reads the pick of each question. The shared parts, such as `### If you do not answer`, come once, after the last question.
+**A batch in the text form.** Put each question under its own `### Question <n>: <short title>` heading, with the question in one sentence and its own numbered answers, your pick first. In the JSON, each question is a `section` with that label, a `p` and a `table`. The check reads the pick of each question. The shared parts, such as `### Default`, come once, after the last question.
 
 | Part of the question | On the card |
 | --- | --- |
@@ -112,8 +113,8 @@ The owner's rules for the chat message and the text form (12 Nov 2026), because 
 | A short name of the topic | The header chip, at most 12 characters. |
 | Each answer | One option. Its label is the answer, in 1 to 5 words. |
 | Your pick | The first option, with "(Recommended)" at the end of its label. In the text form, it is answer 1, with "(my pick)". |
-| What happens next, and the cost | The option's description. |
-| If you do not answer | Not on the card: it stays in the chat message. |
+| Next, and the cost | The option's description. |
+| Default | Not on the card: it stays in the chat message. |
 
 Each host has its tool:
 
@@ -130,9 +131,9 @@ SAMPLE CONTENT: a shorter copy of an approved question of 11 Nov 2026.
 ```text
 QUESTION
 
-Should pages reach you only by a link to your Mac? Where this is: Release 1.0 › single task: one way to show visuals › step: investigate. What you approve: how pages reach you in the Claude app. The one real choice in it: a page inside the chat, or a page that never leaves your Mac. If you do not answer: the build uses my pick. Needed by: before the page link build starts. After you answer: I say in one line what I recorded.
+Should pages reach you only by a link to your Mac? Where: Release 1.0 › single task: one way to show visuals › step: investigate. Approve: how pages reach you in the Claude app. Choice: a page inside the chat, or a page that never leaves your Mac. Default: the build uses my pick. Due: before the page link build starts. Next: I say in one line what I recorded.
 
-| Answer | What happens next | Cost |
+| Answer | Next | Cost |
 | --- | --- | --- |
 | Link only (my pick) | Every page comes as a link and a path, in Claude and in Codex. No copy leaves your Mac. | None: it is part of the planned page link work. |
 | Keep the file tool too | Some pages open inside the Claude chat. A copy of each goes through Anthropic's servers. | Small: one more rule for the chief. |
@@ -143,27 +144,27 @@ Should pages reach you only by a link to your Mac? Where this is: Release 1.0 �
 ```text
 ---
 
-### Where this is
+### Where
 
 Release 1.0 › single task: one way to show visuals › step: investigate
 
-### What you approve
+### Approve
 
 How pages reach you in the Claude app.
 
-### The one real choice in it
+### Choice
 
 A page inside the chat, or a page that never leaves your Mac.
 
-### If you do not answer
+### Default
 
 The build uses my pick.
 
-### Needed by
+### Due
 
 Before the page link build starts.
 
-### After you answer
+### Next
 
 I say in one line what I recorded.
 ```
@@ -198,42 +199,42 @@ QUESTION
 Should pages reach you only by a link to your
 Mac?
 
-### Where this is
+### Where
 
 Release 1.0 › single task: one way to show
 visuals › step: investigate
 
-### What you approve
+### Approve
 
 How pages reach you in the Claude app.
 
-### The one real choice in it
+### Choice
 
 A page inside the chat, or a page that never
 leaves your Mac.
 
 1. Link only (my pick)
-   - What happens next: Every page comes as a
-     link and a path, in Claude and in Codex.
-     No copy leaves your Mac.
+   - Next: Every page comes as a link and a
+     path, in Claude and in Codex. No copy
+     leaves your Mac.
    - Cost: None: it is part of the planned
      page link work.
 
 2. Keep the file tool too
-   - What happens next: Some pages open inside
-     the Claude chat. A copy of each goes
-     through Anthropic's servers.
+   - Next: Some pages open inside the Claude
+     chat. A copy of each goes through
+     Anthropic's servers.
    - Cost: Small: one more rule for the chief.
 
-### If you do not answer
+### Default
 
 The build uses my pick.
 
-### Needed by
+### Due
 
 Before the page link build starts.
 
-### After you answer
+### Next
 
 I say in one line what I recorded.
 ```
@@ -246,17 +247,17 @@ Each kind: its `kind` in the JSON, its head (the first line), when to send it, a
 
 | Kind | Head | When | Parts, in order |
 | --- | --- | --- | --- |
-| `progress` | `PROGRESS` | While a task runs: one short note when it moves to a new step, with nothing for the owner to do. | Where this is · [Since my last note] · What changed · Next · [Cost so far] · What I need from you |
-| `question` | `QUESTION` | When work waits for the owner's choice. The title is the question. Ask it on the choice card when the card rule above allows it, else in this text form. Each part starts with a ### heading on its own line. The answers are a numbered list, never a table. A batch puts each question in a section “Question <n>: <short title>”, with its own answers. | Where this is · What you approve · The one real choice in it · the answers, a numbered list (Answer, What happens next, Cost; your pick first); for a batch, a section of its own for each question · If you do not answer · Needed by · [Judged by] · [The bad side of my pick] · After you answer · [a Page block] |
-| `report` | `REPORT` | When work ends: a pull request merged, or a study concluded. The title says what happened and what it needs. The table of the pieces of work goes under its own ### What changed heading. | Where this is · [Why this change] · [a picture, any number] · a table (Piece of work, What changes for you, How I know it works, Cost, You must act) · What I did not check · Weak points · What you need to do · [a Page block] |
-| `request understood` | `REQUEST UNDERSTOOD` | Right after the owner asks for new work, before agents spend hours on it. It starts on its defaults unless the owner corrects it. | Your words · What I understood · Read back (costly if wrong) · In · Out · Appetite · [Unsure, with my default] · If you say nothing |
-| `explainer` | `EXPLAINER` | When the owner asks what a part of sage is, or a message uses a word that is new to the owner. The title is “About …”. | What it is · Why it exists · A real example · [a picture, any number] · [Like, and where the likeness stops] · [What it is not] · [New words] · [a Page block] |
-| `incident` | `INCIDENT` | When an agent did what it must not do, or sage told the owner something that proved wrong. The status is Investigating, Identified, Monitoring or Resolved. | Where this is · What happened · [What I told you, and what is true] · What it changed for you · What I did · Why it could happen · Has it happened before · What stops it next time · What you need to do · Next update |
-| `design` | `DESIGN FOR APPROVAL` | When a design is ready for approval, before any build. Before and after: one picture of the result with each change tagged and a Today switch, or a change table for changes without a screen. | Where this is · [Try it] · [a Page block] · How you will use it · [a picture, any number] · [a toggle] · [a change table] · [Key] · [Why each change matters] · Goals · Non-goals · The choices, and the options I dropped · [Why we might not do this] · Safety and cost · Open questions · What you approve |
-| `architecture` | `ARCHITECTURE` | When the owner asks how something is built. Usually a picture inside a design or a question: one zoom in each picture, at most 6 boxes, a [type] for each part, labelled one-way arrows, a key that names what is left out. | a picture, one or more · What changes for you · What I need from you · [a Page block] |
-| `state chart` | `STATE CHART` | When the owner needs to know how one thing moves from state to state. Usually a picture inside another kind: groups as dashed boxes, about 8 to 13 states, a key that names the rest. | a picture · [a table] · What I need from you · [a Page block] |
-| `catch-up` | `CATCH-UP` | When the owner comes back after time away, or asks where the work is: boxes inside boxes (release › milestone › task), each with its state word, the current task in a double box. | a picture · Each box · Since · What changed · If this happens · What I need from you |
-| `estimate` | `ESTIMATE` | Before work starts, when the owner asks how long or how much, or when a cost changes a choice. The title is the number, with its unit and range. | What it covers · a table · [a picture, any number] · Basis · How sure · [What would change it] · [So far] · [Your time] · What I need from you |
-| `steps for you` | `STEPS FOR YOU` | When only the owner can do something: an install, an update, a setting, a sign-in. A warning goes before the steps it is about. | When · Why · numbered steps · How you know it worked · Your time · If a step fails |
-| `confirm` | `CONFIRM` | Just before an act that cannot be undone: a delete, a publish, a message to other people. The title names the act and says that it cannot be undone. Ask it on the choice card too when the card rule above allows it, else in its text form, with a ### heading for each part. | What I will do · a table · What stays · If you say yes · If you say no, or nothing |
-| `lesson kept` | `LESSON KEPT` | When a mistake teaches sage something: the lesson once, and where it now lives. | What happened · [a picture, any number] · The lesson · Has it happened before · a table (Where the lesson lives now, What it holds, State) · What changes for you · What I need from you |
+| `progress` | `PROGRESS` | While a task runs: one short note when it moves to a new step, with nothing for the owner to do. | Where · [Since] · Changes · Next · [Cost] · Needs you |
+| `question` | `QUESTION` | When work waits for the owner's choice. The title is the question. Ask it on the choice card when the card rule above allows it, else in this text form. Each part starts with a ### heading on its own line. The answers are a numbered list, never a table. A batch puts each question in a section “Question <n>: <short title>”, with its own answers. | Where · Approve · Choice · the answers, a numbered list (Answer, Next, Cost; your pick first); for a batch, a section of its own for each question · Default · Due · [Judged by] · [Weak points] · Next · [a Page block] |
+| `report` | `REPORT` | When work ends: a pull request merged, or a study concluded. The title says what happened and what it needs. The table of the pieces of work goes under its own ### Changes heading. | Where · [Why] · [a picture, any number] · a table (Work, For you, Evidence, Cost, Needs you) · Not checked · Weak points · Needs you · [a Page block] |
+| `request understood` | `REQUEST UNDERSTOOD` | Right after the owner asks for new work, before agents spend hours on it. It starts on its defaults unless the owner corrects it. | Request · Goal · Check these · In · Out · Budget · [Open questions] · Default |
+| `explainer` | `EXPLAINER` | When the owner asks what a part of sage is, or a message uses a word that is new to the owner. The title is “About …”. | Meaning · Why · Example · [a picture, any number] · [Similar to] · [Is not] · [New words] · [a Page block] |
+| `incident` | `INCIDENT` | When an agent did what it must not do, or sage told the owner something that proved wrong. The status is Investigating, Identified, Monitoring or Resolved. | Where · What happened · [Correction] · For you · Action · Cause · Seen before · Lasting fix · Needs you · Next update |
+| `design` | `DESIGN FOR APPROVAL` | When a design is ready for approval, before any build. Before and after: one picture of the result with each change tagged and a Today switch, or a change table for changes without a screen. | Where · [Try it] · [a Page block] · In use · [a picture, any number] · [a toggle] · [a change table] · [Key] · [Why] · Goals · Non-goals · Decisions · [Weak points] · Safety · Cost · Open questions · Approve |
+| `architecture` | `ARCHITECTURE` | When the owner asks how something is built. Usually a picture inside a design or a question: one zoom in each picture, at most 6 boxes, a [type] for each part, labelled one-way arrows, a key that names what is left out. | a picture, one or more · For you · Needs you · [a Page block] |
+| `state chart` | `STATE CHART` | When the owner needs to know how one thing moves from state to state. Usually a picture inside another kind: groups as dashed boxes, about 8 to 13 states, a key that names the rest. | a picture · [a table] · Needs you · [a Page block] |
+| `catch-up` | `CATCH-UP` | When the owner comes back after time away, or asks where the work is: boxes inside boxes (release › milestone › task), each with its state word, the current task in a double box. | a picture · Boxes · Since · Changes · What if · Needs you |
+| `estimate` | `ESTIMATE` | Before work starts, when the owner asks how long or how much, or when a cost changes a choice. The title is the number, with its unit and range. | Covers · a table · [a picture, any number] · Basis · How sure · [What if] · [Cost] · [Your time] · Needs you |
+| `steps for you` | `STEPS FOR YOU` | When only the owner can do something: an install, an update, a setting, a sign-in. A warning goes before the steps it is about. | When · Why · numbered steps · Success · Your time · If stuck |
+| `confirm` | `CONFIRM` | Just before an act that cannot be undone: a delete, a publish, a message to other people. The title names the act and says that it cannot be undone. Ask it on the choice card too when the card rule above allows it, else in its text form, with a ### heading for each part. | Action · a table · Unchanged · If yes · If not |
+| `lesson kept` | `LESSON KEPT` | When a mistake teaches sage something: the lesson once, and where it now lives. | What happened · [a picture, any number] · Lesson · Seen before · a table (Kept in, Holds, State) · For you · Needs you |

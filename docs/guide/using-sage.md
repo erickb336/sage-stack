@@ -30,7 +30,8 @@ These words work inside a request. They switch nothing:
 
 | Put this in your request | What happens |
 | --- | --- |
-| `arena` or `arena <n>`, for example `arena 4` | The chief runs an [arena](how-it-works.md#the-arena) for the design: 3 candidates by default, or the number that you give, and a judge that combines them. |
+| `arena` or `arena <n>`, for example `arena 4` | The chief runs an [arena](how-it-works.md#the-arena) for the design: 3 candidates by default, or the number that you give, and a judge that combines them. A large task of kind ui or design gets an arena by default. |
+| `no arena` | For a large task of kind ui or design: the chief frames it with one designer and no arena, and the state tool keeps your reason. |
 
 <a href="../assets/tip-start-light.svg">
 <picture>
@@ -138,13 +139,13 @@ Until then, you can take a board answer back. An answer in the chat or on a card
 
 ## Sage's messages
 
-Each message from the chief has one kind, and its first line names it: for example `QUESTION`, `REPORT`, `CATCH-UP` or `INCIDENT · Resolved`. Each kind has a fixed shape, so you find the same part in the same place each time. Each part starts with a heading. The chief's short progress lines between its steps stay plain, and a line (a rule) separates them from the message:
+Each message from the chief has one kind, and its first line names it: for example `QUESTION`, `REPORT`, `CATCH-UP` or `INCIDENT · Resolved`. Each kind has a fixed shape, so you find the same part in the same place each time. Each part starts with a short label of one or two plain words, as a heading above its text, in one column. The chief's short progress lines between its steps stay plain, and a line (a rule) separates them from the message:
 
-- **A question** comes on the host's choice card: you pick an answer, and the chief's pick is the first. First the chief sends a short message in segments, each under its own heading: where the work is, what you approve, the one real choice, what happens if you do not answer, and when the answer is needed.
-- **A question while agents work** in Claude Code, or one with more than 4 questions or answers, comes as text, because Claude's card holds the chief's turn until you answer. Codex's card does not, so there it can come while agents work. The text has the same segments and a numbered list of answers (my pick first and marked, what happens next, the cost), so agents' reports keep arriving and the default applies when you do not answer.
+- **A question** comes on the host's choice card: you pick an answer, and the chief's pick is the first. First the chief sends a short message in segments, each under its own heading: **Where** (where the work is), **Approve** (what you approve), **Choice** (the one real choice), **Default** (what happens if you do not answer) and **Due** (when the answer is needed).
+- **A question while agents work** in Claude Code, or one with more than 4 questions or answers, comes as text, because Claude's card holds the chief's turn until you answer. Codex's card does not, so there it can come while agents work. The text has the same segments and a numbered list of answers (my pick first and marked, with **Next** and **Cost** under each answer), so agents' reports keep arriving and the default applies when you do not answer.
 - **A batch of questions** in the text form gives each question its own heading, such as "Question 1: Old pages", with its own answers.
-- **A report** has a title that says what happened and what it needs, a table with one row for each piece of work (what changes for you, how the chief knows that it works, the cost, whether you must act), what the chief did not check, the weak points, and what you need to do.
-- **A catch-up** draws the release, its milestones and its tasks as boxes inside boxes, each with its state word: not started, waiting, needs you, in progress, done or stopped. The task that runs now is in a double box. Then it says what changed since a time, what the chief does if a thing happens, and what it needs from you.
+- **A report** has a title that says what happened and what it needs, a **Changes** list with one item for each piece of work (**For you**, **Evidence**, **Cost**, **Needs you**), then **Not checked**, **Weak points** and **Needs you**.
+- **A catch-up** draws the release, its milestones and its tasks as boxes inside boxes, each with its state word: not started, waiting, needs you, in progress, done or stopped. The task that runs now is in a double box. Then come **Boxes**, **Since**, **Changes**, **What if** and **Needs you**.
 
 The other kinds are a progress note, a request understood, an explainer, an incident, a design, an architecture picture, a state chart, an estimate, steps for you, a confirm before an act that cannot be undone, and a lesson kept. The presentation skill lists the parts of each kind. Task and pull request numbers go only in a small Ref line at the end.
 
@@ -164,7 +165,6 @@ In Claude Code, the sage hook reads each message of the chief when it ends. A me
 Known limits:
 
 - A page loads nothing and runs only its own switch, but a page that you open can still send its own content out, for example through a link in it. A page may link to sites outside this Mac: when you click such a link, your browser opens that site, and the site gets everything in the link's address.
-- The link always names port 43123, the board's default port. If you moved the board to another port, change the port in the link.
 - A terminal with an East Asian wide setting draws the box marks two columns wide, so a picture there can look broken.
 
 ## The lead and the models
@@ -299,6 +299,18 @@ In Claude Code only, the older way still works: put this in the folder's `.claud
 
 It starts each session in that folder as the chief, and `sage mode off` holds there too. Prefer the setting: it works in both providers. To stop, remove the line.
 
+## The commit identity of agents
+
+To keep a personal or machine-name email out of a public repository, ask the chief to set the project's commit identity, for example:
+
+```sh
+sage config commit_email=12345+name@users.noreply.github.com commit_name="Your Name"
+```
+
+- In Claude and Codex, the hook then refuses an agent's `git commit`, `merge`, `pull`, `cherry-pick`, `revert`, `am`, `rebase` or `commit-tree` without that identity before the subcommand: `git -c user.name='Your Name' -c user.email=12345+name@users.noreply.github.com commit ...`. The refusal prints this form with the project's values.
+- Without the setting, the hook checks no commit identity. `commit_email=` alone removes it.
+- The chief's own commits, a git alias and an identity from an exported variable are not checked.
+
 ## To update sage
 
 Run this command in a terminal:
@@ -380,10 +392,39 @@ Each line of the list gives the path, the branch, the task, the task's state and
 - The list uses the origin/main that git has now, and prints its commit. It does not fetch, so fetch first when main moved.
 - The prune also keeps the primary checkout, the worktree that the command runs in, a locked worktree, a worktree that holds another worktree, and a worktree with uncommitted changes, untracked files, ignored files or unpushed commits. A commit counts as pushed when a remote branch holds it, or when the ledger has a verdict on it or on a later commit of its task: a squash merge deletes the task's branch on GitHub.
 - An ignored file, such as `.env`, or a whole ignored folder, such as `secrets/`, keeps the worktree, because `git worktree remove` deletes ignored files with the folder. The reason names them, for example `ignored files that the prune would delete: .env, secrets/`.
-- Only two ignored folders keep no worktree, because a package install or a build makes them again: `node_modules` and `dist`, at any depth, also as a link, but not as a regular file. The prune deletes them with the worktree, so keep no work of your own in them. The removed line names them, for example `removed <path> · merged · also deleted ignored node_modules/`.
+- Only two ignored folders keep no worktree, because a package install or a build makes them again: `node_modules` and `dist`, at any depth, also as a link, but not as a regular file. The prune deletes them with the worktree, so keep no work of your own in them; only a git repository inside one (a `.git` entry at any depth) keeps the worktree. The removed line names them, for example `removed <path> · merged · also deleted ignored node_modules/`.
 - The list of these folders is `REBUILT` in `packages/sage-core/worktrees.mjs`.
 - It prints each path that it removes or keeps, with the reason. It removes the entry of a worktree whose folder is gone, and it deletes no branch.
 - Only the chief runs it. A lead, a reviewer or QA cannot.
+
+## Disk use and cleanup
+
+The logbook stays small, but the sage worktrees folder (`~/sage-worktrees/<project>-<hash>/`) grows with each task. To see the disk use, or to free space, ask the chief in your own words, for example "how much disk does sage use?".
+
+| Command | What it does |
+| --- | --- |
+| `sage storage` | Prints sizes and removes nothing: the logbook by kind (tables, kept briefs, kept reports, kept stop reports), the sage worktrees folder by kind (pages, task worktrees, other folders), and the 15 largest tasks. |
+| `sage storage plan` | Prints what a cleanup would remove, with sizes, and removes nothing. Its last line gives a token. |
+| `sage storage clean <token>` | Removes exactly the planned worktrees, after your yes to the plan. |
+
+The plan lists only the worktrees in the project's sage worktrees folder whose task is merged, concluded or abandoned:
+
+- A clean worktree gets a `remove` line, with its size. The line names its build leftovers, such as `node_modules/` (see `REBUILT` above), with their size: git deletes them with the folder.
+- A worktree with uncommitted changes, untracked files, ignored files, unpushed commits, a git repository inside a build leftover, or tracked files that git status does not check (skip-worktree or assume-unchanged) gets the line `kept <path> · <task> · has unsaved work: <what>`.
+- The other reasons of the prune above also keep a worktree, and so does a path with a link in it, or a path that resolves outside the folder.
+- A worktree of a task in any other state (building, reviewing, held and so on) is never in the plan.
+- The plan never lists the logbook, its kept briefs and reports, or the pages folder: design versions and research stay.
+
+The cleanup keeps the safety of the hook, which refuses the chief's `rm` of a work tree in the sage worktrees folder:
+
+1. **The token.** The token is a hash of the plan's content: each worktree's path, commit, branch, tasks with their states, and the reason it stays. The chief runs the clean only after your yes to the plan.
+2. **A stale plan.** The clean makes the plan again. It refuses a missing or wrong token, and a plan whose task states or worktrees changed, and removes nothing: run the plan again.
+3. **The check again.** Just before it removes a worktree, the clean checks it again for unsaved work and for the folder boundary.
+4. **Git.** It removes each worktree with `git worktree remove`, without `--force`, so git also refuses a worktree with changes. It deletes no branch.
+5. **The folder boundary.** It never follows a link out of the sage worktrees folder, and it refuses a path that resolves outside it.
+6. **The record.** It writes a decision row in the logbook for each worktree that it removes, with the token and the size.
+
+Only the chief runs the clean; a lead, a reviewer or QA cannot.
 
 ## Uninstall sage
 

@@ -2,7 +2,7 @@ import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, readdir
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { validateObservations } from "./observations.mjs";
-import { logbookSettings } from "./logbook-fields.mjs";
+import { capNames, logbookSettings } from "./logbook-fields.mjs";
 import { MILESTONE_ID, TASK_ID, checkMilestones, renameRows } from "./milestone-rules.mjs";
 import { BINDING_COLUMNS, bindingRow, checkoutGone, githubRemote, linkedRows, ownerOf, plainName } from "./shared-root.mjs";
 import { chiefsWhole } from "./chiefs.mjs";
@@ -99,7 +99,7 @@ export function logbookIdentity(directory, budget = null, into = { diagnostics: 
     const settings = logbookSettings(parseJson(regular(join(directory, "config.json"), budget)));
     if (settings.name !== null) found.displayName = settings.name;
     found.archived = settings.archived;
-    if (settings.limit !== null) found.limit = settings.limit;
+    found.limits = settings.limits;
     into.warnings.push(...settings.warnings);
   } catch (error) { if (error.code !== "ENOENT") into.warnings.push(`config: ${error.code ?? error.message}`); }
   if (found.checkout === undefined) delete found.checkout;
@@ -141,6 +141,44 @@ export function readHookNotes(root) {
     }
   } catch (error) { Object.assign(notes, { slots: [], helpers: [], problem: error.code ?? error.message }); }
   return notes;
+}
+
+const ACTION_TAIL = 8 * 1024, ACTION_KEYS = "v at run tool kind target call mark";
+const ACTION_KINDS = new Set("file search command web agent message mcp other end".split(" ")), ACTION_MARKS = new Set(["ok", "refused", "failed", "end"]);
+const actionOf = (line, run) => {
+  let record;
+  try { record = JSON.parse(line); } catch { return null; }
+  const fine = record && typeof record === "object" && !Array.isArray(record) && Object.keys(record).sort().join(" ") === ACTION_KEYS.split(" ").sort().join(" ")
+    && record.v === 1 && typeof record.at === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/.test(record.at) && !Number.isNaN(Date.parse(record.at))
+    && record.run === run && typeof record.tool === "string" && /^[A-Za-z][\w.:-]{0,63}$/.test(record.tool) && ACTION_KINDS.has(record.kind)
+    && (record.target === null || typeof record.target === "string" && record.target.length <= 80 && !/[\p{Cc}\p{Cf}]/u.test(record.target))
+    && typeof record.call === "string" && /^[0-9a-f]{8}$/.test(record.call) && ACTION_MARKS.has(record.mark);
+  return fine ? record : null;
+};
+export function readActions(logbook, run, limit = 20) {
+  if (!/^R[1-9]\d*$/.test(run)) throw new TypeError("an action file belongs to one run, R<n>");
+  const dir = join(logbook, "actions"), found = { actions: [], dropped: 0 };
+  const plain = (stat, what) => { if (stat && (!stat.isDirectory() || stat.isSymbolicLink())) throw Object.assign(new Error(`${what} is not a folder`), { code: stat.isSymbolicLink() ? "ELOOP" : "ENOTDIR" }); return stat; };
+  const identity = () => { const book = plain(lstatSync(logbook), "the logbook"), stat = plain(lstatSync(dir, { throwIfNoEntry: false }), "actions"); return stat && `${book.dev}:${book.ino}/${stat.dev}:${stat.ino}`; };
+  const before = identity();
+  if (!before) return found;
+  let fd;
+  try { fd = openSync(join(dir, `${run}.jsonl`), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
+  catch (error) { if (error.code === "ENOENT") return found; throw error; }
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.nlink !== 1) throw Object.assign(new Error("the action file is not one regular file"), { code: "ELOOP" });
+    if (identity() !== before) throw Object.assign(new Error("actions changed during the read"), { code: "ELOOP" });
+    const start = Math.max(0, stat.size - ACTION_TAIL), buffer = Buffer.alloc(stat.size - start);
+    let bytes = 0, count;
+    while (bytes < buffer.length && (count = readSync(fd, buffer, bytes, buffer.length - bytes, start + bytes)) > 0) bytes += count;
+    const lines = buffer.subarray(0, bytes).toString("utf8").split("\n");
+    if (start > 0) lines.shift();
+    lines.pop();
+    for (const line of lines) { const record = actionOf(line, run); if (record) found.actions.push(record); else found.dropped++; }
+    found.actions = found.actions.slice(-limit);
+    return found;
+  } finally { closeSync(fd); }
 }
 
 export const SHARED = "shared";
@@ -326,7 +364,7 @@ export function readBoardSources(sources, { now = Date.now(), logbookKey = null,
         const owner = shared ? ownerOf(bindings.rows, entry.name) : undefined;
         const project = consistentRead(directory, base, budget, { now, bound: shared ? owner?.root ?? null : undefined, duringRead });
         if (bindings?.problem) project.diagnostics.push(bindings.problem);
-        if (shared) Object.assign(project, linkedCheckouts(bindings.rows, entry.name));
+        if (shared) Object.assign(project, linkedCheckouts(bindings.rows, entry.name), { capNames: capNames(entry.name, bindings.rows) });
         result.projects.push(project);
         if (!shared) continue;
         project.notes = [];

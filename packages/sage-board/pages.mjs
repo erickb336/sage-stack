@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { PAGE_POLICY, PAGE_TYPES, REPORT_FIELDS, SWITCH_SCRIPT, fieldsOf, pageFile, pageTaskFolder, pageType } from "../sage-core/index.mjs";
+import { KEPT_FILE_MAX, PAGE_POLICY, PAGE_TYPES, REPORT_FIELDS, SWITCH_SCRIPT, fieldsOf, pageFile, pageTaskFolder, pageType } from "../sage-core/index.mjs";
 
 const SCAN = 2000, LIST = 200, READ = 32 * 1024 * 1024;
 const SWITCH = `'sha256-${createHash("sha256").update(SWITCH_SCRIPT).digest("base64")}'`;
@@ -118,11 +118,11 @@ export function servePages(request, response, { onMac, model }) {
   return send(200, type, bytes, pagePolicy(target.scripts ? "own" : html && switchOnly(bytes)));
 }
 
-const KEPT_MAX = 1 << 20, NAMES_MAX = 100;
+const NAMES_MAX = 100;
 const realFolder = dir => { try { return lstatSync(dir).isDirectory(); } catch { return false; } };
 const folderNames = dir => { try { return realFolder(dir) ? readdirSync(dir) : []; } catch { return []; } };
 function keptReport(file) {
-  try { const stat = lstatSync(file); return stat.isFile() && stat.size <= KEPT_MAX ? JSON.parse(readFileSync(file, "utf8")) : null; } catch { return null; }
+  try { const stat = lstatSync(file); return stat.isFile() && stat.size <= KEPT_FILE_MAX ? JSON.parse(readFileSync(file, "utf8")) : null; } catch { return null; }
 }
 const RUN = /(?:^|[^a-z0-9])(r[1-9]\d*)(?![0-9])/gi;
 
@@ -136,7 +136,8 @@ export function taskFiles({ dir, logbook, task, runs }) {
     return [{ run: run.id, role: run.role, sha: /^[0-9a-f]{40}$/.test(data.sha) ? data.sha : null, at: typeof data.at === "string" ? data.at : null, status: field("STATUS"), result: field("RESULT") }];
   }) : [];
   const own = new RegExp(`(?:^|[^a-z0-9])${task}(?![0-9])`, "i");
-  const named = sub => dir ? folderNames(join(dir, sub)).filter(name => /\.(?:json|md)$/.test(name) && (own.test(name) || [...name.matchAll(RUN)].some(match => ids.has(match[1].toUpperCase()))))
-    .sort().slice(0, NAMES_MAX).map(name => ({ name, run: [...name.matchAll(RUN)].map(match => match[1].toUpperCase()).find(id => ids.has(id)) ?? null })) : [];
-  return { pages: folder ? pages : null, more, kept, briefs: named("briefs"), reports: named("reports") };
+  const named = sub => dir ? folderNames(join(dir, sub)).filter(name => /\.(?:json|md)$/.test(name) && (own.test(name) || [...name.matchAll(RUN)].some(match => ids.has(match[1].toUpperCase())))).sort() : [];
+  const listed = names => names.slice(0, NAMES_MAX).map(name => ({ name, run: [...name.matchAll(RUN)].map(match => match[1].toUpperCase()).find(id => ids.has(id)) ?? null }));
+  const briefs = named("briefs"), reports = named("reports");
+  return { pages: folder ? pages : null, more, kept, briefs: listed(briefs), reports: listed(reports), unlisted: { briefs: Math.max(0, briefs.length - NAMES_MAX), reports: Math.max(0, reports.length - NAMES_MAX) } };
 }

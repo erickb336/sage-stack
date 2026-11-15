@@ -29,11 +29,11 @@ test("T229, T1053: standalone config has no secret, no password and no allowed h
   assert.throws(() => createBoardConfig(join(root, "settings.json"), { sources: [{ id: "sample", path: root }] }), /outside logbook roots/);
   assert.throws(() => createBoardConfig(config, { sources: [{ id: "sample", path: root }] }), /exists, and setup does not change it/);
 });
-test("T395: setup on an existing config names the file and says how to change its port, and leaves the file as it was", async t => {
+test("T395, T1079: setup on an existing config names the file and the command that moves the board, and leaves the file as it was", async t => {
   const { config } = fixture(t), before = readFileSync(config, "utf8");
   const cli = fileURLToPath(new URL("../packages/sage-board/cli.mjs", import.meta.url));
   await assert.rejects(runBoardCli(["board", "--setup", "--config", config, "--port", "43200"], { output: () => {} }), {
-    message: `the board config ${config} exists, and setup does not change it. To change its "port" or another setting, first run node ${cli} board --stop --config ${config} while the file still names the port of the running board, then edit that file, then ask for the board again. To set the board up again, remove the file first.`,
+    message: `the board config ${config} exists, and setup does not change it. To move the board to another port, run node ${cli} board --port <port> --config ${config}. To change another setting, first run node ${cli} board --stop --config ${config}, then edit that file, then ask for the board again. To set the board up again, remove the file first.`,
   });
   assert.equal(readFileSync(config, "utf8"), before);
 });
@@ -151,9 +151,11 @@ test("T229, T1053: a config with the keys of the old phone access still loads an
   assert.equal((await get(port, "sample.tailnet.ts.net")).status, 403, "the old allowed host gets nothing");
 });
 
-test("T1053: board --set-password and --allowed-hosts are gone", async t => {
+test("T1053, F-T1065-24: board --set-password and --allowed-hosts are gone, and the answer says so", async t => {
   const { dir, config } = fixture(t);
-  await assert.rejects(runBoardCli(["board", "--set-password", "--config", config], { output: () => {} }), { message: "unknown or repeated board option" });
-  await assert.rejects(runBoardCli(["board", "--setup", "--config", join(dir, "new.json"), "--allowed-hosts", "[]"], { output: () => {} }), { message: "unknown or repeated board option" });
+  await assert.rejects(runBoardCli(["board", "--set-password", "--config", config], { output: () => {} }), { message: "--set-password is gone: the board is for a browser on this Mac only, with no password and no other host." });
+  await assert.rejects(runBoardCli(["board", "--setup", "--config", join(dir, "new.json"), "--allowed-hosts", "[]"], { output: () => {} }), { message: "--allowed-hosts is gone: the board is for a browser on this Mac only, with no password and no other host." });
+  await assert.rejects(runBoardCli(["board", "--config", config, "--tunnel"], { output: () => {} }), { message: "unknown or repeated board option" });
+  await assert.rejects(runBoardCli(["boards"], { output: () => {} }), { message: /--ensure\|--stop\|--setup\|--serve\|--pair\|--install/ });
   assert.equal(existsSync(join(dir, "new.json")), false);
 });

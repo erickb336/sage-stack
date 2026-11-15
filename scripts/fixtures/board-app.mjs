@@ -59,6 +59,7 @@ export function writeAppLogbook(root, now) {
 const HEAD = "b".repeat(40);
 const HOSTILE = { title: `<img src=x onerror="window.hacked=1">Hostile "quotes" & 'apostrophes'`, path: "<script>window.hacked=3</script>\nsrc/evil\u202egnp\u009b.js", invisible: "src/a\u061cb\u2060c\u00add\u180ee\u{e0001}f.js", link: `<a href="javascript:window.hacked=5">click</a>` };
 export const HOSTILE_TEXT = HOSTILE;
+export const UNICODE_TEXT = { hidden: "src/a\u034fb\u115fc\u3164d\uffa0e\u180bf\u17b4g\u200dh\u200ci\ufe0fj\u{e0100}k.js", emoji: "docs/\u{1f469}\u200d\u{1f4bb}-\u{1f3f4}\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}-\u2764\ufe0f-1\ufe0f\u20e3.md", word: "fa/\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645.md" };
 
 const REPOSITORY = "https://github.com/sample-owner/sample-app";
 function addPullRequests(tables, records, at, hostile) {
@@ -88,7 +89,44 @@ function addPullRequests(tables, records, at, hostile) {
   }
 }
 
-export function writeTasksLogbook(root, worktrees, now, { hostile = false, many = 0, edge = false, chiefCases = false, stuck = false, prs = false, waits = {}, crowd = 0, documents = false } = {}) {
+const MIN = 60_000;
+function addAgentRuns(tables, now, { atLimit, hostile, ended, edges }) {
+  const at = minutes => new Date(Date.parse(now) - minutes * MIN).toISOString();
+  const run = (id, task, role, chief, status, started, extra = {}) => ({ id, task, role, round: "0", candidate: "", branch: "", status, tokens: "", report: "", started: at(started), ended: "", chief, model: "", ...extra });
+  tables.runs.push(
+    run("R20", "T2", "lead", "C1", "running", 73, { model: "opus" }),
+    run("R21", "T2", "implementer", "C1", "done", 70, { ended: at(32), tokens: "210000", model: "sonnet" }),
+    run("R22", "T2", "code-reviewer", "C1", "running", 12, { model: "opus" }),
+    run("R23", "T2", "security-reviewer", "C1", "running", 9, { model: "opus" }),
+    run("R24", "T2", "qa", "C1", "queued", 4),
+    run("R25", "T40", "lead", "C1", "running", 82, { model: "opus" }),
+    run("R26", "T40", "implementer", "C1", "done", 80, { ended: at(29), tokens: "288000" }),
+    run("R27", "T40", "ux-reviewer", "C1", "failed", 20, { ended: at(14), tokens: "22000" }),
+    run("R30", "T3", "lead", "C2", "running", 49, { model: "gpt-5.1-codex" }),
+    run("R31", "T11", "designer", "C2", "running", 6, { model: "gpt-5.1-codex" }),
+    run("R32", "T30", "lead", "C2", "queued", 1),
+    run("R33", "T41", "implementer", "C1", "queued", 2),
+  );
+  tables.tasks.push({ ...tables.tasks.find(task => task.id === "T40"), id: "T41", title: "Sample queued build", priority: "P2", kind: "", branch: "sage/t41-queued" });
+  for (let i = 0; i < ended; i++) tables.runs.push(run(`R${200 + i}`, "T21", "implementer", "C1", "done", 6000 + i * 30, { ended: at(5990 + i * 30) }));
+  if (hostile) tables.runs.push(run("R40", "T50", "implementer", "C2", "running", 3, { model: `<img src=x onerror="window.hacked=12">model` }));
+  if (edges) {
+    tables.runs.push(
+      run("R34", "T2", "pe", "C1", "running", 5),
+      run("R35", "T40", "qa", "C1", "running", 82),
+      run("R36", "T2", "ux-reviewer", "", "running", 8),
+      run("R37", "T41", "code-reviewer", "C1", "queued", 525),
+      run("R38", "T40", "qa", "C1", "failed", 30, { admitted: at(30), ended: at(19) }),
+      run("R39", "T40", "code-reviewer", "C1", "done", 15, { admitted: at(15), ended: at(5), tokens: "40000" }),
+      run("R41", "T70", "qa", "C3", "queued", 10),
+    );
+    for (let i = 0; i < 1299; i++) tables.runs.push(run(`R${2000 + i}`, "T2", "code-reviewer", "C1", "done", 72 - i * 0.05, { ended: at(71 - i * 0.05) }));
+    tables.decisions.push({ at: at(19), task: "T40", decision: "R38 failed: no agent started within 10 minutes of its admission", why: "an admitted run keeps its place for 10 minutes; the next queued run takes it" });
+  }
+  return { max_agents: atLimit ? 7 + (hostile ? 1 : 0) : 20, max_leads: atLimit ? 4 : 5 };
+}
+
+export function writeTasksLogbook(root, worktrees, now, { unicode = false, hostile = false, many = 0, edge = false, chiefCases = false, stuck = false, prs = false, waits = {}, crowd = 0, documents = false, agents = false, atLimit = false, endedRuns = 0, agentEdges = false } = {}) {
   const at = hours => new Date(Date.parse(now) - hours * HOUR).toISOString();
   const tables = appTables(now), dir = join(root, "sample-app-abc123");
   const chiefs = { T1: "C1", T2: "C1", T3: "C2", T4: "C1", T10: "C1", T11: "C2", T20: "C1", T21: "C1", T30: "C2" };
@@ -120,7 +158,15 @@ export function writeTasksLogbook(root, worktrees, now, { hostile = false, many 
     records.push({ id: "O5", task: "T50", kind: "files", source: "git diff", basis: "observed", observedAt: at(1), recordedAt: at(1), data: { head: "d".repeat(40), paths: [HOSTILE.path, HOSTILE.invisible, "javascript:window.hacked=4", "src/shared.js"], truncated: false } },
       { id: "O6", task: "T50", kind: "artifact", source: "chief", basis: "reported", observedAt: at(1), recordedAt: at(1), data: { type: "artifact", label: `<img src=x onerror="window.hacked=6">label`, url: "https://example.com/a?b=%22%3E%3Cscript%3E" } });
   }
+  if (unicode) {
+    const paths = [...Array.isArray(unicode) ? unicode : [UNICODE_TEXT.hidden, UNICODE_TEXT.emoji, UNICODE_TEXT.word], "src/shared.js"];
+    for (const record of records.filter(item => item.kind === "files")) record.data.paths = [...new Set([...paths, ...record.data.paths])];
+    tables.tasks = tables.tasks.map(task => task.id === "T40" ? { ...task, title: "Sample \u202eevil title" } : task);
+    tables.gates.push({ id: "G13", task: "T40", question: "Ship \u2066now\u2069?", options: "A|B", recommendation: "A", default: "", answer: "A", at: at(0.4) });
+    tables.decisions.push({ at: at(0.1), task: "T40", decision: "state building \u202eevil", why: "" });
+  }
   if (prs) addPullRequests(tables, records, at, hostile);
+  const limits = agents ? addAgentRuns(tables, now, { atLimit, hostile, ended: endedRuns, edges: agentEdges }) : null;
   if (documents) addDocumentRows(tables, at, join(worktrees, "sample-app-abc123", "pages"));
   tables.tasks = tables.tasks.map(task => task.id in waits ? { ...task, waits: waits[task.id] } : task);
   for (let i = 0; i < crowd; i++) {
@@ -133,17 +179,23 @@ export function writeTasksLogbook(root, worktrees, now, { hostile = false, many 
     tables.tasks = tables.tasks.map(task => task.id === "T20" ? { ...task, state: "abandoned" } : task);
     tables.milestones = tables.milestones.map(milestone => milestone.id === "M3" ? { ...milestone, pilot: "T20" } : milestone);
     tables.tasks.push({ ...tables.tasks.find(task => task.id === "T21"), id: "T22", state: "framed" });
+    tables.milestones.push({ id: "M10", name: "Empty stuck", goal: "Sample goal", pilot: "T999", gate: "G11", at: at(10) });
   }
   if (edge) tables.tasks.push({ ...tables.tasks[1], id: "T60", title: "Sample".repeat(500), state: "building", milestone: "", priority: "P3", kind: "", chief: "C1", branch: "" });
   for (let i = 0; tables.tasks.length < many; i++) tables.tasks.push({ ...tables.tasks[0], id: `T${1000 + i}`, title: `Sample ended task ${i}`, milestone: "", state: i % 7 ? "merged" : "abandoned", chief: i % 2 ? "C1" : "C2", priority: ["P1", "P2", "P3"][i % 3] });
   mkdirSync(dir, { recursive: true });
   for (const [name, rows] of Object.entries(tables)) {
-    const columns = [...TABLES[name], ...(["tasks", "runs"].includes(name) ? ["chief"] : [])];
+    const columns = [...TABLES[name], ...(["tasks", "runs"].includes(name) ? ["chief"] : []), ...(name === "runs" && agents ? ["admitted"] : [])];
     writeFileSync(join(dir, `${name}.tsv`), [columns.join("\t"), ...rows.map(row => columns.map(column => row[column] ?? "").join("\t"))].join("\n") + "\n");
   }
   if (prs) writeFileSync(join(root, "projects.tsv"), `logbook\tat\thow\nsample-app-abc123\t${at(100)}\tinit\n`);
   writeFileSync(join(dir, "chiefs.tsv"), `id\tprovider\tnative\tat\nC1\tclaude\tsession-a\t${at(48)}\nC2\tcodex\tsession-b\t${at(48)}\n${chiefCases ? `C3\tclaude\tsession-c\t${at(48)}\n` : ""}`);
   writeFileSync(join(dir, "observations.json"), JSON.stringify({ version: 1, records }));
+  if (limits) {
+    writeFileSync(join(dir, "config.json"), JSON.stringify(limits));
+    mkdirSync(join(dir, "live"), { recursive: true });
+    for (const [id, autopilot] of [["C1", true], ["C2", false]]) writeFileSync(join(dir, "live", `${id}.json`), JSON.stringify({ at: new Date(Date.parse(now) - MIN).toISOString().slice(0, 19) + "Z", sageMode: true, autopilot }));
+  }
   if (edge) { mkdirSync(join(dir, "live")); writeFileSync(join(dir, "live", "C1.json"), JSON.stringify({ at: at(2) })); }
   if (chiefCases) { mkdirSync(join(dir, "live"), { recursive: true }); writeFileSync(join(dir, "live", "C3.json"), JSON.stringify({ at: at(2) })); }
   mkdirSync(join(dir, "kept"), { recursive: true });
@@ -231,13 +283,13 @@ NOT VERIFIED  - A Codex chief on another Mac.
 BRANCH        sage/t3-limits, head ${"b".repeat(40)}, PR 12
 `);
   writeFileSync(join(dir, "gates", "G4.json"), JSON.stringify({ gate: "G4", task: "T10", at: at(3), message: { kind: "question", title: "Can a viewer copy a shared list into their own lists?", blocks: [
-    { t: "field", label: "Where this is", text: "Milestone Offline sync · task T10 · step Plan. The share sheet design (v2) is approved." },
-    { t: "field", label: "What you approve", text: "The rule for viewers. It goes into the permission table of the design and into the tests." },
-    { t: "field", label: "The one real choice in it", text: "Does a viewer get a \"Copy to my lists\" action?" },
-    { t: "table", head: ["Answer", "What happens next", "Cost"], rows: [["B: no", "C1 builds now with view only.", "No extra cost now."], ["A: yes, as a new private list", "C1 adds \"Copy to my lists\" and builds after T3 merges.", "About 1 to 2 h more agent time. Basis: the build of T3."]], pick: 1 },
-    { t: "field", label: "If you do not answer", text: "C1 takes A at 20:00 today." },
-    { t: "field", label: "Needed by", text: "20:00 today, so that T11 can build tonight." },
-    { t: "field", label: "After you answer", text: hostile ? "C1 records it. <script>window.hacked=13</script> \u202eevil" : "C1 records your answer and starts T11." },
+    { t: "field", label: "Where", text: "Milestone Offline sync · task T10 · step Plan. The share sheet design (v2) is approved." },
+    { t: "field", label: "Approve", text: "The rule for viewers. It goes into the permission table of the design and into the tests." },
+    { t: "field", label: "Choice", text: "Does a viewer get a \"Copy to my lists\" action?" },
+    { t: "table", head: ["Answer", "Next", "Cost"], rows: [["B: no", "C1 builds now with view only.", "No extra cost now."], ["A: yes, as a new private list", "C1 adds \"Copy to my lists\" and builds after T3 merges.", "About 1 to 2 h more agent time. Basis: the build of T3."]], pick: 1 },
+    { t: "field", label: "Default", text: "C1 takes A at 20:00 today." },
+    { t: "field", label: "Due", text: "20:00 today, so that T11 can build tonight." },
+    { t: "field", label: "Next", text: hostile ? "C1 records it. <script>window.hacked=13</script> \u202eevil" : "C1 records your answer and starts T11." },
     { t: "page", title: "Design notes of v2", task: "T10", file: "designs/v2/notes.md" }] }, text: "QUESTION" }));
   const pages = join(pagesRoot, "T3"), design = join(pagesRoot, "T10");
   writeFileSync(join(pages, DOCUMENT_PAGE), `# Retry with backoff\n\nThe design for retries after a reconnect.\n\n## The rule\n\n| Try | Wait |\n| --- | --- |\n| 1 | 1 s |\n| 2 | 4 s |\n\n![The retry screen](retry.svg)\n\n## The code\n\n\`\`\`js\nretry({ times: 5 });\n\`\`\`\n\nSee [the notes](notes.md).\n`);

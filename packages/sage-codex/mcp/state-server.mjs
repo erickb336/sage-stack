@@ -44,6 +44,7 @@ export const TOOLS = {
     describe: "Frame a task and its route. The size gives the least route; a risk flag adds the security review.",
     input: { title: z.string(), size: z.enum(Object.keys(tool.SIZES)), risk: optional(`risk flags joined by a comma: ${tool.RISKS.join(", ")}`),
       add: optional("added blocks, joined by a comma (needs why)"), why: optional("the reason for the added blocks"),
+      "no-arena": optional("the owner's reason to run one designer, not the arena that a large ui or design task gets by default"),
       priority: z.enum(PRIORITIES, { error: PRIORITY_SCALE }).describe(PRIORITY_SCALE), kind: optional("the task's main kind"), waits: optional("the task ids that it waits for, joined by a comma"),
       milestone: optional("the milestone id, for example M1") },
     argv: () => ["task", "add"],
@@ -76,7 +77,7 @@ export const TOOLS = {
     pos: ["milestone", "release"], argv: (i) => ["milestone", i.milestone, "set", `release=${i.release}`],
   },
   config: {
-    describe: "Set config keys, only when the owner asks, and print the values. name (the project's name on the board; an empty value removes it), archived (yes or no) and start (sage-mode: each new session of the project starts in sage mode, also in Claude when the two share the logbook; normal: it starts off) and lint_offer (never: the lint offer does not come back; ask: it may) are keys of this project's logbook: set them in a call of their own. "
+    describe: "Set config keys, only when the owner asks, and print the values. name (the project's name on the board; an empty value removes it), archived (yes or no) and start (sage-mode: each new session of the project starts in sage mode, also in Claude when the two share the logbook; normal: it starts off) and lint_offer (never: the lint offer does not come back; ask: it may), commit_email and commit_name (the identity that each agent commit must carry on its command; an empty value removes it) are keys of this project's logbook: set them in a call of their own. "
       + "cycles.small, cycles.large, cycles.risk, max_rounds, arena, cap_total and the model keys are for all projects; max_agents, max_leads and this project's cap.<project> go into a shared project's logbook, for every chief of the project.",
     input: { settings: z.record(z.string().regex(/^[a-z][a-z0-9_.-]*$/), z.string()).describe('the keys and values to set, for example {"cycles.large": "3", "max_leads": "4"} or {"name": "Council Record"}') },
     pos: ["settings"], argv: (i) => ["config", ...Object.entries(i.settings).map(([k, v]) => `${k}=${v}`)],

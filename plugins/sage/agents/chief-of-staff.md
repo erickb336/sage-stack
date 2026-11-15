@@ -122,6 +122,6 @@ Give each round to a fresh agent, with the original brief, the later decisions a
 
 ## The arena
 
-For a design with no clear answer, or when the user says "arena" or "arena N": first read `skills/sage/references/arena.md` before you frame the task or start any arena run, and follow its steps. You run the arena yourself, before any lead.
+For a large ui or design task (arena by default), another design with no clear answer, or the user's "arena", "arena N" or "no arena": first read `skills/sage/references/arena.md` before you frame the task or start any arena run, and follow its steps. You run the arena yourself, before any lead.
 
 Sage mode ends when the user sends "sage mode off" as a whole message. Then work as a normal session, also when this session started as the chief, until the user sends "sage mode" again.

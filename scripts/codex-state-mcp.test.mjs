@@ -12,15 +12,22 @@ import { ROOT } from "./build.mjs";
 
 const SHA = "1".repeat(40);
 
-async function connect(t, overrides = {}) {
+async function connect(t, overrides = {}, { providerRoots = false } = {}) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "sage-state-mcp-")));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   cpSync(join(ROOT, "plugins/sage-codex"), join(dir, "plugin"), { recursive: true });
+  if (providerRoots) {
+    const adapter = join(dir, "plugin/runtime/logbook-env.mjs");
+    cpSync(adapter, join(dir, "plugin/runtime/logbook-env-default.mjs"));
+    writeFileSync(adapter, `import { legacyRoots as discover } from "./logbook-env-default.mjs";
+export { claimStep, replaceStep } from "./logbook-env-default.mjs";
+export const legacyRoots = (env) => discover({ HOME: env.HOME, CODEX_HOME: env.CODEX_HOME, CLAUDE_CONFIG_DIR: env.CLAUDE_CONFIG_DIR });
+`);
+  }
   const project = join(dir, "project");
   mkdirSync(project);
   execFileSync("git", ["init", "-q", project]);
-  const { SAGE_HOME, ...inherited } = process.env;
-  const env = { ...inherited, HOME: join(dir, "home"), CODEX_HOME: join(dir, "codex-home"), SAGE_WORKTREES: join(dir, "worktrees"), ...overrides };
+  const env = { ...process.env, HOME: join(dir, "home"), CODEX_HOME: join(dir, "codex-home"), SAGE_HOME: join(dir, "codex-home", "sage"), SAGE_WORKTREES: join(dir, "worktrees"), ...overrides };
   const child = spawn(process.execPath, [join(dir, "plugin/mcp/state-server.mjs")], { cwd: dir, env, stdio: ["pipe", "pipe", "pipe"] });
   let stderr = "", id = 0, calls = 0;
   const { gate: gateOf, writeProof } = await import(pathToFileURL(join(dir, "plugin/hooks/gate-hook.mjs")).href);
@@ -519,6 +526,110 @@ test("F-T928-8: a Codex lead moves its task to verifying only when the head of i
   assert.match(await verifying(), /^T1 verifying/, "a full clean cycle on the head");
 });
 
+async function carryWorld(t, cycles = [[1, 1], [2, 2]]) {
+  const w = await leadWorld(t);
+  const git = (...args) => execFileSync("git", ["-C", w.project, "-c", "user.name=Erick Benitez-Ramos", "-c", "user.email=141277478+erickb336@users.noreply.github.com", ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  const work = (file, text) => {
+    writeFileSync(join(w.project, file), text);
+    git("add", "-A");
+    git("commit", "-q", "-m", "fixture");
+    return git("rev-parse", "HEAD");
+  };
+  git("checkout", "-q", "-b", "main");
+  work("base", "base\n");
+  git("checkout", "-q", "-b", "sage/t1-a");
+  const h1 = work("own", "own\n");
+  await w.lead("task_set", { task: "T1", fields: { state: "building" } });
+  await w.lead("task_set", { task: "T1", fields: { state: "reviewing", pr: "5" } });
+  const checks = (sha, kind = "checks-pass") => w.call("verdict", { task: "T1", kind, sha, pr: 5 });
+  const review = async (sha, cycle, role, kind, result) => {
+    const run = (await w.lead("run_add", { task: "T1", role })).split(" ")[0];
+    w.tool.keepReport(w.project, { task: "T1", run, role, sha, text: CLEAN.replace("RESULT CLEAN", `RESULT ${result}`).replaceAll(SHA, sha) }, w.env);
+    assert.equal(await w.lead("run_done", { run, status: "done", tokens: 1 }), `${run} done`);
+    assert.match(await w.lead("verdict", { task: "T1", kind, sha, cycle, pr: 5, run }), new RegExp(`^T1 ${kind}`));
+  };
+  await checks(h1);
+  for (const [code, qa] of cycles) {
+    await review(h1, code, "code-reviewer", "review-clean", "CLEAN");
+    if (qa) await review(h1, qa, "qa", "qa-pass", "PASS");
+  }
+  git("checkout", "-q", "main");
+  work("main", "main\n");
+  git("update-ref", "refs/remotes/origin/main", "main");
+  git("checkout", "-q", "sage/t1-a");
+  git("merge", "-q", "--no-ff", "--no-edit", "main");
+  const h2 = git("rev-parse", "HEAD");
+  return { ...w, git, work, checks, review, h1, h2 };
+}
+
+test("T1087: lead verifying carries two backed cycles after fresh target checks", async t => {
+  const w = await carryWorld(t);
+  await w.checks(w.h2);
+  assert.match(await w.call("merge_check", { sha: w.h2, pr: 5, cycles: 2 }), /2 clean cycles/);
+  assert.match(await w.lead("task_set", { task: "T1", fields: { state: "verifying" } }), /^T1 verifying/);
+  assert.match(await w.call("task_set", { task: "T1", fields: { state: "verified" } }), /^T1 verified/);
+});
+
+test("T1087: chief verified carries two backed cycles after fresh target checks", async t => {
+  const w = await carryWorld(t);
+  await w.checks(w.h2);
+  assert.match(await w.call("task_set", { task: "T1", fields: { state: "verifying" } }), /^T1 verifying/);
+  assert.match(await w.call("task_set", { task: "T1", fields: { state: "verified" } }), /^T1 verified/);
+  assert.match(await w.call("merge_check", { sha: w.h2, pr: 5, cycles: 2 }), /2 clean cycles/);
+});
+
+test("T1087: actual task branch controls verified, not the latest ledger SHA or checkout HEAD", async t => {
+  const w = await carryWorld(t);
+  await w.checks(w.h2);
+  await w.checks(w.h1);
+  w.git("checkout", "-q", "main");
+  assert.match(await w.lead("task_set", { task: "T1", fields: { state: "verifying" } }), /^T1 verifying/);
+  assert.match(await w.call("task_set", { task: "T1", fields: { state: "verified" } }), /^T1 verified/);
+  assert.match((await w.call("merge_check", { sha: w.h2, pr: 5, cycles: 3 })).error, /2 of 3 clean cycles/);
+});
+
+test("T1087: branchless direct verification keeps ledger evidence but cannot carry earlier reviews", async t => {
+  const w = await carryWorld(t);
+  w.git("checkout", "-q", "main");
+  w.git("branch", "-D", "sage/t1-a");
+  await w.checks(w.h2);
+  assert.match(await w.call("task_set", { task: "T1", fields: { state: "verifying" } }), /^T1 verifying/);
+  assert.ok((await w.call("task_set", { task: "T1", fields: { state: "verified" } })).error, "no Git target means no carryover");
+  await w.checks(w.h1);
+  assert.match(await w.call("task_set", { task: "T1", fields: { state: "verified" } }), /^T1 verified/, "direct evidence on the latest ledger SHA still verifies");
+});
+
+for (const scenario of ["absent checks", "failed checks", "stale checks", "incomplete cycles", "split cycles", "partial replacement", "changed patch", "merge edit", "missing Git", "intermediate review"]) {
+  test(`T1087: both transitions refuse ${scenario}`, async t => {
+    const w = await carryWorld(t, scenario === "incomplete cycles" ? [[1, 0], [2, 0]] : scenario === "split cycles" ? [[1, 2], [3, 4]] : undefined);
+    let target = w.h2;
+    if (scenario === "changed patch") target = w.work("own", "changed\n");
+    if (scenario === "merge edit") {
+      writeFileSync(join(w.project, "own"), "merge edit\n");
+      w.git("add", "own");
+      w.git("commit", "-q", "--amend", "--no-edit");
+      target = w.git("rev-parse", "HEAD");
+    }
+    if (scenario === "intermediate review") {
+      await w.review(w.h2, 1, "code-reviewer", "review-clean", "CLEAN");
+      w.git("checkout", "-q", "main");
+      w.work("more", "more main\n");
+      w.git("update-ref", "refs/remotes/origin/main", "main");
+      w.git("checkout", "-q", "sage/t1-a");
+      w.git("merge", "-q", "--no-ff", "--no-edit", "main");
+      target = w.git("rev-parse", "HEAD");
+    }
+    if (!["absent checks", "stale checks"].includes(scenario)) await w.checks(target, scenario === "failed checks" ? "checks-fail" : "checks-pass");
+    if (scenario === "stale checks") await w.checks(w.h1);
+    if (scenario === "partial replacement") await w.review(target, 1, "code-reviewer", "review-clean", "CLEAN");
+    if (scenario === "missing Git") w.git("update-ref", "-d", "refs/remotes/origin/main");
+    assert.ok((await w.lead("task_set", { task: "T1", fields: { state: "verifying" } })).denied, "lead must refuse");
+    assert.match(await w.call("task_set", { task: "T1", fields: { state: "verifying" } }), /^T1 verifying/);
+    assert.ok((await w.call("task_set", { task: "T1", fields: { state: "verified" } })).error, "chief must refuse");
+    assert.ok((await w.call("merge_check", { sha: target, pr: 5, cycles: 2 })).error, "merge check must refuse");
+  });
+}
+
 test("F-T928-10: a Codex lead's call that names no task, no run or no finding says so, with the lead's own task", async (t) => {
   const { lead } = await leadWorld(t);
   assert.equal((await lead("pages", {})).denied, 'sage: "pages" names no task: a lead names its own task, T1');
@@ -784,7 +895,7 @@ async function moveWorld(t, { claudeRow = true } = {}) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "sage-state-mcp-move-")));
   t.after(() => rmSync(base, { recursive: true, force: true }));
   const shared = join(base, "shared"), claudeRoot = join(base, "claude-config", "sage");
-  const s = await connect(t, { SAGE_SHARED_HOME: shared, CLAUDE_CONFIG_DIR: join(base, "claude-config"), SAGE_TEST_PIDS: "{}" });
+  const s = await connect(t, { SAGE_SHARED_HOME: shared, CLAUDE_CONFIG_DIR: join(base, "claude-config"), SAGE_TEST_PIDS: "{}" }, { providerRoots: true });
   const codexRoot = join(s.env.CODEX_HOME, "sage");
   execFileSync("git", ["-C", s.project, "-c", "user.name=Fixture", "-c", "user.email=fixture@users.noreply.github.com", "commit", "-q", "--allow-empty", "-m", "first"]);
   const roots = () => [{ provider: "claude", path: claudeRoot }, { provider: "codex", path: codexRoot }];

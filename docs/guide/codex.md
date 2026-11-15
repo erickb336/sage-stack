@@ -216,7 +216,7 @@ With sage mode and autopilot on, the chief lands a verified pull request itself.
 - The Codex that runs is 0.164 or later.
 - Codex's own record of the session has your on phrase since this start of the session. After a restart, a resume or a fork, send it again.
 - That on phrase is the one that turned autopilot on in the mode file: the latest on phrase that started its own turn.
-- The call comes from the main thread, in the one exact form of the command, and it is in Codex's record.
+- The trusted hook identifies the call from the main thread, in the one exact form of the command. Codex's record proves its active turn since this session started. A nested call needs no separate call row.
 - `node` and `gh` are outside the folders that Codex's sandbox can write (the project, its folder and the temporary folders).
 - The merge check passes for that head commit.
 
@@ -224,7 +224,9 @@ Then the hook saves a one-time permit for that one call, and allows the call's e
 
 When Codex's network access is off, Codex can still show one network prompt for GitHub's API (`api.github.com`) while the merge runs: approve it, and the merge continues. The hook cannot allow it, because the merge command has used its permit by then.
 
-Right before `gh pr merge`, the command reads Codex's record and the mode file again. When a check refuses, the chief reports the pull request as ready, with the reason, and you merge it in GitHub.
+Right before `gh pr merge`, the command reads Codex's record, mode file and startup mark again. The same active turn and owner authorization must still hold. When a check refuses, the chief reports the pull request as ready, with the reason, and you merge it in GitHub.
+
+Execution labels select the one-time permit; they give no authority. Deliberately forging a fresh trusted hook remains outside this guard's coverage. Source tests use fake merges; installed dispatch correlation and actual landing need separate checks.
 
 #### Stop a merge
 
@@ -330,7 +332,7 @@ The plugin starts a local MCP server, `sage`, in the desktop app and in the CLI.
 | `task_add`, `task_set` | `task add`, `task <T> set` |
 | `milestone_propose` | `milestone propose`, `milestone propose <M>`: [a milestone](using-sage.md#waits-and-milestones) and its breakdown gate. A task joins or leaves with `task_set` `milestone=` |
 | `release_add`, `milestone_set` | `release add`, `milestone <M> set release=<name>`: [a release](using-sage.md#releases) and the milestones in it. A single task goes in with `task_set` `release=` |
-| `config` | `config key=value ...`: the project's `max_agents` and `max_leads` (in its logbook, for every chief of the project), the cycle counts, the other counts and the model keys for all projects, the project's board name and archive (`name=`, `archived=`), its start in sage mode (`start=sage-mode` or `start=normal`), and the lint offer (`lint_offer=never` or `lint_offer=ask`) |
+| `config` | `config key=value ...`: the project's `max_agents` and `max_leads` (in its logbook, for every chief of the project), the cycle counts, the other counts and the model keys for all projects, the project's board name and archive (`name=`, `archived=`), its start in sage mode (`start=sage-mode` or `start=normal`), the lint offer (`lint_offer=never` or `lint_offer=ask`), and the commit identity of agents (`commit_email=`, `commit_name=`, [The commit identity of agents](using-sage.md#the-commit-identity-of-agents)) |
 | `task_adopt` | `task-adopt <T>`: adopt another provider's task and PR from a separate logbook, with fresh destination reviews. In a shared logbook it refuses: use the takeover gate |
 | `run_add`, `run_done` | `run add`, `run done` |
 | `finding_add`, `finding_triage`, `finding_close`, `finding_move` | `finding add`, `triage`, `close`, `move` |

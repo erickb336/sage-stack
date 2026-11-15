@@ -30,6 +30,7 @@ export function writerClass(cmd, [sub, id] = []) {
     case "config": return sub === undefined ? READ : ANY;
     case "init": return ANY;
     case "chief": return sub === "name" ? OWNER : READ;
+    case "storage": return sub === "clean" ? ANY : READ;
     default: return READ;
   }
 }

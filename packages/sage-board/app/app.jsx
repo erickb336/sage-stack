@@ -1,19 +1,21 @@
 import { useEffect, useState } from "react";
 import { ChiefChips, QuestionView } from "./actions.jsx";
+import { Agents, LimitCounts } from "./agents.jsx";
 import { AgentsIcon, AlertIcon, LeafIcon, MoonIcon, OverviewIcon, PullsIcon, SunIcon, TasksIcon } from "./icons.jsx";
-import { Overview } from "./overview.jsx";
+import { Overview, ago } from "./overview.jsx";
 import { Pulls } from "./pulls.jsx";
 import { Tasks } from "./tasks.jsx";
-import { useModel } from "./use-model.js";
+import { useModel, useNow, when } from "./use-model.js";
+import { OBJECTS } from "../../sage-core/state-words.mjs";
 
 const THEME_KEY = "board-theme";
 const PAGES = [
   { hash: "", name: "Overview", Icon: OverviewIcon },
   { hash: "tasks", name: "Tasks", Icon: TasksIcon },
-  { hash: "agents", name: "Agents", Icon: AgentsIcon, classic: "/agents", what: "each running agent, for each chief, against the limit" },
+  { hash: "agents", name: "Agents", Icon: AgentsIcon },
   { hash: "pull-requests", name: "Pull requests", Icon: PullsIcon },
 ];
-const QUESTION = { hash: "question", name: "Question", hidden: true };
+const QUESTION = { hash: "question", name: OBJECTS.question.label, hidden: true };
 const FILTER_KEY = "board-chief";
 
 const clock = at => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
@@ -45,23 +47,26 @@ function useTheme() {
   return [theme, flip];
 }
 
-function Status({ model, link, receivedAt }) {
+const dataAt = (model, link, lostAt) => link === "lost" && !model.stale ? lostAt : model.at;
+const age = (at, now) => `${when(at)}, ${ago(at, now)}`;
+
+function Status({ model, link, lostAt, now }) {
   if (link === "connecting" && !model) return <span className="live" role="status"><span className="dot" />Connecting</span>;
   if (!model) return <span className="live bad" role="status"><span className="dot" />Cannot reach the board</span>;
-  if (link === "lost") return <span className="live bad" role="status"><span className="dot" />Not updated since {clock(receivedAt)} · trying again</span>;
-  if (model.stale) return <span className="live bad" role="status"><span className="dot" />Not updated since {clock(model.at)}</span>;
+  if (link === "lost") return <span className="live bad" role="status"><span className="dot" />Not updated since {age(dataAt(model, link, lostAt), now)} · trying again</span>;
+  if (model.stale) return <span className="live bad" role="status"><span className="dot" />Not updated since {age(model.at, now)}</span>;
   return <span className="live ok" role="status"><span className="dot" />Live · read {clock(model.at)}</span>;
 }
 
-function Banner({ model, link, receivedAt }) {
+function Banner({ model, link, lostAt, now }) {
   if (link === "lost" && model) return (
     <div className="banner fail" role="alert"><AlertIcon />
-      <div><b>The board lost its link to the server on this Mac.</b> The data below is from {clock(receivedAt)}. It tries again on its own.</div>
+      <div><b>The board lost its link to the server on this Mac.</b> The data below is from {age(dataAt(model, link, lostAt), now)}. It tries again on its own.</div>
     </div>
   );
   if (model?.stale) return (
     <div className="banner fail" role="alert"><AlertIcon />
-      <div><b>The board cannot read the logbook.</b> The data below is from {clock(model.at)}. It reads again when the logbook changes.
+      <div><b>The board cannot read the logbook.</b> The data below is from {age(model.at, now)}. It reads again when the logbook changes.
         {model.problems.length > 0 && <ul>{model.problems.slice(0, 3).map(problem => <li key={problem}>{problem}</li>)}</ul>}
       </div>
     </div>
@@ -78,15 +83,6 @@ function NoData({ link }) {
   );
 }
 
-function ComesNext({ page }) {
-  return (
-    <div className="next">
-      <div className="page-h"><h1>{page.name}</h1></div>
-      <p>This page comes next: it will show {page.what}. Until then, the <a href={page.classic}>classic board</a> shows it.</p>
-    </div>
-  );
-}
-
 function useChiefFilter() {
   const [filter, setFilter] = useState(() => { try { return sessionStorage.getItem(FILTER_KEY); } catch { return null; } });
   const set = value => { setFilter(value); try { value ? sessionStorage.setItem(FILTER_KEY, value) : sessionStorage.removeItem(FILTER_KEY); } catch {} };
@@ -94,7 +90,7 @@ function useChiefFilter() {
 }
 
 export function App() {
-  const { model, link, receivedAt } = useModel("/app/events");
+  const { model, link, lostAt } = useModel("/app/events"), now = useNow();
   const page = useHashPage();
   const [theme, flip] = useTheme();
   const [chosen, setFilter] = useChiefFilter();
@@ -105,8 +101,10 @@ export function App() {
   const next = theme === "dark" ? "light" : "dark";
   const open = model ? model.tasks.filter(task => !task.ended).length : 0;
   const prs = model ? model.tasks.filter(task => task.pr && !task.ended).length : 0;
+  const running = model ? model.agents.reduce((n, book) => n + book.running, 0) : 0;
   const body = page.hash === "" ? <Overview model={model} shown={shown} /> : page.hash === "tasks" ? <Tasks model={model} params={page.params} chief={picked} />
     : page.hash === "pull-requests" ? <Pulls model={model} params={page.params} chief={picked} />
+    : page.hash === "agents" ? <Agents model={model} params={page.params} chief={picked} />
     : page.hash === "question" ? <QuestionView needKey={page.params.get("key") ?? ""} model={model} theme={theme} /> : null;
   return (
     <div className="app">
@@ -121,6 +119,7 @@ export function App() {
                   {!item.hash && model && model.needs.length > 0 && <span className="count need" aria-label={`${model.needs.length} need you`}>{model.needs.length}</span>}
                   {item.hash === "tasks" && model && <span className="count" aria-label={`${open} open`}>{open}</span>}
                   {item.hash === "pull-requests" && model && <span className="count" aria-label={`${prs} open`}>{prs}</span>}
+                  {item.hash === "agents" && model && <span className="count" aria-label={`${running} running`}>{running}</span>}
                 </a>
               </li>
             ))}
@@ -132,16 +131,15 @@ export function App() {
         <header className="top">
           <span className="crumb">{crumb}<span aria-hidden="true">/</span><b>{page.name}</b></span>
           <span className="grow" />
-          <Status model={model} link={link} receivedAt={receivedAt} />
+          {model && <LimitCounts agents={model.agents} />}
+          <Status model={model} link={link} lostAt={lostAt} now={now} />
           <button type="button" className="theme" onClick={flip} aria-label={`Switch to the ${next} theme`} title={`Switch to the ${next} theme`}>
             {theme === "dark" ? <SunIcon /> : <MoonIcon />}
           </button>
         </header>
         {model && <ChiefChips chiefs={model.chiefs} filter={filter} setFilter={setFilter} many={model.projects.length > 1} />}
         <main className="main">
-          {!body ? <ComesNext page={page} /> : model
-            ? <><Banner model={model} link={link} receivedAt={receivedAt} />{body}</>
-            : <NoData link={link} />}
+          {model ? <><Banner model={model} link={link} lostAt={lostAt} now={now} />{body}</> : <NoData link={link} />}
         </main>
       </div>
     </div>

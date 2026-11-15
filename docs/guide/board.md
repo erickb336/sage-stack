@@ -58,10 +58,17 @@ Each card, each task line of the chat board, each milestone and each task page s
 | --- | --- | --- |
 | not started | ○ | The task exists, and no agent works on it yet. |
 | waiting | ⧗ | It cannot start before another task, or before you approve its milestone. |
-| needs you | ! | It waits for your answer to a question, or for your merge. |
+| needs you | ? | It waits for your answer to a question, or for your merge. |
 | in progress | ▶ | Agents or the chief work on it. |
 | done | ✓ | It merged, or it was a study that ended. |
 | stopped | ■ | Its work stopped for good. |
+
+The same words and marks show the steps of a task and the agents, from one table in sage's code. Two more marks:
+
+- `!` is a problem: failed, blocked, may be stuck, running long or run still open. The problem shows after the word, for example "in progress · may be stuck".
+- `◌` is a state that the board does not know. It reads "unknown".
+
+Each kind tag (for example `◇ Design` or `⋈ Orchestration`) and the offer line (`⇄`) have marks of their own, which no state uses.
 
 - A wait names the word of the task that it waits for, for example "Waits for T12 (in progress)".
 - A milestone's word comes from its breakdown: "needs you" while the breakdown waits for you, or when its pilot stopped; "stopped" when you dropped it. Else it comes from its tasks.
@@ -72,6 +79,8 @@ Each card, each task line of the chat board, each milestone and each task page s
 ## Needs you and task pages
 
 Needs you lists open questions with their options and recommendation, designs that wait for your answer, failed checks or QA, and PRs that need your review. A held task is on it only with an open question.
+
+When the merge check refuses a PR's head, the chief must fix it: the task stays "in progress", its Merge step shows "! in progress · blocked", and it is not in Needs you.
 
 Gate IDs include the source and project. The chief must resolve that exact logbook before recording an answer.
 
@@ -140,18 +149,28 @@ The board server has a page **Agents** (`/agents`). The header of the pages has 
 
 The Releases tab shows only when a logbook has releases.
 
-The page shows every agent that runs now, in all projects, for Claude and Codex. It has one box for each project, with the project's Claude agent cap. A lead's helpers sit under it, indented.
+The page shows every agent that runs now, in all projects, for Claude and Codex. It has one box for each project, with the project's cap: for a shared project, the agent limit in its logbook's `config.json` against the running runs of every chief. A lead's helpers sit under it, indented.
 
-The projects and the rows that need a look come first. Each row gives the provider, role, run, task (with a link to its task page), model, time running, last activity and a state.
+The new board has its own Agents page at `/app/#agents` (T1062), which only reads. The top bar of every page shows the counts against the logbook's limits, for example "Agents 7 of 20 · C1 4 · C2 3 · 2 queued" and "Leads 3 of 5".
+
+A count turns amber at its limit, and a click on it opens the page. The page shows:
+
+- each chief, Claude and Codex alike, and a stopped chief as stopped, with the open tasks that it owns;
+- each running lead with its helpers: role, run, state, model and age, with the ended helpers collapsed;
+- the chief's own runs with no lead, and its queued runs with their place in the queue;
+- a timeline with one lane for each agent.
+
+A click on a row opens its task's side panel.
+
+The projects and the rows with a problem flag come first. Each row gives the provider, role, run, task (with a link to its task page), model, time running, last activity and a state. A run that ended shows "done", "stopped · failed" or "stopped · blocked", and a queued run shows its place, for example "waiting · 1st in the queue".
 
 | State | Shown when |
 | --- | --- |
-| ● working | The hook saw the agent in the last 30 min. |
-| ◷ waiting for its helpers | A lead has at least one helper that still runs. |
-| ! may be stuck | No hook activity for 30 min or more, and no running helper. Or the logbook says that the run runs, and no agent slot holds it (the hook frees a slot after 60 min with no activity). |
-| ▲ running long | The time running is more than 2 times the median of the same role's ended runs in this project. It needs 5 ended runs. |
-| ■ helper stopped, run still open | The hook saw the helper stop, but the logbook still says that the run runs. The chief must end the run. |
-| ○ running | A Codex run: the logbook says that it runs. Codex sends no activity notes yet, so the row has no last activity, no helpers and no cap. |
+| ▶ in progress | The hook saw the agent in the last 30 min. A Codex run also shows this word: the logbook says that it runs. Codex sends no activity notes yet, so the row has no last activity, no helpers and no cap. |
+| ⧗ waiting | A lead has at least one helper that still runs. |
+| ! in progress · may be stuck | No hook activity for 30 min or more, and no running helper. Or the logbook says that the run runs, and no agent slot holds it (the hook frees a slot after 60 min with no activity). |
+| ! in progress · running long | The time running is more than 2 times the median of the same role's ended runs in this project. It needs 5 ended runs. |
+| ! stopped · run still open | The hook saw the helper stop, but the logbook still says that the run runs. The chief must end the run. |
 
 The page reads files only: the logbooks, the hook's agent slots and helper notes (by name and time, not their content) and the caps in `config.json`. It runs no command and reads no process list.
 
@@ -208,8 +227,10 @@ Every line that the owner reads names a milestone by its level: "Milestone 6: Fa
 
 Agents save each task's pages (research, designs, the pages of the chief's messages) in the task's pages folder. The board server also shows these pages, read-only, on the Mac only:
 
-- `http://127.0.0.1:43123/pages/<logbook>/<task>/` is the task's index: a list of its pages, with the size of each.
-- `http://127.0.0.1:43123/pages/<logbook>/<task>/<file>` opens one page. For example: `http://127.0.0.1:43123/pages/sage-43265b/T1000/research.html`.
+- `http://127.0.0.1:<port>/pages/<logbook>/<task>/` is the task's index: a list of its pages, with the size of each.
+- `http://127.0.0.1:<port>/pages/<logbook>/<task>/<file>` opens one page. For example: `http://127.0.0.1:43123/pages/sage-43265b/T1000/research.html`.
+
+The port is 43123, or the port that you [moved the board to](#change-the-boards-port).
 
 A task page links its index: its top line has the link **Pages** when the task has a pages folder.
 
@@ -289,9 +310,34 @@ The sage hook refuses the ordinary command shapes by which an agent reads, copie
 
 After you change a setting of the config, or update sage, the line says that a restart is needed: run the `board --stop` command that it gives, then ask for the board again.
 
-Setup never changes a board config that exists. To move the board to another port (1024 to 65535), do these steps in this order:
+### Change the board's port
 
-1. Run `board --stop --config <file>`, with the path of your board config (by default `~/.config/sage-board/board.json`). Do this first: `--stop` looks for the board on the port that the file names.
+The board uses port 43123. When another program on the Mac uses that port, `show board` says so and gives the command that moves the board. Run it in Terminal on the Mac:
+
+```sh
+node <board folder>/cli.mjs board --port 43124
+```
+
+Use the board folder that the message names, and any free port from 1024 to 65535 in place of 43124. Add `--config <file>` when your board config is not `~/.config/sage-board/board.json`.
+
+You can also ask the chief to run it. An agent cannot run it: the hooks refuse it.
+
+The command does these steps in this order. When a check fails, it stops and changes nothing:
+
+1. It checks that the port is a number from 1024 to 65535, and that no program on the Mac uses it.
+2. It checks that it can write the board config and its folder.
+3. It stops this config's board, if it runs. Another program, or the board of another config, on the old port runs on.
+4. It writes the new port in the board config. It keeps every other setting and the mode of the file.
+5. It starts the board on the new port and prints its address.
+
+After the move:
+
+- The Page link of each new message names the new port. A Page link in a message from before still names the old port: change the port in that link.
+- The login service (`dev.sage.board`, if you set it up) reads the port from the board config each time it starts, so it needs no change.
+
+**The manual way.** Use it only when your sage has no `board --port`. Do these steps in this order:
+
+1. Run `board --stop --config <file>`, with the path of your board config. Do this first: `--stop` looks for the board on the port that the file names.
 2. Edit `"port"` in that file.
 3. Ask for the board again.
 

@@ -5,7 +5,7 @@ import { accessSync, constants, existsSync, linkSync, mkdirSync, readdirSync, re
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AGENT_GH, agentCommandProblem, agentGh, boardCommandProblem, boardPathProblem, chiefEditDenied, commandWrites, createCommandPolicy, createPushPolicy, ghRuns, leadStopped as coreLeadStopped, logbookWrite, PR, programName, programsRun, pullRequestHead, readModeFile, roleEditDenied, sharedRoot, shellCommands, shellWriteEvidence, TEAM } from "../core/index.mjs";
+import { AGENT_GH, agentCommandProblem, agentGh, commitIdentity, boardCommandProblem, boardPathProblem, chiefEditDenied, commandWrites, createCommandPolicy, createPushPolicy, ghRuns, leadStopped as coreLeadStopped, logbookWrite, PR, programName, programsRun, pullRequestHead, readModeFile, roleEditDenied, sharedRoot, shellCommands, shellWriteEvidence, TEAM } from "../core/index.mjs";
 import { modeFile, readMode, tool } from "../skills/sage/sage.mjs";
 import { verificationOptions } from "../skills/sage/verify-install.mjs";
 import { privateDirectory, readState } from "./hook-state.mjs";
@@ -14,7 +14,7 @@ import { patchTargets } from "../runtime/patch-targets.mjs";
 import { managedPatchPath } from "../runtime/managed-worktree.mjs";
 import { agentPathOf, sageName, sessionMeta, TASK_NAME } from "./report-gate.mjs";
 import { modeDirectory } from "./sage-codex-hook.mjs";
-import { autopilotSwitch, callInRecord, NEW_ON, readRecord, RECORD_RANGE, RECORD_VERSION } from "./owner-record.mjs";
+import { autopilotSwitch, dispatchBinding, NEW_ON, readRecord, RECORD_RANGE, RECORD_VERSION } from "./owner-record.mjs";
 import { markFile } from "./start-mark.mjs";
 import { launcherFolder, versionsFolder } from "./launch.mjs";
 import { ASK_INSTALL } from "./entries.mjs";
@@ -395,7 +395,8 @@ function permitted(f) {
     if (!/^[0-9a-f]{64}\.json$/.test(name)) return false;
     let permit;
     try { permit = readState(join(permitFolder, name)); } catch { return false; }
-    return permit?.session === f.session && permit.turn === f.turn && permit.command === f.command && permit.cwd === f.cwd && Date.now() - permit.time <= PERMIT_AGE;
+    const age = Date.now() - permit?.time;
+    return permit?.session === f.session && permit.turn === f.turn && permit.command === f.command && permit.cwd === f.cwd && age >= 0 && age <= PERMIT_AGE;
   });
 }
 
@@ -410,12 +411,14 @@ async function admit(f, merge, { env, check, ppid, temporary }) {
   const codexRecord = readRecord(f.transcript ?? "");
   if (codexRecord.refused) return `sage: ${codexRecord.refused}`;
   let mark;
-  try { mark = readState(markFile(modeDirectory(env), f.session)); } catch { mark = undefined; }
+  const startFile = markFile(modeDirectory(env), f.session);
+  try { mark = readState(startFile); } catch { mark = undefined; }
   if (record(mark) && mark.pid !== ppid) return `sage: sage's note of this session start is from another Codex process, so autopilot merges nothing in this session for now. ${READY}, or resume the session and send "autopilot on" again`;
   const owner = autopilotSwitch(codexRecord, mark, state.onTurn);
   if (owner.refused) return `sage: ${owner.refused}`;
   if (!owner.on) return `sage: ${owner.reason}, so the owner merges. ${READY}. To turn autopilot on, the owner sends "autopilot on" alone, ${NEW_ON}`;
-  if (!text(f.toolUseId) || !callInRecord(codexRecord, f.toolUseId, mark.lines)) return "sage: this merge call is not in Codex's record of this session, so sage refuses it. Ask for the merge again";
+  const binding = dispatchBinding(codexRecord, mark, { session: f.session, turn: f.turn, callId: f.toolUseId, child: f.child });
+  if (!binding) return "sage: this merge dispatch has no matching active root turn since this session started. Ask for the merge again";
   if (inside(real(process.execPath) ?? process.execPath, roots)) return `sage: node runs from a folder that Codex's sandbox can write (${process.execPath}), so autopilot merges nothing. ${READY}`;
   const gh = trustedGh(roots, env);
   if (!gh) return `sage: sage found no gh outside the folders that Codex's sandbox can write, so autopilot merges nothing. ${READY}`;
@@ -427,7 +430,7 @@ async function admit(f, merge, { env, check, ppid, temporary }) {
   const file = permitFile(f.toolUseId);
   if (!file) return `sage: this copy of sage is not installed as a Codex plugin, so it has no merge permits. ${READY}`;
   try {
-    savePermit(file, { session: f.session, repo, pr: merge.pr, sha: merge.sha, command: f.command, cwd: f.cwd, turn: f.turn, transcript: f.transcript, mark, mode, gh, path, time: Date.now() });
+    savePermit(file, { session: f.session, callId: f.toolUseId, ...binding, ownerTurn: state.onTurn, repo, pr: merge.pr, sha: merge.sha, command: f.command, cwd: f.cwd, turn: f.turn, transcript: f.transcript, mark, startFile, mode, gh, path, time: Date.now() });
   } catch (error) {
     return `sage: the gate could not save the merge permit of this call (${error?.code ?? error?.message ?? error}), so it refuses the merge. Check the folder ${dirname(file)}`;
   }
@@ -535,7 +538,7 @@ export async function gate(input, { mode = readMode, check = checkMerge, env = p
   const namesReference = (references, test) => references.some(({ word, dir }) => test(asWord(resolve(dir, word)), env, f.cwd));
   const logbook = logbookWord(f.command, env, f.cwd);
   if (logbook !== undefined) return deny(LOGBOOK_WRITE(logbook));
-  const board = boardCommandProblem(f.command, f.cwd, { home: env.HOME || homedir() });
+  const board = boardCommandProblem(f.command, f.cwd, { home: env.HOME || homedir(), chief: !thread.child });
   if (board) return deny(`sage: ${board}`);
   const runs = codexRuns(f.command, f.cwd, env);
   if (runs === null && /codex/i.test(f.command)
@@ -551,7 +554,8 @@ export async function gate(input, { mode = readMode, check = checkMerge, env = p
     if (stateToolWrites(f.command, f.cwd, env) && !(knownThread && scopedStateRead(f.command, f.cwd, env))) return refuse(thread, recordsAsLead(thread) ? LEAD_SHELL : CHILD_LOGBOOK);
     const why = commandWrites(f.command, f.cwd, TEMP, { readOnly: true }) || runsPatch(f.command, f.cwd, env) ? childChange(thread, mode(f, env).sage, READ_ONLY_SHELL_WAY) : undefined;
     if (why) return refuse(thread, why);
-    const agent = underSage(thread) !== false || mode(f, env).sage ? agentCommandProblem(f.command, f.cwd, env.PATH ?? "") : undefined;
+    const identity = () => { try { return commitIdentity(tool.storeDir(f.cwd, env)); } catch { return undefined; } };
+    const agent = underSage(thread) !== false || mode(f, env).sage ? agentCommandProblem(f.command, f.cwd, env.PATH ?? "", { identity }) : undefined;
     if (agent) return refuse(thread, `sage: ${agent}`);
   }
   if (writeEvidence ? namesReference(writeEvidence.writes, namesCodexSettings) : commandWrites(f.command, f.cwd) && namesCodexSettings(f.command, env, f.cwd)) return deny(CODEX_SETTINGS);

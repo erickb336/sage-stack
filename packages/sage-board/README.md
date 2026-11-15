@@ -34,25 +34,31 @@ The last line runs the installed copy: use the path that the install step prints
 
 Open the printed localhost URL in a desktop browser on the Mac. The board answers a request only when it comes from loopback, names a loopback host (`127.0.0.1`, `localhost` or `[::1]` at the board's port), and has no header that a proxy adds (`X-Forwarded-*` or `Forwarded`). Every other request is refused: status 403, or 404 on the pages route. The read routes take only GET and HEAD.
 
-A config from an earlier version can still hold the keys `allowedHosts`, `password` or `secret`. It still loads, and the board ignores those keys. To remove them, edit the file, then restart the board.
+A config from an earlier version can still hold the keys `allowedHosts`, `password` or `secret`. It still loads, and this version of the board ignores those keys. An installed copy of an earlier version does not ignore them: the login service runs that copy, and the copy does not change when sage updates. So after an update, remove the keys from the file, then restart the board. To run this version at login, stop the login service with `launchctl bootout` (below), remove the old install folder and the login file, then run the install step again.
 
 The sage hook, in Claude Code and in Codex, refuses the ordinary command shapes by which a session or an agent reads, copies or replaces the configuration file, or lists, searches, copies or moves its folder. An agent runs as your own user, so a script that builds the path while it runs can still pass the hook. Full protection needs the sandbox (tasks T97 to T99).
 
-The default port is 43123. Setup accepts `--port` from 1024 to 65535. A busy port causes an error; the service does not choose another port.
+The default port is 43123. Setup accepts `--port` from 1024 to 65535. A busy port causes an error that names the command below; the service does not choose another port.
 
-Setup never changes a config that exists: it stops with an error that names the file. To change the port of an existing config, do these steps in this order:
+### Change the board's port
 
-1. Stop the board with `board --stop --config <file>`. Do this first: `--stop` looks for the board on the port that the file names.
-2. Edit `"port"` in the file.
-3. Ask for the board again, or run `board --ensure --config <file>`.
+Setup never changes a config that exists. To move the board of an existing config to another port, run in Terminal:
 
-If you edit the port first, `--stop` finds no board on the new port, and the old server runs on. To set the board up again from the start, remove the file first.
+```sh
+node <path to board/cli.mjs> board --port 43124
+```
 
-The stable installation copies only board and core sources. It does not depend on a provider plugin cache. Stop the foreground service with Ctrl+C.
+Use any free port from 1024 to 65535, and add `--config <file>` for a config that is not the default one. The command checks the port (a number from 1024 to 65535, and free on 127.0.0.1) and that it can write the config and its folder. Then it stops this config's board if it runs, writes only `"port"` (in a new file that replaces the config, with the same mode, and every other key kept), and starts the board on the new port. When a check fails, it changes nothing. It never prints the config. The hooks refuse it from an agent; the chief may run it. The login service reads the port at each start, so it needs no change.
+
+Each server writes its port to `board.port`, next to `board.pid`, and keeps the file when it stops. The file holds only the port. The message command of the state tool reads `board.port` in `~/.config/sage-board/` (and never the config), so a message's Page link names the port of the board of the default config. Without the file, the link names 43123.
+
+The manual way, when your sage has no `board --port`: stop the board with `board --stop --config <file>` first (it looks for the board on the port that the file names), then edit `"port"` in the file, then ask for the board again. To set the board up again from the start, remove the file first.
+
+The stable installation copies only board and core sources, and the licence files of the packages in the board's bundles. It does not depend on a provider plugin cache. Stop the foreground service with Ctrl+C.
 
 ## The new board (preview)
 
-The new board is at `/app/` on the same server: open `http://127.0.0.1:43123/app/` (or your configured port) in a desktop browser. It needs scripts. Its Overview has:
+The new board is at `/app/` on the same server: open `http://127.0.0.1:43123/app/` (or the port of your config) in a desktop browser. It needs scripts. Its Overview has:
 
 - **The chiefs:** a chip for each chief of each shared project, with live, waits for you, stopped or not known, and the autopilot state. A click shows only that chief's work, on each page.
 - **Needs you:** each open question, oldest first, with its chief, its task, its recommendation and when it was asked. A click opens the question with the message that the chief kept for it (`gates/G<n>.json`).
@@ -62,7 +68,15 @@ The new board is at `/app/` on the same server: open `http://127.0.0.1:43123/app
 
 **Writes.** A browser acts only after you pair it once: run `node cli.mjs board --pair` in Terminal (it refuses input that is not a terminal), and type the one-time code on the board. The server then sets the cookie `sage_board` (`HttpOnly; SameSite=Strict; Path=/`) and gives the page a second random secret, the token, which the page keeps in `localStorage`. The server keeps only the hashes of both in the board's state folder, `state/` next to the config, with `seen.json`, the time of your last visit. A browser sends its cookies to every port of `127.0.0.1`, but `localStorage` belongs to the board's own origin (its port too), so a server on another port that gets the cookie still has no token. Each `POST /api/...` must have the board's exact `Origin`, `Sec-Fetch-Site: same-origin`, a JSON body, the cookie and the token of the same browser in `X-Sage-Token`; an answer also carries the digest of the question that you saw. The server runs only `gate answer --via board`, `gate undo`, `gate give` and `chief name`, through the state tool in its own thread (Node's `worker_threads`), so the logbook lock never holds the server's event thread. It writes only a shared logbook, through a checkout of it on this Mac.
 
-The pages Tasks, Agents and Pull requests come next; until then, they link to the classic board at `/`. The new board loads only its own files from the board server, under a content security policy with no inline code and no outside source. Its data comes from one stream, `/app/events`. The classic board keeps working beside it.
+Limits of the writes. Each one needs a program on this Mac that acts on purpose:
+
+- A program that forges the board's headers can send five wrong pairing codes, and so spend the code. Nothing is paired: run `board --pair` again (F-T1076-3).
+- A board that starts with a `--config` outside `~/.config/sage-board` keeps its pairing in the `state/` folder next to that config, and the hooks do not guard that folder. A program can read that folder, or add a browser to `paired.json`. The folder keeps hashes, but `pair-code.json` keeps the SHA-256 of an 8-letter code (about 40 bits), so a program can find the code within its 10 minutes. This stays a limit because only a program that acts on purpose does it (F-T1076-4).
+- The reader keeps the board's origin (`sandbox allow-same-origin`), because the board and the pages folder refuse the cross-site requests of a page with no origin, so its links and pictures need it. A script on the reader could read the token, but the reader runs none: its sandbox has no `allow-scripts`, its policy has `script-src 'none'`, and a test checks both (F-T1076-6).
+
+**Request size.** The board accepts up to 64 KiB of request headers. A browser sends the cookies of `127.0.0.1` to every port of it, so the cookies of other apps on `127.0.0.1` come to the board too. Ordinary cookie sets are far below 64 KiB: a cookie has at most 4 KiB, and most servers, Node's too, refuse more than 8 to 16 KiB of headers. When the cookies for `127.0.0.1` are more than 64 KiB in all, the board answers HTTP 431 to every request, reads and writes, until those cookies end. Nothing is written and nothing leaks. To recover, clear the browser's site data for `127.0.0.1` (F-T1076-9).
+
+The pages Tasks, Agents and Pull requests sit beside the Overview. The top bar of each page shows the agent and lead counts against the project's limits, from the logbook's `config.json` (`max_agents`, `max_leads`), and links to the Agents page. The new board loads only its own files from the board server, under a content security policy with no inline code and no outside source. Its data comes from one stream, `/app/events`. The classic board keeps working beside it.
 
 ### The reader for agent documents (T1064)
 
@@ -75,7 +89,7 @@ The reader shows what the agents made, as pages of the board at `/read/<task>/<k
 | Markdown page | `page/<file>.md` | The page with a contents list and its pictures, from the task's pages folder. |
 | Design | `design` | One version (today), or two side by side, from `designs/<version>/`. |
 | Arena | `arena` | The candidates, the judge's scores and the judge's final. |
-| Question | `question/G<n>` | The full question from `gates/G<n>.json`: Needed by and If you do not answer first, every part, then the answers with the chief's pick first. It only reads: answer in the chief's chat. |
+| Question | `question/G<n>` | The full question from `gates/G<n>.json`: every part in one column, in the message's order, each under its short label (Due and Default as well), with the answers where the message puts them and the chief's pick first. A question kept before the short labels shows its own older labels. It only reads: answer in the chief's chat. |
 
 A page says "not written yet" while its run runs, "not kept" for a run or question older than T1058, and "gone" for a recorded page that is no longer in the pages folder.
 
@@ -119,6 +133,10 @@ Claude owner phrases can request the board and task views. Codex uses the manual
 
 The server has four pages: the task board (`/`, with a page for each task at `/task/<id>`), the Releases tab (`/releases`, T996), the milestones list (`/milestones`, with a page for each milestone at `/milestone/<id>`) and the Agents page (`/agents`). Each page has its live stream (`/?events=1`, `/releases?events=1`, `/milestones?events=1`, `/milestone/<id>?events=1` and `/agents?events=1`), with the same access check. A task or milestone id in a route is the base64url of its key; an unknown milestone gives a not-found page with status 404. The Agents page also reads the hook's agent slots and helper notes under each logbook root (`.hooks/slots` and `.hooks/helpers`), by name and change time only. It refreshes by itself when an agent's state changes with time (30 min with no activity, or running long), as no file changes then.
 
+**Agent activity (T1100).** The hook renews an agent's slot on each of its tool calls, and an agent's actions go to `<logbook>/actions/R<n>.jsonl` (one short record a line; the writer comes in a later task). A change under `.hooks/` or under a logbook's `actions/` folder does not read the logbook again. The server reads only the slot times and the last line of each running agent's action file, at most once every 2 s, and sends the runs that changed as a small `activity` event on `/app/events`: `{"<logbook>/R<n>": {"activity": <slot time in ms or null>, "now": <last action or null>}}`. A new stream gets the activity of each running agent after its first model. A slot or a helper note that comes or goes, or a quiet agent that wakes, still reads the logbook again, because the Agents page changes then.
+
+`GET /api/actions/R<n>?logbook=<source>/<logbook>` gives one run's last 20 actions, `{logbook, run, actions, dropped}`, with the same access check as the pages; `dropped` counts the lines that are not readable. It answers only for a run in the runs table of a logbook that the board shows (else 404), reads only that logbook's `actions/R<n>.jsonl`, and refuses a link or a file with a second name (403). With no `actions/` folder or no file yet, `actions` is empty.
+
 The server also shows each task's pages folder, read-only, at `/pages/<logbook>/<task>/` (an index) and `/pages/<logbook>/<task>/<file>` (T1001). It serves these only to a request from the Mac itself.
 
 It reads the raw path and never joins it onto a folder: it refuses `%`, `..`, a part that starts with a dot, any query but `?scripts=1`, a logbook that the board does not show, and a link or a file with a second name anywhere in the path. It serves only web pages, PDFs, pictures, and Markdown and text as plain text, at most 3 parts deep and 16 MiB.
@@ -130,7 +148,6 @@ Limits of the pages route:
 - A page can still send its own content out through a link that you click in it. A page opened with `?scripts=1` can also move itself to another site, by its script or by a meta refresh. Any other page runs no refresh.
 - A page can also send content out with no click, also with no script: when it opens, Chromium sends the request of a prerender link (`<link rel="prerender">`, NoStatePrefetch) to any site, and the address can hold the page's content. No header that the board can send stops it: a probe in Chromium 140 tried CSP (`prefetch-src` and `navigate-to` too), Permissions-Policy, COOP, COEP, Vary and others (F-T1013-5). The request carries no referrer, but it carries the cookies of that site that `SameSite=Lax` lets through (F-T1013-10), and the page stays. Prefetch, preload, preconnect, DNS prefetch and speculation rules reached nothing in the same probe.
 - On macOS, the board opens a page with no link in any folder of its path (`O_NOFOLLOW_ANY`). Other systems have no such flag, so there a folder that flips between a link and a folder during the board's checks can pass them.
-- The Page link always names port 43123. A board on another port shows the pages there, but the link in a message does not reach them.
 - The folder of the pages comes from `SAGE_WORKTREES`, or else `~/sage-worktrees`. A board that launchd starts gets no `SAGE_WORKTREES` from your shell, so it shows the pages under `~/sage-worktrees` only.
 
 Local tests exercise the access check, file updates, task routes, the Agents page, reconnects, offline export, and stable installation. Login startup and browser appearance still need direct checks.

@@ -30,11 +30,11 @@ async function freePort() {
 }
 
 const MESSAGE = { kind: "question", title: "Can a viewer copy a shared list into their own lists?", blocks: [
-  { t: "field", label: "Where this is", text: "The sample task sets what each person may do with a shared list." },
-  { t: "field", label: "What you approve", text: "The rule for viewers." },
-  { t: "field", label: "The one real choice in it", text: "Does a viewer get a copy action?" },
-  { t: "table", head: ["Answer", "What happens next", "Cost"], rows: [["yes", "The chief adds the copy action.", "About 1 to 2 h of agent time."], ["no", "The chief builds view only.", "No extra cost now."]], pick: 0 },
-  { t: "field", label: "If you do not answer", text: "The task waits." }, { t: "field", label: "Needed by", text: "Sample: 20:00 today." }, { t: "field", label: "After you answer", text: "The chief builds the task." }] };
+  { t: "field", label: "Where", text: "The sample task sets what each person may do with a shared list." },
+  { t: "field", label: "Approve", text: "The rule for viewers." },
+  { t: "field", label: "Choice", text: "Does a viewer get a copy action?" },
+  { t: "table", head: ["Answer", "Next", "Cost"], rows: [["yes", "The chief adds the copy action.", "About 1 to 2 h of agent time."], ["no", "The chief builds view only.", "No extra cost now."]], pick: 0 },
+  { t: "field", label: "Default", text: "The task waits." }, { t: "field", label: "Due", text: "Sample: 20:00 today." }, { t: "field", label: "Next", text: "The chief builds the task." }] };
 
 async function openBoard(t, { write } = {}) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-writes-browser-")));
@@ -113,7 +113,7 @@ test("T1059: the owner pairs once, then answers with full context, undoes, renam
   await page.getByRole("heading", { name: MESSAGE.title, level: 1 }).waitFor();
   assert.equal(clicks, 1, "J1: one click opens the question with its full context");
   const view = await page.locator(".question").textContent();
-  for (const part of ["Where this is", "The rule for viewers.", "If you do not answer", "The chief adds the copy action.", "About 1 to 2 h of agent time.", "C1's pick"]) assert.ok(view.includes(part), `the view shows ${part}`);
+  for (const part of ["Where", "The rule for viewers.", "Default", "The chief adds the copy action.", "About 1 to 2 h of agent time.", "C1's pick"]) assert.ok(view.includes(part), `the view shows ${part}`);
   const taskKey = `shared/${basename(w.dir)}/T1`;
   assert.equal(await page.getByRole("link", { name: "Read the full question" }).getAttribute("href"), `/read/${Buffer.from(taskKey).toString("base64url")}/question/G1`, "the link opens the reader's question page of the same gate");
   await w.shot("t1059-question");
@@ -160,7 +160,7 @@ test("T1059: the owner pairs once, then answers with full context, undoes, renam
   const stopped = page.locator(`[data-stopped$="/C3"]`);
   await click(stopped.getByRole("button", { name: "Give to another chief" }));
   assert.equal(await stopped.getByRole("radio", { checked: true }).getAttribute("name"), await stopped.getByRole("radio").first().getAttribute("name"));
-  assert.match(await stopped.locator(".pickable").first().textContent(), /^C1 · claude.*Recommended$/, "the live chief of C3's provider comes first");
+  assert.match(await stopped.locator(".pickable").first().textContent(), /^Claude · C1.*Recommended$/, "the live chief of C3's provider comes first");
   await click(stopped.getByRole("button", { name: "Open the takeover question" }));
   await stopped.getByText(/^G3 open · Hand T3 from C3 \(claude\) to C1 \(claude\)\?/).waitFor();
   assert.equal(clicks, 2, "give: Give to another chief, then Open the takeover question");
@@ -206,11 +206,19 @@ test("F-T1059-17: board --pair names the card, the field and the button that the
   assert.deepEqual(w.problems, []);
 });
 
-test("F-T1059-19: each chief's chip says its state in words: live, waits for you, stopped or liveness not known", async t => {
+test("F-T1059-19: each chief's chip says its state in words: live, waits for you, stopped or liveness unknown", async t => {
   const w = await openBoard(t), { page } = w;
   const chip = id => page.locator(`.chip[data-chief$="/${id}"] .state`);
   await chip("C4").waitFor();
-  assert.deepEqual(await Promise.all(["C1", "C2", "C3", "C4"].map(id => chip(id).textContent())), ["live · autopilot on", "live · autopilot off", "stopped", "liveness not known"]);
+  assert.deepEqual(await Promise.all(["C1", "C2", "C3", "C4"].map(id => chip(id).textContent())), ["in progress · autopilot on", "in progress · autopilot off", "stopped", "unknown"]);
+  const once = (text, id) => assert.equal(text.split(id).length - 1, 1, `${id} once: ${text}`);
+  for (const id of ["C1", "C2"]) {
+    assert.match(await page.locator(`.chip[data-chief$="/${id}"] b`).textContent(), new RegExp(`^(Claude|Codex) · ${id}$`), "F-T1096-11: the chip names the chief as 'Claude · C1'");
+    once(await page.locator(`button.chip[data-chief$="/${id}"]`).textContent(), id);
+  }
+  const stopped = await page.locator('[data-stopped$="/C3"] .q').textContent();
+  assert.match(stopped, /^(Claude|Codex) · C3\b/, "F-T1096-11: a stopped chief reads 'Claude · C3' too");
+  once(stopped, "C3");
   await w.shot("t1059-chips");
 });
 
@@ -219,7 +227,7 @@ test("F-T1059-21: a chief's default name and its menu's Started row show the sam
   const name = await page.locator('.chip[data-chief$="/C1"] .faint').first().textContent();
   await page.getByRole("button", { name: "More about C1" }).click();
   const started = await page.locator(".menu .facts dt", { hasText: "Started" }).locator("xpath=following-sibling::dd[1]").textContent();
-  assert.ok(!name.includes("UTC") && name.endsWith(` · ${started}`), `"${name}" ends with "${started}"`);
+  assert.ok(!name.includes("UTC") && (name === started || name.endsWith(` · ${started}`)), `"${name}" ends with "${started}"`);
   await w.shot("t1059-chief-started");
 });
 
@@ -330,7 +338,7 @@ test("F-T1059-44: the rename field of a chief whose name is shown with its id st
   const w = await openBoard(t), { page } = w;
   for (const id of ["C1", "C2"]) claude.sage(["chief", "name", id, "Desk", "--project", w.project], w.env);
   await w.pair();
-  await page.locator(`.chip[data-chief$="/C2"]`).filter({ hasText: "Desk · C2" }).waitFor();
+  await page.locator(`.chip[data-chief$="/C2"]`).filter({ hasText: "Desk" }).waitFor();
   await page.getByRole("button", { name: "More about C2" }).click();
   assert.equal(await page.getByLabel("Name").inputValue(), "Desk");
   await page.getByRole("button", { name: "Rename" }).click();
@@ -348,4 +356,19 @@ test("F-T1059-43: a write that the board stops waiting for says one thing: not c
   await said.waitFor();
   assert.equal(await page.getByText(/Not recorded/).count(), 0, "no \"Not recorded\" before a write that may still finish");
   await w.shot("t1059-write-timeout");
+});
+
+test("F-T1076-13: a write whose connection drops after the server got it says that it may have landed, not that nothing was written", async t => {
+  const w = await openBoard(t), { page } = w;
+  await w.pair();
+  await w.context.route(`${w.origin}/api/answer`, async route => {
+    await route.fetch({ headers: { ...await route.request().allHeaders(), "sec-fetch-site": "same-origin" } });
+    await route.abort("connectionreset");
+  });
+  await page.getByRole("link", { name: MESSAGE.title }).click();
+  await page.getByRole("radio", { name: /^no/ }).check();
+  await page.getByRole("button", { name: "Send answer" }).click();
+  await page.getByRole("alert").filter({ hasText: /^The board lost its connection to its server on this Mac, so it cannot say whether the write landed\. Reload the board to see it before you try again\.$/ }).waitFor();
+  assert.equal(await page.getByText(/Not recorded|Nothing was written/).count(), 0, "no claim that the write did not land");
+  assert.equal(JSON.parse(w.gate("G1").answered).answer, "no", "the write landed");
 });

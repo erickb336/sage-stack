@@ -368,6 +368,47 @@ test("T584: while a task's arena step is open, a writer run needs --candidate, e
   assert.match(s.no("run", "add", "T3", "--role", "implementer", "--branch", "sage/t3"), /^sage: T3's arena step is open/, "the judge of another task closes nothing here");
 });
 
+test("T1089: a large ui or design task gets the design arena by default, with the configured count; other kinds and sizes do not", () => {
+  const s = store();
+  const route = (id) => rows(s.dir, "tasks").find((t) => t.id === id).route;
+  const add = (...args) => s.ok("task", "add", "--priority", "P2", "--title", "t", ...args);
+  assert.match(add("--size", "large", "--kind", "ui"), /^T1 framed · large · route design,arena,pe,build,code-review,security-review,ux-review,qa · P2 · kind ui · arena of 3 by default/);
+  assert.equal(route("T1"), "design,arena,pe,build,code-review,security-review,ux-review,qa");
+  s.ok("config", "arena=4");
+  add("--size", "large", "--kind", "design");
+  assert.equal(route("T2"), "design,arena,pe,build,code-review,security-review,ux-review,qa");
+  assert.deepEqual(trail(s.dir).map((d) => [d.task, d.decision, d.why]), [["T1", "added arena · 3 candidates", "by default: a large ui task"], ["T2", "added arena · 4 candidates", "by default: a large design task"]]);
+  add("--size", "large", "--kind", "docs");
+  add("--size", "large");
+  for (const size of ["tiny", "small"]) add("--size", size, "--kind", "ui");
+  add("--size", "investigate", "--kind", "design");
+  assert.deepEqual(["T3", "T4", "T5", "T6", "T7"].map((id) => route(id).split(",").includes("arena")), [false, false, false, false, false], "only a large ui or design task gets it");
+  assert.equal(trail(s.dir).length, 2, "no default row for the others");
+  add("--size", "large", "--kind", "ui", "--add", "arena", "--why", "four angles");
+  assert.equal(route("T8"), "design,arena,pe,build,code-review,security-review,ux-review,qa", "--add arena still adds it, once");
+  assert.deepEqual(trail(s.dir).slice(2).map((d) => d.decision), ["added arena"]);
+  assert.match(s.no("run", "add", "T1", "--role", "designer", "--branch", "sage/t1"), /^sage: T1's arena step is open/, "the default arena keeps the arena rules");
+});
+
+test("T1089: --no-arena takes the default arena out of a large ui or design task, needs a reason and writes a decision row", () => {
+  const s = store();
+  const add = (...args) => s.run("task", "add", "--priority", "P2", "--title", "t", ...args);
+  for (const args of [["--no-arena"], ["--no-arena", "--why", "one clear answer"], ["--no-arena", " "], ["--no-arena="]]) {
+    const r = add("--size", "large", "--kind", "ui", ...args);
+    assert.equal(r.status, 1, `refused without a reason: ${args.join(" ")}`);
+    assert.match(r.stderr, /no-arena needs/);
+  }
+  for (const args of [["--size", "small", "--kind", "ui"], ["--size", "large", "--kind", "docs"], ["--size", "large", "--kind", "ui", "--add", "arena", "--why", "x"]]) {
+    const r = add(...args, "--no-arena", "one clear answer");
+    assert.equal(r.status, 1, `nothing to opt out of: ${args.join(" ")}`);
+    assert.match(r.stderr, /^sage: --no-arena takes the arena out of a large task of kind ui or design/);
+  }
+  assert.equal(rows(s.dir, "tasks").length, 0, "a refused task add writes no task");
+  assert.match(s.ok("task", "add", "--priority", "P2", "--title", "t", "--size", "large", "--kind", "design", "--no-arena", "one clear answer"), /^T1 framed · large · route design,pe,build,code-review,security-review,ux-review,qa · P2 · kind design$/);
+  assert.deepEqual(trail(s.dir).map((d) => [d.task, d.decision, d.why]), [["T1", "no arena", "one clear answer"]]);
+  assert.match(s.ok("run", "add", "T1", "--role", "designer", "--branch", "sage/t1"), / designer on T1 /, "with no arena, one designer runs");
+});
+
 test("T584: a review with --candidate is not a candidate: its branch takes a judge, lands and passes the move to verified", () => {
   const s = store();
   s.ok("task", "add", "--priority", "P2", "--title", "t", "--size", "small");
@@ -2493,7 +2534,7 @@ test("unknown-columns: a logbook that a newer sage wrote refuses every write com
 
 test("unknown-options: a command refuses an option that it does not take, and an option without its value", () => {
   const s = store();
-  assert.equal(s.no("task", "add", "--title", "x", "--size", "small", "--sprint", "S1"), "sage: task add takes no --sprint. Its options: --title, --size, --risk, --add, --why, --priority, --kind, --waits, --milestone, --project.");
+  assert.equal(s.no("task", "add", "--title", "x", "--size", "small", "--sprint", "S1"), "sage: task add takes no --sprint. Its options: --title, --size, --risk, --add, --no-arena, --why, --priority, --kind, --waits, --milestone, --project.");
   assert.deepEqual(rows(s.dir, "tasks"), [], "a refused command writes nothing");
   s.ok("task", "add", "--priority", "P2", "--title", "x", "--size", "small");
   assert.equal(s.no("verdict", "T1", "--sha", SHA, "--kind", "checks-pass", "--cycles", "2"), "sage: verdict takes no --cycles. Its options: --sha, --kind, --cycle, --pr, --run, --project.");
@@ -4389,7 +4430,7 @@ test("T948: config start=sage-mode starts each new session of the project in sag
   assert.deepEqual(JSON.parse(readFileSync(own, "utf8")), { archived: true }, "normal removes the key");
   assert.equal(starts(), false);
   assert.equal(s.no("config", "start=on"), 'sage: start is sage-mode or normal, not "on". Nothing changed.');
-  assert.equal(s.no("config", "start=sage-mode", "max_leads=2"), 'sage: "max_leads" is a key for all projects, and name=, archived=, start= and lint_offer= are keys of one logbook: set them in a config command of their own.');
+  assert.equal(s.no("config", "start=sage-mode", "max_leads=2"), 'sage: "max_leads" is a key for all projects, and name=, archived=, start=, lint_offer=, commit_email= and commit_name= are keys of one logbook: set them in a config command of their own.');
   for (const text of ['{"start":"on"}', '{"start":true}', "[1]", "not json"]) {
     writeFileSync(own, text);
     assert.equal(starts(), false, `${text}: a bad file is a normal start`);
@@ -4413,7 +4454,7 @@ test("T314: config refuses a name that is too long, empty of text, spaced at an 
   assert.equal(s.no("config", "name= seacc"), 'sage: the name " seacc" has a space at its start or end, or two spaces together. Nothing changed.');
   assert.equal(s.no("config", "name=sea  cc"), 'sage: the name "sea  cc" has a space at its start or end, or two spaces together. Nothing changed.');
   assert.equal(s.no("config", "archived=true"), 'sage: archived is yes or no, not "true". Nothing changed.');
-  assert.equal(s.no("config", "name=x", "arena=2"), 'sage: "arena" is a key for all projects, and name=, archived=, start= and lint_offer= are keys of one logbook: set them in a config command of their own.');
+  assert.equal(s.no("config", "name=x", "arena=2"), 'sage: "arena" is a key for all projects, and name=, archived=, start=, lint_offer=, commit_email= and commit_name= are keys of one logbook: set them in a config command of their own.');
   assert.equal(s.no("config", "name"), "sage: name needs a value: write name=<value>");
   assert.equal(existsSync(own), false, "no refusal wrote the file");
   writeFileSync(own, "[1]");
