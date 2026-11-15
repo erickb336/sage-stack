@@ -62,7 +62,7 @@ export const OBJECTS = {
   milestone: { label: "Milestone", states: Object.fromEntries(Object.entries(MILESTONE).map(([state, [word]]) => [state, [word]])) },
   task: { label: "Task", states: { ...each(Object.keys(DOING), "in progress"), framed: ["not started"], ...ended } },
   agent: { label: "Agent", states: {
-    queued: ["waiting"], running: ["in progress"], done: ["done"], question: ["done"], failed: ["stopped", "failed"], blocked: ["stopped", "blocked"],
+    queued: ["waiting"], running: ["in progress"], done: ["done"], question: ["needs you"], failed: ["stopped", "failed"], blocked: ["stopped", "blocked"],
     work: ["in progress"], wait: ["waiting"], unk: ["in progress"], stuck: ["in progress", "may be stuck"], long: ["in progress", "running long"], stop: ["stopped", "run still open"],
   } },
   question: { label: "Question", states: {} },

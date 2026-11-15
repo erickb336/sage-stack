@@ -553,11 +553,12 @@ const call = i => i.toString(16).padStart(8, "0");
 const action = (i, run = "R1") => `${JSON.stringify({ v: 1, at: new Date(Date.UTC(2026, 10, 14, 12, 0, i)).toISOString(), run, tool: "Read", kind: "file", target: `src/sample-${i}.mjs`, call: call(i), mark: "ok" })}\n`;
 const R1 = "sample/project-abcdef/R1";
 
-async function lightBoard(t, { lightEvery, quiet = false, slotOnly = false } = {}) {
+async function lightBoard(t, { lightEvery, quiet = false, slotOnly = false, hooks = true, slotAge = 0 } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-light-")), root = join(dir, "source"), project = populate(root), port = await freePort();
   writeFileSync(join(project, "runs.tsv"), `${HEADERS.runs.replaceAll(" ", "\t")}\nR1\tT1\tqa\t0\t\t\trunning\t\t\t${new Date(Date.now() - 60 * 60_000).toISOString()}\t\nR2\tT1\timplementer\t0\t\t\tdone\t\t\t2026-11-14T10:00:00Z\t2026-11-14T11:00:00Z\n`);
-  slot(root, "slot-1", ["project-project", "role-sage_qa", "run-R1"]);
+  if (hooks) slot(root, "slot-1", ["project-project", "role-sage_qa", "run-R1"]);
   if (slotOnly) slot(root, "slot-2", ["project-project", "role-sage_explore"]);
+  if (slotAge) { const then = new Date(Date.now() - slotAge * 60_000); utimesSync(join(root, ".hooks", "slots", "slot-1"), then, then); }
   if (quiet) { const long = new Date(Date.now() - 40 * 60_000); for (const name of slotOnly ? ["slot-2", "slot-1"] : ["slot-1"]) utimesSync(join(root, ".hooks", "slots", name), long, long); }
   mkdirSync(join(project, "actions"));
   let reads = 0;
@@ -637,6 +638,26 @@ test("T1100: a quiet agent that wakes, also one whose slot names no run, and a s
   slot(f.root, "slot-3", ["project-project", "role-sage_code-reviewer", "run-R3"]);
   for (let i = 0; i < 600 && !(page = await read(f, "/agents")).body.includes("Agents (3)"); i++) await wait(50);
   assert.match(page.body, /<span class="role">code-reviewer<\/span><span class="id">R3<\/span>/);
+});
+
+test("T1099 (F-T1088-2): a board that starts before the hook's folder exists sees the slots made after it", async t => {
+  const f = await lightBoard(t, { lightEvery: 50, hooks: false }), slotted = async () => (await read(f, "/agents")).body.includes("no activity for 40 min");
+  assert.equal(await slotted(), false, "no hook folder yet: the run has no slot");
+  mkdirSync(join(f.root, ".hooks"));
+  await wait(400);
+  slot(f.root, "slot-1", ["project-project", "role-sage_qa", "run-R1"]);
+  const long = new Date(Date.now() - 40 * 60_000); utimesSync(f.slot, long, long);
+  let seen = false;
+  for (let i = 0; i < 100 && !(seen = await slotted()); i++) await wait(50);
+  assert.ok(seen, "the slot made after the hook folder joins its run, without a logbook write");
+});
+
+test("T1099 (F-T1088-1): the old Agents page's last activity follows a slot renewal of an agent that is not quiet", async t => {
+  const f = await lightBoard(t, { lightEvery: 50, slotAge: 10 }), stream = events(f, "/agents?events=1"); t.after(() => stream.close());
+  assert.match((await stream.next()).html, /last activity 10 min ago/);
+  const now = new Date(); utimesSync(f.slot, now, now);
+  const renewed = await stream.next(payload => /last activity just now/.test(payload.html));
+  assert.doesNotMatch(renewed.html, /last activity 10 min ago/);
 });
 
 test("T1100: GET /api/actions/R<n> gives a known run's last 20 actions, and refuses path tricks, unknown runs and links", async t => {
