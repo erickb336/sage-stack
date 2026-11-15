@@ -11,7 +11,7 @@ import { NOW, releasesSource, releasesTables } from "./fixtures/board-releases.m
 
 const model = (tables = releasesTables()) => buildBoardModel([releasesSource(tables)], { now: NOW });
 const cardOf = (html, id) => html.match(new RegExp(`<a class="card[^"]*" id="card-[^"]*" href="[^"]*" data-key="claude/sage-ff5ee2/${id}"[\\s\\S]*?</a>`))?.[0] ?? "";
-const frameOf = text => text.split("### ◫ Where we are · sage \\(sample\\)\n```\n")[1]?.split("\n```")[0] ?? null;
+const frameOf = text => text.split("### ◎ Where we are · sage \\(sample\\)\n```\n")[1]?.split("\n```")[0] ?? null;
 
 test("T996: the chat board shows the frame of the releases that are not done, with each level and its word, after Needs you", () => {
   const tables = releasesTables();
@@ -53,11 +53,11 @@ test("T996: the chat board shows the frame of the releases that are not done, wi
     "│ 1 not started                              │",
     "╰────────────────────────────────────────────╯",
   ].join("\n"), text);
-  assert.ok(text.indexOf("### 🔴 Needs you") < text.indexOf("### ◫ Where we are") && text.indexOf("### ◫ Where we are") < text.indexOf("### 📋 Backlog"));
+  assert.ok(text.indexOf("### 🔴 Needs you") < text.indexOf("### ◎ Where we are") && text.indexOf("### ◎ Where we are") < text.indexOf("### 📋 Backlog"));
   assert.ok(!text.includes("### ◫ Milestones"), text);
-  assert.ok(text.includes("**T985 Playbook\\: a new feature** · waiting · claude · sage \\(sample\\) · P2 · ◫ Milestone 5\\: Sage feel\\\n"), text);
-  assert.ok(text.includes("**T996 Board footer links** · needs you · claude · sage \\(sample\\) · P2 · ◎ Release 1\\.0\\\n"), text);
-  assert.ok(text.includes("**T992 Fix a typo in the guide** · not started · claude · sage \\(sample\\) · P0 · no release\\\n"), text);
+  assert.ok(text.includes("**Playbook\\: a new feature** T985 · waiting · claude · sage \\(sample\\) · P2 · ◫ Milestone 5\\: Sage feel\\\n"), text);
+  assert.ok(text.includes("**Board footer links** T996 · needs you · claude · sage \\(sample\\) · P2 · ◎ Release 1\\.0\\\n"), text);
+  assert.ok(text.includes("**Fix a typo in the guide** T992 · not started · claude · sage \\(sample\\) · P0 · no release\\\n"), text);
 });
 
 test("T996: when every release is done, the frame shows the last one; a release that a cell names and the table lacks says so", () => {
@@ -187,7 +187,7 @@ test("F-T996-5: the chat's Milestone approval entry and the web approval band na
   const data = model(), text = renderBoardText(data), html = renderBoardHtml(data, { snapshot: false });
   assert.ok(text.includes("#### ◫ Milestone approval\n**1 · Milestone 6\\: Faster reviews** · needs you · claude · sage \\(sample\\) · pilot T1010 · gate G3\n"), text);
   assert.ok(cardOf(html, "T1010").includes('Milestone approval<span class="bk">· Milestone 6: Faster reviews · gate G3</span>'), cardOf(html, "T1010"));
-  assert.ok(!text.split("### ◫ Where we are")[0].includes("M6 Faster reviews") && !cardOf(html, "T1010").includes("M6 Faster reviews"));
+  assert.ok(!text.split("### ◎ Where we are")[0].includes("M6 Faster reviews") && !cardOf(html, "T1010").includes("M6 Faster reviews"));
 });
 
 test("F-T996-7, F-T996-10: the web frame names each task by its title with its id after it, marks the task in progress \"you are here\", and says what a waiting box waits for; each link opens its page", () => {

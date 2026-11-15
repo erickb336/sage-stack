@@ -1469,7 +1469,7 @@ test("the move takes the open tasks of both old logbooks into one shared logbook
   assert.equal(card(`claude/${folder}/T1`).old.label, "Old · Claude · read-only");
   assert.equal(model.projects.length, 1, "one project");
   assert.match(renderBoardHtml(model), /<span class="id">T4<\/span>.*?<\/div><div class="nextline was">was Claude T2<\/div><div class="title" title="claude open">/);
-  assert.match(renderTaskText(card(`shared/${folder}/T6`)), /^\*\*T6 codex open\*\* · was Codex T1\n/);
+  assert.match(renderTaskText(card(`shared/${folder}/T6`)), /^\*\*codex open\*\* T6 · was Codex T1\n/);
 });
 
 test("the task page of a moved task names its old logbook's folder, never a path of the Mac (F-T640-13)", (t) => {

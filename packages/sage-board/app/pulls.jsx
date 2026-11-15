@@ -3,6 +3,7 @@ import { GroupIcon } from "./icons.jsx";
 import { ago } from "./overview.jsx";
 import { ChiefDot, Panel, chiefName, controlsShown, ofChief, taskLink } from "./panel.jsx";
 import { useNow } from "./use-model.js";
+import { UNKNOWN, prName } from "../../sage-core/state-words.mjs";
 
 const PAGE = "pull-requests", RECENT_DAYS = 7, DAY = 86_400_000, VIEW_KEY = "board-pr-view";
 const GROUPS = [
@@ -40,7 +41,7 @@ function groupOf(task, at) {
 const plural = (n, one) => `${n} ${one}${n === 1 ? "" : "s"}`;
 function cyclesText({ cycles }, group) {
   if (!cycles.reviews) return "No review step";
-  if (cycles.clean === null) return `Clean cycles not known · ${cycles.required} needed`;
+  if (cycles.clean === null) return `Clean cycles ${UNKNOWN} · ${cycles.required} needed`;
   return group === "merged" ? plural(cycles.clean, "clean cycle") : `${cycles.clean} of ${cycles.required} clean cycles`;
 }
 const findingsText = ({ findings }) => findings.open ? `${findings.open} open · ${findings.worst}` : `0 open${findings.closed ? ` · ${findings.closed} closed` : ""}`;
@@ -52,8 +53,8 @@ function Row({ task, group, now, prs, selected, many }) {
     <li className="prow" data-pr-task={task.key} aria-current={selected ? "true" : undefined}>
       <GroupIcon group={group} />
       <span className="num mono">{!task.pr ? <span className="faint">no PR</span> : task.prUrl
-        ? <a href={task.prUrl} target="_blank" rel="noopener noreferrer" aria-label={`Pull request ${task.pr} on GitHub`}>#{task.pr}</a>
-        : `#${controlsShown(task.pr)}`}</span>
+        ? <a href={task.prUrl} target="_blank" rel="noopener noreferrer" aria-label={`Pull request ${task.pr} on GitHub`}>{prName(task.pr)}</a>
+        : prName(controlsShown(task.pr))}</span>
       <div className="what">
         <a className="ttl" href={taskLink(task.key, PAGE)} data-task={task.key}>{controlsShown(task.title)}</a>
         <p className="meta">
@@ -61,9 +62,9 @@ function Row({ task, group, now, prs, selected, many }) {
           <span className="mono">{task.id}</span>
           {many && <span>{controlsShown(task.project)}</span>}
           {task.milestone && <span>{controlsShown(task.milestone.title)}</span>}
-          {!task.word && <span className="badge">state not known</span>}
+          {!task.word && <span className="badge">state {UNKNOWN}</span>}
           {CHIEF_MOVES[task.state] && <span className="badge">{CHIEF_MOVES[task.state]}</span>}
-          {task.conflicts.map(other => <span className="badge warn" key={other.key}>may conflict · {other.id}{prs.get(other.key) ? ` #${prs.get(other.key)}` : ""}</span>)}
+          {task.conflicts.map(other => <span className="badge warn" key={other.key}>may conflict · {other.id}{prs.get(other.key) ? ` · ${prName(prs.get(other.key))}` : ""}</span>)}
           {task.pr && !task.prUrl && <span>No GitHub link: the logbook names no repository for this PR.</span>}
         </p>
         {task.why && <p className={`why ${group}`}>{controlsShown(task.why)}</p>}
@@ -71,7 +72,7 @@ function Row({ task, group, now, prs, selected, many }) {
       </div>
       <div className="facts">
         <span className="cyc">{task.pr ? cyclesText(task, group) : "–"}</span>
-        <span className={`ci ${task.ci ?? "unknown"}`}>{task.pr ? CI[task.ci] ?? "CI not known" : "–"}</span>
+        <span className={`ci ${task.ci ?? UNKNOWN}`}>{task.pr ? CI[task.ci] ?? `CI ${UNKNOWN}` : "–"}</span>
         <span className={`find${task.findings.open ? " open" : ""}`}>{task.pr ? findingsText(task) : "–"}</span>
         <span className="age">{age || "–"}</span>
       </div>
@@ -82,18 +83,18 @@ function Row({ task, group, now, prs, selected, many }) {
 function graphData(groups, all, many) {
   const shown = new Map(groups.flatMap(group => group.tasks.map(task => [task.key, { task, group }])));
   const chief = task => many ? `${chiefName(task.chief)} · ${controlsShown(task.project)}` : chiefName(task.chief);
-  const head = task => task.pr ? `#${controlsShown(task.pr)} · ${task.id}` : `${task.id} · no PR yet`;
+  const head = task => task.pr ? `${prName(controlsShown(task.pr))} · ${task.id}` : `${task.id} · no PR yet`;
   const away = new Map([...shown.values()].flatMap(({ task }) => task.waitsFor.filter(wait => !wait.met && !shown.has(wait.key)).map(wait => [wait.key, wait])));
   const waits = [...shown.values()].flatMap(({ task }) => task.waitsFor.filter(wait => shown.has(wait.key) || away.has(wait.key)).map(wait => ({ from: wait.key, to: task.key, met: wait.met })));
   const conflicts = [...shown.values()].flatMap(({ task }) => task.conflicts.filter(other => shown.has(other.key) && task.key < other.key).map(other => ({ from: task.key, to: other.key })));
   const linked = new Set([...waits, ...conflicts].flatMap(link => [link.from, link.to]));
   const nodes = [...shown.values()].filter(({ task }) => linked.has(task.key)).map(({ task, group }) => ({
     key: task.key, group: group.key, state: group.title, nopr: !task.pr, href: taskLink(task.key, PAGE), title: controlsShown(task.title), head: head(task), chief: chief(task),
-    sub: task.pr ? `${cyclesText(task, group.key)} · ${CI[task.ci] ?? "CI not known"}` : controlsShown(task.waits ?? ""),
+    sub: task.pr ? `${cyclesText(task, group.key)} · ${CI[task.ci] ?? `CI ${UNKNOWN}`}` : controlsShown(task.waits ?? ""),
   }));
   for (const [key, wait] of away) {
     const task = all.get(key);
-    nodes.push(task ? { key, group: "away", state: "Not on this page", nopr: !task.pr, href: taskLink(key, PAGE), title: controlsShown(task.title), head: head(task), chief: chief(task), sub: task.word ? `State: ${task.word}` : "State not known" }
+    nodes.push(task ? { key, group: "away", state: "Not on this page", nopr: !task.pr, href: taskLink(key, PAGE), title: controlsShown(task.title), head: head(task), chief: chief(task), sub: task.word ? `State: ${task.word}` : `State: ${UNKNOWN}` }
       : { key, group: "away", state: "Not in the logbook", nopr: true, href: null, title: "The logbook has no task with this id.", head: wait.id, chief: "", sub: "" });
   }
   return { nodes, waits, conflicts, alone: shown.size - nodes.filter(node => shown.has(node.key)).length };

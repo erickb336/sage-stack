@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { when } from "./use-model.js";
+import { UNKNOWN, chiefName } from "../../sage-core/state-words.mjs";
+import { chiefState, chiefSub } from "./panel.jsx";
 
 const TOKEN_KEY = "board-token";
 const stored = { get: () => { try { return localStorage.getItem(TOKEN_KEY) ?? ""; } catch { return ""; } }, set: value => { try { value ? localStorage.setItem(TOKEN_KEY, value) : localStorage.removeItem(TOKEN_KEY); } catch {} } };
@@ -14,7 +16,7 @@ const clock = at => Number.isFinite(Date.parse(at)) ? new Date(at).toLocaleTimeS
 const clocks = text => String(text).replace(/\b\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d+)?)?Z\b/g, clock);
 export const questionLink = key => `#question?key=${encodeURIComponent(key)}`;
 export const chiefOf = (chiefs, logbook, id) => chiefs.find(chief => chief.logbook === logbook && chief.id === id) ?? null;
-export const chiefLabel = (chiefs, logbook, id) => { const chief = chiefOf(chiefs, logbook, id); return chief ? `${chief.id} · ${chief.name}` : id ?? "the chief"; };
+export const chiefLabel = (chiefs, logbook, id) => { const chief = chiefOf(chiefs, logbook, id); return chief ? `${chiefName(chief.id, chief.provider)} · ${chiefSub(chief)}` : id ?? "the chief"; };
 
 export function useAccess() {
   const [state, setState] = useState(access.writes);
@@ -71,7 +73,7 @@ export function useSeen(writes) {
 }
 
 const dot = chief => chief.stopped ? "stopped" : chief.waitsForOwner ? "waits" : chief.stopped === false ? "live" : "unknown";
-const STATE = { live: "live", stopped: "stopped", waits: "waits for you", unknown: "liveness not known" };
+const STATE = { live: chiefState("live"), stopped: chiefState("stopped"), waits: chiefState("waits"), unknown: UNKNOWN };
 
 function ChiefMenu({ chief, onFilter, close }) {
   const [name, setName] = useState(chief.named ? chief.name.replace(new RegExp(` · ${chief.id}$`), "") : ""), [said, setSaid] = useState(null);
@@ -82,13 +84,13 @@ function ChiefMenu({ chief, onFilter, close }) {
     setSaid(result);
   };
   return (
-    <div className="menu" role="dialog" aria-label={`${chief.id} · ${chief.provider}`}>
-      <p className="menu-h"><span className={`dot ${dot(chief)}`} aria-hidden="true" />{chief.id} · {chief.provider}<span className="grow" />{STATE[dot(chief)]}</p>
+    <div className="menu" role="dialog" aria-label={chiefName(chief.id, chief.provider)}>
+      <p className="menu-h"><span className={`dot ${dot(chief)}`} aria-hidden="true" />{chiefName(chief.id, chief.provider)}<span className="grow" />{STATE[dot(chief)]}</p>
       <dl className="facts">
-        <dt>Started</dt><dd>{chief.startedAt ? when(chief.startedAt) : "not known"}</dd>
-        <dt>Last event</dt><dd>{chief.heartbeat ? clock(chief.heartbeat) : "not known"}</dd>
+        <dt>Started</dt><dd>{chief.startedAt ? when(chief.startedAt) : UNKNOWN}</dd>
+        <dt>Last event</dt><dd>{chief.heartbeat ? clock(chief.heartbeat) : UNKNOWN}</dd>
         <dt>Agents</dt><dd>{chief.agents} running</dd>
-        <dt>Autopilot</dt><dd>{chief.autopilot === null ? "not known" : chief.autopilot ? "on" : "off"} · you switch it in the chief's chat</dd>
+        <dt>Autopilot</dt><dd>{chief.autopilot === null ? UNKNOWN : chief.autopilot ? "on" : "off"} · you switch it in the chief's chat</dd>
       </dl>
       {writes === "paired" ? (
         <form onSubmit={save} className="rename">
@@ -118,7 +120,7 @@ export function ChiefChips({ chiefs, filter, setFilter, many }) {
         <span className="chip-wrap" key={chief.key}>
           <button type="button" className="chip" aria-pressed={filter === chief.key} data-chief={chief.key} onClick={() => setFilter(filter === chief.key ? null : chief.key)}
             title={`${STATE[dot(chief)]} · show only this chief's work`}>
-            <span className={`dot ${dot(chief)}`} aria-hidden="true" /><b>{chief.id}</b> {chief.named && `${chief.provider} `}<span className="faint">{chief.name}</span>
+            <span className={`dot ${dot(chief)}`} aria-hidden="true" /><b>{chiefName(chief.id, chief.provider)}</b> <span className="faint">{chiefSub(chief)}</span>
             {many && <span className="faint"> · {chief.project}</span>}
             <span className="state">{STATE[dot(chief)]}{dot(chief) === "live" && chief.autopilot !== null && ` · autopilot ${chief.autopilot ? "on" : "off"}`}</span>
           </button>
@@ -141,7 +143,7 @@ export function GiveBox({ task, logbook, from, chiefs, close }) {
       {sorted.length ? sorted.map((chief, i) => (
         <label key={chief.id} className="pickable">
           <input type="radio" name={`give-${task.key}`} checked={to === chief.id} onChange={() => setTo(chief.id)} />
-          <span><b>{chief.id}</b> · {chief.provider} · {chief.name}{i === 0 && <span className="badge pick">Recommended</span>}</span>
+          <span><b>{chiefName(chief.id, chief.provider)}</b> · {chiefSub(chief)}{i === 0 && <span className="badge pick">Recommended</span>}</span>
         </label>
       )) : <p className="hint">No other chief of this project is live. Start a chief, then give the task to it.</p>}
       <p className="hint">The board opens the takeover question. Nothing moves until you answer it in Needs you.</p>

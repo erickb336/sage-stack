@@ -64,7 +64,7 @@ test("T294: a qa-fail that the merge check no longer refuses is not an owner fai
   const ledger = ["checks-pass", "review-clean", "qa-pass", "qa-fail"].map(kind => ({ task: "T1", pr: "12", sha: head, kind, cycle: "1", at: now }));
   const make = ok => buildBoardModel([source("one", [task("T1", "verified", { pr: "12" })], { ledger }, records)], { now, landing: () => ({ ok, reason: "T1 refused." }) }).tasks[0];
   assert.deepEqual(make(true).reasons.filter(reason => reason.kind !== "merge").map(reason => reason.kind), [], "the merge check passed: triage cleared the verdict");
-  assert.deepEqual(make(false).reasons.map(reason => reason.kind), ["merge-refused", "qa-fail"], "a refusal of the head has its own kind (T1002, F5)");
+  assert.deepEqual([make(false).reasons, make(false).problems.map(reason => reason.kind)], [[], ["merge-refused", "qa-fail"]], "a refusal of the head has its own kind (T1002, F5), and it is the chief's problem, not the owner's (F-T1096-8)");
 });
 
 
@@ -397,7 +397,8 @@ test("T280: a verified PR is ready to merge only when the merge check passes on 
     ["ready", true, ["merge"], "The merge check passes on aaaaaaa. The board does not check the PR's head branch. Autopilot is off, so the merge waits for you."]);
   const refuses = oneTask(task("T1", "pr-ready", { pr: "41" }), clean, mode, {}, () => ({ ok: false, reason: "T1 has open findings: F-T1-1. Fix them." }));
   assert.deepEqual([refuses.column, refuses.loop.now, refuses.loop.steps.at(-1).detail],
-    ["review", { needs: true, text: "The merge check refuses aaaaaaa. T1 has open findings: F-T1-1." }, "The merge check refuses aaaaaaa. T1 has open findings: F-T1-1."]);
+    ["review", { needs: false, stale: false, text: "The merge check refuses aaaaaaa. T1 has open findings: F-T1-1." }, "The merge check refuses aaaaaaa. T1 has open findings: F-T1-1."]);
+  assert.deepEqual([refuses.reasons, refuses.loop.steps.at(-1).status], [[], "blocked"], "F-T1096-8: a refused merge is a problem of the chief: not in Needs you, and its Merge step is blocked, not needs you");
   const noHead = oneTask(task("T1", "verified", { pr: "41" }), {}, mode, {}, () => assert.fail("no head: the board does not run the merge check"));
   assert.deepEqual([noHead.column, noHead.loop.now.text], ["review", "The merge check is not checked, because the board does not know the last commit of PR 41."]);
   const noCheck = oneTask(task("T1", "verified", { pr: "41" }), clean, mode, {}, null);
@@ -417,8 +418,8 @@ test("R1075-1, R1071-1: a step runs now only while a run of the task runs; a gat
     "F-T1016-5: with no open gate, Next does not say that you approve every design");
   const stale = oneTask(task("T1", "building"), { runs: [{ id: "R5", task: "T1", role: "implementer", status: "running", started: "2026-10-05T08:00:00Z" }] });
   assert.deepEqual(line(stale)[1], "Build: stale");
-  assert.deepEqual(stale.loop.now, { needs: false, stale: true, text: "No news from the implementer since 5 Oct. The run may have stopped, so ask the chief to check it." });
-  assert.equal(stale.loop.steps[1].detail, "No news from the implementer (run R5) since 5 Oct. The run may have stopped, so ask the chief to check it.");
+  assert.deepEqual(stale.loop.now, { needs: false, stale: true, text: "No news from the implementer since 5 Oct, so ask the chief to check it." });
+  assert.equal(stale.loop.steps[1].detail, "No news from the implementer (run R5) since 5 Oct, so ask the chief to check it.");
   assert.deepEqual([stale.agents.map(agent => agent.stale), buildBoardModel([source("one", [task("T1", "building")], { runs: stale.runs })], { now }).counts.recordedAgents], [[true], 0], "a stale run is not an agent at work");
 });
 
@@ -496,15 +497,15 @@ test("T305, R1071-2, R1076-3: an investigation shows Plan, Investigate, Evidence
   assert.deepEqual(line(oneTask(task("T1", "concluded", { size: "investigate", route }), evidence)), ["Plan: done", "Investigate: done", "Evidence review: done", "Conclude: done"]);
 });
 
-test("T305: a run's time is minutes or hours up to 24 h; after 24 h with no logbook change, the run may have stopped", async () => {
+test("T305: a run's time is minutes or hours up to 24 h; after 24 h with no logbook change, the run may be stuck", async () => {
   const { runClock } = await import("../packages/sage-core/board-model.mjs");
   const at = Date.parse(now);
   assert.deepEqual(runClock("2026-10-08T19:20:00Z", at, null), { text: "40 min", stale: false });
   assert.deepEqual(runClock("2026-10-08T16:55:00Z", at, null), { text: "3 h 5 min", stale: false });
-  assert.deepEqual(runClock("2026-10-05T08:00:00Z", at, "2026-10-05T08:00:00Z"), { text: "no news since 5 Oct. The run may have stopped, so ask the chief to check it", stale: true, since: "5 Oct" });
+  assert.deepEqual(runClock("2026-10-05T08:00:00Z", at, "2026-10-05T08:00:00Z"), { text: "no news since 5 Oct, so ask the chief to check it", stale: true, since: "5 Oct" });
   assert.deepEqual(runClock("2026-10-05T08:00:00Z", at, "2026-10-08T12:00:00Z"), { text: "since 5 Oct", stale: false }, "a change in the last 24 h: not stale");
   const card = oneTask(task("T1", "building"), { runs: [{ id: "R5", task: "T1", role: "implementer", status: "running", started: "2026-10-05T08:00:00Z" }] });
-  assert.equal(card.runClocks.R5.text, "no news since 5 Oct. The run may have stopped, so ask the chief to check it");
+  assert.equal(card.runClocks.R5.text, "no news since 5 Oct, so ask the chief to check it", "F-T1096-9: one flag, may be stuck, and no second phrase");
 });
 
 const twoSources = (claude, codex) => buildBoardModel([["claude", "Claude", claude], ["codex", "Codex", codex]].map(([id, provider, books]) => ({ id, label: id, provider, diagnostics: [], projects: books.map(({ name, tasks, ...rest }) => ({ key: `${id}/${name}`, name, diagnostics: [], warnings: [], tables: { tasks }, ...rest })) })), { now });

@@ -2,22 +2,22 @@ import { useEffect, useMemo, useState } from "react";
 import { ago } from "./overview.jsx";
 import { ChiefDot, Panel, chiefName, controlsShown, ofChief } from "./panel.jsx";
 import { useNow } from "./use-model.js";
+import { OBJECTS, UNKNOWN, URGENCY as WORDS, prName } from "../../sage-core/state-words.mjs";
 
 const PRIORITIES = ["P0", "P1", "P2", "P3"];
-const WORDS = ["needs you", "in progress", "waiting", "not started", "done", "stopped"];
 const ENDED_WORDS = ["done", "stopped"];
 const NONE = "—", SHOWN_CONFLICTS = 1;
 const order = (list, value) => (list.indexOf(value) + 1 || list.length + 1);
 const number = id => Number(String(id).replace(/^\D+/, "")) || 0;
 
 const GROUPS = {
-  milestone: { name: "Milestone", of: task => task.milestone?.key ?? "", title: task => task.milestone?.title ?? "No milestone" },
+  milestone: { name: OBJECTS.milestone.label, of: task => task.milestone?.key ?? "", title: task => task.milestone?.title ?? "No milestone" },
   priority: { name: "Priority", of: task => task.priority ?? "", title: task => task.priority ?? "No priority", rank: key => order(PRIORITIES, key) },
-  chief: { name: "Chief", of: task => task.who, title: task => task.who, rank: key => key.startsWith("No chief") ? 1 : 0 },
-  state: { name: "State", of: task => task.word ?? "", title: task => task.word ?? "State not known", rank: key => order(WORDS, key) },
+  chief: { name: OBJECTS.chief.label, of: task => task.who, title: task => task.who, rank: key => key.startsWith("No chief") ? 1 : 0 },
+  state: { name: "State", of: task => task.word ?? "", title: task => task.word ?? `State ${UNKNOWN}`, rank: key => order(WORDS, key) },
 };
 const FILTERS = [
-  ["chief", "Chief", task => task.who],
+  ["chief", OBJECTS.chief.label, task => task.who],
   ["provider", "Provider", task => task.chief?.provider ?? NONE],
   ["priority", "Priority", task => task.priority ?? NONE],
   ["kind", "Kind", task => task.kind ?? NONE],
@@ -30,7 +30,6 @@ function Row({ task, at, selected, many, link }) {
     <li>
       <a className={`row${task.ended ? " ended" : ""}`} href={link(task.key)} data-task={task.key} aria-current={selected ? "true" : undefined}>
         <span className={`badge prio ${(task.priority ?? "none").toLowerCase()}`}>{task.priority ?? NONE}</span>
-        <span className="mono id">{task.id}</span>
         <span className="title">
           <span className="text">{controlsShown(task.title)}</span>
           {many && <span className="kind">{task.project}</span>}
@@ -38,10 +37,11 @@ function Row({ task, at, selected, many, link }) {
           {shown.length > 0 && <span className="badge warn" title={more ? `May conflict with ${task.conflicts.map(other => other.id).join(", ")}` : undefined}>may conflict · {shown.map(other => other.id).join(", ")}{more > 0 && ` +${more}`}</span>}
           {task.waits && !task.ended && <span className="badge" title={task.waits}>waits</span>}
         </span>
-        <span className={`badge word ${(task.word ?? "unknown").replace(" ", "-")}`}>{task.word ?? "unknown"}</span>
+        <span className="mono id">{task.id}</span>
+        <span className={`badge word ${(task.word ?? UNKNOWN).replace(" ", "-")}`}>{task.word ?? UNKNOWN}</span>
         <span className="chief">{task.chief && !task.chief.old && <ChiefDot stopped={task.chief.stopped} />}{chiefName(task.chief)}{task.chief?.stopped && " (stopped)"}{task.chief?.waits && " (waits for you)"}</span>
         <span className={`step ${task.step?.status ?? ""}`}>{task.step?.label ?? (task.ended ? "" : NONE)}</span>
-        <span className="mono pr">{task.pr ? `#${task.pr}` : NONE}</span>
+        <span className="mono pr">{task.pr ? prName(task.pr) : NONE}</span>
         <span className="age">{age ?? NONE}</span>
       </a>
     </li>

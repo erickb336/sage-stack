@@ -1,7 +1,8 @@
 import { taskLink } from "./panel.jsx";
+import { MARKS, OBJECTS, runWord, shown } from "../../sage-core/state-words.mjs";
 
 const MIN = 60_000;
-const STATE = { stuck: "may be stuck", stop: "helper stopped", long: "running long", wait: "waits for its helpers", work: "working", unk: "running" };
+const STATE = Object.fromEntries(["stuck", "stop", "long", "wait", "work", "unk"].map(key => [key, shown(OBJECTS.agent.states[key]).text]));
 const ORDINAL = ["th", "st", "nd", "rd"];
 const ordinal = n => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : ORDINAL[n % 10] ?? "th"}`;
 export const clock = at => Number.isFinite(Date.parse(at)) ? new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "a time not recorded";
@@ -14,9 +15,9 @@ const tokens = n => n === null ? "–" : n < 1000 ? `${n}` : `${Math.round(n / 1
 const age = (run, now) => span((run.ended ? Date.parse(run.ended) : now) - Date.parse(run.started));
 
 function StateBadge({ run }) {
-  if (run.status === "queued") return <span className="badge queued">Queued · {ordinal(run.place ?? 0)}</span>;
-  if (run.status !== "running") return <span className={`badge ${run.status === "done" ? "done" : "failed"}`}>{run.status.charAt(0).toUpperCase()}{run.status.slice(1)}</span>;
-  return <span className={`badge ${run.look ? "look" : "running"}`} title={run.why ?? undefined}>{STATE[run.state] ?? "running"}</span>;
+  if (run.status === "queued") return <span className="badge queued">{runWord("queued").text} · {ordinal(run.place ?? 0)} in the queue</span>;
+  if (run.status !== "running") return <span className={`badge ${run.status === "done" ? "done" : "failed"}`}>{runWord(run.status).text}</span>;
+  return <span className={`badge ${run.look ? "look" : "running"}`} title={run.why ?? undefined}>{STATE[run.state] ?? STATE.unk}</span>;
 }
 
 export function AgentMark({ run, now, kind, selected = false, look = 0 }) {
@@ -24,7 +25,7 @@ export function AgentMark({ run, now, kind, selected = false, look = 0 }) {
   const task = <span className="tline">{run.task.id} · {run.task.title}</span>;
   if (kind === "lead") return (
     <a className="acard-h" {...link}>
-      <span className="lead-id"><b className="mono">lead · {run.id}</b> <StateBadge run={run} />{look > 0 && <span className="badge look">{look} {look === 1 ? "helper needs" : "helpers need"} a look</span>}</span>
+      <span className="lead-id"><b className="mono">lead · {run.id}</b> <StateBadge run={run} />{look > 0 && <span className="badge look">{MARKS.problem} {look} {look === 1 ? "helper" : "helpers"} with a problem flag</span>}</span>
       <span className="big">{age(run, now)}</span>
       {task}
       <span className="faint">{run.model ?? "model not recorded"}</span>

@@ -61,7 +61,7 @@ You can leave. The logbook keeps the state, so a later session on the same Mac c
 
 ### 5. Reviews and QA check it
 
-The implementer opens pull request #41. Fresh agents review it: a code reviewer, and QA, which runs the app and tries to break it. A medium or high finding goes back to an implementer for a repair.
+The implementer opens PR 41. Fresh agents review it: a code reviewer, and QA, which runs the app and tries to break it. A medium or high finding goes back to an implementer for a repair.
 
 One full set of fresh reviews and QA on one commit is a cycle, and a new commit starts again from cycle 1. T1 needs 1 clean cycle, so its step line shows "Review 1 of 1".
 
@@ -79,7 +79,7 @@ You look at the result, not the code. Autopilot is off by default, so you merge.
 
 ### 7. Merged
 
-You merge PR #41 on GitHub. The chief does not watch GitHub, so tell it in the chat that you merged the pull request. The chief then records the merge in the logbook, and the board moves T1 to Done:
+You merge PR 41 on GitHub. The chief does not watch GitHub, so tell it in the chat that you merged the pull request. The chief then records the merge in the logbook, and the board moves T1 to Done:
 
 <img alt="The board on a laptop screen, with SAMPLE DATA: T1 in Done, last 7 days, the last of six columns, with PR 41." src="../assets/learn-merged.png" width="100%">
 
