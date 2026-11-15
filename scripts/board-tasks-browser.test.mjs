@@ -79,7 +79,7 @@ test("T1061, T1064, T1059: J2 and J3 are within two clicks of the Overview, and 
   await taskTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
   assert.equal(clicks, 2, "J3: a milestone, then its task");
   assert.match(page.url(), /#task\?key=shared%2Fsample-app-abc123%2FT3$/, "T1083: a row opens the task's own page");
-  assert.deepEqual(await page.locator(".trail li").evaluateAll(steps => steps.map(step => [step.className, step.firstChild.textContent, step.querySelector(".sr").textContent])), [["done", "Plan", " (done)"], ["done", "Build", " (done)"], ["now", "Review 1 of 1", " (in progress)"], ["", "Merge", " (not started)"]], "the current step is marked, with its word for a screen reader");
+  assert.deepEqual(await page.locator(".trail li").evaluateAll(steps => steps.map(step => [step.className, step.firstChild.textContent, step.querySelector(".sr").textContent])), [["done", "build", " (done)"], ["done", "reviews", " (done)"], ["now", "QA", " (now)"]], "T1083 F-T1083-7: the trail names the route's steps; the code review is done and QA runs, each with its word for a screen reader");
   assert.match(await page.locator(".about-s p.now").first().textContent(), /^In progress: 0 of 1 review cycle passed\./);
   const made = await page.locator("#tab-panel .files a").allTextContents();
   assert.deepEqual(made.filter(text => !["Brief", "Report"].includes(text)), ["limits-design.html", "notes.md", "Limits design note", "R5 · code-reviewer · done"], "J3: what its agents made");
@@ -469,7 +469,7 @@ test("T1080 (F-T1080-15, F-T1080-20): a milestone link from Needs you lands on a
 test("T1080 (F-T1080-19): a live chief's dot has a name, and the task page says the chief's liveness", async t => {
   const { page, base } = await open(t, { chiefCases: true }, "/app/#tasks");
   assert.equal(await row(page, "T3").getByRole("img", { name: "Chief in progress" }).count(), 1);
-  for (const [id, title, text] of [["T3", "Sample shared limits", "Codex · C2 · in progress"], ["T70", "Sample stopped chief", "Claude · C3 · stopped"], ["T40", "Sample crash fix", "Claude · C1 · unknown"]]) {
+  for (const [id, title, text] of [["T3", "Sample shared limits", "Codex · C2 \\(chief in progress\\)"], ["T70", "Sample stopped chief", "Claude · C3 \\(chief stopped\\)"], ["T40", "Sample crash fix", "Claude · C1 \\(chief unknown\\)"]]) {
     await page.goto(`${base}${taskPage(id)}`);
     await taskTitle(page).filter({ hasText: title }).waitFor();
     assert.match(await page.locator(".facts-line").textContent(), new RegExp(`Run by ${text}(?: ·|$)`));

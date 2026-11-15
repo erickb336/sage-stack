@@ -114,6 +114,52 @@ test("T1083: the task page shows each part from the logbook and the brief, in on
   assert.deepEqual(problems, []);
 });
 
+test("T1083 F-T1083-3, F-T1083-5: the question page and an old #tasks?task= address open the task page, and the back link names the page that Back returns to", async t => {
+  const base = await board(t), { page, problems } = await open(t, base, "/app/#tasks?task=" + encodeURIComponent(KEY("T2")));
+  await page.locator(".taskpage h1", { hasText: "Sample chief records" }).waitFor();
+  assert.equal(new URL(page.url()).hash, `#task?key=${encodeURIComponent(KEY("T2"))}`, "an old bookmark lands on the task page");
+  await page.goto(`${base}/app/`);
+  const question = page.locator('.needs a[href^="#question?"]').first();
+  await question.click();
+  const link = page.locator('.facts-line a[href^="#task?key="]');
+  await link.waitFor();
+  assert.equal(await page.locator('main a[href*="?task="]').count(), 0, "no link uses the old address");
+  const title = (await link.textContent()).split(" · ").slice(1).join(" · ");
+  await link.click();
+  await page.locator(".taskpage h1", { hasText: title }).waitFor();
+  assert.equal(await page.locator(".taskpage .back").textContent(), "‹ Question");
+  await page.goto(`${base}/app/#agents`);
+  await page.locator(`section.acard .acard-h .ttl[data-task="${KEY("T2")}"]`).first().click();
+  await page.locator(".taskpage h1", { hasText: "Sample chief records" }).waitFor();
+  assert.equal(await page.locator(".taskpage .back").textContent(), "‹ Agents");
+  await aboutPart(page, "Before and after").getByRole("link", { name: "Sample queue" }).click();
+  await page.locator(".taskpage h1", { hasText: "Sample queue" }).waitFor();
+  assert.equal(await page.locator(".taskpage .back").textContent(), "‹ Task T2", "from task T2, Back returns to task T2");
+  await page.locator(".taskpage .back").click();
+  await page.locator(".taskpage h1", { hasText: "Sample chief records" }).waitFor();
+  assert.equal(await page.locator(".taskpage .back").textContent(), "‹ Agents", "task T2 still goes back to the Agents page");
+  await page.locator(".taskpage .back").click();
+  await page.locator(".chief-box").first().waitFor();
+  assert.equal(new URL(page.url()).hash, "#agents");
+  assert.deepEqual(problems, []);
+});
+
+test("T1083 F-T1083-7, F-T1083-10: the Status trail uses the route's step words, and a merged task shows no chief activity as a task state", async t => {
+  const base = await board(t), trail = page => aboutPart(page, "Status").locator(".trail li").allTextContents();
+  const open = await openPage(t, base, "T2", "Sample chief records");
+  assert.deepEqual(await trail(open), ["build (now)", "reviews (not started)", "QA (not started)"], "route build,code-review,qa: no Plan and no Merge");
+  assert.match(await open.locator(".facts-line").first().textContent(), /Run by Claude · C1 \(chief in progress\)/, "an open task names the chief's state as the chief's");
+  const merged = await openPage(t, base, "T1", "Sample pinned bundle");
+  assert.deepEqual(await trail(merged), ["build ✓ (done)", "reviews ✓ (done)", "QA ✓ (done)"]);
+  assert.equal(await merged.locator(".facts-line").first().textContent(), "doneP1 · small · Run by Claude · C1", "a merged task shows one state, done, and no chief activity");
+});
+async function openPage(t, base, id, title) {
+  const { page } = await open(t, base, taskPage(id));
+  await page.locator(".taskpage h1", { hasText: title }).waitFor();
+  await page.locator(".about-card").waitFor();
+  return page;
+}
+
 test("T1083: a field with no data says unknown and why, never a blank", async t => {
   const base = await board(t);
   const cases = [
@@ -137,15 +183,17 @@ test("T1083: a field with no data says unknown and why, never a blank", async t 
   await page.locator(".taskpage h1", { hasText: "This task is not on the board" }).waitFor();
 });
 
-test("T1083 F-T1083-1: the Agents page and the task page read at 390, 768, 1024 and 1440 px with no sideways scroll, meet AA contrast and show the focus ring, in both themes", async t => {
+test("T1083 F-T1083-1, F-T1083-6, F-T1083-8: the Agents page, the task page and the Tasks page read at 390, 768, 1024 and 1440 px with no sideways scroll, meet AA contrast and show the focus ring, in both themes", async t => {
   const base = await board(t);
   for (const theme of ["dark", "light"]) for (const width of [390, 768, 1024, 1440]) {
     const { page, problems } = await open(t, base, "/app/#agents", { theme, width });
-    for (const [name, path] of [["agents", "/app/#agents"], ["task", taskPage("T2")]]) {
+    for (const [name, path, ready] of [["agents", "/app/#agents", ".chief-box"], ["tasks", "/app/#tasks", ".row"], ["task", taskPage("T2"), ".about-card"]]) {
       await page.goto(`${base}${path}`);
-      await page.locator(name === "agents" ? ".chief-box" : ".about-card").first().waitFor();
+      await page.locator(ready).first().waitFor();
       const wide = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
       assert.equal(wide, 0, `${name}, ${theme}, ${width} px: no sideways scroll`);
+      const broken = await page.locator(".chips .chip > :not(.dot)").evaluateAll(list => list.filter(part => part.getBoundingClientRect().height > 1.6 * parseFloat(getComputedStyle(part).fontSize)).map(part => part.textContent));
+      assert.deepEqual(broken, [], `${name}, ${theme}, ${width} px: no words of a chief chip break over two lines`);
       if (width === 390 || width === 1440) {
         assert.deepEqual((await page.evaluate(measureContrast)).filter(item => item.ratio < item.need), [], `${name}, ${theme}, ${width} px: every text meets AA`);
         await shoot(page, `${name}-${theme}-${width}.png`);

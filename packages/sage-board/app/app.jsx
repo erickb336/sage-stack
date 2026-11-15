@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { TaskPage } from "./task.jsx";
+import { TaskPage, taskLink } from "./task.jsx";
 import { ChiefChips, QuestionView } from "./actions.jsx";
 import { Agents, LimitCounts } from "./agents.jsx";
 import { AgentsIcon, AlertIcon, LeafIcon, MoonIcon, OverviewIcon, PullsIcon, SunIcon, TasksIcon } from "./icons.jsx";
@@ -25,18 +25,23 @@ function pageOf(hash) {
   const [path, query = ""] = hash.replace(/^#\/?/, "").split("?");
   return { ...([...PAGES, QUESTION, TASK].find(page => page.hash === path) ?? PAGES[0]), params: new URLSearchParams(query) };
 }
-let came = null;
+function pageWithOldTaskLinkMoved() {
+  const page = pageOf(location.hash), old = page.hash === "tasks" && page.params.get("task");
+  if (!old) return page;
+  history.replaceState(history.state, "", taskLink(old));
+  return pageOf(location.hash);
+}
 const same = href => [...document.querySelectorAll("a[href]")].filter(link => link.getAttribute("href") === href);
 const plainClick = event => !event.button && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 
 function useHashPage(ready) {
-  const [page, setPage] = useState(() => pageOf(location.hash));
+  const [page, setPage] = useState(pageWithOldTaskLinkMoved);
   useEffect(() => {
     history.scrollRestoration = "manual";
     let last = location.hash;
     const changed = () => {
-      const next = pageOf(location.hash);
-      if (next.hash === TASK.hash && pageOf(last).hash !== TASK.hash) came = last.replace(/^#\/?/, "");
+      const next = pageWithOldTaskLinkMoved();
+      if (next.hash === TASK.hash && typeof history.state?.from !== "string") history.replaceState({ ...history.state, from: last.replace(/^#\/?/, "") }, "");
       last = location.hash; setPage(next);
     };
     const keep = event => {
@@ -125,8 +130,8 @@ export function App() {
   const body = page.hash === "" ? <Overview model={model} shown={shown} /> : page.hash === "tasks" ? <Tasks model={model} params={page.params} chief={picked} />
     : page.hash === "pull-requests" ? <Pulls model={model} chief={picked} />
     : page.hash === "agents" ? <Agents model={model} chief={picked} />
-    : page.hash === "question" ? <QuestionView needKey={page.params.get("key") ?? ""} model={model} theme={theme} />
-    : page.hash === TASK.hash ? <TaskPage key={page.params.get("key")} taskKey={page.params.get("key") ?? ""} tab={page.params.get("tab")} at={model?.at} from={came} /> : null;
+    : page.hash === "question" ? <QuestionView needKey={page.params.get("key") ?? ""} model={model} />
+    : page.hash === TASK.hash ? <TaskPage key={page.params.get("key")} taskKey={page.params.get("key") ?? ""} tab={page.params.get("tab")} at={model?.at} from={history.state?.from} /> : null;
   return (
     <div className="app">
       <aside className="side">

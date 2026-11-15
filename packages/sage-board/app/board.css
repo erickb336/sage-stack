@@ -203,8 +203,9 @@ header.top { position: sticky; top: 0; z-index: 20; height: 52px; display: flex;
 .dot.stopped { background: none; box-shadow: inset 0 0 0 1.5px var(--faint); }
 .dot.unknown { background: none; box-shadow: inset 0 0 0 1.5px var(--faint); opacity: .6; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 24px; border-bottom: 1px solid var(--line); }
-.chip-wrap { position: relative; display: inline-flex; }
-.chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--line-2); background: var(--card); border-radius: 999px; font-size: 12.5px; cursor: pointer; }
+.chip-wrap { position: relative; display: inline-flex; max-width: 100%; }
+.chip > * { white-space: nowrap; }
+.chip { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; padding: 4px 10px; border: 1px solid var(--line-2); background: var(--card); border-radius: 999px; font-size: 12.5px; cursor: pointer; }
 .chip-wrap .chip:first-child { border-radius: 999px 0 0 999px; }
 .chip.caret { border-left: 0; border-radius: 0 999px 999px 0; padding: 4px 8px; color: var(--muted); }
 .chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-fill); }
@@ -495,6 +496,9 @@ input:not([type]), input[type="text"] { font: inherit; color: inherit; backgroun
 .about-skel i { display: block; height: 14px; width: 60%; border-radius: 4px; background: var(--line); }
 
 @media (max-width: 760px) {
+  .row { grid-template-columns: 34px minmax(0, 1fr) 52px 92px; row-gap: 4px; }
+  .row .chief { grid-column: 2; }
+  .row .step { grid-column: 3 / -1; white-space: normal; }
   header.top { height: auto; flex-wrap: wrap; padding: 8px 16px; gap: 6px 10px; }
   .crumb { flex-basis: 100%; }
   header.top .grow { display: none; }

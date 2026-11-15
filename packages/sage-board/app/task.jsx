@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AgentRing, age, span, stateText, tokens } from "./agent.jsx";
-import { MARKS, OBJECTS, STEPS, UNKNOWN, chiefName as nameOf, prName, shown, taskWord } from "../../sage-core/state-words.mjs";
+import { MARKS, OBJECTS, UNKNOWN, chiefName as nameOf, prName, shown, taskWord } from "../../sage-core/state-words.mjs";
 
 export const taskLink = (key, tab) => `#task?key=${encodeURIComponent(key)}${tab && tab !== "artifacts" ? `&tab=${tab}` : ""}`;
 export const milestoneLink = key => `#tasks?milestone=${encodeURIComponent(key)}`;
@@ -35,7 +35,6 @@ export function readLink(key, kind, arg) {
   const query = new URLSearchParams(document.documentElement.dataset.theme === "light" ? { theme: "light" } : {}).toString();
   return `/read/${encodeKey(key)}/${kind}${arg ? `/${arg}` : ""}${query ? `?${query}` : ""}`;
 }
-const STATUS = { ...Object.fromEntries(Object.entries(STEPS).map(([key, pair]) => [key, shown(pair).text])), unknown: UNKNOWN };
 const TABS = ["Artifacts", "Log", "Decisions"];
 
 function useTask(key, at) {
@@ -58,6 +57,18 @@ const Long = ({ text }) => <div className="long">{String(text).split(/\r?\n/).ma
 const and = list => list.length > 1 ? [...list.slice(0, -1).flatMap((item, i) => [i > 0 && ", ", item]), " and ", list.at(-1)] : list;
 const hours = ms => { const m = Math.round(ms / 60_000); return m < 60 ? `${m} m` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} m` : ""}`; };
 const TRAIL = status => ["done", "fail"].includes(status) ? "done" : ["wait", "idle"].includes(status) ? "" : "now";
+const BLOCKS = { pe: "PE check", qa: "QA", "code-review": "reviews", "security-review": "reviews", "ux-review": "reviews" };
+const PHASE = { design: "plan", arena: "plan", "PE check": "plan", build: "build", investigate: "build" };
+function trailOf(task) {
+  const merged = task.steps.find(step => step.key === "merge")?.status === "done";
+  return [...new Set(task.route.map(block => BLOCKS[block] ?? block.replace("-", " ")))].map(label => {
+    const phase = PHASE[label] ?? "review", names = label === "reviews" ? ["code review", "security review", "UX review"] : [label];
+    const steps = task.steps.filter(step => step.key.startsWith(phase) || phase === "review" && ["repair", "again"].includes(step.key));
+    const open = steps.find(step => TRAIL(step.status) !== "done"), parts = (open?.parts ?? []).filter(part => names.includes(part.name)).map(part => TRAIL(part.status));
+    const mark = merged || steps.length && !open ? "done" : !open ? "" : !parts.length ? TRAIL(open.status) : parts.every(part => part === "done") ? "done" : parts.every(part => !part) ? "" : "now";
+    return { label, mark };
+  });
+}
 
 function Linked({ items, word }) {
   return and(items.map(item => <span key={item.id}>{item.key ? <a href={taskLink(item.key)} data-task={item.key}>{controlsShown(item.title || item.id)}</a> : item.id}{word && <span className="faint"> ({item.word === "done" ? "done" : item.word ?? UNKNOWN})</span>}</span>));
@@ -95,7 +106,7 @@ function Criteria({ brief }) {
 }
 
 function Status({ task }) {
-  const { clean, required, reviews } = task.cycles, word = task.word ?? UNKNOWN;
+  const { clean, required, reviews } = task.cycles, word = task.word ?? UNKNOWN, trail = trailOf(task);
   const where = `${word.charAt(0).toUpperCase()}${word.slice(1)}:`;
   const said = task.ended ? taskWord(task).reason.replace(/\.$/, "") : !task.route.length ? `the logbook records no route for this task` : !reviews ? "this route has no review cycle" : clean === null ? `${required} review ${required === 1 ? "cycle" : "cycles"} to pass; the count of passed cycles is ${UNKNOWN}` : `${clean} of ${required} review ${required === 1 ? "cycle" : "cycles"} passed`;
   return (
@@ -105,7 +116,7 @@ function Status({ task }) {
         {task.now.slice(1).map((line, i) => <p className="now" key={i}>{controlsShown(line)}</p>)}
         {task.next && <p className="now">Next: {controlsShown(task.next)}</p>}
       </> : <p className="now"><strong>{where}</strong> {controlsShown(said)}.{task.next && !task.ended && <> Next: {controlsShown(task.next)}</>}</p>}
-      {task.steps.length > 0 && <ol className="trail" aria-label="Steps">{task.steps.map(step => <li key={step.key} className={TRAIL(step.status)}>{step.label}{TRAIL(step.status) === "done" && <span className="ok" aria-hidden="true"> {MARKS.done}</span>}<span className="sr"> ({STATUS[step.status] ?? UNKNOWN})</span></li>)}</ol>}
+      {trail.length > 0 && <ol className="trail" aria-label="Steps">{trail.map(step => <li key={step.label} className={step.mark}>{step.label}{step.mark === "done" && <span className="ok" aria-hidden="true"> {MARKS.done}</span>}<span className="sr"> ({step.mark || "not started"})</span></li>)}</ol>}
     </Section>
   );
 }
@@ -160,7 +171,11 @@ function AtWork({ task }) {
   );
 }
 
-const BACK_NAMES = { "": "Overview", tasks: "Tasks", agents: "Agents", "pull-requests": "Pull requests" };
+const BACK_NAMES = { "": "Overview", tasks: "Tasks", agents: "Agents", "pull-requests": "Pull requests", question: OBJECTS.question.label };
+const backName = from => {
+  const key = /^task\?key=([^&]*)/.exec(from)?.[1], path = from.split("?")[0];
+  return key ? `${OBJECTS.task.label} ${decodeURIComponent(key).split("/").pop()}` : Object.hasOwn(BACK_NAMES, path) ? BACK_NAMES[path] : null;
+};
 export function TaskPage({ taskKey, tab: asked, at, from }) {
   const { data: task, problem } = useTask(taskKey, at);
   const [tab, setTab] = useState(TABS.find(name => name.toLowerCase() === asked) ?? TABS[0]);
@@ -174,11 +189,11 @@ export function TaskPage({ taskKey, tab: asked, at, from }) {
     const next = TABS[(to + TABS.length) % TABS.length];
     pick(next); tabs.current[TABS.indexOf(next)]?.focus();
   };
-  const back = typeof from === "string" && Object.hasOwn(BACK_NAMES, from.split("?")[0]) ? from : null;
+  const back = typeof from === "string" ? backName(from) : null;
   const counts = task && { Artifacts: task.runs.length + (task.files.designs.versions ? 1 : 0) + task.files.recorded.length + task.artifacts.length + (task.files.pages?.length ?? 0) + task.files.kept.length, Log: task.log.length + task.logMore, Decisions: task.decisions.length };
   return (
     <article className="taskpage">
-      <a className="back" href={back !== null ? `#${back}` : "#tasks"} onClick={event => { if (back !== null && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); history.back(); } }}><span aria-hidden="true">‹ </span>{BACK_NAMES[back?.split("?")[0] ?? "tasks"]}</a>
+      <a className="back" href={back ? `#${from}` : "#tasks"} onClick={event => { if (back && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); history.back(); } }}><span aria-hidden="true">‹ </span>{back ?? BACK_NAMES.tasks}</a>
       <h1 ref={heading} tabIndex={-1}>{task ? controlsShown(task.title) : problem === "gone" ? "This task is not on the board" : problem ? "The board cannot read this task now" : "Reading the task"}{task && <span className="mono faint tid">{task.id}</span>}</h1>
       {problem && !task && <p className="none" role="alert">{problem === "gone" ? "The logbook has no task with this name. Go back and pick a task from a list." : "It tries again when the logbook changes."}</p>}
       {problem && task && <p className="stale" role="status">{problem === "gone" ? "This task is no longer on the board. The page shows what it read last." : "The page could not refresh. It shows what it read last, and tries again when the logbook changes."}</p>}
@@ -186,7 +201,7 @@ export function TaskPage({ taskKey, tab: asked, at, from }) {
       {task && <>
         <p className="facts-line">
           <span className={`badge word ${(task.word ?? UNKNOWN).replace(" ", "-")}`}>{task.word ?? UNKNOWN}</span>
-          {[task.priority ?? "no priority", task.size ?? `size ${UNKNOWN}`, task.risk && `risk flag ${task.risk}`, task.kind, task.step?.label, `Run by ${chiefName(task.chief)}${task.chief && !task.chief.old ? ` · ${chiefState(liveness(task.chief.stopped))}` : ""}`].filter(Boolean).join(" · ")}
+          {[task.priority ?? "no priority", task.size ?? `size ${UNKNOWN}`, task.risk && `risk flag ${task.risk}`, task.kind, task.step?.label, `Run by ${chiefName(task.chief)}${task.chief && !task.chief.old && !task.ended ? ` (chief ${chiefState(liveness(task.chief.stopped))})` : ""}`].filter(Boolean).join(" · ")}
           {task.branch && <> · <code>{controlsShown(task.branch)}</code></>}
         </p>
         <AtWork task={task} />
