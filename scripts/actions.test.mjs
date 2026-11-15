@@ -3,24 +3,28 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
 import { actionOf, appendAction, readActions } from "../packages/sage-core/actions.mjs";
 
-const CWD = "/work/sample-project", HOME = "/home/sample";
-const target = (tool, input, cwd = CWD) => actionOf({ run: "R7", tool, input, call: "toolu_sample", cwd, home: HOME, at: 0 })?.target;
+const CWD = "/work/sample-project", HOME = "/users-sample/sample";
+const target = (tool, input, cwd = CWD, home = HOME) => actionOf({ run: "R7", tool, input, call: "toolu_sample", cwd, home, at: 0 })?.target;
 const scratch = t => { const dir = mkdtempSync(join(tmpdir(), "sage-actions-")); t.after(() => rmSync(dir, { recursive: true, force: true })); return dir; };
 const record = (i, run = "R1") => actionOf({ run, tool: "Read", input: { file_path: `src/sample-${i}.mjs` }, call: `toolu_${i}`, cwd: CWD, home: HOME, at: Date.UTC(2026, 10, 14, 12, 0, 0, i) });
 
 test("T1088 5.1 row 1: a file tool keeps only a path inside the agent's folder, with safe segments, cut to 80 characters", () => {
   assert.equal(target("Read", { file_path: `${CWD}/packages/sage-core/board-model.mjs` }), "packages/sage-core/board-model.mjs");
   assert.equal(target("Edit", { file_path: "src/app.js", old_string: "a", new_string: "b" }), "src/app.js", "a relative path is inside the folder");
-  assert.equal(target("Write", { file_path: "/etc/passwd", content: "x" }), "a file outside the worktree");
-  assert.equal(target("Read", { file_path: "src/../../other/file.js" }), "a file outside the worktree", "a path that climbs out is outside");
-  assert.equal(target("Read", { file_path: `${HOME}/notes.txt` }, HOME), "a file outside the worktree", "a path under the home folder never shows, also when the agent's folder is the home folder");
+  assert.equal(target("Write", { file_path: "/etc/passwd", content: "x" }), "a file outside the project");
+  assert.equal(target("Read", { file_path: "src/../../other/file.js" }), "a file outside the project", "a path that climbs out is outside");
+  assert.equal(target("Read", { file_path: `${HOME}/notes.txt` }, HOME), "a file outside the project", "a path under the home folder never shows, also when the agent's folder is the home folder");
   for (const name of [".env", ".env.local", "server.pem", "deploy.key", "id_ed25519", ".npmrc", ".netrc", "credentials.json", ".ssh/config", ".aws/config"])
     assert.equal(target("Read", { file_path: name }), "a secrets file", name);
+  for (const name of [".git-credentials", "secrets.json", "config/client-secret.yaml", "github-token.txt", ".TOKEN", "store.p12", "cert.pfx", "release.keystore", "debug.jks", ".aws/credentials", ".kube/config", ".docker/config.json"])
+    assert.equal(target("Read", { file_path: name }), "a secrets file", `${name} (F-T1088-5)`);
+  assert.equal(target("Read", { file_path: "src/keyboard.mjs" }), "src/keyboard.mjs", "a plain name that holds no secrets word shows");
   assert.equal(target("Read", { file_path: "src/my file?.js" }), "a file with an unusual name", "a segment with an unsafe character");
   assert.equal(target("NotebookEdit", { notebook_path: "notebooks/sample.ipynb" }), "notebooks/sample.ipynb");
   const long = `${"deep/".repeat(30)}file.mjs`, kept = target("MultiEdit", { file_path: long });
@@ -31,7 +35,9 @@ test("T1088 5.1 row 1: a file tool keeps only a path inside the agent's folder, 
 test("T1088 5.1 row 2: a search keeps its folder by the path rule, never the pattern or the glob", () => {
   assert.equal(target("Grep", { pattern: "sk-sample-pattern", path: "packages", glob: "*.secret" }), "packages");
   assert.equal(target("Glob", { pattern: "**/*.mjs" }), null);
-  assert.equal(target("Grep", { pattern: "x", path: "/var/private" }), "a file outside the worktree");
+  assert.equal(target("Grep", { pattern: "x", path: "/var/private" }), "a path outside the project", "F-T1088-6: a Grep path may be a file or a folder");
+  assert.equal(target("Glob", { pattern: "*", path: "/var/private" }), "a folder outside the project", "F-T1088-6: a Glob path is a folder");
+  assert.equal(target("Glob", { pattern: "*", path: ".ssh" }), "a secrets folder");
 });
 
 test("T1088 5.1 row 3: a command keeps the first program word, a known git, npm or gh subcommand and a count; never an argument, an assignment or a body", () => {
@@ -46,6 +52,10 @@ test("T1088 5.1 row 3: a command keeps the first program word, a known git, npm 
   assert.equal(target("Monitor", { command: "tail -f log.txt" }), "tail");
   assert.equal(target("PowerShell", { command: "ls" }), "ls");
   assert.equal(target("mcp__terminal__run_in_terminal", { command: "npm ci" }), "npm ci");
+  assert.equal(target("Bash", { command: "cd /work/sample-secret-dir && node a.mjs" }), "node", "F-T1088-7: a leading cd is skipped, and its folder never shows");
+  assert.equal(target("Bash", { command: "cd /work/x && pushd y && npm run build && npm test" }), "npm run +1 more", "F-T1088-7: the count leaves out the skipped cd");
+  assert.equal(target("Bash", { command: "cd /work/x; git -C . status" }), "git status");
+  assert.equal(target("Bash", { command: "cd /work/sample-secret-dir" }), "cd", "a cd alone keeps its program word only");
 });
 
 test("T1088 5.1 row 4: a web fetch keeps only the URL host", () => {
@@ -68,6 +78,10 @@ test("T1088 5.1 row 6: a message keeps the recipient only when it is main, a lea
 test("T1088 5.1 row 7: an MCP tool keeps server:tool and drops its arguments", () => {
   const found = actionOf({ run: "R7", tool: "mcp__sample-server__create_item", input: { body: "sample" }, cwd: CWD, home: HOME });
   assert.deepEqual([found.tool, found.kind, found.target], ["sample-server:create_item", "mcp", null]);
+  const digit = actionOf({ run: "R7", tool: "mcp__1password__get_item", input: { vault: "sample" }, cwd: CWD, home: HOME });
+  assert.deepEqual([digit?.tool, digit?.kind, digit?.target], ["1password:get_item", "mcp", null], "F-T1088-11: a server name may start with a digit");
+  const odd = actionOf({ run: "R7", tool: "mcp___sample__get", input: {}, cwd: CWD, home: HOME });
+  assert.deepEqual([odd?.tool, odd?.kind], ["mcp___sample__get", "other"], "a server name with an unsafe first character is an other tool, with its whole name");
 });
 
 test("T1088 5.1 row 8: any other tool keeps its name, and a tool name with an unsafe shape becomes unknown", () => {
@@ -119,6 +133,25 @@ test("T1088 K1: 400 random secrets, each planted in every dropped field of every
   }
 });
 
+test("F-T1088-3: a subagent's cwd is the project root, and a file shows relative to the worktree of the same repository that holds it", t => {
+  const base = scratch(t), main = join(base, "sample-project"), sibling = join(base, "worktrees", "sample-project-abcdef", "t1-x"), foreign = join(base, "other-repo");
+  const git = (cwd, ...args) => { const done = spawnSync("git", ["-c", "user.name=sample", "-c", "user.email=sample@example.com", ...args], { cwd, encoding: "utf8" }); assert.equal(done.status, 0, done.stderr); };
+  mkdirSync(main); mkdirSync(foreign);
+  git(main, "init", "-q", "-b", "main"); git(main, "commit", "-q", "--allow-empty", "-m", "sample"); git(main, "worktree", "add", "-q", "-b", "t1-x", sibling);
+  git(foreign, "init", "-q", "-b", "main");
+  const planted = join(base, "planted"); mkdirSync(planted); writeFileSync(join(planted, ".git"), `gitdir: ${join(base, "missing")}\n`);
+  assert.equal(target("Edit", { file_path: join(sibling, "packages", "a.mjs") }, main), "packages/a.mjs", "a file in the agent's own worktree");
+  assert.equal(target("Grep", { pattern: "x", path: sibling }, main), ".", "the root of the agent's worktree");
+  assert.equal(target("Read", { file_path: join(main, "src", "b.mjs") }, main), "src/b.mjs", "a file in the main checkout of the same repository");
+  assert.equal(target("Read", { file_path: join(main, "src", "b.mjs") }, sibling), "src/b.mjs", "and the other way round");
+  assert.equal(target("Read", { file_path: join(foreign, "src", "c.mjs") }, main), "a file outside the project", "a file of another repository");
+  assert.equal(target("Glob", { pattern: "*", path: foreign }, main), "a folder outside the project");
+  assert.equal(target("Read", { file_path: join(planted, "d.mjs") }, main), "a file outside the project", "a .git file that names no repository");
+  assert.equal(target("Read", { file_path: join(base, "e.mjs") }, main), "a file outside the project", "a file in no repository");
+  assert.equal(target("Read", { file_path: join(sibling, ".env") }, main), "a secrets file", "the secrets rule still holds in a sibling worktree");
+  assert.equal(target("Read", { file_path: join(sibling, "a.mjs") }, main, join(sibling, "home")), "a file outside the project", "a worktree that holds the home folder shows no path");
+});
+
 test("T1088: appendAction appends one valid line, and readActions reads it back", t => {
   const logbook = join(scratch(t), "project-abcdef"); mkdirSync(logbook);
   appendAction(logbook, record(1));
@@ -132,6 +165,16 @@ test("T1088: appendAction appends one valid line, and readActions reads it back"
   rmSync(join(logbook, "actions")); mkdirSync(join(logbook, "actions")); symlinkSync(join(outside, "x"), join(logbook, "actions", "R1.jsonl"));
   assert.throws(() => appendAction(logbook, record(2)), { code: "ELOOP" }, "a linked action file");
   assert.deepEqual(readdirSync(outside), [], "nothing is written through a link");
+});
+
+test("F-T1088-12: after a torn last line, the next record starts on a new line and reads back", t => {
+  const logbook = join(scratch(t), "project-abcdef"), file = join(logbook, "actions", "R1.jsonl"); mkdirSync(logbook);
+  appendAction(logbook, record(1));
+  writeFileSync(file, readFileSync(file, "utf8") + JSON.stringify(record(2)).slice(0, 30), { flag: "w" });
+  appendAction(logbook, record(3));
+  assert.deepEqual(readActions(logbook, "R1"), { actions: [record(1), record(3)], dropped: 1 });
+  appendAction(logbook, record(4));
+  assert.deepEqual(readActions(logbook, "R1"), { actions: [record(1), record(3), record(4)], dropped: 1 }, "a whole last line adds no blank line");
 });
 
 test("T1088: one writer's file never holds more than 20 lines after a compaction, and the reader always gets the last 20", t => {
@@ -152,7 +195,7 @@ test("T1088: 8 parallel writers of 100 lines each leave only whole, valid lines,
   const logbook = join(scratch(t), "project-abcdef"), file = join(logbook, "actions", "R1.jsonl"); mkdirSync(logbook);
   const code = `const { workerData } = require("node:worker_threads");
     import(workerData.module).then(({ actionOf, appendAction }) => {
-      for (let i = 0; i < 100; i++) appendAction(workerData.logbook, actionOf({ run: "R1", tool: "Read", input: { file_path: "src/w" + workerData.w + "-" + i + ".mjs" }, call: "c" + workerData.w + "-" + i, cwd: "/work/sample", home: "/home/sample" }));
+      for (let i = 0; i < 100; i++) appendAction(workerData.logbook, actionOf({ run: "R1", tool: "Read", input: { file_path: "src/w" + workerData.w + "-" + i + ".mjs" }, call: "c" + workerData.w + "-" + i, cwd: "/work/sample", home: "/users-sample/sample" }));
     });`;
   const module = new URL("../packages/sage-core/actions.mjs", import.meta.url).href;
   await Promise.all(Array.from({ length: 8 }, (_, w) => new Promise((done, fail) => {
