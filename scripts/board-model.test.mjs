@@ -7,6 +7,7 @@ import { buildBoardModel } from "../packages/sage-core/board-model.mjs";
 import { readBoardSources } from "../packages/sage-core/board-reader.mjs";
 import { NOW as MILESTONES_NOW, milestonesSource, milestonesTables } from "./fixtures/board-milestones.mjs";
 import { shownGraph, unmetWaits, waitGraph } from "../packages/sage-core/milestone-rules.mjs";
+import { taskWord } from "../packages/sage-core/state-words.mjs";
 const now = "2026-10-08T20:00:00.000Z";
 const head = "a".repeat(40), old = "b".repeat(40);
 const task = (id, state, extra = {}) => ({ id, title: "Sample", size: "small", risk: "", route: "build,code-review,qa", state, branch: "", pr: "", round: "0", keys: "", ...extra });
@@ -452,7 +453,8 @@ test("R1073-1, R1073-2, R1076-5: Next after a gate names the step that waits for
   const answered = oneTask(task("T1", "held"), gate("yes"));
   assert.deepEqual([answered.loop.now, answered.loop.next, answered.reasons], [{ needs: false, stale: false, text: "Held by the chief. You answered gate G3, so the chief moves it on." }, "The build goes on, or the chief briefs it again.", []]);
   const rounds = oneTask(task("T1", "held", { hold: "round", round: "3" }));
-  assert.deepEqual([rounds.loop.now.text, rounds.loop.next, rounds.reasons], ["Held after 3 repair rounds that did not make it clean.", "The chief asks you how to go on.", []]);
+  assert.deepEqual([rounds.loop.now.text, rounds.loop.next, rounds.reasons], ["Held after 3 repair rounds that did not make it clean.", "The chief decides how it goes on. If it needs you, its question shows in Needs you.", []]);
+  assert.equal(taskWord(rounds).word, "in progress", "T1099 (F-T1099-61): a held task with no question is not the owner's, so its Next line does not say that the chief asks you");
   const replan = oneTask(task("T1", "replan", { round: "2" }));
   assert.deepEqual([replan.loop.now.needs, replan.loop.next], [false, "The chief briefs it again."]);
   const noHead = oneTask(task("T1", "reviewing", { pr: "12" }));

@@ -4,7 +4,7 @@ import { chiefState, chiefSub, ofChief, readLink, taskLink } from "./task.jsx";
 import { MARKS, OBJECTS, chiefName, runWord, shown } from "../../sage-core/state-words.mjs";
 
 const MIN = 60_000, SEATS_MAX = 30;
-const LEGEND = [["running", "running"], ["done", "done"], ["question", "question"], ["failed", "failed"], ["look", "stuck"], ["queued", "queued"]].map(([bar, state]) => [bar, shown(OBJECTS.agent.states[state]).text]);
+const LEGEND = [["running", "running"], ["done", "done"], ["question", "question"], ["failed", "failed"], ["look", "stuck"], ["queued", "queued"]].map(([bar, state]) => [bar, shown(OBJECTS.agent.states[state]).text + (bar === "look" ? `, or ${shown(OBJECTS.agent.states.stop).text}` : "")]);
 const RUN = runWord("running").text, WAIT = runWord("queued").text;
 const limitNote = (n, limit) => n > limit ? " · over the limit" : n >= limit ? " · at the limit" : "";
 const chiefKey = id => id ?? "none";

@@ -192,7 +192,7 @@ function stepLine({ task, route, cycles, required, head, judged, reasons, proble
     "awaiting-you": answered ? `The chief briefs ${NAME.build}.` : `${cap(NAME.build)} is briefed after your answer.`,
     briefed: `${cap(NAME.build)}.`,
     building: build ? `Review cycle 1 of ${required}, ${task.pr ? "on the PR's last commit" : "when the PR opens"}.` : `${cap(reviewName(1))}.`,
-    held: answered ? `${cap(NAME.build)} goes on, or the chief briefs it again.` : "The chief asks you how to go on.",
+    held: answered ? `${cap(NAME.build)} goes on, or the chief briefs it again.` : "The chief decides how it goes on. If it needs you, its question shows in Needs you.",
     replan: "The chief briefs it again.",
     reviewing: allClean ? build ? "The chief checks the verdicts, then the merge." : "The chief checks the evidence review, then the conclusion."
       : failed.length ? build ? "A repair round, then the reviews start again at cycle 1." : "A repair round, then the evidence review starts again."

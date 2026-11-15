@@ -23,7 +23,7 @@ function Counts({ model, previous, now }) {
   const known = model.tasks.some(task => task.addedAt), unknown = model.tasks.some(task => !task.addedAt);
   const items = [
     ["merged", after(model.tasks.filter(task => task.state === "merged").map(task => task.doneAt), since), "Merged", "tasks merged into main"],
-    ["stuck", model.counts.stuck, `${FLAGS[0]} or ${FLAGS[2]}`, "runs that failed in the last 24 hours, or agents silent for 30 min or stopped now"],
+    ["stuck", model.counts.stuck, `${FLAGS[0]}, ${FLAGS[2]} or ${FLAGS[4]}`, "runs that failed in the last 24 hours, or agents silent for 30 min or stopped now"],
     ["added", known ? after(model.tasks.map(task => task.addedAt), since) : null, "New tasks", !known ? `${UNKNOWN} · no task in the logbook has a time when it was added` : unknown ? "tasks added to the logbook; older tasks have no time" : "tasks added to the logbook"],
   ];
   return (
