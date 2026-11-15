@@ -396,6 +396,35 @@ Each line of the list gives the path, the branch, the task, the task's state and
 - It prints each path that it removes or keeps, with the reason. It removes the entry of a worktree whose folder is gone, and it deletes no branch.
 - Only the chief runs it. A lead, a reviewer or QA cannot.
 
+## Disk use and cleanup
+
+The logbook stays small, but the sage worktrees folder (`~/sage-worktrees/<project>-<hash>/`) grows with each task. To see the disk use, or to free space, ask the chief in your own words, for example "how much disk does sage use?".
+
+| Command | What it does |
+| --- | --- |
+| `sage storage` | Prints sizes and removes nothing: the logbook by kind (tables, kept briefs, kept reports, kept stop reports), the sage worktrees folder by kind (pages, task worktrees, other folders), and the 15 largest tasks. |
+| `sage storage plan` | Prints what a cleanup would remove, with sizes, and removes nothing. Its last line gives a token. |
+| `sage storage clean <token>` | Removes exactly the planned worktrees, after your yes to the plan. |
+
+The plan lists only the worktrees in the project's sage worktrees folder whose task is merged, concluded or abandoned:
+
+- A clean worktree gets a `remove` line, with its size. The line names its build leftovers, such as `node_modules/` (see `REBUILT` above), with their size: git deletes them with the folder.
+- A worktree with uncommitted changes, untracked files, ignored files or unpushed commits gets the line `kept <path> · <task> · has unsaved work: <what>`.
+- The other reasons of the prune above also keep a worktree, and so does a path with a link in it, or a path that resolves outside the folder.
+- A worktree of a task in any other state (building, reviewing, held and so on) is never in the plan.
+- The plan never lists the logbook, its kept briefs and reports, or the pages folder: design versions and research stay.
+
+The cleanup keeps the safety of the hook, which refuses the chief's `rm` of a work tree in the sage worktrees folder:
+
+1. **The token.** The token is a hash of the plan's content: each worktree's path, commit, branch, tasks with their states, and the reason it stays. The chief runs the clean only after your yes to the plan.
+2. **A stale plan.** The clean makes the plan again. It refuses a missing or wrong token, and a plan whose task states or worktrees changed, and removes nothing: run the plan again.
+3. **The check again.** Just before it removes a worktree, the clean checks it again for unsaved work and for the folder boundary.
+4. **Git.** It removes each worktree with `git worktree remove`, without `--force`, so git also refuses a worktree with changes. It deletes no branch.
+5. **The folder boundary.** It never follows a link out of the sage worktrees folder, and it refuses a path that resolves outside it.
+6. **The record.** It writes a decision row in the logbook for each worktree that it removes, with the token and the size.
+
+Only the chief runs the clean; a lead, a reviewer or QA cannot.
+
 ## Uninstall sage
 
 1. If you sent the board phrase (`show board`) on the Mac, or started the board server, a server may still run after the chat. Stop it first, in a terminal, before you delete the plugin cache. To find the installed version, use the "Version:" line under `sage@sage` in the output of this command:
