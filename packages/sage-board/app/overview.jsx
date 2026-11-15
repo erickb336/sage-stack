@@ -2,7 +2,7 @@ import { useState } from "react";
 import { GiveBox, PairBox, UndoButton, chiefLabel, questionLink, useAccess, useSeen } from "./actions.jsx";
 import { useNow, when } from "./use-model.js";
 import { StateIcon } from "./icons.jsx";
-import { chiefSub, milestoneLink, ofChief, taskLink } from "./panel.jsx";
+import { chiefSub, milestoneLink, ofChief, taskLink } from "./task.jsx";
 import { FLAGS, OBJECTS, UNKNOWN, chiefName } from "../../sage-core/state-words.mjs";
 
 const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;

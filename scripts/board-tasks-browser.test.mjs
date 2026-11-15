@@ -55,7 +55,8 @@ async function openBoard(t, options = {}, path = "/app/") {
 
 const KEY = id => `shared/sample-app-abc123/${id}`;
 const row = (page, id) => page.locator(`a.row[data-task="${KEY(id)}"]`);
-const panelTitle = page => page.locator("#panel-h");
+const taskTitle = page => page.locator(".taskpage h1");
+const taskPage = id => `/app/#task?key=${encodeURIComponent(KEY(id))}`;
 const groupTitles = page => page.locator(".group h2").allTextContents();
 const rowIds = page => page.locator("a.row .id").allTextContents();
 async function settles(read, expected, message) {
@@ -75,12 +76,11 @@ test("T1061, T1064, T1059: J2 and J3 are within two clicks of the Overview, and 
 
   await click(page.getByRole("link", { name: "Milestone 1: Board redesign" }));
   await click(row(page, "T3"));
-  await panelTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
+  await taskTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
   assert.equal(clicks, 2, "J3: a milestone, then its task");
-  assert.deepEqual(await page.locator(".steps .lbl").allTextContents(), ["Plandone", "Builddone", "Review 1 of 1in progress", "Merge"]);
-  assert.equal(await page.locator(".steps li[aria-current=step] .lbl").textContent(), "Review 1 of 1in progress", "the current step");
-  assert.equal(await page.locator(".sec-h .hint").textContent(), "Clean cycles: 0 of 1");
-  assert.match(await page.locator(".last").textContent(), /R6 · qa started$/);
+  assert.match(page.url(), /#task\?key=shared%2Fsample-app-abc123%2FT3$/, "T1083: a row opens the task's own page");
+  assert.deepEqual(await page.locator(".trail li").evaluateAll(steps => steps.map(step => [step.className, step.firstChild.textContent, step.querySelector(".sr").textContent])), [["done", "build", " (done)"], ["done", "reviews", " (done)"], ["now", "QA", " (now)"]], "T1083 F-T1083-7: the trail names the route's steps; the code review is done and QA runs, each with its word for a screen reader");
+  assert.match(await page.locator(".about-s p.now").first().textContent(), /^In progress: 0 of 1 review cycle passed\./);
   const made = await page.locator("#tab-panel .files a").allTextContents();
   assert.deepEqual(made.filter(text => !["Brief", "Report"].includes(text)), ["limits-design.html", "notes.md", "Limits design note", "R5 · code-reviewer · done"], "J3: what its agents made");
   assert.equal(made.filter(text => text === "Brief").length, 3, "a brief and a report link for each of T3's three runs");
@@ -108,8 +108,8 @@ test("T1061, T1064, T1059: J2 and J3 are within two clicks of the Overview, and 
   assert.match(await page.locator("main").textContent(), /Answers.*A: yes, as a new private list.*C1's pick.*B: no/s, "the chief's pick first");
   await page.getByRole("link", { name: /Back to Needs you/ }).click();
   await page.getByRole("heading", { name: "Needs you" }).waitFor();
-  await page.goto(`${base}/app/#tasks?task=${encodeURIComponent(KEY("T10"))}`);
-  await panelTitle(page).filter({ hasText: "Sample sync design" }).waitFor();
+  await page.goto(`${base}${taskPage("T10")}`);
+  await taskTitle(page).filter({ hasText: "Sample sync design" }).waitFor();
   await page.getByRole("tab", { name: /Decisions/ }).click();
   assert.match(await page.locator("#tab-panel").textContent(), /Can a viewer copy a shared list.*Open: it waits for your answer/);
   assert.deepEqual(requests.filter(url => !url.startsWith(`${base}/`)), [], "no request outside 127.0.0.1");
@@ -148,7 +148,7 @@ test("T1061: the groups and filters work, and ended tasks stay collapsed until a
   await settles(() => groupTitles(page), ["needs you", "in progress", "waiting", "done"]);
 });
 
-test("T1080 (F-T1080-2, F-T1080-14): the group and the filters are in the address, so a reload or a closed panel keeps them, and one button clears the filters", async t => {
+test("T1080 (F-T1080-2, F-T1080-14): the group and the filters are in the address, so a reload or Back from a task page keeps them, and one button clears the filters", async t => {
   const { page, base } = await open(t, {}, "/app/#tasks");
   assert.equal(await page.getByRole("button", { name: "Clear filters" }).count(), 0, "no clear button while no filter is on");
   assert.equal(await page.getByRole("combobox", { name: "Chief", exact: true }).count(), 0, "the chief filter does not share the name of the Chief group button");
@@ -161,10 +161,10 @@ test("T1080 (F-T1080-2, F-T1080-14): the group and the filters are in the addres
   assert.equal(await filter(page, "provider").inputValue(), "Codex");
   assert.equal(await page.getByRole("button", { name: "Chief", exact: true }).getAttribute("aria-pressed"), "true");
   await row(page, "T3").click();
-  await panelTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
-  await page.keyboard.press("Escape");
-  await page.locator(".panel").waitFor({ state: "detached" });
-  assert.equal(await page.evaluate(() => location.hash), "#tasks?group=chief&provider=Codex", "closing the panel goes back to the same view");
+  await taskTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
+  await page.goBack();
+  await row(page, "T3").waitFor();
+  assert.equal(await page.evaluate(() => location.hash), "#tasks?group=chief&provider=Codex", "Back from the task page goes back to the same view");
   await page.getByRole("button", { name: "Clear filters" }).click();
   await settles(() => groupTitles(page), ["Claude · C1", "Codex · C2"]);
   assert.equal(await page.getByRole("button", { name: "Clear filters" }).count(), 0);
@@ -206,12 +206,12 @@ test("T1098 (R4165-2): two logbooks with one display name and the same chief ids
   assert.deepEqual(problems, []);
 });
 
-test("T1061: the panel opens and closes from the keyboard, its tabs move with the arrow keys, and the focus returns to the row", async t => {
+test("T1061, T1083: the task page opens from the keyboard, its tabs move with the arrow keys, and Back or the back link returns the focus to the row", async t => {
   const { page } = await open(t, {}, "/app/#tasks");
   await row(page, "T3").focus();
   await page.keyboard.press("Enter");
-  await panelTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
-  assert.equal(await page.evaluate(() => document.activeElement.id), "panel-h", "the focus moves into the panel");
+  await taskTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
+  assert.equal(await page.evaluate(() => document.activeElement.tagName), "H1", "the focus moves to the page's title");
   await page.getByRole("tab", { name: /Artifacts/ }).focus();
   await page.keyboard.press("ArrowRight");
   assert.equal(await page.evaluate(() => document.activeElement.textContent), "Log 8");
@@ -222,13 +222,15 @@ test("T1061: the panel opens and closes from the keyboard, its tabs move with th
   assert.equal(await page.evaluate(() => document.activeElement.textContent), "Artifacts 7", "Home goes to the first tab");
   await page.keyboard.press("ArrowRight");
   assert.match(await page.locator("#tab-panel").textContent(), /qa started/);
-  await page.keyboard.press("Escape");
-  await page.locator(".panel").waitFor({ state: "detached" });
+  assert.match(page.url(), /&tab=log$/, "the tab is in the address");
+  await page.goBack();
   await page.waitForFunction(key => document.activeElement?.dataset.task === key, KEY("T3"));
-  assert.equal(await page.evaluate(() => location.hash), "#tasks");
+  assert.equal(await page.evaluate(() => location.hash), "#tasks", "a tab change adds no Back step");
   await page.keyboard.press("Enter");
-  await panelTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
-  await page.getByRole("button", { name: "Close the task panel" }).click();
+  await taskTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
+  await page.keyboard.press("Shift+Tab");
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), "‹ Tasks", "Shift+Tab reaches the back link");
+  await page.keyboard.press("Enter");
   await page.waitForFunction(key => document.activeElement?.dataset.task === key, KEY("T3"));
 });
 
@@ -236,8 +238,8 @@ test("T1061 (F-T1061-1): markup, quotes, newlines and javascript: links in agent
   const { page, problems } = await open(t, { hostile: true }, "/app/#tasks");
   assert.equal(await row(page, "T50").locator(".text").textContent(), HOSTILE_TEXT.title);
   await row(page, "T50").click();
-  await panelTitle(page).filter({ hasText: HOSTILE_TEXT.title }).waitFor();
-  const panel = page.locator(".panel");
+  await taskTitle(page).filter({ hasText: HOSTILE_TEXT.title }).waitFor();
+  const panel = page.locator(".taskpage");
   assert.match(await panel.textContent(), /sage\/t50-<b>bold<\/b>/, "the branch name is text");
   assert.deepEqual(await panel.locator(".callout code").allTextContents(), ["<script>window.hacked=3</script>\\nsrc/evil\\u202egnp\\u009b.js", "src/a\\u061cb\\u2060c\\u00add\\u180ee\\u{e0001}f.js", "javascript:window.hacked=4", "src/shared.js"], "a path shows its newline, its right-to-left override, its C1 control and every other invisible or format character, also outside the BMP, as escapes");
   assert.match(await panel.locator("#tab-panel").textContent(), /sage_x_t50_r9 <img src=x onerror=window\.hacked=9>\.json/);
@@ -251,9 +253,9 @@ test("T1061 (F-T1061-1): markup, quotes, newlines and javascript: links in agent
   assert.deepEqual(problems, []);
 });
 
-test("T1061: text meets AA contrast on the Tasks page with the panel open, in the dark and the light theme", async t => {
-  const { page } = await open(t, {}, `/app/#tasks?task=${encodeURIComponent(KEY("T3"))}`);
-  await panelTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
+test("T1061, T1083: text meets AA contrast on the task page and its tabs, in the dark and the light theme", async t => {
+  const { page } = await open(t, {}, taskPage("T3"));
+  await taskTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
   for (const theme of ["dark", "light"]) {
     if (theme === "light") await page.getByRole("button", { name: "Switch to the light theme" }).click();
     for (const tab of ["Artifacts", "Log", "Decisions"]) {
@@ -272,12 +274,12 @@ test("T1061: with 370 tasks the page shows the open ones and collapses the ended
   assert.equal(await page.locator('[data-group="none"] a.row').count(), 2 + 360, "T30, T40 and the 360 ended tasks with no milestone");
 });
 
-test("T1061: an open panel reads the task again when the logbook changes", async t => {
-  const { page, logbook } = await open(t, {}, `/app/#tasks?task=${encodeURIComponent(KEY("T3"))}`);
-  await page.locator(".last").filter({ hasText: "qa started" }).waitFor();
+test("T1061: an open task page reads the task again when the logbook changes", async t => {
+  const { page, logbook } = await open(t, {}, `${taskPage("T3")}&tab=log`);
+  await page.locator("#tab-panel").filter({ hasText: "qa started" }).waitFor();
   appendFileSync(join(logbook, "decisions.tsv"), `${new Date().toISOString()}\tT3\tsample decision after the panel opened\t\n`);
-  await page.locator(".last").filter({ hasText: "chief · sample decision after the panel opened" }).waitFor();
-  assert.equal(await page.evaluate(() => document.activeElement.id), "panel-h", "a live update does not move the focus");
+  await page.locator("#tab-panel .log li").first().filter({ hasText: "chief" }).filter({ hasText: "sample decision after the panel opened" }).waitFor();
+  assert.equal(await page.evaluate(() => document.activeElement.tagName), "H1", "a live update does not move the focus");
 });
 
 function editTasks(logbook, edit) {
@@ -287,68 +289,63 @@ function editTasks(logbook, edit) {
   renameSync(`${file}.new`, file);
 }
 
-function insideItsCellAndLeftOfThePanel(element) {
+function insideItsCell(element) {
   const range = document.createRange();
   range.selectNodeContents(element);
-  const lines = [...range.getClientRects()].filter(box => box.width > 0), panel = document.querySelector(".panel")?.getBoundingClientRect(), boxes = [];
+  const lines = [...range.getClientRects()].filter(box => box.width > 0), boxes = [];
   for (let node = element; node && !node.matches("a.row"); node = node.parentElement) {
     const style = getComputedStyle(node);
     if (style.overflowX !== "visible" || style.overflowY !== "visible" || node.parentElement.matches("a.row")) boxes.push(node.getBoundingClientRect());
   }
-  return lines.length > 0 && lines.every(line => boxes.every(box => line.left >= box.left - 0.5 && line.right <= box.right + 0.5 && line.top >= box.top - 0.5 && line.bottom <= box.bottom + 0.5) && (!panel || line.right <= panel.left));
+  return lines.length > 0 && lines.every(line => boxes.every(box => line.left >= box.left - 0.5 && line.right <= box.right + 0.5 && line.top >= box.top - 0.5 && line.bottom <= box.bottom + 0.5));
 }
 
-test("T1061 (F-T1061-7, F-T1061-10): the may-conflict flag and the chief tag show in full, with the panel closed and open, at 1440 and 1280 px", async t => {
+test("T1061 (F-T1061-7, F-T1061-10): the may-conflict flag and the chief tag show in full at 1440 and 1280 px", async t => {
   const { page, base } = await open(t, { edge: true }, "/app/#tasks");
   const cells = [["T3", ".badge.warn", "may conflict · T40"], ["T40", ".badge.warn", "may conflict · T3"], ["T3", ".chief", "Codex · C2"], ["T40", ".chief", "Claude · C1 (waits for you)"]];
   for (const width of [1440, 1280]) {
     await page.setViewportSize({ width, height: 1000 });
-    for (const panel of [false, true]) {
-      await page.goto(`${base}/app/#tasks${panel ? `?task=${encodeURIComponent(KEY("T3"))}` : ""}`);
-      await row(page, "T3").waitFor();
-      if (panel) await panelTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
-      for (const [id, cell, text] of cells) {
-        const element = row(page, id).locator(cell);
-        assert.equal(await element.textContent(), text);
-        assert.equal(await element.evaluate(insideItsCellAndLeftOfThePanel), true, `${width} px, panel ${panel ? "open" : "closed"}: ${id}'s "${text}" shows in full`);
-      }
+    await page.goto(`${base}/app/#tasks`);
+    await row(page, "T3").waitFor();
+    for (const [id, cell, text] of cells) {
+      const element = row(page, id).locator(cell);
+      assert.equal(await element.textContent(), text);
+      assert.equal(await element.evaluate(insideItsCell), true, `${width} px: ${id}'s "${text}" shows in full`);
     }
   }
 });
 
-test("T1061 (F-T1061-12): a title of 3,000 characters with no space wraps in the panel heading", async t => {
-  const { page } = await open(t, { edge: true }, `/app/#tasks?task=${encodeURIComponent(KEY("T60"))}`);
-  const heading = panelTitle(page).filter({ hasText: "SampleSample" });
+test("T1061 (F-T1061-12), T1083: a title of 3,000 characters with no space wraps in full on the task page", async t => {
+  const { page } = await open(t, { edge: true }, taskPage("T60"));
+  const heading = taskTitle(page).filter({ hasText: "SampleSample" });
   await heading.waitFor();
-  assert.equal((await heading.textContent()).length, 3000);
-  const box = await heading.evaluate(element => ({ scroll: element.scrollWidth, client: element.clientWidth, body: element.closest(".panel-body").scrollWidth - element.closest(".panel-body").clientWidth }));
-  assert.deepEqual(box, { scroll: box.client, client: box.client, body: 0 }, "the whole title is inside the panel");
+  assert.equal(await heading.evaluate(element => element.firstChild.textContent.length), 3000);
+  const box = await heading.evaluate(element => ({ scroll: element.scrollWidth, client: element.clientWidth, page: document.documentElement.scrollWidth - innerWidth }));
+  assert.deepEqual(box, { scroll: box.client, client: box.client, page: 0 }, "the whole title shows, with no sideways scroll");
 });
 
-test("T1061 (F-T1061-3, F-T1061-11): an open panel says so when its task leaves the board, or when it cannot refresh", async t => {
-  const { page, logbook } = await open(t, {}, `/app/#tasks?task=${encodeURIComponent(KEY("T30"))}`);
-  await panelTitle(page).filter({ hasText: "Sample crash reports" }).waitFor();
-  assert.equal(await page.locator(".stale").count(), 0, "no notice while the panel is current");
+test("T1061 (F-T1061-3, F-T1061-11): an open task page says so when its task leaves the board, or when it cannot refresh", async t => {
+  const { page, logbook } = await open(t, {}, taskPage("T30"));
+  await taskTitle(page).filter({ hasText: "Sample crash reports" }).waitFor();
+  assert.equal(await page.locator(".stale").count(), 0, "no notice while the page is current");
   editTasks(logbook, task => task.id === "T30" ? [] : [task]);
-  await row(page, "T30").waitFor({ state: "detached" });
-  await page.locator(".stale").filter({ hasText: "This task is no longer on the board. The panel shows what it read last." }).waitFor();
-  assert.equal(await panelTitle(page).textContent(), "Sample crash reports", "the panel keeps what it read, under the notice");
+  await page.locator(".stale").filter({ hasText: "This task is no longer on the board. The page shows what it read last." }).waitFor();
+  assert.equal(await taskTitle(page).textContent(), "Sample crash reportsT30", "the page keeps what it read, under the notice");
 
   await page.goto(page.url().replace(/T30$/, "T3"));
-  await panelTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
+  await taskTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
   await page.route("**/app/task/**", route => route.fulfill({ status: 500, body: "" }));
   appendFileSync(join(logbook, "decisions.tsv"), `${new Date().toISOString()}\tT3\tsample decision after the panel opened\t\n`);
-  await page.locator(".stale").filter({ hasText: "The panel could not refresh. It shows what it read last, and tries again when the logbook changes." }).waitFor();
+  await page.locator(".stale").filter({ hasText: "The page could not refresh. It shows what it read last, and tries again when the logbook changes." }).waitFor();
 });
 
 test("T1061 (F-T1061-13): a task with no route shows the route as unknown and no steps", async t => {
   const { page, logbook } = await open(t, {}, "/app/#tasks");
   editTasks(logbook, task => [task.id === "T40" ? { ...task, route: "" } : task]);
-  await page.goto(`${page.url().split("#")[0]}#tasks?task=${encodeURIComponent(KEY("T40"))}`);
-  await panelTitle(page).filter({ hasText: "Sample crash fix" }).waitFor();
-  await page.locator(".sec-h .hint").filter({ hasText: /^Route unknown$/ }).waitFor();
-  assert.equal(await page.locator(".steps li").count(), 0);
-  assert.equal(await page.locator(".now").textContent(), "The logbook records no route for this task, so the board shows no steps.");
+  await page.goto(`${page.url().split("#")[0]}${taskPage("T40").slice("/app/".length)}`);
+  await taskTitle(page).filter({ hasText: "Sample crash fix" }).waitFor();
+  await page.locator(".about-s p.now").filter({ hasText: /^In progress: the logbook records no route for this task\./ }).waitFor();
+  assert.equal(await page.locator(".trail li").count(), 0);
 });
 
 test("T1061 (F-T1061-33): a row's chief dot is green only for a live chief; a stopped chief is grey, a chief of unknown liveness has a hollow dot named so, and no chief has no dot", async t => {
@@ -406,46 +403,18 @@ test("T1064 (F-T1064-64, F-T1064-65, F-T1064-66): at 390 px each reader page sho
 
 const heights = page => page.locator("a.row").evaluateAll(rows => rows.map(row => Math.round(row.getBoundingClientRect().height)));
 
-test("T1080 (F-T1080-5): with many may-conflict partners, a row names one and counts the rest, and rows keep an even height at 1280 px with the panel open", async t => {
+test("T1080 (F-T1080-5): with many may-conflict partners, a row names one and counts the rest, and rows keep an even height at 1440 and 1280 px", async t => {
   const { page, base } = await open(t, { crowd: 13 }, "/app/#tasks");
   assert.equal(await row(page, "T80").locator(".badge.warn").textContent(), "may conflict · T81 +11");
   assert.equal(await row(page, "T80").locator(".badge.warn").getAttribute("title"), `May conflict with ${Array.from({ length: 12 }, (_, i) => `T${81 + i}`).join(", ")}`);
   for (const width of [1440, 1280]) {
     await page.setViewportSize({ width, height: 1000 });
-    await page.goto(`${base}/app/#tasks?task=${encodeURIComponent(KEY("T80"))}`);
-    await panelTitle(page).filter({ hasText: "Sample crowded change 1" }).waitFor();
+    await page.goto(`${base}/app/#tasks`);
+    await row(page, "T80").waitFor();
     const all = await heights(page), plain = Math.min(...all);
     assert.ok(all.every(height => height <= plain * 1.6), `${width} px: no row is much taller than a one-line row (${plain} px), saw ${all}`);
-    assert.equal(await row(page, "T80").locator(".badge.warn").evaluate(insideItsCellAndLeftOfThePanel), true, `${width} px: T80's flag shows in full`);
+    assert.equal(await row(page, "T80").locator(".badge.warn").evaluate(insideItsCell), true, `${width} px: T80's flag shows in full`);
   }
-});
-
-test("T1080 (F-T1080-6): a very long title takes a few lines of the panel, scrolls inside its heading, and the facts start on the first screen", async t => {
-  const { page } = await open(t, { edge: true }, `/app/#tasks?task=${encodeURIComponent(KEY("T60"))}`);
-  const heading = panelTitle(page).filter({ hasText: "SampleSample" });
-  await heading.waitFor();
-  const box = await heading.evaluate(element => ({ height: element.getBoundingClientRect().height, scrolls: element.scrollHeight > element.clientHeight, line: parseFloat(getComputedStyle(element).lineHeight), facts: document.querySelector(".panel .facts").getBoundingClientRect().top }));
-  assert.ok(box.height <= box.line * 6, `the heading is at most about 5 lines, saw ${box.height} px`);
-  assert.equal(box.scrolls, true, "the rest of the title scrolls inside the heading");
-  assert.ok(box.facts < 1000, `the facts start on the first screen, at ${box.facts} px`);
-});
-
-test("T1080 (F-T1080-7, F-T1080-25): below 1280 px the open panel reaches the right edge and covers the whole list, so no row shows beside it", async t => {
-  const { page } = await open(t, {}, `/app/#tasks?task=${encodeURIComponent(KEY("T40"))}`);
-  for (const width of [1279, 1100, 900]) {
-    await page.setViewportSize({ width, height: 1000 });
-    await panelTitle(page).filter({ hasText: "Sample crash fix" }).waitFor();
-    const seen = await page.locator("a.row").evaluateAll(rows => { const panel = document.querySelector(".panel").getBoundingClientRect(); return { right: Math.round(panel.right), beside: rows.map(row => row.getBoundingClientRect()).filter(box => box.left < panel.left - 0.5 || box.right > panel.right + 0.5).length }; });
-    assert.deepEqual(seen, { right: width, beside: 0 }, `${width} px: the panel ends at the right edge and no row shows beside it`);
-  }
-});
-
-test("T1080 (F-T1080-27): at 1280 px with the panel open, the filter row wraps left of the panel, so each control shows", async t => {
-  const { page } = await open(t, {}, `/app/#tasks?task=${encodeURIComponent(KEY("T40"))}`);
-  await page.setViewportSize({ width: 1280, height: 1000 });
-  await panelTitle(page).filter({ hasText: "Sample crash fix" }).waitFor();
-  const under = await page.locator(".toolbar :is(button, select)").evaluateAll(controls => { const panel = document.querySelector(".panel").getBoundingClientRect(); return controls.filter(control => control.getBoundingClientRect().right > panel.left).map(control => control.getAttribute("aria-label") ?? control.textContent); });
-  assert.deepEqual(under, [], "no filter or group control runs under the panel");
 });
 
 test("T1080 (F-T1080-23, F-T1080-26): a group name in the address that is a built-in object key gives the default view, and the other pages still show", async t => {
@@ -460,9 +429,9 @@ test("T1080 (F-T1080-23, F-T1080-26): a group name in the address that is a buil
 });
 
 test("T1080 (F-T1080-8, F-T1080-9, F-T1080-12): invisible characters show as escapes in paths and in prose, while emoji, flags and joined words show whole", async t => {
-  const { page } = await open(t, { unicode: true }, `/app/#tasks?task=${encodeURIComponent(KEY("T40"))}`);
-  await panelTitle(page).filter({ hasText: "Sample \\u202eevil title" }).waitFor();
-  assert.equal(await row(page, "T40").locator(".text").textContent(), "Sample \\u202eevil title", "the row title shows the override as an escape");
+  const { page } = await open(t, { unicode: true }, taskPage("T40"));
+  await taskTitle(page).filter({ hasText: "Sample \\u202eevil title" }).waitFor();
+  assert.equal(await taskTitle(page).evaluate(element => element.firstChild.textContent), "Sample \\u202eevil title", "the title shows the override as an escape");
   assert.deepEqual(await page.locator(".callout code").allTextContents(), [
     "src/a\\u034fb\\u115fc\\u3164d\\uffa0e\\u180bf\\u17b4g\\u200dh\\u200ci\\ufe0fj\\u{e0100}k.js",
     UNICODE_TEXT.emoji,
@@ -479,8 +448,8 @@ test("T1080 (F-T1080-24): only a whole subdivision flag keeps its tag characters
   const tags = text => [...text].map(c => String.fromCodePoint(0xe0000 + c.codePointAt(0))).join("");
   const escaped = text => [...text].map(c => /[\u{e0000}-\u{e007f}]/u.test(c) ? `\\u{${c.codePointAt(0).toString(16)}}` : c).join("");
   const flag = "\u{1f3f4}", scotland = `docs/${flag}${tags("gbsct")}\u{e007f}.md`, long = `src/${flag}${tags("run rm -rf now")}\u{e007f}.js`, uncancelled = `src/${flag}${tags("gbsct")}.js`, bare = `src/a${tags("gb")}\u{e007f}.js`;
-  const { page } = await open(t, { unicode: [scotland, long, uncancelled, bare] }, `/app/#tasks?task=${encodeURIComponent(KEY("T40"))}`);
-  await panelTitle(page).filter({ hasText: "Sample \\u202eevil title" }).waitFor();
+  const { page } = await open(t, { unicode: [scotland, long, uncancelled, bare] }, taskPage("T40"));
+  await taskTitle(page).filter({ hasText: "Sample \\u202eevil title" }).waitFor();
   assert.deepEqual(await page.locator(".callout code").allTextContents(), [scotland, escaped(long), escaped(uncancelled), escaped(bare), "src/shared.js"]);
 });
 
@@ -497,26 +466,26 @@ test("T1080 (F-T1080-15, F-T1080-20): a milestone link from Needs you lands on a
   assert.match(await lost.textContent(), /The breakdown gate G11 of M10 is not in the logbook\. Ask the chief to repair the logbook, or to propose M10 again\..*The logbook links no task to this milestone\./);
 });
 
-test("T1080 (F-T1080-19): a live chief's dot has a name, and the panel's Chief row says the chief's liveness", async t => {
+test("T1080 (F-T1080-19): a live chief's dot has a name, and the task page says the chief's liveness", async t => {
   const { page, base } = await open(t, { chiefCases: true }, "/app/#tasks");
   assert.equal(await row(page, "T3").getByRole("img", { name: "Chief in progress" }).count(), 1);
-  for (const [id, title, text] of [["T3", "Sample shared limits", "Codex · C2 · in progress"], ["T70", "Sample stopped chief", "Claude · C3 · stopped"], ["T40", "Sample crash fix", "Claude · C1 · unknown"]]) {
-    await page.goto(`${base}/app/#tasks?task=${encodeURIComponent(KEY(id))}`);
-    await panelTitle(page).filter({ hasText: title }).waitFor();
-    assert.equal(await page.locator(".facts dd.chief").textContent(), text);
+  for (const [id, title, text] of [["T3", "Sample shared limits", "Codex · C2 \\(chief in progress\\)"], ["T70", "Sample stopped chief", "Claude · C3 \\(chief stopped\\)"], ["T40", "Sample crash fix", "Claude · C1 \\(chief unknown\\)"]]) {
+    await page.goto(`${base}${taskPage(id)}`);
+    await taskTitle(page).filter({ hasText: title }).waitFor();
+    assert.match(await page.locator(".facts-line").textContent(), new RegExp(`Run by ${text}(?: ·|$)`));
   }
-  assert.equal(await page.locator(".facts dd.chief").getByRole("img", { name: "Chief unknown" }).count(), 1);
 });
 
-test("T1080 (F-T1080-3, F-T1080-22): the panel puts the question, the recommendation and the next step on their own lines; closing an ended task's panel puts the focus on its row", async t => {
-  const { page } = await open(t, {}, `/app/#tasks?task=${encodeURIComponent(KEY("T30"))}`);
-  await panelTitle(page).filter({ hasText: "Sample crash reports" }).waitFor();
-  assert.deepEqual(await page.locator(".panel .now").allTextContents(), ["Crash reports: send them on their own, or ask each time?", "I recommend: A: ask each time", "Next: The build is briefed after your answer."]);
-  await page.goto(page.url().replace(/T30$/, "T1"));
-  await panelTitle(page).filter({ hasText: "Sample pinned bundle" }).waitFor();
-  assert.equal(await page.locator(".panel .now").count(), 0, "a merged task says Merged once, in its step");
-  await page.keyboard.press("Escape");
-  await page.locator(".panel").waitFor({ state: "detached" });
+test("T1080 (F-T1080-3, F-T1080-22): the task page puts the question, the recommendation and the next step on their own lines; Back from an ended task puts the focus on its row", async t => {
+  const { page } = await open(t, {}, taskPage("T30"));
+  await taskTitle(page).filter({ hasText: "Sample crash reports" }).waitFor();
+  assert.deepEqual(await page.locator(".about-s p.now").allTextContents(), ["Needs you: Crash reports: send them on their own, or ask each time?", "I recommend: A: ask each time", "Next: The build is briefed after your answer."]);
+  await page.goto(page.url().replace(/#.*$/, "#tasks"));
+  await page.locator('[data-group="shared/sample-app-abc123/M1"] .more-ended').click();
+  await row(page, "T1").click();
+  await taskTitle(page).filter({ hasText: "Sample pinned bundle" }).waitFor();
+  assert.deepEqual(await page.locator(".about-s p.now").allTextContents(), ["Done: Merged."], "a merged task says Merged once");
+  await page.goBack();
   await page.waitForFunction(key => document.activeElement?.dataset.task === key, KEY("T1"));
 });
 

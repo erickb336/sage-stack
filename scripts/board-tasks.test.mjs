@@ -12,7 +12,8 @@ import { boardOverview, taskPanel } from "../packages/sage-core/board-overview.m
 import { renderTaskText } from "../packages/sage-core/board-render.mjs";
 import { readBoardSources } from "../packages/sage-core/board-reader.mjs";
 import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
-import { appTables, writeTasksLogbook } from "./fixtures/board-app.mjs";
+import { budgetOf } from "../packages/sage-board/reader.mjs";
+import { ABOUT, appTables, writeTasksLogbook } from "./fixtures/board-app.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const NOW = "2026-11-13T12:00:00.000Z";
@@ -278,4 +279,48 @@ test("T1080 (F-T1080-10, F-T1080-18): the panel lists a kept report of nearly 1 
   const panel = await (await fetch(`${await serve(t, w.sources)}/app/task/${b64(KEY("T3"))}`)).json();
   assert.deepEqual(panel.files.kept.map(item => [item.run, item.result]), [["R5", "CLEAN. The limits change is correct."], ["R6", "CLEAN. A long report."]]);
   assert.deepEqual([panel.files.briefs.length, panel.files.unlisted], [100, { briefs: 4, reports: 0 }], "104 brief files: 100 listed, 4 counted");
+});
+
+test("T1083: /app/task/<key> gives the task page its parts: your request, the milestone's count, the tasks before and after, the brief's goal, criteria and budget, and the cost", async t => {
+  const w = world(t, { agents: true, about: true }), base = await serve(t, w.sources);
+  const page = await (await fetch(`${base}/app/task/${b64(KEY("T2"))}`)).json();
+  assert.equal(page.request, ABOUT.request);
+  assert.deepEqual(page.progress, { goal: "One board for every chief", merged: 1, total: 4, abandoned: 0 }, "M1 has T1 to T4, and T1 is merged");
+  assert.deepEqual(page.before.map(item => [item.id, item.title, item.word]), [["T1", "Sample pinned bundle", "done"]], "T2 waits for T1");
+  assert.deepEqual(page.after.map(item => [item.id, item.title]), [["T4", "Sample queue"]], "T4 waits for T2, so T2 is needed by T4");
+  assert.deepEqual([page.brief.state, page.brief.run, page.brief.goal], ["kept", "R20", ABOUT.goal], "the goal comes from the lead's brief");
+  assert.deepEqual(page.brief.criteria, [{ text: ABOUT.criteria[0], by: "R45" }, { text: ABOUT.criteria[1], by: null }, { text: ABOUT.criteria[2], by: null }], "a line is met only when a passing QA or review report names it");
+  assert.deepEqual([page.brief.budget.ms, page.brief.budget.tokens], [2 * 3_600_000, 1_500_000], "About 2 hours of agent time and 1.5 M tokens");
+  assert.equal(page.cost.runs, page.runs.length);
+  assert.ok(page.cost.tokens >= 30_000 + 210_000, "the tokens of R21 and R45 count");
+  const other = await (await fetch(`${base}/app/task/${b64(KEY("T40"))}`)).json();
+  assert.deepEqual([other.request, other.brief.state, other.brief.run], [null, "missing", "R25"], "no request; the lead R25's brief is not kept");
+  assert.match(other.brief.why, /^The logbook keeps no brief of R25/);
+  const none = await (await fetch(`${base}/app/task/${b64(KEY("T4"))}`)).json();
+  assert.deepEqual([none.brief.state, none.brief.why, none.cost.runs], ["none", "No agent has run on this task yet, so there is no brief.", 0]);
+});
+
+test("T1083: a failing or unnamed report meets no line, and a brief that the board cannot read says so", async t => {
+  const w = world(t, { agents: true, about: true });
+  writeFileSync(join(w.logbook, "kept", "R45.json"), JSON.stringify({ task: "T2", run: "R45", role: "qa", sha: "", at: NOW, text: `STATUS done\nRESULT FAIL. ${ABOUT.criteria[0]}: it failed.\nFINDINGS\n- F1 medium it fails` }));
+  const base = await serve(t, w.sources), read = async () => (await (await fetch(`${base}/app/task/${b64(KEY("T2"))}`)).json()).brief;
+  assert.deepEqual((await read()).criteria.map(line => line.by), [null, null, null], "a FAIL report names the line, but meets nothing");
+  rmSync(join(w.logbook, "briefs", "R20.md")); mkdirSync(join(w.logbook, "briefs", "R20.md"));
+  const brief = await read();
+  assert.deepEqual([brief.state, brief.run], ["unread", "R20"]);
+  assert.match(brief.why, /^The board cannot read the brief of R20 now\. It is a folder, not a file\./);
+});
+
+test("T1083 (F-T1083-2): a passing report meets a line only in its RESULT or EVIDENCE, never under NOT VERIFIED or QUESTIONS", async t => {
+  const w = world(t, { agents: true, about: true }), kept = text => writeFileSync(join(w.logbook, "kept", "R45.json"), JSON.stringify({ task: "T2", run: "R45", role: "qa", sha: "", at: NOW, text }));
+  const base = await serve(t, w.sources), read = async () => (await (await fetch(`${base}/app/task/${b64(KEY("T2"))}`)).json()).brief.criteria.map(line => line.by);
+  kept(`STATUS done\nRESULT CLEAN\nEVIDENCE none\nFINDINGS none\nQUESTIONS ${ABOUT.criteria[1]}?\nNOT VERIFIED ${ABOUT.criteria[0]}: no browser was available.\nBRANCH none`);
+  assert.deepEqual(await read(), [null, null, null], "lines named only under NOT VERIFIED or QUESTIONS are not checked yet");
+  kept(`STATUS done\nRESULT CLEAN\nEVIDENCE checked:\n  ${ABOUT.criteria[1]}\nFINDINGS none\nQUESTIONS none\nNOT VERIFIED none\nBRANCH none`);
+  assert.deepEqual(await read(), [null, "R45", null], "a line under EVIDENCE is met");
+});
+
+test("T1083 (F-T1083-4): a budget reads thousands separators and k or M before tokens", () => {
+  for (const [text, tokens] of [["About 1 hour and 1,000,000 tokens.", 1_000_000], ["7 M tokens", 7_000_000], ["400 k tokens", 400_000], ["1.5 M tokens", 1_500_000], ["12,000 tokens", 12_000]]) assert.equal(budgetOf(text).tokens, tokens, text);
+  assert.equal(budgetOf("About 1 hour and 1,000,000 tokens.").ms, 3_600_000);
 });
