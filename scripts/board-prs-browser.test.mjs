@@ -368,3 +368,15 @@ test("F-T1081-10: a graph too large to fit starts at its first column and says t
   await page.locator(".gnode").first().waitFor();
   assert.equal(await page.locator(".graph").getByText(NOTICE).count(), 0, "18 boxes fit: no notice");
 });
+
+test("F-T1081-27: a held task and a task that you answered, each with a PR, show their state in the Building group, and the hint covers them", async t => {
+  const edit = logbook => editTable(logbook, "tasks", rows => [...rows, task("T91", "Sample held change", "held", { pr: "91" }), task("T92", "Sample answered change", "awaiting-you", { pr: "92" }), task("T93", "Sample built change", "building", { pr: "93" })]);
+  const answered = logbook => { edit(logbook); editTable(logbook, "gates", rows => [...rows, { ...gate("G30", "T92", "Keep the old layout?"), answer: "A" }]); };
+  const { page } = await open(t, { edit: answered }, "/app/#pull-requests");
+  await row(page, "T91").waitFor();
+  assert.deepEqual((await ids(page, "build")).sort(), ["T91", "T92", "T93"]);
+  assert.match(await page.locator('section[data-group="build"] .card-h').innerText(), /the chief moves it on/i);
+  assert.deepEqual(await row(page, "T91").locator(".meta .badge").allTextContents(), ["held"]);
+  assert.deepEqual(await row(page, "T92").locator(".meta .badge").allTextContents(), ["you answered"]);
+  assert.deepEqual(await row(page, "T93").locator(".meta .badge").allTextContents(), [], "agents build it: the group says so, and the row needs no note");
+});

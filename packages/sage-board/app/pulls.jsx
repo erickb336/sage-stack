@@ -10,13 +10,14 @@ const GROUPS = [
   ["need", "Needs you", "Your answer or your merge moves it on. Answer in the chief's chat."],
   ["review", "In review", "Checks, reviews and QA run on the current head."],
   ["repair", "Repairing", "Agents fix what a check or a review found."],
-  ["build", "Building", "Agents build or plan it. The review cycles start when the build ends."],
+  ["build", "Building", "Agents build or plan it, or the chief moves it on. The review cycles start when the build ends."],
   ["ready", "Ready to merge", "Every clean cycle passed. A chief with autopilot on merges it."],
   ["wait", "Waiting for another task", "It merges only after the task that it waits for."],
   ["merged", "Merged recently", `Merged in the last ${RECENT_DAYS} days.`],
 ];
 const REVIEW = ["reviewing", "verifying", "verified", "pr-ready"];
 const CI = { pass: "CI passes", fail: "CI fails" };
+const CHIEF_MOVES = { held: "held", "awaiting-you": "you answered" };
 const Graph = lazy(() => import("./graph.jsx").catch(() => ({ default: () => <GraphFailed text="The graph could not load from the board server. Reload the page to try again." /> })));
 const GraphFailed = ({ text }) => <p className="empty card" role="alert">{text}</p>;
 
@@ -62,6 +63,7 @@ function Row({ task, group, now, prs, selected, many }) {
           {many && <span>{controlsShown(task.project)}</span>}
           {task.milestone && <span>{controlsShown(task.milestone.title)}</span>}
           {!task.word && <span className="badge">state not known</span>}
+          {CHIEF_MOVES[task.state] && <span className="badge">{CHIEF_MOVES[task.state]}</span>}
           {task.conflicts.map(other => <span className="badge warn" key={other.key}>may conflict · {other.id}{prs.get(other.key) ? ` #${prs.get(other.key)}` : ""}</span>)}
           {task.pr && !task.prUrl && <span>No GitHub link: the logbook names no repository for this PR.</span>}
         </p>
