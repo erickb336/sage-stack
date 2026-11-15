@@ -931,15 +931,16 @@ function gitGate(event, command, state, cwd, main, session) {
 
 const NO_GH = `an agent runs only these gh commands: ${Object.entries(core.AGENT_GH ?? {}).map(([group, subs]) => `gh ${group} ${subs.join(", ")}`).join("; ")}; and gh api with GET. Ask the chief to run any other gh command.`;
 export function agentProblem(command, cwd, path = process.env.PATH ?? "") {
+  const rules = { identity: () => { try { return core.commitIdentity(stateTool.storeDir(cwd)); } catch { return undefined; } } };
   try {
     programsRun(command, cwd, path);
   } catch (e) {
     if (/\bgh(?:\.exe)?\b/i.test(bare(command))) return `${core.unreadable(e, "gh")} ${NO_GH[0].toUpperCase()}${NO_GH.slice(1)}`;
-    return core.agentCommandProblem(command, cwd, path);
+    return core.agentCommandProblem(command, cwd, path, rules);
   }
   const gh = core.ghRuns(command, cwd, path).find((run) => !core.agentGh(run));
   if (gh) return `${NO_GH} ${quoted(["gh", gh.group, gh.group === "api" ? gh.method : gh.sub].filter(Boolean).join(" "))} is not one of them.`;
-  return core.agentCommandProblem(command, cwd, path);
+  return core.agentCommandProblem(command, cwd, path, rules);
 }
 
 function readOnlyRole(agentType) {
