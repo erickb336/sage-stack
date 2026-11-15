@@ -76,7 +76,7 @@ Limits of the writes. Each one needs a program on this Mac that acts on purpose:
 
 **Request size.** The board accepts up to 64 KiB of request headers. A browser sends the cookies of `127.0.0.1` to every port of it, so the cookies of other apps on `127.0.0.1` come to the board too. Ordinary cookie sets are far below 64 KiB: a cookie has at most 4 KiB, and most servers, Node's too, refuse more than 8 to 16 KiB of headers. When the cookies for `127.0.0.1` are more than 64 KiB in all, the board answers HTTP 431 to every request, reads and writes, until those cookies end. Nothing is written and nothing leaks. To recover, clear the browser's site data for `127.0.0.1` (F-T1076-9).
 
-The pages Tasks, Agents and Pull requests come next; until then, they link to the classic board at `/`. The new board loads only its own files from the board server, under a content security policy with no inline code and no outside source. Its data comes from one stream, `/app/events`. The classic board keeps working beside it.
+The pages Tasks, Agents and Pull requests sit beside the Overview. The top bar of each page shows the agent and lead counts against the project's limits, from the logbook's `config.json` (`max_agents`, `max_leads`), and links to the Agents page. The new board loads only its own files from the board server, under a content security policy with no inline code and no outside source. Its data comes from one stream, `/app/events`. The classic board keeps working beside it.
 
 ### The reader for agent documents (T1064)
 
