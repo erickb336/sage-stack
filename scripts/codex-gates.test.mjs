@@ -12,8 +12,8 @@ import { backed } from "./verdict-backing.mjs";
 
 const SCRATCH_HOME = realpathSync(mkdtempSync(join(tmpdir(), "sage-gates-home-")));
 process.env.HOME = SCRATCH_HOME;
-delete process.env.CODEX_HOME;
-delete process.env.SAGE_HOME;
+process.env.CODEX_HOME = join(SCRATCH_HOME, ".codex");
+process.env.SAGE_HOME = join(process.env.CODEX_HOME, "sage");
 process.on("exit", () => rmSync(SCRATCH_HOME, { recursive: true, force: true }));
 
 const HOOK = fileURLToPath(new URL("../plugins/sage-codex/hooks/gate-hook.mjs", import.meta.url));
