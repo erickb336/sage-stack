@@ -473,7 +473,7 @@ function agentsOf(sources, groups, groupOf, cards, at) {
   const row = (source, item, extra) => {
     const group = item ? groupOf.get(item.book.key) : groupNamed(extra.slot?.project);
     const card = item ? cards.get(`${item.book.key}/${item.run.task}`) : null;
-    rows.push({ key: `${source.id}/${item ? `${item.book.name}/${item.run.id}` : extra.slot.name}`, source: source.id, runId: item?.run.id ?? extra.slot?.run ?? null, run: item?.run ?? null,
+    rows.push({ key: `${source.id}/${item ? `${item.book.name}/${item.run.id}` : extra.slot.name}`, source: source.id, logbook: item?.book.key ?? null, runId: item?.run.id ?? extra.slot?.run ?? null, run: item?.run ?? null,
       group: group?.key ?? `slot:${extra.slot?.project ?? "other"}`, groupName: group?.name ?? extra.slot?.project ?? "other",
       provider: String(item ? providerOf(item) : source.provider ?? standIn(source)), role: item?.run.role ?? extra.slot?.role ?? "agent", model: item?.run.model || null,
       task: card ? { key: card.key, id: card.id, title: card.title, kind: card.kind, priority: card.priority } : item ? { key: null, id: item.run.task, title: "", kind: "", priority: "" } : null,

@@ -1,7 +1,7 @@
 import "./test-env.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import fs, { mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import fs, { appendFileSync, linkSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { createHash } from "node:crypto";
 import { request } from "node:http";
@@ -9,7 +9,8 @@ import { createServer } from "node:net";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createBoardServer } from "../packages/sage-board/server.mjs";
+import { fileURLToPath } from "node:url";
+import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
 
 const HEADERS = {
   tasks: "id title size risk route state branch pr round keys",
@@ -232,7 +233,7 @@ test("T308: the Agents page is a route with the same access check, CSP and brows
   const stream = events(f, "/agents?events=1"); t.after(() => stream.close());
   assert.match((await stream.next()).html, /Agents \(1\)/);
   writeFileSync(join(f.project, "runs.tsv"), `${readFileSync(join(f.project, "runs.tsv"), "utf8")}R2\tT1\tcode-reviewer\t0\t\t\trunning\t\t\t${new Date().toISOString()}\t\n`);
-  slot(f.root, "slot-2", ["project-project", "role-sage_code-reviewer", "run-R2"]);
+  slot(f.root, "slot-3", ["project-project", "role-sage_code-reviewer", "run-R2"]);
   const next = await stream.next(p => p.html.includes("Agents (2)"));
   assert.match(next.html, /<span class="role">code-reviewer<\/span><span class="id">R2<\/span>/); assert.doesNotMatch(next.html, /class="board"/);
 });
@@ -545,4 +546,127 @@ test("T383 item 16: a task page that is too large shows the board with a note, b
   const stream = events(first, `/?events=1&task=${key}`); t.after(() => stream.close());
   const sent = await stream.next();
   assert.ok(sent.html.includes("so the board shows this page instead") && !sent.html.includes("does not update") && sent.stale === false, "its stream sends the same page, without the reload sentence (R1534-2)");
+});
+
+const wait = ms => new Promise(wake => setTimeout(wake, ms));
+const call = i => i.toString(16).padStart(8, "0");
+const action = (i, run = "R1") => `${JSON.stringify({ v: 1, at: new Date(Date.UTC(2026, 10, 14, 12, 0, i)).toISOString(), run, tool: "Read", kind: "file", target: `src/sample-${i}.mjs`, call: call(i), mark: "ok" })}\n`;
+const R1 = "sample/project-abcdef/R1";
+
+async function lightBoard(t, { lightEvery, quiet = false, slotOnly = false } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "sage-board-light-")), root = join(dir, "source"), project = populate(root), port = await freePort();
+  writeFileSync(join(project, "runs.tsv"), `${HEADERS.runs.replaceAll(" ", "\t")}\nR1\tT1\tqa\t0\t\t\trunning\t\t\t${new Date(Date.now() - 60 * 60_000).toISOString()}\t\nR2\tT1\timplementer\t0\t\t\tdone\t\t\t2026-11-14T10:00:00Z\t2026-11-14T11:00:00Z\n`);
+  slot(root, "slot-1", ["project-project", "role-sage_qa", "run-R1"]);
+  if (slotOnly) slot(root, "slot-2", ["project-project", "role-sage_explore"]);
+  if (quiet) { const long = new Date(Date.now() - 40 * 60_000); for (const name of slotOnly ? ["slot-2", "slot-1"] : ["slot-1"]) utimesSync(join(root, ".hooks", "slots", name), long, long); }
+  mkdirSync(join(project, "actions"));
+  let reads = 0;
+  const server = createBoardServer({ sources: [{ id: "sample", path: root, label: "Sample" }], port, settleReads: [], ...(lightEvery ? { lightEvery } : {}), duringRead: () => { reads++; },
+    app: loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", import.meta.url))) });
+  t.after(async () => { await server.close(); rmSync(dir, { recursive: true, force: true }); });
+  await server.start();
+  return { dir, root, project, port, file: join(project, "actions", "R1.jsonl"), slot: join(root, ".hooks", "slots", "slot-1"), reads: () => reads };
+}
+
+function appFrames(f) {
+  const controller = new AbortController(), frames = [], activity = {}, waiters = new Set();
+  const check = () => { for (const waiter of waiters) if (waiter.predicate()) { waiters.delete(waiter); clearTimeout(waiter.timer); waiter.accept(); } };
+  (async () => {
+    const response = await fetch(`http://127.0.0.1:${f.port}/app/events`, { signal: controller.signal });
+    const reader = response.body.getReader(), decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      for (let end; (end = buffer.indexOf("\n\n")) !== -1;) {
+        const lines = buffer.slice(0, end).split("\n"); buffer = buffer.slice(end + 2);
+        const frame = { event: lines.find(line => line.startsWith("event: "))?.slice(7), data: JSON.parse(lines.find(line => line.startsWith("data: ")).slice(6)) };
+        frames.push(frame);
+        if (frame.event === "activity") for (const [key, entry] of Object.entries(frame.data)) activity[key] = entry;
+      }
+      check();
+    }
+  })().catch(() => {});
+  return {
+    frames, activity,
+    until(predicate) {
+      if (predicate()) return Promise.resolve();
+      return new Promise((accept, reject) => { const waiter = { predicate, accept, timer: setTimeout(() => { waiters.delete(waiter); reject(new Error("no matching app stream frame")); }, EVENT_GUARD) }; waiters.add(waiter); });
+    },
+    close() { controller.abort(); },
+  };
+}
+
+test("T1100: 100 action appends and 100 slot renewals cause at most 1 full read of the logbook, and the app stream gets coalesced activity events", async t => {
+  const every = 400, f = await lightBoard(t, { lightEvery: every }), stream = appFrames(f); t.after(() => stream.close());
+  await stream.until(() => stream.frames.some(frame => frame.event === "model"));
+  await wait(500);
+  const reads = f.reads();
+  const start = performance.now();
+  for (let i = 1; i <= 100; i++) { appendFileSync(f.file, action(i)); const now = new Date(); utimesSync(f.slot, now, now); await wait(20); }
+  await wait(every + 500);
+  const full = f.reads() - reads;
+  assert.ok(full <= 1, `${full} full reads of the logbook for 100 appends and 100 slot renewals; the light path makes none`);
+  const renewed = lstatSync(f.slot).mtimeMs;
+  await stream.until(() => stream.activity[R1]?.now?.call === call(100) && stream.activity[R1]?.activity === renewed);
+  assert.deepEqual(stream.activity[R1].now, JSON.parse(action(100)), "the event carries the run's last action, as the file has it");
+  const sent = stream.frames.filter(frame => frame.event === "activity"), elapsed = performance.now() - start;
+  assert.ok(sent.length >= 2 && sent.length <= Math.floor(elapsed / every) + 3, `timing-ok: the light reads are at least ${every} ms apart, so ${elapsed.toFixed(0)} ms hold at most ${Math.floor(elapsed / every) + 3} events, not one for each change; saw ${sent.length}`);
+  assert.ok(sent.every(frame => Object.keys(frame.data).every(key => key === R1)), "an activity event names only the runs that changed");
+  assert.equal(stream.frames.filter(frame => frame.event === "model").length, 1, "the light path sends no model");
+  const later = appFrames(f); t.after(() => later.close());
+  await later.until(() => later.activity[R1]?.now?.call === call(100));
+  assert.deepEqual(later.frames.map(frame => frame.event), ["model", "activity"], "a new stream gets the model, then the activity of each running agent");
+});
+
+test("T1100: a quiet agent that wakes, also one whose slot names no run, and a slot that comes, still get a full read, so the Agents page shows the new state", async t => {
+  const f = await lightBoard(t, { lightEvery: 200, quiet: true, slotOnly: true }), quiet = async () => ((await read(f, "/agents")).body.match(/no activity for 40 min/g) ?? []).length;
+  assert.equal(await quiet(), 2, "the qa agent of run R1 and the explore agent of a slot with no run are both quiet");
+  const reads = f.reads(), renew = path => { const now = new Date(); utimesSync(path, now, now); };
+  renew(join(f.root, ".hooks", "slots", "slot-2"));
+  let count;
+  for (let i = 0; i < 600 && (count = await quiet()) === 2; i++) await wait(50);
+  assert.equal(count, 1, "the agent of the slot with no run works again (F-T1100-1)");
+  assert.ok(f.reads() > reads);
+  renew(f.slot);
+  for (let i = 0; i < 600 && (count = await quiet()) === 1; i++) await wait(50);
+  assert.equal(count, 0, "the agent of run R1 works again");
+  let page;
+  writeFileSync(join(f.project, "runs.tsv"), `${readFileSync(join(f.project, "runs.tsv"), "utf8")}R3\tT1\tcode-reviewer\t0\t\t\trunning\t\t\t${new Date().toISOString()}\t\n`);
+  slot(f.root, "slot-3", ["project-project", "role-sage_code-reviewer", "run-R3"]);
+  for (let i = 0; i < 600 && !(page = await read(f, "/agents")).body.includes("Agents (3)"); i++) await wait(50);
+  assert.match(page.body, /<span class="role">code-reviewer<\/span><span class="id">R3<\/span>/);
+});
+
+test("T1100: GET /api/actions/R<n> gives a known run's last 20 actions, and refuses path tricks, unknown runs and links", async t => {
+  const f = await lightBoard(t), logbook = "sample/project-abcdef", url = (run, query = `logbook=${logbook}`) => `/api/actions/${run}?${query}`;
+  const get = async (path, options) => { const reply = await read(f, path, options); return { ...reply, json: reply.body && reply.headers["content-type"]?.startsWith("application/json") ? JSON.parse(reply.body) : null }; };
+  assert.deepEqual((await get(url("R1"))).json, { logbook, run: "R1", actions: [], dropped: 0 }, "the hook has written no action yet");
+  rmSync(join(f.project, "actions"), { recursive: true });
+  assert.deepEqual((await get(url("R1"))).json, { logbook, run: "R1", actions: [], dropped: 0 }, "no actions folder yet: no writer before task B");
+  mkdirSync(join(f.project, "actions"));
+  writeFileSync(f.file, Array.from({ length: 25 }, (_, i) => action(i + 1)).join("") + `${JSON.stringify({ ...JSON.parse(action(26)), input: "secret" })}\n${action(27, "R2")}{"partial`);
+  const full = await get(url("R1"));
+  assert.equal(full.status, 200); assert.match(full.headers["content-type"], /^application\/json/);
+  assert.deepEqual(full.json.actions, Array.from({ length: 20 }, (_, i) => JSON.parse(action(i + 6))), "the last 20 valid lines; a partial last line waits for its writer");
+  assert.equal(full.json.dropped, 2, "a line with an extra key and a line of another run are not readable");
+  assert.equal((await get(url("R1", "logbook=sample%2Fproject-abcdef"))).status, 200, "an encoded slash is the same logbook");
+  assert.deepEqual((await get(url("R2"))).json.actions, [], "an ended run of the logbook is known");
+  assert.equal((await get(url("R1"), { method: "HEAD" })).status, 200);
+  const refused = [url("R3"), url("R0"), url("r1"), url("R1", "logbook=sample/other-abcdef"), url("R1", "logbook=other/project-abcdef"),
+    "/api/actions/R1", `/api/actions/R1/../R2?logbook=${logbook}`, `/api/actions/..%2F..%2Fconfig.json?logbook=${logbook}`, `/api/actions/R1.jsonl?logbook=${logbook}`,
+    url("R1", "logbook=sample/../project-abcdef"), url("R1", "logbook=sample%2F..%2Fproject-abcdef"), url("R1", `logbook=${logbook}&logbook=${logbook}`), url("R1", `logbook=${logbook}&x=1`)];
+  for (const path of refused) { const reply = await get(path); assert.equal(reply.status, 404, path); assert.doesNotMatch(reply.body, /sample-\d+\.mjs/, path); }
+  for (const method of ["POST", "PUT", "DELETE"]) assert.equal((await get(url("R1"), { method })).status, 405, method);
+  assert.equal((await get(url("R1"), { rawHeaders: ["Host", "sample.tailnet.ts.net"] })).status, 403);
+  assert.equal((await get(url("R1"), { rawHeaders: ["Host", `127.0.0.1:${f.port}`, "X-Forwarded-For", "100.64.0.7"] })).status, 403);
+  const outside = join(f.dir, "outside"); mkdirSync(outside);
+  writeFileSync(join(outside, "R1.jsonl"), action(99));
+  rmSync(f.file); symlinkSync(join(outside, "R1.jsonl"), f.file);
+  const file = await get(url("R1")); assert.equal(file.status, 403, "a linked action file"); assert.doesNotMatch(file.body, /sample-99/);
+  rmSync(f.file); linkSync(join(outside, "R1.jsonl"), f.file);
+  const hard = await get(url("R1")); assert.equal(hard.status, 403, "a hard link to a file outside the logbook"); assert.doesNotMatch(hard.body, /sample-99/);
+  rmSync(join(f.project, "actions"), { recursive: true }); symlinkSync(outside, join(f.project, "actions"));
+  const folder = await get(url("R1")); assert.equal(folder.status, 403, "a linked actions folder"); assert.doesNotMatch(folder.body, /sample-99/);
 });

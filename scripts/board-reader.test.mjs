@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, symlinkSync, rmSync } from "node:fs";
+import fs, { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, renameSync, symlinkSync, rmSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readBoardSources } from "../packages/sage-core/board-reader.mjs";
+import { readActions, readBoardSources } from "../packages/sage-core/board-reader.mjs";
 
 test("board reader preserves source-qualified duplicate tasks and never initializes missing tables", t => {
   const root = mkdtempSync(join(tmpdir(), "sage-board-reader-"));
@@ -173,4 +174,23 @@ test("T233 C3: the milestones table: missing is no rows while no task names a mi
   }
   const cell = read([task("T1", "<img src=x>"), task("T2", "M1")], `${MILESTONES}M1\tA\tg\tT2\tG1\t\n`);
   assert.deepEqual(cell.tables.tasks.map(row => row.milestone), ["?", "M1"]);
+});
+
+test("T1100 F-T1100-3: readActions never reads through a logbook folder that is a link, also when the folder becomes a link during the read", t => {
+  const root = mkdtempSync(join(tmpdir(), "sage-board-actions-")), logbook = join(root, "project-abcdef"), outside = join(root, "outside");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const action = target => `${JSON.stringify({ v: 1, at: "2026-11-14T12:00:00.000Z", run: "R1", tool: "Read", kind: "file", target, call: "00000001", mark: "ok" })}\n`;
+  for (const [dir, target] of [[logbook, "src/sample-inside.mjs"], [outside, "src/sample-outside.mjs"]]) { mkdirSync(join(dir, "actions"), { recursive: true }); writeFileSync(join(dir, "actions", "R1.jsonl"), action(target)); }
+  assert.equal(readActions(logbook, "R1").actions[0].target, "src/sample-inside.mjs");
+  const original = fs.lstatSync;
+  let swapped = false;
+  fs.lstatSync = (path, ...rest) => {
+    if (!swapped && path === join(logbook, "actions")) { swapped = true; renameSync(logbook, `${logbook}-moved`); symlinkSync(outside, logbook); }
+    return original(path, ...rest);
+  };
+  syncBuiltinESMExports();
+  try { assert.throws(() => readActions(logbook, "R1"), { code: "ELOOP" }, "a swap between the check of the logbook and the open is refused"); }
+  finally { fs.lstatSync = original; syncBuiltinESMExports(); }
+  assert.ok(swapped);
+  assert.throws(() => readActions(logbook, "R1"), { code: "ELOOP" }, "a logbook folder that is a link is refused");
 });
