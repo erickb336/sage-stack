@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 export const taskLink = (key, page = "tasks") => `#${page}?task=${encodeURIComponent(key)}`;
 export const milestoneLink = key => `#tasks?milestone=${encodeURIComponent(key)}`;
+export const ofChief = (task, chief) => !chief || task.chief?.id === chief.id && task.key === `${chief.logbook}/${task.id}`;
 export const chiefName = chief => chief ? chief.old ?? ([chief.id, chief.provider].filter(Boolean).join(" · ") || "Chief not known") : "No chief";
 const LIVENESS = { live: "live", stopped: "stopped", unknown: "liveness not known" };
 const liveness = stopped => stopped === false ? "live" : stopped ? "stopped" : "unknown";

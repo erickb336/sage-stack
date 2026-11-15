@@ -2,7 +2,7 @@ import { useState } from "react";
 import { GiveBox, PairBox, UndoButton, chiefLabel, questionLink, useAccess, useSeen } from "./actions.jsx";
 import { useNow, when } from "./use-model.js";
 import { StateIcon } from "./icons.jsx";
-import { milestoneLink, taskLink } from "./panel.jsx";
+import { milestoneLink, ofChief, taskLink } from "./panel.jsx";
 
 const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
@@ -89,7 +89,7 @@ function Stopped({ model, shown }) {
     <div className="sub-list" aria-labelledby="stopped-h">
       <h3 id="stopped-h" className="lbl">Stopped chiefs</h3>
       <ul className="needs">{stopped.map(chief => {
-        const tasks = model.tasks.filter(task => !task.ended && task.chief?.id === chief.id && task.project === chief.project);
+        const tasks = model.tasks.filter(task => !task.ended && ofChief(task, chief));
         return (
           <li key={chief.key} data-stopped={chief.key}>
             <span className="bullet stopped" aria-hidden="true" />

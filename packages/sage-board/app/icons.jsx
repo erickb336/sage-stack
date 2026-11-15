@@ -13,3 +13,14 @@ export function StateIcon({ state }) {
   const filled = state === "done";
   return <svg className={`state ${state}`} viewBox="0 0 14 14" aria-hidden="true" focusable="false"><path d="M7 1l6 6-6 6-6-6z" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.6" /></svg>;
 }
+
+const GROUP_MARKS = {
+  need: <><circle cx="8" cy="8" r="6" /><path d="M8 4.8v3.7M8 11v.01" /></>,
+  review: <><circle cx="8" cy="8" r="6" /><path d="M8 4.8V8l2.2 1.4" /></>,
+  repair: <path d="M10.6 2.2a3.2 3.2 0 00-3.3 4.4L2.4 11.5a1.5 1.5 0 002.1 2.1l4.9-4.9a3.2 3.2 0 004.4-3.3l-1.9 1.9-1.9-.3-.3-1.9z" />,
+  build: <><rect x="2.5" y="8.5" width="11" height="5" rx="1" /><path d="M5 8.5v-3h6v3M8 5.5V2.5" /></>,
+  ready: <><circle cx="8" cy="8" r="6" /><path d="M5.6 8.1l1.7 1.7 3.2-3.5" /></>,
+  wait: <><circle cx="8" cy="8" r="6" /><path d="M6.5 5.6v4.8M9.5 5.6v4.8" /></>,
+  merged: <><circle cx="4.5" cy="3.5" r="1.5" /><circle cx="4.5" cy="12.5" r="1.5" /><circle cx="11.5" cy="9" r="1.5" /><path d="M4.5 5v6M4.5 5c0 3 3 4 5.5 4" /></>,
+};
+export const GroupIcon = ({ group }) => <Svg className={`ico grp ${group}`}>{GROUP_MARKS[group]}</Svg>;

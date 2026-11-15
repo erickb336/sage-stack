@@ -298,7 +298,7 @@ function card(source, project, group, task, now, graph, landing) {
   const current = repairing ? [] : build ? head ? ledger.filter(row => row.sha === head && String(row.pr) === task.pr) : [] : ledger.filter(row => !row.sha);
   const steps = [...(build ? ["checks"] : []), ...route.filter(block => CLEAN[block])];
   const required = Math.max(positive(source.config?.["cycles.small"]) ?? 1, task.size === "large" ? Math.max(2, positive(source.config?.["cycles.large"] ?? source.config?.autopilot_cycles) ?? 2) : 1, task.risk ? Math.max(2, positive(source.config?.["cycles.risk"]) ?? 2) : 1);
-  const count = Math.min(required, 10);
+  const count = Math.min(Math.max(required, ...ENDED.includes(task.state) ? current.map(row => positive(row.cycle) ?? 0) : []), 10);
   const verdict = (role, number) => current.filter(row => (role === "checks" || positive(row.cycle) === number) && (row.kind === CLEAN[role] || (FAILED[role] ?? []).includes(row.kind) && (row.kind !== "findings" || runs.some(run => run.id === row.run && run.role === (RUN_ROLE[role] ?? role))))).at(-1) ?? null;
   const cycles = Array.from({ length: count }, (_, i) => ({ number: i + 1, steps: steps.map(role => {
     const last = verdict(role, i + 1);
@@ -308,7 +308,7 @@ function card(source, project, group, task, now, graph, landing) {
   }) }));
   for (const [index, row] of current.entries()) {
     if (!["checks-fail", "qa-fail"].includes(row.kind)) continue;
-    const newer = current.slice(index + 1).find(other => other.kind === (row.kind === "checks-fail" ? "checks-pass" : "qa-pass") && other.cycle === row.cycle);
+    const newer = current.slice(index + 1).find(other => other.kind === (row.kind === "checks-fail" ? "checks-pass" : "qa-pass") && (row.kind === "checks-fail" || other.cycle === row.cycle));
     if (!newer && !merge?.ok) reasons.push({ kind: row.kind, text: `${row.kind === "checks-fail" ? "Checks" : "QA"} failed on the recorded PR head.`, evidence: row });
   }
   const worker = project.shared ? NO_SLOT_NOTES.includes(String(chiefOf(task.chief)?.provider ?? "").toLowerCase()) : task.branch.startsWith("codex/");

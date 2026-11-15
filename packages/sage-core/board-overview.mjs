@@ -72,6 +72,12 @@ function cyclesOf(task) {
   return { required: task.requiredCycles, clean: reviews && known ? task.cycles.filter(cycle => cycle.steps.every(step => step.status === "done")).length : null, reviews };
 }
 
+const SEVERITIES = ["high", "medium", "low"];
+function findingsOf(task) {
+  const open = task.findings.filter(row => row.status === "open");
+  return { open: open.length, closed: task.findings.filter(row => row.status === "closed").length, worst: SEVERITIES.find(severity => open.some(row => row.severity === severity)) ?? null };
+}
+
 function taskRow(task, chiefs) {
   const step = stepOf(task);
   return {
@@ -85,7 +91,7 @@ function taskRow(task, chiefs) {
     step: step ? { label: step.label, status: step.status } : null, lastActivity: task.lastActivity,
     addedAt: iso(task.addedAt), doneAt: iso(task.completedAt),
     prUrl: /^[1-9]\d*$/.test(task.pr) && task.repository ? `${task.repository}/pull/${task.pr}` : null, cycles: cyclesOf(task),
-    ci: CI[task.cycles[0]?.steps.find(item => item.role === "checks")?.status] ?? null,
+    ci: CI[task.cycles[0]?.steps.find(item => item.role === "checks")?.status] ?? null, findings: findingsOf(task),
   };
 }
 

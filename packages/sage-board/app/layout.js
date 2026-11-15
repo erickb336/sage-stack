@@ -1,26 +1,47 @@
 export const W = 240, H = 104;
 const GAP_X = 96, GAP_Y = 30, STEP = 8;
-const ORDER = ["merged", "ready", "review", "repair", "need", "wait"];
+const ORDER = ["away", "merged", "ready", "review", "build", "repair", "need", "wait"];
+export const labelArea = (label, x, y) => ({ x: x - label.length * 3.2 - 6, y: y - 10, w: label.length * 6.4 + 12, h: 20 });
+export const meets = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+const along = points => points.slice(1).flatMap(([qx, qy], i) => {
+  const [px, py] = points[i], n = Math.max(1, Math.ceil(Math.hypot(qx - px, qy - py) / 8));
+  return Array.from({ length: n }, (_, k) => [px + (qx - px) * k / n, py + (qy - py) * k / n]);
+});
 
 export function layout({ nodes, waits, conflicts }) {
   const after = new Map(nodes.map(node => [node.key, []])), back = new Set(), seen = new Map();
   for (const link of waits) if (link.from !== link.to) after.get(link.from).push(link.to);
-  const visit = key => {
-    seen.set(key, "open");
-    for (const to of after.get(key)) if (seen.get(to) === "open") back.add(`${key}>${to}`); else if (!seen.has(to)) visit(to);
-    seen.set(key, "done");
-  };
-  for (const node of nodes) if (!seen.has(node.key)) visit(node.key);
+  for (const node of nodes) {
+    if (seen.has(node.key)) continue;
+    const stack = [[node.key, 0]];
+    seen.set(node.key, "open");
+    while (stack.length) {
+      const top = stack.at(-1), [key, i] = top, list = after.get(key);
+      if (i === list.length) { seen.set(key, "done"); stack.pop(); continue; }
+      top[1]++;
+      if (seen.get(list[i]) === "open") back.add(`${key}>${list[i]}`);
+      else if (!seen.has(list[i])) { seen.set(list[i], "open"); stack.push([list[i], 0]); }
+    }
+  }
   const isBack = link => link.from === link.to || back.has(`${link.from}>${link.to}`), forward = waits.filter(link => !isBack(link));
-  const column = new Map();
-  const columnOf = key => column.get(key) ?? column.set(key, Math.max(-1, ...forward.filter(link => link.to === key).map(link => columnOf(link.from))) + 1).get(key);
-  const grid = new Set(), row = new Map();
+  const into = new Map(nodes.map(node => [node.key, []])), ahead = new Map(nodes.map(node => [node.key, []]));
+  for (const link of forward) { into.get(link.to).push(link.from); ahead.get(link.from).push(link.to); }
+  const column = new Map(), needs = new Map(nodes.map(node => [node.key, into.get(node.key).length])), queue = nodes.filter(node => !needs.get(node.key)).map(node => node.key);
+  for (const key of queue) {
+    column.set(key, into.get(key).reduce((most, from) => Math.max(most, column.get(from) + 1), 0));
+    for (const to of ahead.get(key)) if (!needs.set(to, needs.get(to) - 1).get(to)) queue.push(to);
+  }
+  const columnOf = key => column.get(key);
+  const grid = new Set(), row = new Map(), low = new Map();
   for (const node of [...nodes].sort((a, b) => columnOf(a.key) - columnOf(b.key) || ORDER.indexOf(a.group) - ORDER.indexOf(b.group))) {
-    const above = forward.filter(link => link.to === node.key).map(link => row.get(link.from));
-    let r = above.length ? Math.round(above.reduce((sum, value) => sum + value, 0) / above.length) : 0;
-    while (grid.has(`${columnOf(node.key)}:${r}`)) r++;
-    grid.add(`${columnOf(node.key)}:${r}`);
+    const above = into.get(node.key).map(from => row.get(from)), c = columnOf(node.key);
+    let r = Math.max(low.get(c) ?? 0, above.length ? Math.round(above.reduce((sum, value) => sum + value, 0) / above.length) : 0);
+    while (grid.has(`${c}:${r}`)) r++;
+    grid.add(`${c}:${r}`);
     row.set(node.key, r);
+    let free = low.get(c) ?? 0;
+    while (grid.has(`${c}:${free}`)) free++;
+    low.set(c, free);
   }
 
   const pools = new Map();
@@ -44,8 +65,9 @@ export function layout({ nodes, waits, conflicts }) {
   const count = pool => pools.get(pool)?.length ?? 0;
   const wide = g => Math.max(GAP_X, (count(`gap ${g}`) + 3) * STEP), high = r => Math.max(GAP_Y, (count(`row ${r}`) + 2) * STEP);
   const left = [], top = [];
-  for (let c = 0, at = wide(-1); c <= Math.max(0, ...column.values()); c++) { left[c] = at; at += W + wide(c); }
-  for (let r = 0, at = 0; r <= Math.max(0, ...row.values()); r++) { top[r] = at; at += H + high(r); }
+  const most = values => [...values].reduce((a, b) => Math.max(a, b), 0), columns = most(column.values()), rows = most(row.values());
+  for (let c = 0, at = wide(-1); c <= columns; c++) { left[c] = at; at += W + wide(c); }
+  for (let r = 0, at = 0; r <= rows; r++) { top[r] = at; at += H + high(r); }
   const spread = (middle, slot) => middle + (slot.i - (slot.n - 1) / 2) * STEP;
   const trackX = (g, slot) => spread((g < 0 ? 0 : left[g] + W) + wide(g) / 2, slot);
   const portY = (key, slot) => top[row.get(key)] + H * (slot.i + 1) / (slot.n + 1);
@@ -57,11 +79,20 @@ export function layout({ nodes, waits, conflicts }) {
   }).join(" ");
   const links = planned.map(({ id, source, target, kind, label, near, beside, lane, out, into, first, last, track }) => {
     const xa = left[columnOf(source)] + W, ya = portY(source, out), xb = left[columnOf(target)] + (beside ? W : 0), yb = portY(target, into), x1 = trackX(columnOf(source), first);
-    if (near) return { id, source, target, kind, label, path: corners([[xa, ya], [x1, ya], [x1, yb], [xb, yb]]), x: trackX(columnOf(source), { i: 0, n: 1 }), y: (ya + yb) / 2 };
+    if (near) return { id, source, target, kind, label, points: [[xa, ya], [x1, ya], [x1, yb], [xb, yb]], x: trackX(columnOf(source), { i: 0, n: 1 }), y: (ya + yb) / 2 };
     const x2 = trackX(columnOf(target) - 1, last), ly = spread(top[lane] + H + high(lane) / 2, track);
-    return { id, source, target, kind, label, path: corners([[xa, ya], [x1, ya], [x1, ly], [x2, ly], [x2, yb], [xb, yb]]), x: (x1 + x2) / 2, y: ly };
-  });
+    return { id, source, target, kind, label, points: [[xa, ya], [x1, ya], [x1, ly], [x2, ly], [x2, yb], [xb, yb]], x: (x1 + x2) / 2, y: ly };
+  }).map(({ points, ...link }) => ({ ...link, points, path: corners(points) }));
   const boxes = nodes.map(node => ({ node, x: left[columnOf(node.key)], y: top[row.get(node.key)] }));
+  const taken = boxes.map(box => ({ x: box.x, y: box.y, w: W, h: H }));
+  for (const link of [...links.filter(link => link.label && link.kind !== "conflict"), ...links.filter(link => link.kind === "conflict")]) {
+    const spots = [[link.x, link.y], ...along(link.points).sort(([ax, ay], [bx, by]) => Math.hypot(ax - link.x, ay - link.y) - Math.hypot(bx - link.x, by - link.y))];
+    const spot = spots.find(([x, y]) => !taken.some(other => meets(other, labelArea(link.label, x, y))));
+    if (!spot && link.kind === "conflict") { link.label = undefined; continue; }
+    [link.x, link.y] = spot ?? spots[0];
+    taken.push(labelArea(link.label, link.x, link.y));
+  }
+  for (const link of links) delete link.points;
   const bottom = top.at(-1) + H + high(top.length - 1);
   return { boxes, links, height: Math.min(640, Math.max(260, bottom + 112)) };
 }

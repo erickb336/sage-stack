@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { AgentMark, clock } from "./agent.jsx";
-import { Panel, taskLink } from "./panel.jsx";
+import { Panel, ofChief, taskLink } from "./panel.jsx";
 
 const PAGE = "agents", MIN = 60_000;
 const chiefKey = id => id ?? "none";
@@ -81,7 +81,7 @@ function ChiefBox({ chief, runs, failedMore, tasks, now, selected }) {
   const queued = runs.filter(run => run.status === "queued").sort((a, b) => a.place - b.place);
   const running = runs.filter(run => run.status === "running").length;
   const stopped = chief.stopped === true;
-  const owned = stopped ? tasks.filter(task => !task.ended && task.chief?.id === chief.id && task.key === `${chief.logbook}/${task.id}`) : [];
+  const owned = stopped ? tasks.filter(task => !task.ended && ofChief(task, chief)) : [];
   return (
     <section className={`card chief-box${stopped ? " stopped" : ""}`} data-chief={chief.key} aria-labelledby={`chief-${chief.key}`}>
       <div className="card-h">
