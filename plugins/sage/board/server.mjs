@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { AGENT_QUIET_MS, readActions, readHookNotes, readBoardSources, buildBoardModel, boardOverview, taskPanel, landingRule, pageTaskFolder, renderBoardHtml, renderAgentsHtml, renderMilestonesHtml, renderReleasesHtml, BOARD_PORT } from "../core/index.mjs";
 import { COOKIE, boardAccess, readJson } from "./access.mjs";
 import { pagesRequest, servePages, taskFiles } from "./pages.mjs";
-import { designSummary, logbookDir, readerPage, recordedPages } from "./reader.mjs";
+import { briefAbout, designSummary, logbookDir, readerPage, recordedPages } from "./reader.mjs";
 import { writeInWorker, writesEnded } from "./writes.mjs";
 
 const MARKDOWN = await import("./markdown.mjs").then(module => module.renderMarkdown, () => null);
@@ -483,7 +483,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
         if (!panel) return fail(404, "This task is not on the board.");
         const task = model.tasks.find(item => item.key === key), dir = logbookDir(configured, task);
         const files = { ...taskFiles({ dir, logbook: panel.logbook, task: task.id, runs: panel.runs }), designs: designSummary(panel.logbook, task.id), recorded: recordedPages(task, pageTaskFolder(panel.logbook, task.id)) };
-        const body = Buffer.from(JSON.stringify({ ...panel, files }));
+        const body = Buffer.from(JSON.stringify({ ...panel, files, brief: briefAbout(dir, task, panel.runs) }));
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Content-Length": body.length });
         return response.end(request.method === "HEAD" ? undefined : body);
       } catch { return fail(503, "The board snapshot is unavailable."); }

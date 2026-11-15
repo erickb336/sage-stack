@@ -126,7 +126,7 @@ function addAgentRuns(tables, now, { atLimit, hostile, ended, edges }) {
   return { max_agents: atLimit ? 7 + (hostile ? 1 : 0) : 20, max_leads: atLimit ? 4 : 5 };
 }
 
-export function writeTasksLogbook(root, worktrees, now, { unicode = false, hostile = false, many = 0, edge = false, chiefCases = false, stuck = false, prs = false, waits = {}, crowd = 0, documents = false, agents = false, atLimit = false, endedRuns = 0, agentEdges = false } = {}) {
+export function writeTasksLogbook(root, worktrees, now, { unicode = false, hostile = false, many = 0, edge = false, chiefCases = false, stuck = false, prs = false, waits = {}, crowd = 0, documents = false, agents = false, atLimit = false, endedRuns = 0, agentEdges = false, about = false } = {}) {
   const at = hours => new Date(Date.parse(now) - hours * HOUR).toISOString();
   const tables = appTables(now), dir = join(root, "sample-app-abc123");
   const chiefs = { T1: "C1", T2: "C1", T3: "C2", T4: "C1", T10: "C1", T11: "C2", T20: "C1", T21: "C1", T30: "C2" };
@@ -168,6 +168,7 @@ export function writeTasksLogbook(root, worktrees, now, { unicode = false, hosti
   if (prs) addPullRequests(tables, records, at, hostile);
   const limits = agents ? addAgentRuns(tables, now, { atLimit, hostile, ended: endedRuns, edges: agentEdges }) : null;
   if (documents) addDocumentRows(tables, at, join(worktrees, "sample-app-abc123", "pages"));
+  if (about) addAboutRows(tables, now);
   tables.tasks = tables.tasks.map(task => task.id in waits ? { ...task, waits: waits[task.id] } : task);
   for (let i = 0; i < crowd; i++) {
     const id = `T${80 + i}`;
@@ -185,7 +186,7 @@ export function writeTasksLogbook(root, worktrees, now, { unicode = false, hosti
   for (let i = 0; tables.tasks.length < many; i++) tables.tasks.push({ ...tables.tasks[0], id: `T${1000 + i}`, title: `Sample ended task ${i}`, milestone: "", state: i % 7 ? "merged" : "abandoned", chief: i % 2 ? "C1" : "C2", priority: ["P1", "P2", "P3"][i % 3] });
   mkdirSync(dir, { recursive: true });
   for (const [name, rows] of Object.entries(tables)) {
-    const columns = [...TABLES[name], ...(["tasks", "runs"].includes(name) ? ["chief"] : []), ...(name === "runs" && agents ? ["admitted"] : [])];
+    const columns = [...TABLES[name], ...(["tasks", "runs"].includes(name) ? ["chief"] : []), ...(name === "runs" && agents ? ["admitted"] : []), ...(name === "tasks" && about ? ["request"] : [])];
     writeFileSync(join(dir, `${name}.tsv`), [columns.join("\t"), ...rows.map(row => columns.map(column => row[column] ?? "").join("\t"))].join("\n") + "\n");
   }
   if (prs) writeFileSync(join(root, "projects.tsv"), `logbook\tat\thow\nsample-app-abc123\t${at(100)}\tinit\n`);
@@ -210,7 +211,26 @@ export function writeTasksLogbook(root, worktrees, now, { unicode = false, hosti
   writeFileSync(join(pages, "limits-design.html"), "<!doctype html><title>Limits</title><p>Sample page.</p>\n");
   writeFileSync(join(pages, "notes.md"), "# Notes\n\nSample notes.\n");
   if (documents) writeDocumentFiles(dir, join(worktrees, "sample-app-abc123", "pages"), at, hostile);
+  if (about) writeAboutFiles(dir, at);
   return dir;
+}
+export const ABOUT = {
+  request: "Each chief's records must stay readable after a crash, so that nothing is lost.",
+  goal: "Keep each chief's records in one file per chief.\nA crash in the middle of a write leaves the last good file.",
+  criteria: ["A crash during a write leaves the last good file", "Two chiefs never write one file", "The tests cover a full disk"],
+};
+function addAboutRows(tables, now) {
+  const at = minutes => new Date(Date.parse(now) - minutes * MIN).toISOString();
+  tables.tasks = tables.tasks.map(task => task.id === "T2" ? { ...task, request: ABOUT.request, waits: "T1" } : task);
+  const run = (id, task, role, status, started, extra = {}) => ({ id, task, role, round: "0", candidate: "", branch: "", status, tokens: "", report: "", started: at(started), ended: "", chief: "C2", model: "", ...extra });
+  tables.runs.push(run("R45", "T2", "qa", "done", 70, { ended: at(60), chief: "C1", tokens: "30000" }),
+    run("R50", "T11", "designer", "done", 40, { candidate: "A", ended: at(10), tokens: "96000", model: "opus" }),
+    run("R51", "T11", "designer", "running", 38, { candidate: "B", tokens: "71000", model: "sonnet" }));
+}
+function writeAboutFiles(dir, at) {
+  writeFileSync(join(dir, "briefs", "R20.md"), ["Run R20 · task T2 (lead)", "GOAL        Keep each chief's records in one file per chief.", "            A crash in the middle of a write leaves the last good file.", "SCOPE       T2 only.",
+    "ACCEPTANCE", ...ABOUT.criteria.map(line => `- ${line}`), "BUDGET      About 2 hours of agent time and 1.5 M tokens.", "REPORT      The report."].join("\n"));
+  writeFileSync(join(dir, "kept", "R45.json"), JSON.stringify({ task: "T2", run: "R45", role: "qa", sha: "", at: at(1), text: `STATUS        done\nRESULT        PASS. ${ABOUT.criteria[0]}: checked.\nEVIDENCE      none\nFINDINGS      none\nQUESTIONS     none\nNOT VERIFIED  none\nBRANCH        none` }));
 }
 
 const sketch = (title, rows, accent) => `<svg xmlns="http://www.w3.org/2000/svg" width="360" height="240" viewBox="0 0 360 240"><rect width="360" height="240" rx="14" fill="#17171b"/><rect x="20" y="18" width="150" height="14" rx="7" fill="#3a3a44"/><text x="20" y="62" fill="#ededf0" font-family="sans-serif" font-size="15">${title}</text>${rows.map((row, i) => `<rect x="20" y="${80 + i * 34}" width="320" height="26" rx="6" fill="#222228"/><text x="32" y="${98 + i * 34}" fill="#a3a3ad" font-family="sans-serif" font-size="12">${row}</text>`).join("")}<rect x="250" y="200" width="90" height="26" rx="8" fill="${accent}"/></svg>\n`;

@@ -105,7 +105,7 @@ const CHIEF_COLUMN = "chief";
 const CHECKOUT_COLUMN = "checkout";
 const ADMITTED_COLUMN = "admitted";
 const RELEASE_COLUMN = "release";
-const SPARSE = { tasks: [CHIEF_COLUMN, "offer", RELEASE_COLUMN], runs: [CHIEF_COLUMN, CHECKOUT_COLUMN, ADMITTED_COLUMN], gates: ["kind", CHIEF_COLUMN, "answered", "picked"], milestones: [RELEASE_COLUMN] };
+const SPARSE = { tasks: [CHIEF_COLUMN, "offer", RELEASE_COLUMN, "request"], runs: [CHIEF_COLUMN, CHECKOUT_COLUMN, ADMITTED_COLUMN], gates: ["kind", CHIEF_COLUMN, "answered", "picked"], milestones: [RELEASE_COLUMN] };
 const TABLES = { ...PLAIN_TABLES, ...Object.fromEntries(Object.entries(SPARSE).map(([t, cols]) => [t, [...PLAIN_TABLES[t], ...cols]])) };
 const ADDED = { ...FILLED, ...Object.fromEntries(Object.entries(SPARSE).map(([t, cols]) => [t, [...(FILLED[t] ?? []), ...cols]])) };
 const RUN_ENDS = ["done", "blocked", "question", "failed"];
@@ -1826,6 +1826,7 @@ function planTaskChanges(before, id, changes, at, facts) {
     }
     else if (k === "branch") notHeld(task, "branch="), task.branch = v && (mayName(tasks, task, branchOf(v)) ? v : refuse(`${JSON.stringify(v)} is not a branch of ${task.id}: use [<prefix>/]${task.id.toLowerCase()}[-<words>], for example sage task ${task.id} set branch=sage/${task.id.toLowerCase()}, or the branch of another task of this logbook, to share its pull request`));
     else if (k === "title") task.title = v;
+    else if (k === "request") task.request = v === "none" ? "" : v;
     else if (k === "priority") task.priority = priorityOf(v, task);
     else if (k === "kind") task.kind = tag(k, v);
     else if (k === "waits") {
@@ -1859,7 +1860,7 @@ function planTaskChanges(before, id, changes, at, facts) {
         task.release = to;
         decided.push({ at, task: task.id, decision: `release ${was || "none"} → ${to || "none"}`, why: "task set" });
       }
-    } else refuse(`task set takes state=, branch=, pr=, title=, priority=, kind=, waits=, milestone=, release= or approval=`);
+    } else refuse(`task set takes state=, branch=, pr=, title=, request=, priority=, kind=, waits=, milestone=, release= or approval=`);
   }
   return { task, tasks, runs, decisions: [...decisions, ...decided], note };
 }

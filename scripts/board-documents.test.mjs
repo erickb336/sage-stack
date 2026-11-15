@@ -46,10 +46,10 @@ test("T1064: a brief shows its ten fields in order, GOAL and ACCEPTANCE open, a 
   assert.match(page.html, /<ul>\n<li>Change the limit reader\.<\/li>\n<li>Keep the old keys readable\.<\/li>/, "the field's list renders as a list, without the column indent");
   assert.match(page.text, /Run R7 Role implementer Task T3 Chief Codex · C2 Model sonnet Started/);
   assert.match(page.html, /href="\/read\/[\w-]+\/report\/R7">Report of R7<\/a>/, "a link to the run's report");
-  assert.match(page.html, /<a class="back" href="\/app\/#tasks\?task=shared%2Fsample-app-abc123%2FT3">&#8592; Back to T3<\/a>/);
+  assert.match(page.html, /<a class="back" href="\/app\/#task\?key=shared%2Fsample-app-abc123%2FT3">&#8592; Back to T3<\/a>/, "T1083: the back link returns to the task's own page");
   assert.ok(fieldsOpen(read(w, "T3", "brief", "R7", { open: "all" }).html).every(name => name.endsWith(" open")));
   assert.ok(fieldsOpen(read(w, "T3", "brief", "R7", { open: "none" }).html).every(name => !name.endsWith(" open")));
-  assert.match(read(w, "T3", "brief", "R7", { back: "pull-requests" }).html, /href="\/app\/#pull-requests\?task=shared%2Fsample-app-abc123%2FT3">&#8592; Back to T3/, "the back link returns to the page that opened the panel");
+  assert.match(read(w, "T3", "brief", "R7", { back: "pull-requests" }).html, /href="\/app\/#task\?key=shared%2Fsample-app-abc123%2FT3">&#8592; Back to T3/, "T1083: a task has one page, so an old back value also returns to it");
 });
 
 test("T1064: a report shows the STATUS pill, RESULT first, each finding as a row with severity, key, summary and location, the logbook's rows with their states, then the other fields and the PR link", t => {

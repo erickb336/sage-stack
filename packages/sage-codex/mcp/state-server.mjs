@@ -49,7 +49,7 @@ export const TOOLS = {
     argv: () => ["task", "add"],
   },
   task_set: {
-    describe: "Change a task: its state, branch, pr, priority, kind, waits, milestone or release (only for a task outside a milestone: a task of a milestone is in its milestone's release). Resuming a round hold needs approval=<G>, an unused owner-approved repair gate for this task and round limit. The tool refuses a move that the route does not allow. Any chief may abandon a task with no owning chief: fields {\"state\": \"abandoned\"} alone, with why.",
+    describe: "Change a task: its state, branch, pr, request (the owner's request in the owner's words, one line; none clears it), priority, kind, waits, milestone or release (only for a task outside a milestone: a task of a milestone is in its milestone's release). Resuming a round hold needs approval=<G>, an unused owner-approved repair gate for this task and round limit. The tool refuses a move that the route does not allow. Any chief may abandon a task with no owning chief: fields {\"state\": \"abandoned\"} alone, with why.",
     input: { task, fields: z.record(z.string().regex(/^[a-z]+$/), z.string()).describe('the keys and values to set, for example {"state": "building", "branch": "codex/t7-name"}'),
       why: optional("the reason of an abandon, only with the state abandoned; needed to abandon a task with no owning chief") },
     pos: ["task", "fields"],

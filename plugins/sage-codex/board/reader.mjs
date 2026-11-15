@@ -18,6 +18,56 @@ function dedent(text) {
 }
 const firstLine = text => String(text ?? "").trim().split(/\r?\n/)[0] ?? "";
 
+export function readBrief(dir, taskId, run) {
+  const codex = /^[a-z-]+$/.test(run.role) ? `sage_${run.role.replaceAll("-", "_")}_${taskId.toLowerCase()}_${run.id.toLowerCase()}.json` : null;
+  let text, problem, from = `${run.id}.md`;
+  try {
+    text = dir ? readText(join(dir, "briefs", from)) : undefined;
+    const kept = text === undefined && dir && codex ? readText(join(dir, "briefs", codex)) : undefined;
+    if (kept !== undefined) { text = JSON.parse(kept)?.text; from = codex; if (typeof text !== "string") throw unread("The file has no brief text."); }
+  } catch (error) { problem = whyUnread(error); text = undefined; }
+  return { text, problem, from };
+}
+
+const CHECKERS = ["qa", "code-reviewer", "security-reviewer", "ux-reviewer", "evidence-review"];
+const plain = text => String(text).toLowerCase().replace(/[`*_]/g, "").replace(/\s+/g, " ").replace(/[.;:]+$/, "").trim();
+const criteriaOf = text => String(text ?? "").split(/\r?\n/).reduce((lines, line) => {
+  const item = /^\s*(?:[-*+]|\d+[.)])\s+(.*)$/.exec(line);
+  if (item) lines.push(item[1].trim()); else if (line.trim()) lines.length && /^\s/.test(line) ? lines[lines.length - 1] += ` ${line.trim()}` : lines.push(line.trim());
+  return lines;
+}, []);
+const NUMBER = String.raw`(\d+(?:[.,]\d+)?)`;
+export function budgetOf(text) {
+  const hours = new RegExp(`${NUMBER}\\s*(hours?|h|minutes?|min)\\b`, "i").exec(text ?? ""), tokens = new RegExp(`${NUMBER}\\s*([kKmM])?\\s*tokens?\\b`).exec(text ?? "");
+  const n = value => Number(value.replace(",", "."));
+  return { ms: hours ? n(hours[1]) * (/^m/i.test(hours[2]) ? 60_000 : 3_600_000) : null, tokens: tokens ? n(tokens[1]) * ({ k: 1e3, m: 1e6 }[tokens[2]?.toLowerCase()] ?? 1) : null };
+}
+
+export function briefAbout(dir, task, runs) {
+  const by = [...runs].filter(run => RUN.test(run.id)).sort((a, b) => (Date.parse(b.started) || 0) - (Date.parse(a.started) || 0));
+  const lead = by.find(run => run.role === "lead");
+  if (!by.length) return { state: "none", why: "No agent has run on this task yet, so there is no brief." };
+  const tried = lead ? [lead] : by;
+  for (const run of tried) {
+    const { text, problem } = readBrief(dir, task.id, run);
+    if (problem) return { state: "unread", run: run.id, why: `The board cannot read the brief of ${run.id} now. ${problem}` };
+    if (text === undefined) continue;
+    const sections = briefSections(text), reports = keptChecks(dir, task.id, runs);
+    const criteria = criteriaOf(sections.ACCEPTANCE).map(line => ({ text: line, by: reports.find(report => report.text.includes(plain(line)))?.run ?? null }));
+    return { state: "kept", run: run.id, goal: dedent(sections.GOAL) || null, criteria, budget: sections.BUDGET ? { text: firstLine(sections.BUDGET), ...budgetOf(sections.BUDGET) } : null };
+  }
+  return { state: "missing", run: tried[0].id, why: `The logbook keeps no brief of ${tried[0].id}: sage keeps briefs only for newer runs.` };
+}
+
+function keptChecks(dir, taskId, runs) {
+  if (!dir) return [];
+  return runs.filter(run => CHECKERS.includes(run.role) && RUN.test(run.id)).flatMap(run => {
+    const data = readJson(join(dir, "kept", `${run.id}.json`));
+    if (data?.task !== taskId || data.run !== run.id || typeof data.text !== "string") return [];
+    return ["PASS", "CLEAN"].includes(readReport(data.text).result) ? [{ run: run.id, text: plain(data.text) }] : [];
+  });
+}
+
 export function logbookDir(configured, task) {
   const source = configured.find(item => item.id === task.source);
   return source && !task.old && task.project.startsWith(`${source.id}/`) ? join(source.path, task.project.slice(task.project.indexOf("/") + 1)) : null;
@@ -64,7 +114,7 @@ export function parseReaderUrl(url) {
   if ((kind === "brief" || kind === "report") && !RUN.test(arg ?? "") || kind === "question" && !GATE.test(arg ?? "") || ["design", "arena"].includes(kind) && arg !== null) return null;
   if (kind === "page" && !(/^[\w./-]+$/.test(arg ?? "") && /\.md$/.test(arg) && pageType(arg))) return null;
   const params = new URLSearchParams(query), pick = (name, test) => test.test(params.get(name) ?? "") ? params.get(name) : null;
-  return { key, kind, arg, theme: pick("theme", /^light$/) ?? "dark", back: pick("back", /^(?:pull-requests|agents|q-G[1-9]\d*)$/) ?? "tasks",
+  return { key, kind, arg, theme: pick("theme", /^light$/) ?? "dark", back: pick("back", /^q-G[1-9]\d*$/) ?? "tasks",
     open: pick("open", /^(?:all|none)$/), view: pick("view", /^compare$/) ?? "today", v: pick("v", NAME), a: pick("a", NAME), b: pick("b", NAME) };
 }
 
@@ -159,8 +209,6 @@ export function readerPolicy(origin, logbook, taskId) {
   return `sandbox allow-same-origin; default-src 'none'; script-src 'none'; style-src ${STYLE_HASH}; img-src ${pictures}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
 }
 
-const BACK = { tasks: "#tasks?task=", "pull-requests": "#pull-requests?task=", agents: "#agents?task=" };
-
 function frame(view, { project, title, crumb, back, file, state }) {
   const flip = { ...view, theme: view.theme === "light" ? "dark" : "light" };
   return `<!doctype html><html lang="en" data-theme="${view.theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>${esc(title)} · sage board</title><style>${CSS}</style></head><body>
@@ -183,13 +231,13 @@ export function readerPage({ model, configured, url, origin, render }) {
   const question = view.back.startsWith("q-") ? view.back.slice(2) : null;
   const back = question ? { href: readerUrl(view.key, "question", question, { theme: view.theme }), text: `Back to ${question}`, where: `Overview / Needs you / ${question}` }
     : view.kind === "question" ? { href: "/app/#", text: "Back to Needs you", where: `Overview / Needs you / ${view.arg}` }
-    : { href: `/app/${BACK[view.back]}${encodeURIComponent(view.key)}`, text: `Back to ${task.id}`, where: `${task.id} · ${task.title} / Artifacts` };
+    : { href: `/app/#task?key=${encodeURIComponent(view.key)}`, text: `Back to ${task.id}`, where: `${task.id} · ${task.title} / Artifacts` };
   const link = (kind, arg, extra = {}) => readerUrl(view.key, kind, arg, { theme: view.theme, back: view.back, ...extra });
   const staleNote = model.stale ? note(`<b>The board cannot read the logbook now.</b> This is the copy that it read at ${esc(when(model.at, model.at))}.`, "fail") : "";
   const state = model.stale ? `Not updated since ${when(model.at, model.at)}` : `Read ${when(model.at, model.at)} · reload to read again`;
   const run = RUN.test(view.arg ?? "") ? task.runs.find(item => item.id === view.arg) : null;
   const chief = item => item?.chief ? esc(chiefName(item.chief, item.provider)) : panel.chief ? esc(chiefName(panel.chief.id, panel.chief.provider)) : "not recorded";
-  const taskHref = `/app/${BACK[view.back] ?? BACK.tasks}${encodeURIComponent(view.key)}`, taskA = (label = task.id) => `<a href="${esc(taskHref)}">${esc(label)}</a>`, taskLink = taskA();
+  const taskHref = `/app/#task?key=${encodeURIComponent(view.key)}`, taskA = (label = task.id) => `<a href="${esc(taskHref)}">${esc(label)}</a>`, taskLink = taskA();
   const picture = (file, alt, n) => `<span class="zoom" id="p${n}"><a href="#p${n}" aria-label="Enlarge the picture ${esc(alt || file)}"><img src="${esc(pagesBase + file)}" alt="${esc(alt)}" loading="lazy"></a><a class="x" href="#_">Close the picture</a></span>`;
   let pictures = 0;
   const markdown = (text, base = "") => { const out = render(text, {
@@ -220,13 +268,7 @@ export function readerPage({ model, configured, url, origin, render }) {
   const pages = {
     brief() {
       if (!run) return runMissing();
-      const codex = /^[a-z-]+$/.test(run.role) ? `sage_${run.role.replaceAll("-", "_")}_${task.id.toLowerCase()}_${run.id.toLowerCase()}.json` : null;
-      let text, problem, from = `${run.id}.md`;
-      try {
-        text = dir ? readText(join(dir, "briefs", from)) : undefined;
-        const kept = text === undefined && dir && codex ? readText(join(dir, "briefs", codex)) : undefined;
-        if (kept !== undefined) { text = JSON.parse(kept)?.text; from = codex; if (typeof text !== "string") throw unread("The file has no brief text."); }
-      } catch (error) { problem = whyUnread(error); }
+      const { text, problem, from } = readBrief(dir, task.id, run);
       const head = [["Run", esc(run.id)], ["Role", esc(run.role)], ["Task", taskLink], ["Chief", chief(run)], ["Model", esc(run.model || "not recorded")], ["Started", esc(when(run.started, model.at))]];
       const side = `<aside class="side"><h2>This run</h2><ul><li><a href="${esc(link("report", run.id))}">Report of ${esc(run.id)}</a></li><li>${taskA(`Task ${task.id}`)}</li></ul><p>GOAL and ACCEPTANCE open first: what the agent must do, and how the chief checks it. A closed field shows its first line.</p></aside>`;
       if (problem) return { crumb: run.id, title: `Brief of ${run.id}`, head, body: note(`<b>The board cannot read this brief.</b> ${esc(problem)}`, "fail") };

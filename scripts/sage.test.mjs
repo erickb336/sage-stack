@@ -3083,7 +3083,17 @@ test("T314: task add takes --priority and --kind, and task set takes priority= a
   assert.equal(s.ok("task", "T2", "set", "priority=P0", "kind=docs"), "T2 framed · tiny · round 0 · route build · P0 · kind docs");
   assert.equal(s.ok("task", "T1", "set", "kind=none"), "T1 framed · small · round 0 · route build,code-review,qa · P1");
   assert.deepEqual(rows(s.dir, "tasks").map((t) => [t.id, t.priority, t.kind]), [["T1", "P1", ""], ["T2", "P0", "docs"]]);
-  assert.match(s.no("task", "T2", "set", "colour=red"), /^sage: task set takes state=, branch=, pr=, title=, priority=, kind=, waits=, milestone=, release= or approval=$/);
+  assert.match(s.no("task", "T2", "set", "colour=red"), /^sage: task set takes state=, branch=, pr=, title=, request=, priority=, kind=, waits=, milestone=, release= or approval=$/);
+});
+
+test("T1083: task set request= keeps the owner's request on one line, in a column that the logbook adds when a task first has one; none clears it", () => {
+  const s = store();
+  s.ok("task", "add", "--title", "Fix the crash", "--size", "small", "--priority", "P1");
+  assert.equal(readFileSync(join(s.dir, "tasks.tsv"), "utf8").split("\n")[0].split("\t").includes("request"), false, "no task has a request, so no column");
+  s.ok("task", "T1", "set", "request=Edits made offline must never get lost.\tKeep\nthem.");
+  assert.deepEqual(rows(s.dir, "tasks").map((t) => [t.id, t.request]), [["T1", "Edits made offline must never get lost. Keep them."]], "a tab or a line break becomes a space");
+  s.ok("task", "T1", "set", "request=none");
+  assert.deepEqual(rows(s.dir, "tasks").map((t) => [t.id, t.request ?? ""]), [["T1", ""]], "none clears it");
 });
 
 const SCALE = "A task needs a priority: P0 the owner's current focus and what blocks it; P1 next: function or safety bugs, work in flight, pre-pilot items; P2 later: polish, hardening lows, follow-ups; P3 parked but kept.";
