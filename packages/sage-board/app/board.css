@@ -498,6 +498,8 @@ input:not([type]), input[type="text"] { font: inherit; color: inherit; backgroun
 .about-skel i { display: block; height: 14px; width: 60%; border-radius: 4px; background: var(--line); }
 
 @media (max-width: 760px) {
+  .counts .kpi { padding: 12px; }
+  .counts .kpi .n { font-size: 22px; }
   .ms > li { grid-template-columns: 18px minmax(0, 1fr) auto; row-gap: 6px; }
   .ms .bar { grid-column: 2; }
   .ms .name { flex-wrap: wrap; }
