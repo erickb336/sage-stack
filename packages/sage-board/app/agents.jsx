@@ -5,6 +5,8 @@ import { MARKS, OBJECTS, chiefName, runWord, shown } from "../../sage-core/state
 
 const MIN = 60_000, SEATS_MAX = 30;
 const LEGEND = [["running", "running"], ["done", "done"], ["question", "question"], ["failed", "failed"], ["look", "stuck"], ["queued", "queued"]].map(([bar, state]) => [bar, shown(OBJECTS.agent.states[state]).text]);
+const RUN = runWord("running").text, WAIT = runWord("queued").text;
+const limitNote = (n, limit) => n > limit ? " · over the limit" : n >= limit ? " · at the limit" : "";
 const chiefKey = id => id ?? "none";
 const chiefTitle = chief => chief.id ? chiefName(chief.id, chief.provider) : chief.name;
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -22,13 +24,13 @@ export function LimitCounts({ agents }) {
   if (!agents?.length) return null;
   if (agents.length > 1) {
     const running = agents.reduce((n, book) => n + book.running, 0), queued = agents.reduce((n, book) => n + book.queued, 0);
-    return <a className="limit" href="#agents">Agents <b>{running} running</b> in {agents.length} projects{queued > 0 && ` · ${queued} queued`}</a>;
+    return <a className="limit" href="#agents">Agents <b>{running} {RUN}</b> in {agents.length} projects{queued > 0 && ` · ${queued} ${WAIT}`}</a>;
   }
   const [book] = agents, full = book.running >= book.limit, leads = book.leads >= book.leadLimit;
   return (
     <>
       <a className={`limit${full ? " full" : ""}`} href="#agents" title="Running agents of every chief, against the project's one limit">
-        Agents <b>{book.running} of {book.limit}</b>{book.byChief.map(item => <span key={chiefKey(item.chief)}> · {item.chief ?? "no chief"} {item.count}</span>)}{book.queued > 0 && <b> · {book.queued} queued</b>}
+        Agents <b>{book.running} of {book.limit}</b>{book.byChief.map(item => <span key={chiefKey(item.chief)}> · {item.chief ?? "no chief"} {item.count}</span>)}{book.queued > 0 && <b> · {book.queued} {WAIT}</b>}
       </a>
       <a className={`limit${leads ? " full" : ""}`} href="#agents" title="Lead runs that run or wait in the queue, against the project's lead limit">Leads <b>{book.leads} of {book.leadLimit}</b></a>
     </>
@@ -73,7 +75,7 @@ function LeadCard({ lead, helpers, queued, more, now, step }) {
       <Fold runs={ended} total={lead.endedHelpers ?? ended.length} now={now} />
       <footer className="acard-f">
         <span>Lead's own work: {age(lead, now)} · {tokens(lead.tokens)} · {lead.model ?? "model not recorded"}</span>
-        <span>{shown.filter(run => run.status === "running").length} running{queued > 0 && ` · ${queued} queued`} · {plural(helpers.length + queued, "helper")}</span>
+        <span>{shown.filter(run => run.status === "running").length} {RUN}{queued > 0 && ` · ${queued} ${WAIT}`} · {plural(helpers.length + queued, "helper")}</span>
       </footer>
     </section>
   );
@@ -123,8 +125,8 @@ function OwnRuns({ label, note, runs, more = 0, now, failed = false }) {
 function Queued({ runs, now }) {
   if (!runs.length) return null;
   return (
-    <section className="queue" aria-label="Queued">
-      <p className="queue-h"><b>Queued</b> <span className="faint">Each run waits for an agent slot. The oldest starts first, when an agent of any chief ends.</span></p>
+    <section className="queue" aria-label={WAIT}>
+      <p className="queue-h"><b>{WAIT[0].toUpperCase() + WAIT.slice(1)}</b> <span className="faint">Each run waits for an agent slot. The oldest starts first, when an agent of any chief ends.</span></p>
       <div className="squad">{runs.map(run => <AgentTile key={run.id} run={run} now={now} task />)}</div>
     </section>
   );
@@ -154,7 +156,7 @@ function ChiefBox({ chief, runs, failedMore, tasks, now }) {
         {chief.autopilot !== null && chief.autopilot !== undefined && !stopped && <span className={`badge${chief.autopilot ? " pick" : ""}`}>Autopilot {chief.autopilot ? "on" : "off"}</span>}
         {chief.waits && <span className="badge need">{MARKS["needs you"]} a question for you</span>}
         <span className="grow" />
-        <span className="hint">{plural(leads.length, "lead")} · {running} running{queued.length > 0 && ` · ${queued.length} queued`}</span>
+        <span className="hint">{plural(leads.length, "lead")} · {running} {RUN}{queued.length > 0 && ` · ${queued.length} ${WAIT}`}</span>
       </div>
       {stopped && (
         <div className="stopped-note">
@@ -182,8 +184,8 @@ function Seats({ book }) {
   return (
     <div className="seats" aria-label="Seats against the limit">
       <p className="seats-h"><b>Seats</b> <span className="faint">One limit for the whole project, shared by every chief in Claude and Codex. Each running agent takes a seat; a chief does not. A lead counts while it runs or waits in the queue.</span></p>
-      {over ? <p className="seat-bar" role="img" aria-label={`${book.running} of ${book.limit} seats used, ${book.queued} queued`}><span style={{ width: `${Math.min(100, (100 * book.running) / Math.max(1, book.limit))}%` }} /><b>{book.running} of {book.limit}</b>{book.queued > 0 && ` · ${book.queued} queued`}</p> : (
-        <div className="seat-row" role="img" aria-label={`${groups.map(group => `${group.label} ${group.count}`).join(", ")}, limit ${book.limit}${book.queued ? `, ${book.queued} queued` : ""}`}>
+      {over ? <p className="seat-bar" role="img" aria-label={`${book.running} of ${book.limit} seats used, ${book.queued} ${WAIT}`}><span style={{ width: `${Math.min(100, (100 * book.running) / Math.max(1, book.limit))}%` }} /><b>{book.running} of {book.limit}</b>{book.queued > 0 && ` · ${book.queued} queued`}</p> : (
+        <div className="seat-row" role="img" aria-label={`${groups.map(group => `${group.label} ${group.count}`).join(", ")}, limit ${book.limit}${book.queued ? `, ${book.queued} ${WAIT}` : ""}`}>
           {groups.filter(group => group.count).map(group => <span className={`sg ${group.kind}`} key={group.key}><span className="sq">{Array.from({ length: group.count }, (_, i) => <i key={i} />)}</span><span className="sl">{group.label} <b>{group.count}</b></span></span>)}
           <span className="sg limitmark"><span className="sq"><i /></span><span className="sl">limit <b>{book.limit}</b></span></span>
           {book.queued > 0 && <span className="sg queued"><span className="sq">{Array.from({ length: book.queued }, (_, i) => <i key={i} />)}</span><span className="sl">queued <b>{book.queued}</b></span></span>}
@@ -252,9 +254,9 @@ function Book({ book, model, chief, now, many }) {
       <div className="card seat-card">
         <Seats book={book} />
         <div className="kpis agents-kpis" aria-label="Counts against the limits">
-          <div className={`kpi${full ? " full" : ""}`} data-count="agents"><div className="l">agents running{full && " · at the limit"}</div><div className="n">{book.running} <span>of {book.limit}</span></div></div>
-          <div className={`kpi${leads ? " full" : ""}`} data-count="leads"><div className="l">leads{leads && " · at the limit"}</div><div className="n">{book.leads} <span>of {book.leadLimit}</span></div></div>
-          <div className={`kpi${book.queued ? " full" : ""}`} data-count="queued"><div className="l">queued</div><div className="n">{book.queued}</div></div>
+          <div className={`kpi${full ? " full" : ""}`} data-count="agents"><div className="l">agents {RUN}{limitNote(book.running, book.limit)}</div><div className="n">{book.running} <span>of {book.limit}</span></div></div>
+          <div className={`kpi${leads ? " full" : ""}`} data-count="leads"><div className="l">leads{limitNote(book.leads, book.leadLimit)}</div><div className="n">{book.leads} <span>of {book.leadLimit}</span></div></div>
+          <div className={`kpi${book.queued ? " full" : ""}`} data-count="queued"><div className="l">{WAIT}</div><div className="n">{book.queued}</div></div>
           <div className={`kpi${book.look ? " look" : ""}`} data-count="look"><div className="l">{MARKS.problem} with a problem flag</div><div className="n">{book.look}</div></div>
         </div>
       </div>
