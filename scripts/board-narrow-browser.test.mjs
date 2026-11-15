@@ -117,3 +117,19 @@ test("T1099 F-T1099-49: a run that ended on a product question reads needs you, 
   assert.equal(await tile.count(), 1, "the ended helper's badge says needs you");
   assert.equal(await tile.evaluate(element => getComputedStyle(element).color), need, "in the question colour, not red");
 });
+
+test("T1099 F-T1099-54: in the Tasks rows, a step that needs you carries ? and a step with a problem carries !, so it reads without colour", async t => {
+  const base = await board(t);
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "dark", reducedMotion: "reduce" });
+  t.after(() => context.close());
+  await context.route("**/*", route => route.request().url().startsWith(`${base}/`) ? route.continue() : route.abort());
+  const page = await context.newPage();
+  await page.goto(`${base}/app/#tasks`);
+  await page.locator(".row").first().waitFor();
+  const steps = await page.locator(".row .step").evaluateAll(list => list.map(step => ({ status: step.className.replace("step", "").trim(), shown: step.querySelector('[aria-hidden="true"]')?.textContent.trim() ?? "", heard: step.querySelector(".sr")?.textContent ?? "" })));
+  const of = status => steps.filter(step => step.status === status);
+  assert.ok(of("need").length && of("fail").length && of("run").length, `the sample has each kind of step: ${JSON.stringify(steps)}`);
+  assert.deepEqual([...new Set(of("need").map(step => step.shown + step.heard))], ["?needs you: "]);
+  assert.deepEqual([...new Set(of("fail").map(step => step.shown + step.heard))], ["!done · failed: "]);
+  assert.deepEqual([...new Set(of("run").map(step => step.shown))], [""], "a step in progress needs no mark");
+});
