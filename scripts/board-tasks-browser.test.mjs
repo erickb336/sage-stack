@@ -105,7 +105,7 @@ test("T1061, T1064, T1059: J2 and J3 are within two clicks of the Overview, and 
   await page.locator("main h1").filter({ hasText: "Can a viewer copy a shared list into their own lists?" }).waitFor();
   assert.equal((await page.request.get(page.url())).status(), 200, "the reader's question page answers 200");
   assert.equal(clicks, 2, "J1: the full question in two clicks");
-  assert.match(await page.locator("main").textContent(), /The answers.*A: yes, as a new private list.*C1's pick.*B: no/s, "the chief's pick first");
+  assert.match(await page.locator("main").textContent(), /Answers.*A: yes, as a new private list.*C1's pick.*B: no/s, "the chief's pick first");
   await page.getByRole("link", { name: /Back to Needs you/ }).click();
   await page.getByRole("heading", { name: "Needs you" }).waitFor();
   await page.goto(`${base}/app/#tasks?task=${encodeURIComponent(KEY("T10"))}`);

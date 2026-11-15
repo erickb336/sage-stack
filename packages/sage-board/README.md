@@ -89,7 +89,7 @@ The reader shows what the agents made, as pages of the board at `/read/<task>/<k
 | Markdown page | `page/<file>.md` | The page with a contents list and its pictures, from the task's pages folder. |
 | Design | `design` | One version (today), or two side by side, from `designs/<version>/`. |
 | Arena | `arena` | The candidates, the judge's scores and the judge's final. |
-| Question | `question/G<n>` | The full question from `gates/G<n>.json`: Needed by and If you do not answer first, every part, then the answers with the chief's pick first. It only reads: answer in the chief's chat. |
+| Question | `question/G<n>` | The full question from `gates/G<n>.json`: every part in one column, in the message's order, each under its short label (Due and Default as well), with the answers where the message puts them and the chief's pick first. A question kept before the short labels shows its own older labels. It only reads: answer in the chief's chat. |
 
 A page says "not written yet" while its run runs, "not kept" for a run or question older than T1058, and "gone" for a recorded page that is no longer in the pages folder.
 
