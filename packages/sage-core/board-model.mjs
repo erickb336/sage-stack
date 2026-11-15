@@ -98,7 +98,7 @@ function stepLine({ task, route, cycles, required, head, judged, reasons, proble
   const failed = reviewing && judged && !allClean ? cycles[at].steps.filter(step => step.status === "failed").map(step => ROLE_WORD[step.role] ?? step.role) : [];
   let [step, who, started] = PHASE[state];
   if (allClean) [step, who, started] = ["merge", "chief", false];
-  if (["verified", "pr-ready"].includes(state) && (autopilot || !build)) who = "chief";
+  if (["verified", "pr-ready"].includes(state) && (autopilot || !build) && !reasons.length) who = "chief";
   if (state === "awaiting-you" && answered) who = "chief";
   if (gate && who !== "done") who = "owner";
   else if (problems.length && who === "owner") who = "chief";
@@ -157,7 +157,7 @@ function stepLine({ task, route, cycles, required, head, judged, reasons, proble
   }
 
   const mergeDetail = { before: build ? task.state === "concluded" ? "Closed with no merge." : "Merged." : "The report went to you.", after: build ? `After ${plural(required, "clean cycle")}${required > 1 ? " on one commit" : ""}.` : "The report goes to you." }[place("merge")]
-    ?? heldAt ?? (!build ? "The chief concludes it." : task.state === "verifying" || allClean ? "The chief checks the verdicts first." : merge && !merge.ok ? merge.text
+    ?? (heldAt && merge && !merge.ok ? `${merge.text} ${heldAt}` : heldAt) ?? (!build ? "The chief concludes it." : task.state === "verifying" || allClean ? "The chief checks the verdicts first." : merge && !merge.ok ? merge.text
       : `${merge ? `${merge.text} ` : ""}${autopilot ? "Autopilot merges it."
       : reasons.some(reason => reason.kind === "merge" && reason.mode) ? "Autopilot is off, so the merge waits for you." : "The board cannot tell if autopilot is on, so the merge waits for you."}`);
   steps.push({ key: "merge", label: build ? "Merge" : "Conclude", status: mark("merge"), detail: mergeDetail });

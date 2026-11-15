@@ -389,6 +389,18 @@ test("T305: the step line and the Now and Next lines follow the fixed rule of ea
   assert.deepEqual([line(merged), merged.loop.now.text, merged.loop.next], [["Plan: done", "Build: done", "Review 1 of 1: done", "Merge: done"], "Merged.", null]);
 });
 
+test("T1099 (F-T1099-52, F-T1099-50): a verified task that needs you shows its Merge step as needs you, and a refused merge keeps its reason on the Merge step while a question holds the task", () => {
+  const clean = { ledger: ["checks-pass", "review-clean", "qa-pass"].map(kind => ({ task: "T1", pr: "41", sha: head, kind, cycle: "1", at: now })) };
+  const noCheck = oneTask(task("T1", "verified", { pr: "41" }), clean, [observation("mode", { autopilot: true })], {}, null);
+  assert.equal(taskWord(noCheck).word, "needs you");
+  assert.equal(line(noCheck).at(-1), "Merge: need", "the step agrees with the task's word, not 'waiting'");
+  const gates = [{ id: "G1", task: "T1", question: "Sample: go on?", recommendation: "a", answer: "" }];
+  const held = oneTask(task("T1", "verified", { pr: "41" }), { ...clean, gates }, [observation("mode", { autopilot: true })], {}, () => ({ ok: false, reason: "T1 has open findings: F-T1-1. Fix them." }));
+  assert.equal(held.loop.steps.at(-1).detail, "The merge check refuses aaaaaaa. T1 has open findings: F-T1-1. Held at gate G1 (the question above).");
+  const auto = oneTask(task("T1", "verified", { pr: "41" }), clean, [observation("mode", { autopilot: true })]);
+  assert.equal(line(auto).at(-1), "Merge: idle", "with nothing for you, autopilot's merge is the chief's");
+});
+
 test("T280: a verified PR is ready to merge only when the merge check passes on its known head; else the board says why", () => {
   const clean = { ledger: ["checks-pass", "review-clean", "qa-pass"].map(kind => ({ task: "T1", pr: "41", sha: head, kind, cycle: "1", at: now })) };
   const mode = [observation("mode", { autopilot: false })];
