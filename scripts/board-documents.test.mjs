@@ -64,7 +64,7 @@ test("T1064: a report shows the STATUS pill, RESULT first, each finding as a row
   assert.deepEqual(logbookRows(page.html), ["F-T3-1 medium revoked-limit-applies-10-min open", "F-T3-2 low limit-field-no-label follow-up"], "R5's own rows, not R4's row with the key F1");
   assert.match(page.html, /<h2 class="sec">In the logbook<\/h2><p class="muted">The logbook's own record of these findings, with their states:<\/p><table/);
   assert.deepEqual(fieldsOpen(page.html), ["FINDINGS open", "QUESTIONS", "EVIDENCE", "NOT VERIFIED open", "BRANCH open"], "QUESTIONS none stays closed");
-  assert.match(page.html, /<a href="https:\/\/github\.com\/sample-owner\/sample-app\/pull\/12">PR #12<\/a>/);
+  assert.match(page.html, /<a href="https:\/\/github\.com\/sample-owner\/sample-app\/pull\/12">PR 12<\/a>/);
   assert.match(page.html, /head b{40}, PR 12/);
 });
 

@@ -231,7 +231,7 @@ test("T1062 F-T1062-9, F-T1062-11, F-T1062-14, F-T1062-18, F-T1062-19: helpers, 
   assert.equal(byId.R20.endedHelpers, 1300, "the lead knows how many ended helpers it has");
   assert.equal(book.runs.filter(run => run.lead === "R20" && run.status === "done").length, 20, "only the last 20 ended helpers travel to the page");
   const log = taskPanel(model, KEY("T40")).log;
-  assert.deepEqual(log.filter(event => event.who === "R38").map(event => event.text), ["qa ended: failed", "qa admitted from the queue, but its agent did not start"], "a lapsed admission never says started");
+  assert.deepEqual(log.filter(event => event.who === "R38").map(event => event.text), ["qa ended: stopped · failed", "qa admitted from the queue, but its agent did not start"], "a lapsed admission never says started");
   assert.deepEqual(log.filter(event => event.who === "R39").map(event => event.text), ["code-reviewer ended: done", "code-reviewer started after its place in the queue"]);
 });
 

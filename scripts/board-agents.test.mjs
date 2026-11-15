@@ -156,7 +156,7 @@ test("T308: the page shows each state with a mark and a word, the tree, the caps
   assert.match(html, /<span class="cap full">.*sample 2 of 2 · at cap<\/span>/);
   assert.match(html, /model opus<\/span><span>running 50 min<\/span><span>last activity 1 min ago/);
   assert.ok(html.includes('<b>1 run has no hook record.</b> The logbook says R9 (sample) runs, but no agent slot holds it. Each row stays, marked "may be stuck", until the chief ends the run.</div>'), "R1449-1: the chief ends the run");
-  assert.match(html, /<b class="needn">1<\/b> needs a look/);
+  assert.match(html, /<b class="needn">1<\/b> with a problem flag/);
   assert.match(html, /<a href="\/agents" aria-current="page">Agents \(3\)<\/a>/);
   const offline = renderAgentsHtml(model);
   assert.ok(!offline.includes('class="boardtabs"') && !offline.includes('href="/task/'));
@@ -182,4 +182,12 @@ test("T1062 F-T1062-1, F-T1062-2: a shared project shows its logbook's limit and
   const html = renderAgentsHtml(model, { live: true });
   assert.match(html, /Project cap 2 of 4/);
   assert.ok(!html.includes("of 9"), "no provider root value shows");
+});
+
+test("F-T1096-6: the Agents page's key 'How each state is decided' names each state with the table's mark and words, and shows no 'undefined'", () => {
+  const html = renderAgentsHtml(buildBoardModel([claude([book("sample-abcdef", [run("R1", "qa", 5)])], [slot("slot-1", ["project-sample", "role-sage_qa", "run-R1"], 1)])], { now: NOW }));
+  const key = html.slice(html.indexOf("How each state is decided"), html.indexOf("</section>", html.indexOf("How each state is decided")));
+  assert.doesNotMatch(key, /undefined/);
+  assert.deepEqual([...key.matchAll(/<li><b>([^<]+)<\/b>/g)].map(([, name]) => name),
+    ["▶ in progress", "⧗ waiting", "! in progress · may be stuck", "! in progress · running long", "! stopped · run still open", "▶ in progress"]);
 });

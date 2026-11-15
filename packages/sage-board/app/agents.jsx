@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
 import { AgentMark, clock } from "./agent.jsx";
-import { Panel, ofChief, taskLink } from "./panel.jsx";
-import { UNKNOWN, chiefName } from "../../sage-core/state-words.mjs";
+import { Panel, chiefState, chiefSub, ofChief, taskLink } from "./panel.jsx";
+import { MARKS, OBJECTS, chiefName, runWord, shown } from "../../sage-core/state-words.mjs";
 
 const PAGE = "agents", MIN = 60_000;
+const LEGEND = [["running", "running"], ["done", "done"], ["failed", "failed"], ["look", "stuck"], ["queued", "queued"]].map(([bar, state]) => [bar, shown(OBJECTS.agent.states[state]).text]);
 const chiefKey = id => id ?? "none";
-const title = text => text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : `provider ${UNKNOWN}`;
 const chiefTitle = chief => chief.id ? chiefName(chief.id, chief.provider) : chief.name;
-const chiefSub = chief => { const head = `${title(chief.provider)} · `; return chief.name.startsWith(head) ? chief.name.slice(head.length) : chief.name; };
 
 function useNow(at) {
   const [now, setNow] = useState(() => Date.now());
@@ -90,7 +89,7 @@ function ChiefBox({ chief, runs, failedMore, tasks, now, selected }) {
         <h2 id={`chief-${chief.key}`}>{chiefTitle(chief)}</h2>
         {chief.id && <span className="faint">{chiefSub(chief)}</span>}
         {chief.autopilot !== null && chief.autopilot !== undefined && !stopped && <span className={`badge${chief.autopilot ? " pick" : ""}`}>Autopilot {chief.autopilot ? "on" : "off"}</span>}
-        {stopped && <span className="badge">Stopped</span>}
+        {stopped && <span className="badge">{chiefState("stopped")}</span>}
         <span className="grow" />
         <span className="hint">{leads.length} {leads.length === 1 ? "lead" : "leads"} · {running} running{queued.length > 0 && ` · ${queued.length} queued`}</span>
       </div>
@@ -138,7 +137,7 @@ function Timeline({ groups, now }) {
                   <span className={`lane-l${indent ? " in" : ""}`}>{run.role} <span className="mono faint">{run.id}</span></span>
                   <div className="track">
                     {ticks.map(at => <i key={at} className="gline" style={{ left: x(at) }} />)}
-                    {to >= start && <span className={`lbar ${bar}`} style={{ left: x(from), width: `max(3px, calc(${x(to)} - ${x(from)}))` }} title={`${run.role} ${run.id} · ${run.status} · ${clock(run.started)}${run.ended ? ` to ${clock(run.ended)}` : ""}`} />}
+                    {to >= start && <span className={`lbar ${bar}`} style={{ left: x(from), width: `max(3px, calc(${x(to)} - ${x(from)}))` }} title={`${run.role} ${run.id} · ${runWord(run.status).text} · ${clock(run.started)}${run.ended ? ` to ${clock(run.ended)}` : ""}`} />}
                   </div>
                 </div>
               );
@@ -147,7 +146,7 @@ function Timeline({ groups, now }) {
         ))}
       </div>
       <ul className="legend" aria-label="Bar colours">
-        <li><span className="lbar running" />Running</li><li><span className="lbar done" />Done</li><li><span className="lbar failed" />Failed</li><li><span className="lbar look" />Needs a look</li><li><span className="lbar queued" />Queued</li>
+        {LEGEND.map(([bar, text]) => <li key={bar}><span className={`lbar ${bar}`} />{text}</li>)}
       </ul>
     </section>
   );
@@ -174,7 +173,7 @@ function Book({ book, model, chief, selected, now, many }) {
         <div className={`kpi${full ? " full" : ""}`} data-count="agents"><div className="n">{book.running} <span>of {book.limit}</span></div><div className="l">agents running{full && " · at the limit"}</div></div>
         <div className={`kpi${leads ? " full" : ""}`} data-count="leads"><div className="n">{book.leads} <span>of {book.leadLimit}</span></div><div className="l">leads{leads && " · at the limit"}</div></div>
         <div className={`kpi${book.queued ? " full" : ""}`} data-count="queued"><div className="n">{book.queued}</div><div className="l">queued</div></div>
-        <div className={`kpi${look ? " look" : ""}`} data-count="look"><div className="n">{look}</div><div className="l">{look === 1 ? "needs" : "need"} a look</div></div>
+        <div className={`kpi${look ? " look" : ""}`} data-count="look"><div className="n">{look}</div><div className="l">{MARKS.problem} with a problem flag</div></div>
       </div>
       <p className="hint limits-note">One limit for the whole project, shared by every chief in Claude and Codex, from the project's logbook. Chiefs do not count; only running agents do. A lead counts while it runs or waits in the queue.</p>
       {boxes.length ? boxes.map(({ chief: item, runs }) => <ChiefBox key={item.key} chief={item} runs={runs} failedMore={book.failedMore} tasks={model.tasks} now={now} selected={selected} />)

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildBoardModel, milestoneWord, releaseWord, renderBoardHtml, renderBoardText, renderMilestonesHtml, renderTaskText, taskWord } from "../packages/sage-core/index.mjs";
-import { FLAGS, MARKS as MARKS_TABLE, OBJECTS, STEPS, URGENCY, WORDS, chiefName, prName, shown } from "../packages/sage-core/state-words.mjs";
+import { FLAGS, KINDS, MARKS as MARKS_TABLE, OBJECTS, STEPS, URGENCY, WORDS, chiefName, prName, shown } from "../packages/sage-core/state-words.mjs";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createRequire } from "node:module";
@@ -102,8 +102,8 @@ test("T1002: a missing card, reasons or words read as an unknown state or an emp
   assert.deepEqual(releaseWord(), { word: "not started", reason: "Nothing is in it yet." });
 });
 
-test("T1002: 'needs you' agrees with the board's Needs you box, but for the design's two changes", () => {
-  const changed = new Set([...CASES.map(([name]) => name).filter(name => name.startsWith("F5:")), "a done task with an open gate keeps its word"]);
+test("T1002: 'needs you' agrees with the board's Needs you box, but for a done task; a refused merge is in neither (F-T1096-8)", () => {
+  const changed = new Set(["a done task with an open gate keeps its word"]);
   const sample = MILESTONES_NOW, board = buildBoardModel([milestonesSource()], { now: sample });
   const cards = [...CASES.map(([name, fixture]) => [name, model(fixture)]).map(([name, built]) => [name, built.tasks.find(card => card.id === "T1"), built]),
     ...board.tasks.map(card => [`milestones fixture ${card.id}`, card, board])];
@@ -191,7 +191,7 @@ test("T997: each web card shows its word with its mark, and a stopped task, whic
 test("T997: each chat board line shows its word after the title, and a wait names the word of the task that it waits for", () => {
   const board = sixBoard(), text = renderBoardText(board);
   for (const [id, word] of Object.entries(SHOWN).filter(([id]) => id !== "T6")) assert.ok(text.includes(`**Sample** ${id} · ${word} · one · `), `${id}: ${text}`);
-  assert.ok(text.includes("**1 · T4 Sample** · needs you · one · "), "the Needs you item too");
+  assert.ok(text.includes("**1 · Sample** T4 · needs you · one · "), "the Needs you item too");
   assert.ok(text.includes("⧗ Waits for T3 \\(in progress\\)\\.") && text.includes("⊘ Waits for T6 \\(stopped\\)\\: it cannot start\\."), text);
   assert.equal(renderTaskText(board.tasks.find(card => card.id === "T6")).split("\n")[1], "one · sample · stopped · small", "the chat lookup of one task");
 });
@@ -247,4 +247,30 @@ test("T1096: the board app and the message command take their words from the tab
   assert.ok(Object.keys(app.metafile.inputs).includes("packages/sage-core/state-words.mjs"), "the app bundles the table");
   const readers = ["packages/sage-core/board-render.mjs", "packages/sage-core/message.mjs", ...readdirSync(join(ROOT, "packages/sage-board/app")).filter(name => name.endsWith(".jsx")).map(name => `packages/sage-board/app/${name}`)];
   for (const file of readers) assert.doesNotMatch(readFileSync(join(ROOT, file), "utf8"), /"not started", "waiting", "needs you"|"needs you", "in progress", "waiting"|not known"|#\$\{[^}]*\.pr\}|[○⧗▶■◫◎◌]/, file);
+});
+
+test("F-T1096-1, F-T1096-12: the task page and the chat lookup show each run's word and flag from the table, never the tool's status", () => {
+  const STATUSES = { failed: "stopped · failed", blocked: "stopped · blocked", done: "done", question: "done", queued: "waiting", running: "in progress" };
+  const runs = Object.keys(STATUSES).map((status, i) => ({ id: `R${i + 1}`, task: "T1", role: "qa", round: "0", status, started: now, ended: status === "running" || status === "queued" ? "" : now, tokens: "1" }));
+  const board = buildBoardModel([{ id: "one", label: "one", diagnostics: [], config: {}, projects: [{ key: "one/sample-abcdef", name: "sample-abcdef", diagnostics: [], tables: { tasks: [task("T1", "reviewing", { pr: "41" })], runs }, observations: { version: 1, records: [] } }] }], { now });
+  const card = board.tasks[0], page = renderBoardHtml(board, { snapshot: false, taskKey: card.key }), chat = renderTaskText(card);
+  assert.deepEqual([...page.matchAll(/<td><span class="st-[a-z]+">([^<]+)<\/span><\/td>/g)].map(([, word]) => word), Object.values(STATUSES));
+  assert.deepEqual(chat.split("**Agent runs**\n")[1].split("\n\n")[0].split("\n").map(line => line.split(" · ")[2] === "stopped" ? line.split(" · ").slice(2, 4).join(" · ") : line.split(" · ")[2]), Object.values(STATUSES));
+});
+
+test("F-T1096-2: no mark has two meanings, also across the kind tags and the offer line, on the web board and in the chat", () => {
+  const meanings = new Map();
+  for (const [meaning, mark] of [...Object.entries(MARKS_TABLE), ...Object.entries(KINDS).map(([kind, [mark]]) => [`kind ${kind}`, mark])]) meanings.set(mark, [...meanings.get(mark) ?? [], meaning]);
+  assert.deepEqual([...meanings].filter(([, list]) => list.length > 1), []);
+  const board = model({ row: task("T1", "building", { kind: "orchestration" }) });
+  board.tasks[0].offer = "Offered to Codex · C2.";
+  const html = renderBoardHtml(board, { snapshot: true }), text = renderBoardText(board);
+  assert.ok(html.includes(`<span class="tag kind"><span aria-hidden="true">${KINDS.orchestration[0]}</span>Orchestration</span>`) && html.includes(`<span aria-hidden="true">${MARKS_TABLE.offer}</span> Offered to Codex`), "the web card");
+  assert.ok(text.includes(`${MARKS_TABLE.offer} Offered to Codex`), "the chat board");
+  for (const [kind, [mark]] of Object.entries(KINDS)) assert.ok(!Object.values(MARKS_TABLE).includes(mark), kind);
+});
+
+test("F-T1096-4: a task whose state the board cannot read shows the word unknown in the chat lookup", () => {
+  const board = model({ row: task("T1", "half-done") });
+  assert.equal(renderTaskText(board.tasks[0]).split("\n")[1], "one · sample · unknown · small");
 });

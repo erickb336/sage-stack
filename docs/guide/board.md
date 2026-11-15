@@ -68,6 +68,8 @@ The same words and marks show the steps of a task and the agents, from one table
 - `!` is a problem: failed, blocked, may be stuck, running long or run still open. The problem shows after the word, for example "in progress · may be stuck".
 - `◌` is a state that the board does not know. It reads "unknown".
 
+Each kind tag (for example `◇ Design` or `⋈ Orchestration`) and the offer line (`⇄`) have marks of their own, which no state uses.
+
 - A wait names the word of the task that it waits for, for example "Waits for T12 (in progress)".
 - A milestone's word comes from its breakdown: "needs you" while the breakdown waits for you, or when its pilot stopped; "stopped" when you dropped it. Else it comes from its tasks.
 - The status lines that the chief shows you (the `status` command) give the word of each release and each milestone. Their tasks line keeps the tool's own states.
@@ -77,6 +79,8 @@ The same words and marks show the steps of a task and the agents, from one table
 ## Needs you and task pages
 
 Needs you lists open questions with their options and recommendation, designs that wait for your answer, failed checks or QA, and PRs that need your review. A held task is on it only with an open question.
+
+When the merge check refuses a PR's head, the chief must fix it: the task stays "in progress", its Merge step shows "! in progress · blocked", and it is not in Needs you.
 
 Gate IDs include the source and project. The chief must resolve that exact logbook before recording an answer.
 
@@ -158,7 +162,7 @@ A count turns amber at its limit, and a click on it opens the page. The page sho
 
 A click on a row opens its task's side panel.
 
-The projects and the rows that need a look come first. Each row gives the provider, role, run, task (with a link to its task page), model, time running, last activity and a state.
+The projects and the rows with a problem flag come first. Each row gives the provider, role, run, task (with a link to its task page), model, time running, last activity and a state. A run that ended shows "done", "stopped · failed" or "stopped · blocked", and a queued run shows its place, for example "waiting · 1st in the queue".
 
 | State | Shown when |
 | --- | --- |

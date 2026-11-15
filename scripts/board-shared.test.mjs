@@ -124,7 +124,7 @@ test("the provider of each run comes from its chief in chiefs.tsv; a run with no
   assert.match(page(`shared/${FOLDER}/T319`), /<td class="id">R412<\/td><td><span class="ptag ptag-codex">Codex<\/span><\/td><td>designer<\/td>/);
   assert.match(page(`shared/${FOLDER}/T322`), /<td class="id">R430<\/td><td><span class="standin" tabindex="0" title="Stand-in: the run names no chief, so the board does not know its provider\."/);
   assert.match(page(`claude/${HARBOR}/T41`), /<th>Run<\/th><th>Agent<\/th><th>Status<\/th>/);
-  assert.match(renderTaskText(card(model, "T319")), /R412 Codex · designer · running/);
+  assert.match(renderTaskText(card(model, "T319")), /R412 Codex · designer · in progress/);
 });
 
 test("each shared card names its owning chief, an open offer, or Unclaimed; the Who filter goes by the owning chief's provider", t => {
@@ -271,7 +271,7 @@ test("a table that changes during a read gives a retry; after two more differenc
   assert.deepEqual(model.changing, [{ project: "harbor", at: iso() }]);
   assert.deepEqual(model.diagnostics, []);
   assert.match(renderBoardHtml(model), /<div class="banner warn changing" role="status">.*<b>The logbook is changing\.<\/b> The board shows the last read\. It reads again at the next change\.<ul class="diag"><li>harbor · last read \d\d:\d\d UTC<\/li><\/ul>/);
-  assert.match(renderBoardText(model), /⧗ The logbook is changing: harbor · read at \d\d\\:\d\d UTC\. The board shows that read; ask for the board again for a read with no change\./);
+  assert.match(renderBoardText(model), /The logbook is changing: harbor · read at \d\d\\:\d\d UTC\. The board shows that read; ask for the board again for a read with no change\./);
 });
 
 test("the server shows the changing note over its last good read, not stale, and the next read with no change removes it", async t => {
@@ -344,7 +344,7 @@ test("F-T624-2: when the third read lost its data, the changing note says what d
   const model = buildBoardModel(read, { now: iso() });
   assert.deepEqual(model.changing, [{ project: "harbor", at: iso(), dropped: ["the whole logbook"] }]);
   assert.match(renderBoardHtml(model), /<li>harbor · last read \d\d:\d\d UTC · not shown, as it changed during that read: the whole logbook<\/li>/);
-  assert.match(renderBoardText(model), /⧗ The logbook is changing: harbor · read at \d\d\\:\d\d UTC, without what changed during it \(the whole logbook\)\. The board shows that read;/);
+  assert.match(renderBoardText(model), /The logbook is changing: harbor · read at \d\d\\:\d\d UTC, without what changed during it \(the whole logbook\)\. The board shows that read;/);
   const calm = buildBoardModel(readBoardSources(sources, { now: NOW, duringRead: key => key.endsWith(HARBOR) && rewrite(dir, "Busy") }), { now: iso() });
   assert.deepEqual(calm.changing, [{ project: "harbor", at: iso() }]);
   assert.doesNotMatch(renderBoardText(calm), /without what changed/);
@@ -464,8 +464,8 @@ test("T625: a shared run shows its checkout folder under its role, never the pat
   const html = page("T321"), text = renderTaskText(card(model, "T321"));
   assert.match(html, /<td class="id">R407<\/td><td><span class="ptag ptag-claude">Claude<\/span><\/td><td>qa<div class="faint ck">checkout lantern<\/div><\/td>/);
   assert.match(html, /<td class="id">R420<\/td><td><span class="ptag ptag-claude">Claude<\/span><\/td><td>lead<\/td>/, "a run with no checkout shows no line");
-  assert.match(text, /^R407 Claude · qa · checkout lantern · running · /m);
-  assert.match(text, /^R420 Claude · lead · running · /m);
+  assert.match(text, /^R407 Claude · qa · checkout lantern · in progress · /m);
+  assert.match(text, /^R420 Claude · lead · in progress · /m);
   assert.doesNotMatch(html, /class="cknote"/);
   const note = "The folder lantern of R451 is not on this Mac now, so sage cannot read the branch there. The next review step of T330 stops until the folder is back.";
   const active = page("T330"), activeText = renderTaskText(card(model, "T330"));
@@ -474,7 +474,7 @@ test("T625: a shared run shows its checkout folder under its role, never the pat
   assert.equal(active.match(/class="cknote"/g)?.length, 1);
   assert.match(active, /<p class="cknote"><svg[^]*?<\/svg><span>The folder <b>lantern<\/b> of R451 is not on this Mac now, so sage cannot read the branch there\. The next review step of T330 stops until the folder is back\.<\/span><\/p>/);
   assert.match(activeText, /^R451 Claude · implementer · checkout lantern \(gone\) · done · /m);
-  assert.match(activeText, /^R452 Claude · code-reviewer · checkout lantern \(gone\) · running · /m);
+  assert.match(activeText, /^R452 Claude · code-reviewer · checkout lantern \(gone\) · in progress · /m);
   assert.ok(activeText.includes(`\n${note}\n\n**Evidence**`), "one line after the runs");
   const ended = page("T318"), endedText = renderTaskText(card(model, "T318"));
   assert.match(ended, /checkout lantern <span class="gone" tabindex="0"[^>]*>· gone/);
@@ -486,7 +486,7 @@ test("T625: a shared run shows its checkout folder under its role, never the pat
   const legacy = modelOf(w.sources), t41 = renderBoardHtml(legacy, { taskKey: `claude/${HARBOR}/T41`, snapshot: false });
   assert.match(t41, /<td class="id">R5<\/td><td>[^<]*(<[^>]*>[^<]*)*? · implementer<\/td>/);
   assert.doesNotMatch(t41, /class="faint ck"|class="cknote"|lantern \(gone\)/);
-  assert.match(renderTaskText(legacy.tasks.find(item => item.id === "T41")), /^R5 .* · implementer · running · /m);
+  assert.match(renderTaskText(legacy.tasks.find(item => item.id === "T41")), /^R5 .* · implementer · in progress · /m);
   assert.ok(!t41.includes(moved));
 });
 
@@ -514,7 +514,7 @@ test("T633: one checkout reads as before: its row adds nothing to the board, the
   const now = buildBoardModel(read, { now: iso() });
   assert.deepEqual(viewsOf(now), viewsOf(buildBoardModel(before, { now: iso() })));
   assert.equal(now.projects.find(project => project.name === "lantern").sub, "sample-owner/lantern · folder lantern");
-  assert.match(viewsOf(now)[4], /^R500 Claude · implementer · checkout lantern · running · /m);
+  assert.match(viewsOf(now)[4], /^R500 Claude · implementer · checkout lantern · in progress · /m);
   assert.deepEqual(now.notes, []);
 });
 
@@ -526,7 +526,7 @@ test("T633: two live checkouts show both names in the picker line and on their r
   assert.match(views[1], /2 checkouts: lantern, lantern-b/);
   assert.match(html, /<td class="id">R500<\/td><td><span class="ptag ptag-claude">Claude<\/span><\/td><td>implementer<div class="faint ck">checkout lantern<\/div><\/td>/);
   assert.match(html, /<td class="id">R501<\/td><td><span class="ptag ptag-claude">Claude<\/span><\/td><td>implementer<div class="faint ck">checkout lantern-b<\/div><\/td>/);
-  assert.match(text, /^R501 Claude · implementer · checkout lantern-b · running · /m);
+  assert.match(text, /^R501 Claude · implementer · checkout lantern-b · in progress · /m);
   assert.ok(lantern.terms.includes("lantern-b"));
   noPath(w, views);
   assert.ok(renderBoardHtml(model, { snapshot: false, paths: true }).includes(w.at("lantern-b")));
@@ -537,13 +537,13 @@ test("T633: two checkouts of one folder name get #1 and #2 by link order, and a 
   const both = withRuns(w, [w.checkout, w.at("clones/lantern")]);
   assert.equal(both.lantern.sub, "sample-owner/lantern · 2 checkouts: lantern #1, lantern #2");
   assert.match(both.html, /<td class="id">R500<\/td><td><span class="ptag ptag-claude">Claude<\/span><\/td><td>implementer<div class="faint ck">checkout lantern #1<\/div><\/td>/);
-  assert.match(both.text, /^R501 Claude · implementer · checkout lantern \\#2 · running · /m);
+  assert.match(both.text, /^R501 Claude · implementer · checkout lantern \\#2 · in progress · /m);
   noPath(w, both.views);
   rmSync(w.checkout, { recursive: true });
   const gone = withRuns(w, [w.checkout, w.at("clones/lantern")]);
   assert.equal(gone.lantern.sub, "sample-owner/lantern · folder lantern", "only live checkouts count");
-  assert.match(gone.text, /^R500 Claude · implementer · checkout lantern \\#1 \(gone\) · running · /m);
-  assert.match(gone.text, /^R501 Claude · implementer · checkout lantern \\#2 · running · /m);
+  assert.match(gone.text, /^R500 Claude · implementer · checkout lantern \\#1 \(gone\) · in progress · /m);
+  assert.match(gone.text, /^R501 Claude · implementer · checkout lantern \\#2 · in progress · /m);
   noPath(w, gone.views);
 });
 
@@ -709,7 +709,7 @@ test("F-T625-2, F-T625-5 and F-T625-6: a checkout name loses bidi characters; a 
   assert.deepEqual([past.checkoutName, past.checkoutGone], ["lantern", null], "the 68th distinct path is not checked");
   assert.equal(t320.runs.find(item => item.id === "R10").checkoutGone, true, "a path within the 64 checks is");
   assert.match(renderBoardHtml(model, { taskKey: `shared/${FOLDER}/T320`, snapshot: false }), /checkout lantern <span title="The board checks at most 64 checkout folders of a logbook, so it did not check if this one is on this Mac\.">· not checked/);
-  assert.match(renderTaskText(t320), /^R90 Claude · qa · checkout lantern \(not checked\) · running · /m);
+  assert.match(renderTaskText(t320), /^R90 Claude · qa · checkout lantern \(not checked\) · in progress · /m);
 });
 
 test("F-T624-5: the takeover gate's recommendation says when, as the design does: when you know that the chief stopped", t => {

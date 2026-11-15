@@ -1,6 +1,6 @@
 import { LINE, PRIORITIES, TASK_KINDS, proposalOf } from "./logbook-fields.mjs";
 import { ENDED, lostClause, lostWhy, MILESTONE_ID, milestoneName } from "./milestone-rules.mjs";
-import { MARKS, OBJECTS, STEPS, URGENCY, prName, releaseWord, shown, taskWord } from "./state-words.mjs";
+import { KINDS as KIND, MARKS, OBJECTS, STEPS, UNKNOWN, URGENCY, prName, releaseWord, runWord, shown, taskWord } from "./state-words.mjs";
 import { box, columns } from "./picture.mjs";
 import { pagePath } from "./message.mjs";
 import { pageTaskFolder } from "./page-files.mjs";
@@ -30,7 +30,6 @@ const NEED_ICON = '<svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="
 const STEP = Object.fromEntries([...Object.entries(STEPS), ["unknown", []]].map(([key, pair]) => [key, shown(pair)]));
 const MARK = Object.fromEntries(Object.entries(STEP).map(([key, step]) => [key, step.mark])), WORD = Object.fromEntries(Object.entries(STEP).map(([key, step]) => [key, step.text]));
 const status = value => MARK[value] ? value : "unknown";
-const KIND = { design: ["◇", "Design"], ui: ["▢", "UI"], orchestration: ["⇄", "Orchestration"], optimization: ["↗", "Optimization"], "bug-fix": ["✱", "Bug fix"], logbook: ["≡", "Logbook"], docs: ["¶", "Docs"], security: ["▲", "Security"], providers: ["⊞", "Providers"], checks: ["⊨", "Checks"] };
 const COLUMN_NAME = { done: "Done, last 7 days" };
 const BACKLOG_SHOWN = 6, RUNS_SHOWN = 6;
 const foldText = n => `Show ${n} more task${n === 1 ? "" : "s"}`;
@@ -59,7 +58,7 @@ const holderTag = task => task.old ? `<span class="who oldtag" title="${esc(`${o
   : !task.shared ? `<span class="who" title="The logbook that holds this task">${esc(title(task.providerStandIn))}</span>`
   : task.owner ? `<span class="who own own-${known(PROVIDERS, task.owner.provider)}" title="The owning chief: the one chief that can change this task"><span class="vh">Owning chief: </span>${esc(task.owner.label)}</span>`
   : `<span class="who own own-none" title="No chief owns this task: a chief claims it in the chat">Unclaimed</span>`;
-const offerLine = (task, tag = "div") => task.offer ? `<${tag} class="offerline"><span aria-hidden="true">⇄</span> ${esc(task.offer)}</${tag}>` : "";
+const offerLine = (task, tag = "div") => task.offer ? `<${tag} class="offerline"><span aria-hidden="true">${MARKS.offer}</span> ${esc(task.offer)}</${tag}>` : "";
 
 function context(model, snapshot) {
   const keys = [...new Set([...(model.projects ?? []).map(project => project.key), ...model.tasks.map(task => task.group ?? task.project)])].sort();
@@ -135,7 +134,7 @@ function runsTable(task) {
   const unchecked = "The board checks at most 64 checkout folders of a logbook, so it did not check if this one is on this Mac.";
   const checkout = run => !run.checkoutName ? "" : `<div class="faint ck">checkout ${esc(run.checkoutName)}${run.checkoutGone ? ` <span class="gone${blocks(run) ? " gone-active" : ""}" tabindex="0" title="${esc(goneWhy(run))}" data-why="${esc(goneWhy(run))}">· gone<span class="vh"> (${esc(goneWhy(run))})</span></span>` : run.checkoutGone === null ? ` <span title="${esc(unchecked)}">· not checked<span class="vh"> (${esc(unchecked)})</span></span>` : ""}</div>`;
   const agent = run => task.shared ? `<td>${run.provider ? `<span class="ptag ptag-${known(PROVIDERS, String(run.provider).toLowerCase())}">${esc(title(run.provider))}</span>` : standIn(title(task.providerStandIn), NO_CHIEF)}</td><td>${esc(run.role)}${checkout(run)}</td>` : `<td>${provider(run.provider, task)} · ${esc(run.role)}</td>`;
-  const row = run => `<tr><td class="id">${esc(run.id)}</td>${agent(run)}<td><span class="st-${known(RUN_STATUSES, run.status)}">${esc(run.status)}</span></td><td>${run.status === "running" ? clock(run) : duration(seconds(run))}</td><td>${tokens(run.tokens)}</td></tr>`;
+  const row = run => `<tr><td class="id">${esc(run.id)}</td>${agent(run)}<td><span class="st-${known(RUN_STATUSES, run.status)}">${esc(runWord(run.status, task.runClocks?.[run.id]?.stale).text)}</span></td><td>${run.status === "running" ? clock(run) : duration(seconds(run))}</td><td>${tokens(run.tokens)}</td></tr>`;
   const table = list => `<table class="runs"><thead><tr><th>Run</th>${task.shared ? "<th>Provider</th>" : ""}<th>Agent</th><th>Status</th><th>Time</th><th>Tokens</th></tr></thead><tbody>${list.map(row).join("")}</tbody></table>`;
   const earlier = task.runs.slice(0, Math.max(0, task.runs.length - RUNS_SHOWN));
   const note = goneNote(task);
@@ -329,7 +328,7 @@ a.card:hover{transform:translateY(-1px);box-shadow:var(--ring),var(--lift)}.card
 .sline{display:flex;flex-wrap:wrap;gap:2px 4px;list-style:none;margin:6px 0 4px;padding:0;align-items:center;font-size:12px}
 .sline .s{display:inline-flex;gap:4px;align-items:center;padding:1px 6px;border-radius:6px;color:var(--muted)}.sline .sep{color:var(--muted)}
 .s-done{color:var(--ok)!important}.s-idle{color:var(--text)!important;font-weight:650;box-shadow:0 0 0 1px var(--line) inset}.s-stale{background:var(--warn-soft);color:var(--warn)!important;font-weight:650}.s-run{background:var(--run-soft);color:var(--run)!important;font-weight:650}
-.s-fail{background:var(--need-soft);color:var(--need)!important;font-weight:600}.s-need{background:var(--need-soft);color:var(--need)!important;font-weight:650;box-shadow:0 0 0 1px var(--need) inset}
+.s-fail,.s-blocked{background:var(--need-soft);color:var(--need)!important;font-weight:600}.s-need{background:var(--need-soft);color:var(--need)!important;font-weight:650;box-shadow:0 0 0 1px var(--need) inset}
 .nowline{display:flex;gap:6px;align-items:flex-start;font-size:12.5px;margin:4px 0 2px;overflow-wrap:anywhere}.nowline svg{flex:none;margin-top:2px}
 .nowline.stale{color:var(--warn);font-weight:600}.nowline.need{background:var(--need-soft);color:var(--need);border-radius:8px;padding:5px 8px;font-weight:600}
 .nextline{font-size:12px;color:var(--muted);margin-bottom:4px;overflow-wrap:anywhere}
@@ -703,7 +702,7 @@ const pagesNav = (current, model, snapshot = false) => {
 };
 
 const AGENT_STATE = Object.fromEntries(["stuck", "stop", "long", "wait", "work", "unk"].map(key => [key, shown(OBJECTS.agent.states[key])]));
-const agentState = value => AGENT_STATE[value] ? value : "unk";
+const agentState = value => AGENT_STATE[value] ? value : "unk", stateKey = key => `${AGENT_STATE[key].mark} ${AGENT_STATE[key].text}`;
 const minutesText = ms => { const m = Math.max(0, Math.floor(ms / 60000)); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""}`; };
 const PROVIDER_TAGS = ["claude", "codex"];
 const capBar = (used, cap) => `<span class="bar" aria-hidden="true">${Array.from({ length: Math.min(cap, 50) }, (_, i) => `<i${i < used ? ' class="on"' : ""}></i>`).join("")}</span>`;
@@ -727,7 +726,7 @@ const agentItem = (agent, live) => `<li>${agentRow(agent, live, false)}${agent.c
 export function renderAgentsHtml(model, { live = false, paths = false } = {}) {
   const agents = model.agents, at = hhmm(model.at);
   const pill = livePill(`Board · ${at}`), theme = THEME_SWITCH;
-  const totals = `<div class="summary"><span><b>${agents.count}</b> agent${agents.count === 1 ? "" : "s"} running</span>${agents.providers.length ? `<span>${agents.providers.map(p => `<b>${p.count}</b> ${esc(p.name)}`).join(" · ")}</span>` : ""}${agents.look ? `<span><b class="needn">${agents.look}</b> need${agents.look === 1 ? "s" : ""} a look</span>` : ""}<span>built ${esc(day(model.at))} UTC</span></div>`;
+  const totals = `<div class="summary"><span><b>${agents.count}</b> agent${agents.count === 1 ? "" : "s"} running</span>${agents.providers.length ? `<span>${agents.providers.map(p => `<b>${p.count}</b> ${esc(p.name)}`).join(" · ")}</span>` : ""}${agents.look ? `<span><b class="needn">${agents.look}</b> with a problem flag</span>` : ""}<span>built ${esc(day(model.at))} UTC</span></div>`;
   const caps = agents.problems.length ? `<div class="caps">Caps: unknown · the hook notes cannot be read.</div>`
     : agents.caps.map(entry => `<div class="caps" aria-label="Agent caps, ${esc(entry.label)} agents"><span>Caps (${esc(entry.label)} agents):</span>${entry.projects.map(project => capText(project.name, project.used, project.cap)).join("")}${capText("total", entry.total.used, entry.total.cap, false)}</div>`).join("");
   const problems = agents.problems.length ? `<div class="banner warn">${ICON}<div><b>The hook notes cannot be read</b> (${agents.problems.map(p => `${esc(p.source)}: ${esc(p.message)}`).join("; ")}). The page shows runs from the logbooks only, with no last activity and no helpers. Caps are not known.</div></div>` : "";
@@ -736,12 +735,12 @@ export function renderAgentsHtml(model, { live = false, paths = false } = {}) {
   const rules = agents.rules, list = agents.count ? `<div class="wrap">${agents.projects.map(box).join("")}</div>`
     : `<div class="emptyboard"><b>No agent runs now.</b> When the chief starts an agent in any project, it shows here within a few seconds. The ${live ? '<a href="/">Task board</a>' : "Task board"} shows what comes next.</div>`;
   const how = `<section class="rules" aria-label="How the page decides each state"><h2>How each state is decided</h2><ul>`
-    + `<li><b>${AGENT_STATE.work[0]} working</b>: the hook saw the agent in the last ${rules.quiet} min.</li>`
-    + `<li><b>${AGENT_STATE.wait[0]} waiting for its helpers</b>: a lead with at least one helper that still runs. A quiet lead is normal then.</li>`
-    + `<li><b>${AGENT_STATE.stuck[0]} may be stuck</b>: no activity for ${rules.quiet} min or more, and no running helper; or the logbook says the run runs, and no agent slot holds it (the hook frees a slot after 60 min with no activity).</li>`
-    + `<li><b>${AGENT_STATE.long[0]} running long</b>: the time running is more than ${rules.factor} times the median of the same role's ended runs in this project (it needs ${rules.basis} ended runs).</li>`
-    + `<li><b>${AGENT_STATE.stop[0]} helper stopped, run still open</b>: the hook saw the helper stop, but the logbook still says the run runs. The chief must end the run.</li>`
-    + `<li><b>${AGENT_STATE.unk[0]} running</b>: the logbook says the run runs, and no activity is recorded (Codex sends no activity notes yet).</li></ul></section>`;
+    + `<li><b>${stateKey("work")}</b>: the hook saw the agent in the last ${rules.quiet} min.</li>`
+    + `<li><b>${stateKey("wait")}</b>: a lead with at least one helper that still runs. A quiet lead is normal then.</li>`
+    + `<li><b>${stateKey("stuck")}</b>: no activity for ${rules.quiet} min or more, and no running helper; or the logbook says the run runs, and no agent slot holds it (the hook frees a slot after 60 min with no activity).</li>`
+    + `<li><b>${stateKey("long")}</b>: the time running is more than ${rules.factor} times the median of the same role's ended runs in this project (it needs ${rules.basis} ended runs).</li>`
+    + `<li><b>${stateKey("stop")}</b>: the hook saw the helper stop, but the logbook still says the run runs. The chief must end the run.</li>`
+    + `<li><b>${stateKey("unk")}</b>: the logbook says the run runs, and no activity is recorded (Codex sends no activity notes yet).</li></ul></section>`;
   const body = `<div class="boardview"><header><h1>Sage board</h1>${live ? pagesNav("agents", model) : ""}${pill}<span class="spacer"></span>${theme}</header>`
     + `<div id="board-content" data-at="${esc(at)}">${totals}${caps}${banners(model)}${problems}${unmatched}<main class="agentsview">${list}</main>${how}</div></div>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sage agents</title><script>${THEME_HEAD}</script><style>${CSS}</style></head><body>${body}<script>${BOARD_ENHANCEMENT}${live ? liveScript("/agents?events=1", ["board-content", "board-pages"]) : ""}</script></body></html>`;
@@ -1008,7 +1007,7 @@ const nowText = task => {
   return `${needs ? `${ask}\n` : ""}${WAIT_MARK[task.waitLine.never ? "never" : "wait"]} ${needs ? "" : "Now: "}${md(task.waitLine.text)}\nNext: ${md(next)}`;
 };
 const CHAT_SHOWN = 5, TITLE_MAX = 80;
-const wordText = item => item.word ? ` · ${md(item.word)}` : "";
+const wordText = item => ` · ${md(item.word || UNKNOWN)}`;
 const tagText = task => `${task.priority ? ` · ${md(task.priority)}` : ""}${task.kind ? ` · ${md(KIND[task.kind][1])}` : ""}`;
 const clamp = value => { const chars = [...String(value ?? "")]; return chars.length > TITLE_MAX ? `${chars.slice(0, TITLE_MAX - 1).join("").trimEnd()}…` : chars.join(""); };
 
@@ -1016,8 +1015,8 @@ export function renderTaskText(task) {
   const head = task.currentHead ? `${md(task.currentHead)}${task.headBasis === "ledger" ? " (newest verdict)" : ""}` : "not recorded";
   const where = row => row.movedTo ? ` · moved to ${md(row.movedTo)}` : row.movedFrom ? ` · from ${md(row.movedFrom)}` : "";
   const rows = task.loop.steps.map(step => `${MARK[status(step.status)]} ${md(step.label)}: ${WORD[status(step.status)]}${step.detail ? ` · ${md(step.detail)}` : ""}${step.parts?.length ? `\n  ${step.parts.map(([name, value]) => `${MARK[status(value)]} ${md(name)}: ${WORD[status(value)]}`).join(" · ")}` : ""}`).join("\n");
-  const holder = `${task.shared ? `Owning chief: ${md(task.holder)}${task.owner?.unlisted ? `\n${md(`${task.owner.id} is not in chiefs.tsv, so the board does not know its provider.`)}` : ""}${task.offer ? `\n⇄ ${md(task.offer)}` : ""}\n` : ""}${task.old ? `${md(`${oldWhat(task, "of")}.${task.old.finished ? "" : " The move did not take it to the shared logbook."} It stays there, read-only, and its number belongs to that old logbook.`)}\n` : ""}`;
-  return `**${md(task.title)}** ${md(task.id)}${task.was ? ` · ${md(task.was)}` : ""}\n${md(task.holder ?? task.sourceLabel)} · ${md(task.projectName)}${wordText(task)} · ${md(task.size)}${tagText(task)}${task.risk ? ` · risk: ${md(task.risk)}` : ""}${task.pr ? ` · PR ${prUrl(task) ? `[${md(task.pr)}](${mdUrl(prUrl(task))})` : md(task.pr)}` : ""}\n${holder}\n**Loop**\n${stepText(task)}\n${nowText(task)}\n${rows}\nRecorded state: ${md(task.state)} · repair round ${md(task.round)} · last commit ${head}\n\n**Brief**\nGoal: ${mdBlock(task.briefFields.goal ?? "not recorded")}\nAcceptance: ${mdBlock(task.briefFields.acceptance ?? "not recorded")}\n\nFull brief:\n${mdBlock(task.brief ?? "No verified brief content is available.")}\n\n**Agent runs**\n${task.runs.map(r => `${md(r.id)} ${providerText(r.provider, task)} · ${md(r.role)}${r.checkoutName ? ` · checkout ${md(r.checkoutName)}${r.checkoutGone ? " (gone)" : r.checkoutGone === null ? " (not checked)" : ""}` : ""} · ${md(r.status)} · ${md(task.runClocks?.[r.id]?.text ?? runTime(r))} · tokens ${md(r.tokens || "unknown")}`).join("\n") || "No runs recorded."}${goneText(task)}\n\n**Evidence**\n${task.ledger.map(r => `${md(r.kind)} · cycle ${md(r.cycle)} · ${md(r.sha)} · ${md(r.run)} · ${md(r.at)}`).join("\n") || "No verdicts recorded."}${evidenceArtifacts(task).map(r => `\n\n${md(r.data.label)} · ${md(r.source)} · ${md(r.observedAt)} · ${md(r.data.run ?? "run unknown")} · digest verified\n${mdBlock(r.content.text)}`).join("")}\n\n**Findings**\n${task.findings.map(r => `${md(r.severity)} · ${md(r.summary)} · ${md(r.status)}${where(r)}${r.reason ? ` · ${md(r.reason)}` : ""}`).join("\n") || "No findings recorded."}\n\n**Artifacts**\n${task.artifacts.map(r => `${md(r.data.label)} · ${md(r.data.url ?? (r.content?.verified ? "local artifact; digest verified" : "local artifact; content not verified"))}`).join("\n") || "No artifacts recorded."}\n\n**Latest decisions**\n${task.decisions.map(r => `${md(r.at)} · ${md(r.decision)} · ${md(r.why)}`).join("\n") || "No decisions recorded."}`;
+  const holder = `${task.shared ? `Owning chief: ${md(task.holder)}${task.owner?.unlisted ? `\n${md(`${task.owner.id} is not in chiefs.tsv, so the board does not know its provider.`)}` : ""}${task.offer ? `\n${MARKS.offer} ${md(task.offer)}` : ""}\n` : ""}${task.old ? `${md(`${oldWhat(task, "of")}.${task.old.finished ? "" : " The move did not take it to the shared logbook."} It stays there, read-only, and its number belongs to that old logbook.`)}\n` : ""}`;
+  return `**${md(task.title)}** ${md(task.id)}${task.was ? ` · ${md(task.was)}` : ""}\n${md(task.holder ?? task.sourceLabel)} · ${md(task.projectName)}${wordText(task)} · ${md(task.size)}${tagText(task)}${task.risk ? ` · risk: ${md(task.risk)}` : ""}${task.pr ? ` · PR ${prUrl(task) ? `[${md(task.pr)}](${mdUrl(prUrl(task))})` : md(task.pr)}` : ""}\n${holder}\n**Loop**\n${stepText(task)}\n${nowText(task)}\n${rows}\nRecorded state: ${md(task.state)} · repair round ${md(task.round)} · last commit ${head}\n\n**Brief**\nGoal: ${mdBlock(task.briefFields.goal ?? "not recorded")}\nAcceptance: ${mdBlock(task.briefFields.acceptance ?? "not recorded")}\n\nFull brief:\n${mdBlock(task.brief ?? "No verified brief content is available.")}\n\n**Agent runs**\n${task.runs.map(r => `${md(r.id)} ${providerText(r.provider, task)} · ${md(r.role)}${r.checkoutName ? ` · checkout ${md(r.checkoutName)}${r.checkoutGone ? " (gone)" : r.checkoutGone === null ? " (not checked)" : ""}` : ""} · ${md(runWord(r.status, task.runClocks?.[r.id]?.stale).text)} · ${md(task.runClocks?.[r.id]?.text ?? runTime(r))} · tokens ${md(r.tokens || "unknown")}`).join("\n") || "No runs recorded."}${goneText(task)}\n\n**Evidence**\n${task.ledger.map(r => `${md(r.kind)} · cycle ${md(r.cycle)} · ${md(r.sha)} · ${md(r.run)} · ${md(r.at)}`).join("\n") || "No verdicts recorded."}${evidenceArtifacts(task).map(r => `\n\n${md(r.data.label)} · ${md(r.source)} · ${md(r.observedAt)} · ${md(r.data.run ?? "run unknown")} · digest verified\n${mdBlock(r.content.text)}`).join("")}\n\n**Findings**\n${task.findings.map(r => `${md(r.severity)} · ${md(r.summary)} · ${md(r.status)}${where(r)}${r.reason ? ` · ${md(r.reason)}` : ""}`).join("\n") || "No findings recorded."}\n\n**Artifacts**\n${task.artifacts.map(r => `${md(r.data.label)} · ${md(r.data.url ?? (r.content?.verified ? "local artifact; digest verified" : "local artifact; content not verified"))}`).join("\n") || "No artifacts recorded."}\n\n**Latest decisions**\n${task.decisions.map(r => `${md(r.at)} · ${md(r.decision)} · ${md(r.why)}`).join("\n") || "No decisions recorded."}`;
 }
 
 const BREAK = "\\\n";
@@ -1053,7 +1052,7 @@ export function renderBoardText(model) {
     task.column === "done" ? "" : stepText(task),
     task.waitLine ? `${WAIT_MARK[task.waitLine.never ? "never" : "wait"]} ${md(task.waitLine.text)}` : "",
     task.column === "done" || task.loop.now.needs || task.waitLine ? "" : `Now: ${md(task.loop.now.text)}`,
-    task.column === "done" || !task.offer ? "" : `⇄ ${md(task.offer)}`]);
+    task.column === "done" || !task.offer ? "" : `${MARKS.offer} ${md(task.offer)}`]);
   const section = column => {
     const name = COLUMN_NAME[column.key] ?? column.name, rest = column.tasks.length - CHAT_SHOWN;
     return `### ${columnMark(column.key)} ${md(name)} (${column.tasks.length})\n${column.tasks.slice(0, CHAT_SHOWN).map(line).join("\n\n") || "No tasks."}${rest > 0 ? `\n\n${rest} more in ${md(name)}: open the board page for all.` : ""}`;
@@ -1065,7 +1064,7 @@ export function renderBoardText(model) {
   let n = 0;
   const approval = ([task, gate]) => block([`**${++n} · ${md(milestoneName({ id: gate.breakdown.id, name: gate.breakdown.name && clamp(gate.breakdown.name) }))}**${wordText(model.milestones?.find(milestone => milestone.key === gate.breakdown.key) ?? {})} · ${md(task.sourceLabel)} · ${md(task.projectName)} · pilot ${md(task.id)} · gate ${md(gate.gateId)}`], reasonLines(gate));
   const milestoneNeed = need => block([`**${++n} · ${md(clamp(need.title))}** · ${md(need.sourceLabel)} · ${md(need.projectName)}`], [md(need.text)]);
-  const other = task => block([`**${++n} · ${md(task.id)} ${md(clamp(task.title))}**${wordText(task)} · ${md(task.holder ?? task.sourceLabel)} · ${md(task.projectName)}`], task.reasons.flatMap(reason => reasonLines(reason)));
+  const other = task => block([`**${++n} · ${md(clamp(task.title))}** ${md(task.id)}${wordText(task)} · ${md(task.holder ?? task.sourceLabel)} · ${md(task.projectName)}`], task.reasons.flatMap(reason => reasonLines(reason)));
   const needs = approvals.length
     ? [`#### ${MARKS.milestone} Milestone approval\n${approvals.map(approval).join("\n\n")}`, ...(others.length || milestoneNeeds.length ? [`#### Other\n${[...milestoneNeeds.map(milestoneNeed), ...others.map(other)].join("\n\n")}`] : [])].join("\n\n")
     : [...milestoneNeeds.map(milestoneNeed), ...others.map(other)].join("\n\n") || "No recorded task needs you.";
@@ -1078,7 +1077,7 @@ export function renderBoardText(model) {
   const where = milestone => [groups.size > 1 ? md(milestone.projectName) : "", books(milestone.group) > 1 ? md(milestone.sourceLabel) : ""].filter(Boolean).join(" · ");
   const ended = ["done", "dropped"].map(state => [state, milestones.filter(milestone => counted(milestone) && milestone.state === state).length]).filter(([, count]) => count);
   const milestoneText = milestones.length ? `### ${MARKS.milestone} Milestones\n${[...milestones.filter(milestone => !counted(milestone)).map(milestone => `- ${milestoneLine({ ...milestone, where: where(milestone) })}`), ...(ended.length ? [`- ${ended.map(([state, count]) => `${count} ${state}`).join(" · ")}: open the board's Milestones tab`] : [])].join("\n")}` : "";
-  const changing = (model.changing ?? []).map(item => `${MARKS.waiting} The logbook is changing: ${md(item.project)} · read at ${md(hhmm(item.at))} UTC${item.dropped ? `, without what changed during it (${md(item.dropped.join("; "))})` : ""}. The board shows that read; ask for the board again for a read with no change.`);
+  const changing = (model.changing ?? []).map(item => `The logbook is changing: ${md(item.project)} · read at ${md(hhmm(item.at))} UTC${item.dropped ? `, without what changed during it (${md(item.dropped.join("; "))})` : ""}. The board shows that read; ask for the board again for a read with no change.`);
   const moved = (model.moved ?? []).map(item => `⇢ ${md(`${item.project} moved to one shared logbook on ${day(item.at)} UTC. ${movedText(item)}`)}`);
   const top = block([`**sage board** · built ${md(day(model.at))} UTC`, ...changing, ...moved,`🔴 ${n} needs you · ${counts.recordedAgents} agents at work${counts.inferredWork ? ` · ${counts.inferredWork} inferred PRs` : ""} · 🔁 ${counts.inReview} in review · ${counts.tasks} tasks`, standIns ? `${md("*")} A stand-in: the run does not record its provider, so the board names the logbook's source.` : ""]);
   const end = block([model.archived.length ? `Archived: ${model.archived.map(book => `${md(book.name)} (${archivedCounts(book)})`).join(", ")}` : "",

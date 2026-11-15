@@ -210,7 +210,15 @@ test("F-T1059-19: each chief's chip says its state in words: live, waits for you
   const w = await openBoard(t), { page } = w;
   const chip = id => page.locator(`.chip[data-chief$="/${id}"] .state`);
   await chip("C4").waitFor();
-  assert.deepEqual(await Promise.all(["C1", "C2", "C3", "C4"].map(id => chip(id).textContent())), ["live · autopilot on", "live · autopilot off", "stopped", "liveness unknown"]);
+  assert.deepEqual(await Promise.all(["C1", "C2", "C3", "C4"].map(id => chip(id).textContent())), ["in progress · autopilot on", "in progress · autopilot off", "stopped", "unknown"]);
+  const once = (text, id) => assert.equal(text.split(id).length - 1, 1, `${id} once: ${text}`);
+  for (const id of ["C1", "C2"]) {
+    assert.match(await page.locator(`.chip[data-chief$="/${id}"] b`).textContent(), new RegExp(`^(Claude|Codex) · ${id}$`), "F-T1096-11: the chip names the chief as 'Claude · C1'");
+    once(await page.locator(`button.chip[data-chief$="/${id}"]`).textContent(), id);
+  }
+  const stopped = await page.locator('[data-stopped$="/C3"] .q').textContent();
+  assert.match(stopped, /^(Claude|Codex) · C3\b/, "F-T1096-11: a stopped chief reads 'Claude · C3' too");
+  once(stopped, "C3");
   await w.shot("t1059-chips");
 });
 
@@ -219,7 +227,7 @@ test("F-T1059-21: a chief's default name and its menu's Started row show the sam
   const name = await page.locator('.chip[data-chief$="/C1"] .faint').first().textContent();
   await page.getByRole("button", { name: "More about C1" }).click();
   const started = await page.locator(".menu .facts dt", { hasText: "Started" }).locator("xpath=following-sibling::dd[1]").textContent();
-  assert.ok(!name.includes("UTC") && name.endsWith(` · ${started}`), `"${name}" ends with "${started}"`);
+  assert.ok(!name.includes("UTC") && (name === started || name.endsWith(` · ${started}`)), `"${name}" ends with "${started}"`);
   await w.shot("t1059-chief-started");
 });
 
@@ -330,7 +338,7 @@ test("F-T1059-44: the rename field of a chief whose name is shown with its id st
   const w = await openBoard(t), { page } = w;
   for (const id of ["C1", "C2"]) claude.sage(["chief", "name", id, "Desk", "--project", w.project], w.env);
   await w.pair();
-  await page.locator(`.chip[data-chief$="/C2"]`).filter({ hasText: "Desk · C2" }).waitFor();
+  await page.locator(`.chip[data-chief$="/C2"]`).filter({ hasText: "Desk" }).waitFor();
   await page.getByRole("button", { name: "More about C2" }).click();
   assert.equal(await page.getByLabel("Name").inputValue(), "Desk");
   await page.getByRole("button", { name: "Rename" }).click();

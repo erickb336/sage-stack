@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { dirname, join, posix } from "node:path";
-import { BRIEF_FIELDS, LONG_WIDTH, chiefName, PAGE_MAX, REPORT_FIELDS, WIDTH, briefSections, fieldsOf, frameLines, pageFile, pageTaskFolder, pageType, readReport, taskPanel } from "../sage-core/index.mjs";
+import { BRIEF_FIELDS, LONG_WIDTH, chiefName, prName, runWord, PAGE_MAX, REPORT_FIELDS, WIDTH, briefSections, fieldsOf, frameLines, pageFile, pageTaskFolder, pageType, readReport, taskPanel } from "../sage-core/index.mjs";
 
 const marksShown = text => String(text ?? "").replace(/\p{Cf}/gu, c => `[U+${c.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}]`);
 const TEXT_MAX = 1 << 20, MD_MAX = 2 << 20, VERSIONS_MAX = 30, SHOTS_MAX = 8;
@@ -249,8 +249,8 @@ export function readerPage({ model, configured, url, origin, render }) {
       const ran = run.ended ? `${when(run.started, model.at)}–${when(run.ended, model.at)}` : `${when(run.started, model.at)}–`;
       const fields = text === undefined ? [] : fieldsOf(text, REPORT_FIELDS), of = name => { const item = fields.find(entry => entry.name === name); return item ? dedent([item.rest, ...item.lines].join("\n")) : ""; };
       const status = /^(done|blocked|question)\b/i.exec(of("STATUS"))?.[1].toLowerCase() ?? null;
-      const head = [["Status", status ? `<span class="pill ${status}">${status}</span>` : run.status === "running" ? `<span class="pill">running</span>` : "not given"], ["Run", esc(run.id)], ["Role", esc(run.role)], ["Chief", chief(run)], ["Model", esc(run.model || "not recorded")], ["Ran", esc(ran)]];
-      const side = `<aside class="side"><h2>Links</h2><ul>${panel.prUrl ? `<li><a href="${esc(panel.prUrl)}">PR #${esc(panel.pr)}</a></li>` : ""}<li><a href="${esc(link("brief", run.id))}">Brief of ${esc(run.id)}</a></li><li>${taskA(`Task ${task.id}`)}</li></ul></aside>`;
+      const head = [["Status", status ? `<span class="pill ${status}">${runWord(status).text}</span>` : run.status === "running" ? `<span class="pill">${runWord("running").text}</span>` : "not given"], ["Run", esc(run.id)], ["Role", esc(run.role)], ["Chief", chief(run)], ["Model", esc(run.model || "not recorded")], ["Ran", esc(ran)]];
+      const side = `<aside class="side"><h2>Links</h2><ul>${panel.prUrl ? `<li><a href="${esc(panel.prUrl)}">${esc(prName(panel.pr))}</a></li>` : ""}<li><a href="${esc(link("brief", run.id))}">Brief of ${esc(run.id)}</a></li><li>${taskA(`Task ${task.id}`)}</li></ul></aside>`;
       if (problem) return { crumb: run.id, title: `Report of ${run.id}`, head, body: note(`<b>The board cannot read this report.</b> ${esc(problem)}`, "fail") };
       if (text === undefined) return run.status === "running"
         ? { crumb: run.id, title: `Report of ${run.id}`, head, body: note(`<b>Not written yet.</b> ${esc(run.role)} ${esc(run.id)} runs (${minutes(run.started, model.at)} min). The board shows the report when the run ends; reload this page then.`, "need") }

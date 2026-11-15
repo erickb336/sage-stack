@@ -164,7 +164,7 @@ header.top { position: sticky; top: 0; z-index: 20; height: 52px; display: flex;
 .row .age { text-align: right; }
 .row.ended .text { color: var(--muted); }
 .step.need { color: var(--need); }
-.step.fail, .step.stale { color: var(--fail); }
+.step.fail, .step.stale, .step.blocked { color: var(--fail); }
 .step.run { color: var(--run); }
 .badge.warn { color: var(--need); border-color: var(--need); }
 .badge.word { justify-self: start; }
@@ -200,7 +200,7 @@ header.top { position: sticky; top: 0; z-index: 20; height: 52px; display: flex;
 .st.done .mark { background: var(--done); border-color: var(--done); }
 .st.run .mark { border-color: var(--run); }
 .st.need .mark { border-color: var(--need); }
-.st.fail .mark, .st.stale .mark { border-color: var(--fail); }
+.st.fail .mark, .st.stale .mark, .st.blocked .mark { border-color: var(--fail); }
 .steps .lbl { font-weight: 500; }
 .steps .sw { font-size: 12px; font-weight: 400; color: var(--muted); margin-left: 8px; }
 .steps .detail, .steps .parts, .now, .files .detail { font-size: 12.5px; color: var(--muted); }

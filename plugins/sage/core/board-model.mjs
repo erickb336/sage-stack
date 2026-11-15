@@ -16,6 +16,7 @@ const COLUMNS = [
   ["done", "Done", ["merged", "concluded"]],
 ];
 const CLEAN = { checks: "checks-pass", "code-review": "review-clean", "security-review": "security-clean", "ux-review": "ux-clean", qa: "qa-pass", "evidence-review": "evidence-clean" };
+const CHIEF_FIXES = ["merge-refused", "checks-fail", "qa-fail"];
 const FAILED = { checks: ["checks-fail"], qa: ["qa-fail"], "code-review": ["findings"], "security-review": ["findings"], "ux-review": ["findings"], "evidence-review": ["findings"] };
 const RUN_ROLE = { "code-review": "code-reviewer", "security-review": "security-reviewer", "ux-review": "ux-reviewer" };
 const time = value => Number.isFinite(Date.parse(value)) ? Date.parse(value) : null;
@@ -75,7 +76,7 @@ export function runClock(started, now, lastActivity) {
   if (minutes < 60) return { text: `${minutes} min`, stale: false };
   if (minutes < 24 * 60) return { text: `${Math.floor(minutes / 60)} h ${minutes % 60} min`, stale: false };
   const last = Math.max(start, time(lastActivity) ?? start);
-  return now - last >= STALE_MS ? { text: `no news since ${dayMonth(last)}. The run may have stopped, so ask the chief to check it`, stale: true, since: dayMonth(last) } : { text: `since ${dayMonth(start)}`, stale: false };
+  return now - last >= STALE_MS ? { text: `no news since ${dayMonth(last)}, so ask the chief to check it`, stale: true, since: dayMonth(last) } : { text: `since ${dayMonth(start)}`, stale: false };
 }
 
 const PHASE = {
@@ -85,7 +86,7 @@ const PHASE = {
   verified: ["merge", "owner", false], "pr-ready": ["merge", "owner", false], merged: [null, "done"], concluded: [null, "done"], abandoned: [null, "done"],
 };
 
-function stepLine({ task, route, cycles, required, head, judged, reasons, merge, gates, runs, ledger, rounds, autopilot }) {
+function stepLine({ task, route, cycles, required, head, judged, reasons, problems, merge, gates, runs, ledger, rounds, autopilot }) {
   const state = PHASE[task.state] ? task.state : "abandoned", build = route.includes("build"), sha = head ? head.slice(0, 7) : null;
   const gate = gates.find(row => !row.answer && !boardAnswer(row)), answered = !gate && gates.length && (gates.at(-1).answer || boardAnswer(gates.at(-1))) ? gates.at(-1) : null;
   const running = runs.filter(run => run.status === "running"), live = running.filter(run => !run.clock.stale), stale = running.filter(run => run.clock.stale), queued = runs.filter(run => run.place);
@@ -100,16 +101,17 @@ function stepLine({ task, route, cycles, required, head, judged, reasons, merge,
   if (["verified", "pr-ready"].includes(state) && (autopilot || !build)) who = "chief";
   if (state === "awaiting-you" && answered) who = "chief";
   if (gate && who !== "done") who = "owner";
+  else if (problems.length && who === "owner") who = "chief";
 
   const reviewName = i => build ? `review cycle ${i} of ${required}` : required > 1 ? `evidence review ${i} of ${required}` : "the evidence review";
   const NAME = { plan: task.state === "designing" ? "the design" : "the plan", build: build ? "the build" : "the investigation", review: reviewName(at + 1), repair: `repair round ${round} of ${rounds}`, merge: build ? "the merge" : "the conclusion" };
   const actor = list => and([...new Set(list.map(run => `the ${AGENT_WORD[run.role] ?? run.role}`))]);
   const ago = run => { const clock = run.clock.text; return /^\d/.test(clock) ? `${clock} ago` : clock.startsWith("since ") ? `on ${clock.slice(6)}` : "at a time that is not recorded"; };
-  const runText = run => run.clock.stale ? `No news from the ${AGENT_WORD[run.role] ?? run.role} (run ${run.id}) since ${run.clock.since}. The run may have stopped, so ask the chief to check it.`
+  const runText = run => run.clock.stale ? `No news from the ${AGENT_WORD[run.role] ?? run.role} (run ${run.id}) since ${run.clock.since}, so ask the chief to check it.`
     : `The ${AGENT_WORD[run.role] ?? run.role} (${run.evidence?.data.provider ? `${run.evidence.data.provider}, ` : ""}run ${run.id}) is at work. It started ${ago(run)}.`;
   const queueText = run => `The ${AGENT_WORD[run.role] ?? run.role} (run ${run.id}) waits for an agent slot: place ${run.place} in the project's queue. It starts when a running agent ends.`;
   const heldAt = gate ? `Held at gate ${gate.id} (the question above).` : null;
-  const status = who === "owner" ? "need" : failed.length ? "fail" : who === "agent" ? live.length ? "run" : stale.length ? "stale" : started ? "idle" : "wait" : who === "chief" ? "idle" : "done";
+  const status = who === "owner" ? "need" : problems.length ? "blocked" : failed.length ? "fail" : who === "agent" ? live.length ? "run" : stale.length ? "stale" : started ? "idle" : "wait" : who === "chief" ? "idle" : "done";
   const agentDetail = idle => live.length ? runText(live[0]) : stale.length ? runText(stale[0]) : queued.length ? queueText(queued[0]) : idle;
 
   const steps = [];
@@ -173,11 +175,12 @@ function stepLine({ task, route, cycles, required, head, judged, reasons, merge,
   const IDLE = { framed: "In the backlog. No agent works on it.", briefed: `Briefed. No agent works on ${NAME.build} yet.` };
   const noHead = build && reviewing && !head ? " The board does not know the PR's last commit." : "";
   const nowText = who === "done" ? { merged: build ? "Merged." : "Done.", concluded: build ? "Closed with no merge." : "Concluded. The report went to you.", abandoned: "Abandoned." }[state]
+    : problems.length ? problems.map(problem => problem.text).join(" ")
     : allClean ? build ? `The reviews are done, with ${plural(required, "clean cycle")} on ${sha}.` : "The evidence review is done."
     : failed.length ? `${cap(and(failed))} failed${sha ? ` on ${sha}` : ""}.`
     : who === "chief" ? CHIEF[state]()
     : live.length ? `${cap(actor(live))} ${new Set(live.map(run => run.role)).size > 1 ? "are" : "is"} at work on ${name}.${noHead}`
-    : stale.length ? `No news from ${actor(stale)} since ${stale[0].clock.since}. The run may have stopped, so ask the chief to check it.`
+    : stale.length ? `No news from ${actor(stale)} since ${stale[0].clock.since}, so ask the chief to check it.`
     : queued.length ? queueText(queued[0])
     : `${IDLE[state] ?? `No agent works on ${name} now.`}${noHead}`;
 
@@ -314,6 +317,8 @@ function card(source, project, group, task, now, graph, landing) {
   const worker = project.shared ? NO_SLOT_NOTES.includes(String(chiefOf(task.chief)?.provider ?? "").toLowerCase()) : task.branch.startsWith("codex/");
   const inferred = pr?.data.state === "open" && worker && !agents.length;
   if (inferred && !["merged", "concluded", "abandoned"].includes(task.state)) reasons.push({ kind: "review-wait", text: "The PR has inferred provider work and waits for review." });
+  const problems = reasons.some(reason => reason.kind === "merge-refused") ? reasons.filter(reason => CHIEF_FIXES.includes(reason.kind)) : [];
+  if (problems.length) reasons.splice(0, reasons.length, ...reasons.filter(reason => !problems.includes(reason)));
   const column = merge && !merge.ok ? "review" : COLUMNS.find(([, , states]) => states.includes(task.state))?.[0] ?? null;
   const milestone = task.milestone ? graph.milestones.get(task.milestone) : null, waits = waitsFor(task, graph);
   const completionDecision = rows(project, "decisions", task).filter(row => row.decision === `state ${task.state}`).at(-1);
@@ -325,7 +330,7 @@ function card(source, project, group, task, now, graph, landing) {
     ...rows(project, "findings", task).map(row => ({ ...row, movedFrom: (moves.to.get(task.id) ?? NONE).find(({ move }) => move[3] === row.key)?.row.task ?? null })),
     ...(moves.from.get(task.id) ?? NONE).map(({ row, move }) => { const [, run = "", severity = ""] = /^the (?:follow-up|open) task \(from (R[1-9]\d*), (\w+)\)/.exec(row.why ?? "") ?? []; return { severity, summary: row.decision.slice(row.decision.indexOf(":") + 1).trim(), ...found(move[2], move[3]), run, task: task.id, key: move[1], status: "moved", reason: "", movedTo: move[2] }; }),
   ];
-  return { key: `${project.key}/${task.id}`, source: source.id, sourceLabel: source.label, providerStandIn: standInOf(source, project), repository: githubRepository(pr?.data.repository) ?? githubRepository(project.repository), lastActivity, headBasis, project: project.key, group: group.key, projectName: group.name, archived: group.archived, milestone: task.milestone ? { key: `${project.key}/${task.milestone}`, id: task.milestone, name: milestone?.name ?? null, pilot: milestone?.pilot === task.id } : null, waits, waitLine: waitLine(task, waits, column), priority: PRIORITIES.includes(task.priority) ? task.priority : "", kind: TASK_KINDS.includes(task.kind) ? task.kind : "", ...Object.fromEntries(["id", "title", "size", "risk", "route", "state", "branch", "pr", "round", "keys", "hold"].map(field => [field, task[field] ?? ""])), column, prEvidence: pr, currentHead: head, modeEvidence: mode, completedAt, addedAt: rows(project, "decisions", task).find(row => row.decision === TASK_ADDED)?.at ?? null, boardAnswers, visible: column !== "done" || completedAt !== null && completedAt <= now && completedAt >= now - 7 * 86400000, agents, inferredWork: inferred, cycles, requiredCycles: required, reasons, runs, ledger, gates, findings, decisions: rows(project, "decisions", task).slice(-10), decisionRows: rows(project, "decisions", task), gateRows: allGates, brief, briefFields: briefFields(brief), projectCheck, mergeCheck: merge, loop: stepLine({ task, route, cycles, required: count, head, judged, reasons, merge, gates: allGates, runs, ledger, rounds: positive(source.config?.max_rounds) ?? 3, autopilot: mode?.data.autopilot === true }), changedFiles: files && { ...files.data, observedAt: files.observedAt }, mayConflict: [], runClocks: Object.fromEntries(runs.filter(run => run.status === "running").map(run => [run.id, run.clock])), goneRun: writer?.checkoutGone ? writer.id : null, artifacts: records.filter(record => record.kind === "artifact").map(record => ({ ...record, content: project.contents?.[record.id] ?? null })), diagnostics: [...project.diagnostics], ...holderOf(project, task, runs, label, gates),...(wasOf(project, task) && { was: wasOf(project, task) }) };
+  return { key: `${project.key}/${task.id}`, source: source.id, sourceLabel: source.label, providerStandIn: standInOf(source, project), repository: githubRepository(pr?.data.repository) ?? githubRepository(project.repository), lastActivity, headBasis, project: project.key, group: group.key, projectName: group.name, archived: group.archived, milestone: task.milestone ? { key: `${project.key}/${task.milestone}`, id: task.milestone, name: milestone?.name ?? null, pilot: milestone?.pilot === task.id } : null, waits, waitLine: waitLine(task, waits, column), priority: PRIORITIES.includes(task.priority) ? task.priority : "", kind: TASK_KINDS.includes(task.kind) ? task.kind : "", ...Object.fromEntries(["id", "title", "size", "risk", "route", "state", "branch", "pr", "round", "keys", "hold"].map(field => [field, task[field] ?? ""])), column, prEvidence: pr, currentHead: head, modeEvidence: mode, completedAt, addedAt: rows(project, "decisions", task).find(row => row.decision === TASK_ADDED)?.at ?? null, boardAnswers, visible: column !== "done" || completedAt !== null && completedAt <= now && completedAt >= now - 7 * 86400000, agents, inferredWork: inferred, cycles, requiredCycles: required, reasons, problems, runs, ledger, gates, findings, decisions: rows(project, "decisions", task).slice(-10), decisionRows: rows(project, "decisions", task), gateRows: allGates, brief, briefFields: briefFields(brief), projectCheck, mergeCheck: merge, loop: stepLine({ task, route, cycles, required: count, head, judged, reasons, problems, merge, gates: allGates, runs, ledger, rounds: positive(source.config?.max_rounds) ?? 3, autopilot: mode?.data.autopilot === true }), changedFiles: files && { ...files.data, observedAt: files.observedAt }, mayConflict: [], runClocks: Object.fromEntries(runs.filter(run => run.status === "running").map(run => [run.id, run.clock])), goneRun: writer?.checkoutGone ? writer.id : null, artifacts: records.filter(record => record.kind === "artifact").map(record => ({ ...record, content: project.contents?.[record.id] ?? null })), diagnostics: [...project.diagnostics], ...holderOf(project, task, runs, label, gates),...(wasOf(project, task) && { was: wasOf(project, task) }) };
 }
 
 const chiefTag = owner => chiefName(owner.id, owner.provider);

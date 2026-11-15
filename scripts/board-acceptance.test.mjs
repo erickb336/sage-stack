@@ -134,7 +134,7 @@ test("T205 acceptance: owner questions and hostile text remain escaped, complete
   table(f.book, "tasks", [task("T1", "held", { title: "<script>sample</script> [sample](https://example.test)" })]);
   table(f.book, "gates", [{ id: "G1", task: "T1", question: "Pick <sample>?", options: "keep|change", recommendation: "keep", default: "keep", answer: "", at: AT }]);
   const text = f.view("chat"), html = f.view("html");
-  assert.ok(text.includes("**1 · T1")); assert.ok(text.includes("sample/project-abcdef/G1"));
+  assert.match(text, /\*\*1 · [^\n]+\*\* T1 · /); assert.ok(text.includes("sample/project-abcdef/G1"));
   assert.ok(text.includes("> Options: 1: keep · 2: change")); assert.ok(text.includes("> Recommended: keep"));
   assert.ok(text.includes("\\<script\\>sample\\</script\\>")); assert.ok(!text.includes("[sample](https://example.test)"));
   assert.ok(html.includes("&lt;script&gt;sample&lt;/script&gt;")); assert.ok(!html.includes("<script>sample</script>"));

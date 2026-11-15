@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { STEPS, UNKNOWN, chiefName as nameOf, prName, shown } from "../../sage-core/state-words.mjs";
+import { OBJECTS, STEPS, UNKNOWN, chiefName as nameOf, prName, shown } from "../../sage-core/state-words.mjs";
 
 export const taskLink = (key, page = "tasks") => `#${page}?task=${encodeURIComponent(key)}`;
 export const milestoneLink = key => `#tasks?milestone=${encodeURIComponent(key)}`;
 export const ofChief = (task, chief) => !chief || task.chief?.id === chief.id && task.key === `${chief.logbook}/${task.id}`;
 export const chiefName = chief => chief ? chief.old ?? (chief.id ? nameOf(chief.id, chief.provider) : `Chief ${UNKNOWN}`) : "No chief";
-const LIVENESS = { live: "live", stopped: "stopped", unknown: `liveness ${UNKNOWN}` };
+export const chiefState = key => Object.hasOwn(OBJECTS.chief.states, key) ? shown(OBJECTS.chief.states[key]).text : UNKNOWN;
+export const chiefSub = chief => { const head = `${nameOf(null, chief.provider)} · `, tail = ` · ${chief.id}`, name = chief.name.startsWith(head) ? chief.name.slice(head.length) : chief.name; return name.endsWith(tail) ? name.slice(0, -tail.length) : name; };
 const liveness = stopped => stopped === false ? "live" : stopped ? "stopped" : "unknown";
 export function ChiefDot({ stopped }) {
   const state = liveness(stopped);
-  return state === "stopped" ? <span className="dot" aria-hidden="true" /> : <span className={`dot ${state}`} role="img" aria-label={`Chief ${LIVENESS[state]}`} title={`Chief ${LIVENESS[state]}`} />;
+  return state === "stopped" ? <span className="dot" aria-hidden="true" /> : <span className={`dot ${state}`} role="img" aria-label={`Chief ${chiefState(state)}`} title={`Chief ${chiefState(state)}`} />;
 }
 const MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(" ");
 const pad = n => String(n).padStart(2, "0");
@@ -202,7 +203,7 @@ export function Panel({ taskKey, at, back = "tasks" }) {
             </div>
           ))}
           <dl className="facts">
-            <dt>Chief</dt><dd className="chief">{task.chief && !task.chief.old && <ChiefDot stopped={task.chief.stopped} />}{chiefName(task.chief)}{task.chief && !task.chief.old && ` · ${LIVENESS[liveness(task.chief.stopped)]}`}</dd>
+            <dt>Chief</dt><dd className="chief">{task.chief && !task.chief.old && <ChiefDot stopped={task.chief.stopped} />}{chiefName(task.chief)}{task.chief && !task.chief.old && ` · ${chiefState(liveness(task.chief.stopped))}`}</dd>
             {task.chief?.old && <><dt>Logbook</dt><dd>An old logbook. The task stays there, read-only: the move did not take it to the shared logbook.</dd></>}
             <dt>Priority</dt><dd>{task.priority ?? "None"}{task.kind && ` · ${task.kind}`}</dd>
             <dt>Size</dt><dd>{task.size ?? UNKNOWN}{task.risk && ` · risk flag ${task.risk}`}</dd>

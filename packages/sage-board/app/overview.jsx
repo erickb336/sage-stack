@@ -2,8 +2,8 @@ import { useState } from "react";
 import { GiveBox, PairBox, UndoButton, chiefLabel, questionLink, useAccess, useSeen } from "./actions.jsx";
 import { useNow, when } from "./use-model.js";
 import { StateIcon } from "./icons.jsx";
-import { milestoneLink, ofChief, taskLink } from "./panel.jsx";
-import { OBJECTS, UNKNOWN } from "../../sage-core/state-words.mjs";
+import { chiefSub, milestoneLink, ofChief, taskLink } from "./panel.jsx";
+import { FLAGS, OBJECTS, UNKNOWN, chiefName } from "../../sage-core/state-words.mjs";
 
 const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
@@ -23,7 +23,7 @@ function Counts({ model, previous, now }) {
   const known = model.tasks.some(task => task.addedAt), unknown = model.tasks.some(task => !task.addedAt);
   const items = [
     ["merged", after(model.tasks.filter(task => task.state === "merged").map(task => task.doneAt), since), "Merged", "tasks merged into main"],
-    ["stuck", model.counts.stuck, "Stuck", "runs that failed in the last 24 hours, or agents silent for 30 min or stopped now"],
+    ["stuck", model.counts.stuck, `${FLAGS[0]} or ${FLAGS[2]}`, "runs that failed in the last 24 hours, or agents silent for 30 min or stopped now"],
     ["added", known ? after(model.tasks.map(task => task.addedAt), since) : null, "New tasks", !known ? `${UNKNOWN} · no task in the logbook has a time when it was added` : unknown ? "tasks added to the logbook; older tasks have no time" : "tasks added to the logbook"],
   ];
   return (
@@ -95,7 +95,7 @@ function Stopped({ model, shown }) {
           <li key={chief.key} data-stopped={chief.key}>
             <span className="bullet stopped" aria-hidden="true" />
             <div>
-              <p className="q">{chief.id} · {chief.provider} · {chief.name}</p>
+              <p className="q">{chiefName(chief.id, chief.provider)} · {chiefSub(chief)}</p>
               <p className="meta"><span>stopped: no event since {chief.heartbeat ? new Date(chief.heartbeat).toLocaleString([], { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short", hourCycle: "h23" }) : "a time not recorded"} and no running agent</span><span>nothing moves on its own</span></p>
               {tasks.length ? <ul className="owned">{tasks.map(task => {
                 const need = model.needs.find(item => item.takeover && item.task?.key === task.key), answered = model.answered.find(item => item.takeover && item.task.key === task.key);

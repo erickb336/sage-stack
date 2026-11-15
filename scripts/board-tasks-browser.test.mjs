@@ -360,7 +360,7 @@ test("T1061 (F-T1061-33): a row's chief dot is green only for a live chief; a st
     const element = cell.querySelector(".dot"), style = element && getComputedStyle(element);
     return { text: cell.textContent, fill: style?.backgroundColor ?? null, ring: style ? style.boxShadow !== "none" || style.borderStyle !== "none" : null };
   });
-  const unknown = async id => assert.equal(await row(page, id).getByRole("img", { name: "Chief liveness unknown" }).count(), 1, `${id}: the hollow dot has a text alternative`);
+  const unknown = async id => assert.equal(await row(page, id).getByRole("img", { name: "Chief unknown" }).count(), 1, `${id}: the hollow dot has a text alternative`);
   assert.deepEqual(await dot("T3"), { text: "Codex · C2", fill: live, ring: false }, "a live chief (a run is running)");
   assert.deepEqual(await dot("T70"), { text: "Claude · C3 (stopped)", fill: grey, ring: false }, "a stopped chief (no heartbeat for 2 h)");
   assert.deepEqual(await dot("T40"), { text: "Claude · C1", fill: "rgba(0, 0, 0, 0)", ring: true }, "a listed chief with no heartbeat: liveness unknown");
@@ -499,13 +499,13 @@ test("T1080 (F-T1080-15, F-T1080-20): a milestone link from Needs you lands on a
 
 test("T1080 (F-T1080-19): a live chief's dot has a name, and the panel's Chief row says the chief's liveness", async t => {
   const { page, base } = await open(t, { chiefCases: true }, "/app/#tasks");
-  assert.equal(await row(page, "T3").getByRole("img", { name: "Chief live" }).count(), 1);
-  for (const [id, title, text] of [["T3", "Sample shared limits", "Codex · C2 · live"], ["T70", "Sample stopped chief", "Claude · C3 · stopped"], ["T40", "Sample crash fix", "Claude · C1 · liveness unknown"]]) {
+  assert.equal(await row(page, "T3").getByRole("img", { name: "Chief in progress" }).count(), 1);
+  for (const [id, title, text] of [["T3", "Sample shared limits", "Codex · C2 · in progress"], ["T70", "Sample stopped chief", "Claude · C3 · stopped"], ["T40", "Sample crash fix", "Claude · C1 · unknown"]]) {
     await page.goto(`${base}/app/#tasks?task=${encodeURIComponent(KEY(id))}`);
     await panelTitle(page).filter({ hasText: title }).waitFor();
     assert.equal(await page.locator(".facts dd.chief").textContent(), text);
   }
-  assert.equal(await page.locator(".facts dd.chief").getByRole("img", { name: "Chief liveness unknown" }).count(), 1);
+  assert.equal(await page.locator(".facts dd.chief").getByRole("img", { name: "Chief unknown" }).count(), 1);
 });
 
 test("T1080 (F-T1080-3, F-T1080-22): the panel puts the question, the recommendation and the next step on their own lines; closing an ended task's panel puts the focus on its row", async t => {
