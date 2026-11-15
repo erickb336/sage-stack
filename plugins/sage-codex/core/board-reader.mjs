@@ -158,7 +158,8 @@ const actionOf = (line, run) => {
 export function readActions(logbook, run, limit = 20) {
   if (!/^R[1-9]\d*$/.test(run)) throw new TypeError("an action file belongs to one run, R<n>");
   const dir = join(logbook, "actions"), found = { actions: [], dropped: 0 };
-  const identity = () => { const stat = lstatSync(dir, { throwIfNoEntry: false }); if (stat && (!stat.isDirectory() || stat.isSymbolicLink())) throw Object.assign(new Error("actions is not a folder"), { code: stat.isSymbolicLink() ? "ELOOP" : "ENOTDIR" }); return stat && `${stat.dev}:${stat.ino}`; };
+  const plain = (stat, what) => { if (stat && (!stat.isDirectory() || stat.isSymbolicLink())) throw Object.assign(new Error(`${what} is not a folder`), { code: stat.isSymbolicLink() ? "ELOOP" : "ENOTDIR" }); return stat; };
+  const identity = () => { const book = plain(lstatSync(logbook), "the logbook"), stat = plain(lstatSync(dir, { throwIfNoEntry: false }), "actions"); return stat && `${book.dev}:${book.ino}/${stat.dev}:${stat.ino}`; };
   const before = identity();
   if (!before) return found;
   let fd;

@@ -182,9 +182,9 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
       client.deadline.unref();
       client.response.once("drain", () => {
         clearTimeout(client.deadline); client.blocked = false;
-        const next = client.pending, changes = client.activity; client.pending = null; client.activity = null;
+        const next = client.pending, keys = client.activity; client.pending = null; client.activity = null;
         if (next) send(client, next);
-        if (changes) sendActivity(client, changes);
+        if (keys) sendActivity(client, Object.fromEntries([...keys].filter(key => activity.has(key)).map(key => [key, activity.get(key)])));
       });
     }
   }
@@ -208,7 +208,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
 
   function sendActivity(client, changes) {
     if (!client.app || !Object.keys(changes).length) return;
-    if (client.blocked) { client.activity = { ...client.activity, ...changes }; return; }
+    if (client.blocked) { client.activity = new Set([...client.activity ?? [], ...Object.keys(changes)]); return; }
     send(client, `event: activity\ndata: ${JSON.stringify(changes)}\n\n`);
   }
 
@@ -247,11 +247,11 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
       for (const id of hooks) {
         const notes = readHookNotes(configured.find(source => source.id === id).path), before = lastRead.find(source => source.id === id)?.hooks;
         if (!before || hookShape(notes) !== hookShape(before)) { schedule(); continue; }
-        for (const slot of notes.slots) for (const row of rows.filter(row => row.source === id && row.slot?.name === slot.name && row.logbook && row.runId)) {
-          const key = `${row.logbook}/${row.runId}`, was = activity.get(key)?.activity;
+        for (const slot of notes.slots) for (const row of rows.filter(row => row.source === id && row.slot?.name === slot.name)) {
+          const key = row.logbook && row.runId ? `${row.logbook}/${row.runId}` : null, was = key ? activity.get(key)?.activity : row.activity;
           if (was === undefined || was === slot.at) continue;
           if (was === null || at - was >= AGENT_QUIET_MS) schedule();
-          update(key, { activity: slot.at });
+          if (key) update(key, { activity: slot.at });
         }
       }
       for (const book of books) {
@@ -443,11 +443,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     if (!project?.tables.runs?.some(item => item.id === run)) return fail(404, "This run is not on the board.");
     const dir = join(configured.find(source => source.id === book[1]).path, book[2]);
     let found;
-    try {
-      const stat = lstatSync(dir);
-      if (!stat.isDirectory() || stat.isSymbolicLink()) throw Object.assign(new Error("the logbook is not a folder"), { code: "ELOOP" });
-      found = readActions(dir, run);
-    } catch (error) {
+    try { found = readActions(dir, run); } catch (error) {
       return ["ELOOP", "ENOTDIR"].includes(error.code) ? fail(403, "The board does not open links: this run's action file or its folder is a link or not a plain file.") : fail(503, "The board cannot read this run's actions now. Try again.");
     }
     return json(response, 200, { logbook: book[0], run, ...found });

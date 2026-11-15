@@ -233,7 +233,7 @@ test("T308: the Agents page is a route with the same access check, CSP and brows
   const stream = events(f, "/agents?events=1"); t.after(() => stream.close());
   assert.match((await stream.next()).html, /Agents \(1\)/);
   writeFileSync(join(f.project, "runs.tsv"), `${readFileSync(join(f.project, "runs.tsv"), "utf8")}R2\tT1\tcode-reviewer\t0\t\t\trunning\t\t\t${new Date().toISOString()}\t\n`);
-  slot(f.root, "slot-2", ["project-project", "role-sage_code-reviewer", "run-R2"]);
+  slot(f.root, "slot-3", ["project-project", "role-sage_code-reviewer", "run-R2"]);
   const next = await stream.next(p => p.html.includes("Agents (2)"));
   assert.match(next.html, /<span class="role">code-reviewer<\/span><span class="id">R2<\/span>/); assert.doesNotMatch(next.html, /class="board"/);
 });
@@ -553,11 +553,12 @@ const call = i => i.toString(16).padStart(8, "0");
 const action = (i, run = "R1") => `${JSON.stringify({ v: 1, at: new Date(Date.UTC(2026, 10, 14, 12, 0, i)).toISOString(), run, tool: "Read", kind: "file", target: `src/sample-${i}.mjs`, call: call(i), mark: "ok" })}\n`;
 const R1 = "sample/project-abcdef/R1";
 
-async function lightBoard(t, { lightEvery, quiet = false } = {}) {
+async function lightBoard(t, { lightEvery, quiet = false, slotOnly = false } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-light-")), root = join(dir, "source"), project = populate(root), port = await freePort();
   writeFileSync(join(project, "runs.tsv"), `${HEADERS.runs.replaceAll(" ", "\t")}\nR1\tT1\tqa\t0\t\t\trunning\t\t\t${new Date(Date.now() - 60 * 60_000).toISOString()}\t\nR2\tT1\timplementer\t0\t\t\tdone\t\t\t2026-11-14T10:00:00Z\t2026-11-14T11:00:00Z\n`);
   slot(root, "slot-1", ["project-project", "role-sage_qa", "run-R1"]);
-  if (quiet) { const long = new Date(Date.now() - 40 * 60_000); utimesSync(join(root, ".hooks", "slots", "slot-1"), long, long); }
+  if (slotOnly) slot(root, "slot-2", ["project-project", "role-sage_explore"]);
+  if (quiet) { const long = new Date(Date.now() - 40 * 60_000); for (const name of slotOnly ? ["slot-2", "slot-1"] : ["slot-1"]) utimesSync(join(root, ".hooks", "slots", name), long, long); }
   mkdirSync(join(project, "actions"));
   let reads = 0;
   const server = createBoardServer({ sources: [{ id: "sample", path: root, label: "Sample" }], port, settleReads: [], ...(lightEvery ? { lightEvery } : {}), duringRead: () => { reads++; },
@@ -619,18 +620,22 @@ test("T1100: 100 action appends and 100 slot renewals cause at most 1 full read 
   assert.deepEqual(later.frames.map(frame => frame.event), ["model", "activity"], "a new stream gets the model, then the activity of each running agent");
 });
 
-test("T1100: a quiet agent that wakes, and a slot that comes, still get a full read, so the Agents page shows the new state", async t => {
-  const f = await lightBoard(t, { lightEvery: 200, quiet: true });
-  assert.match((await read(f, "/agents")).body, /no activity for 40 min/);
-  const reads = f.reads(), now = new Date();
-  utimesSync(f.slot, now, now);
-  let page;
-  for (let i = 0; i < 600 && /no activity for 40 min/.test((page = await read(f, "/agents")).body); i++) await wait(50);
-  assert.doesNotMatch(page.body, /no activity for 40 min/, "the agent works again");
+test("T1100: a quiet agent that wakes, also one whose slot names no run, and a slot that comes, still get a full read, so the Agents page shows the new state", async t => {
+  const f = await lightBoard(t, { lightEvery: 200, quiet: true, slotOnly: true }), quiet = async () => ((await read(f, "/agents")).body.match(/no activity for 40 min/g) ?? []).length;
+  assert.equal(await quiet(), 2, "the qa agent of run R1 and the explore agent of a slot with no run are both quiet");
+  const reads = f.reads(), renew = path => { const now = new Date(); utimesSync(path, now, now); };
+  renew(join(f.root, ".hooks", "slots", "slot-2"));
+  let count;
+  for (let i = 0; i < 600 && (count = await quiet()) === 2; i++) await wait(50);
+  assert.equal(count, 1, "the agent of the slot with no run works again (F-T1100-1)");
   assert.ok(f.reads() > reads);
+  renew(f.slot);
+  for (let i = 0; i < 600 && (count = await quiet()) === 1; i++) await wait(50);
+  assert.equal(count, 0, "the agent of run R1 works again");
+  let page;
   writeFileSync(join(f.project, "runs.tsv"), `${readFileSync(join(f.project, "runs.tsv"), "utf8")}R3\tT1\tcode-reviewer\t0\t\t\trunning\t\t\t${new Date().toISOString()}\t\n`);
-  slot(f.root, "slot-2", ["project-project", "role-sage_code-reviewer", "run-R3"]);
-  for (let i = 0; i < 600 && !(page = await read(f, "/agents")).body.includes("Agents (2)"); i++) await wait(50);
+  slot(f.root, "slot-3", ["project-project", "role-sage_code-reviewer", "run-R3"]);
+  for (let i = 0; i < 600 && !(page = await read(f, "/agents")).body.includes("Agents (3)"); i++) await wait(50);
   assert.match(page.body, /<span class="role">code-reviewer<\/span><span class="id">R3<\/span>/);
 });
 
