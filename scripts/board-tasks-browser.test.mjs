@@ -508,6 +508,16 @@ test("T1099 (F-T1099-47): no Tasks, Pull requests or Agents row shows a bare das
   assert.equal(await row(page, "T72").locator(".pr").textContent(), "", "a task with no PR leaves the PR cell blank");
 });
 
+test("T1099 (F-T1099-64, F-T1099-72): a task address with a bad percent key, then a good one, still shows the task and its back link", async t => {
+  const { page, base, problems } = await open(t, {}, "/app/#tasks");
+  await page.goto(`${base}/app/#task?key=%E0%A4%A`);
+  await page.locator(".taskpage h1").waitFor();
+  await page.evaluate(key => { location.hash = `#task?key=${encodeURIComponent(key)}`; }, KEY("T3"));
+  await taskTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
+  assert.match(await page.locator(".taskpage a.back").textContent(), /^‹ Task /);
+  assert.deepEqual(problems.filter(problem => !/status of 404/.test(problem)), [], "no page error; the 404 is the board's answer for the bad key");
+});
+
 test("T1080 (F-T1080-3, F-T1080-22): the task page puts the question, the recommendation and the next step on their own lines; Back from an ended task puts the focus on its row", async t => {
   const { page } = await open(t, {}, taskPage("T30"));
   await taskTitle(page).filter({ hasText: "Sample crash reports" }).waitFor();

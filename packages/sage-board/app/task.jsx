@@ -173,8 +173,8 @@ function AtWork({ task }) {
 
 const BACK_NAMES = { "": "Overview", tasks: "Tasks", agents: "Agents", "pull-requests": "Pull requests", question: OBJECTS.question.label };
 const backName = from => {
-  const key = /^task\?key=([^&]*)/.exec(from)?.[1], path = from.split("?")[0];
-  return key ? `${OBJECTS.task.label} ${decodeURIComponent(key).split("/").pop()}` : Object.hasOwn(BACK_NAMES, path) ? BACK_NAMES[path] : null;
+  const [path, query] = from.split("?"), key = path === "task" && new URLSearchParams(query).get("key");
+  return key ? `${OBJECTS.task.label} ${key.split("/").pop()}` : Object.hasOwn(BACK_NAMES, path) ? BACK_NAMES[path] : null;
 };
 export function TaskPage({ taskKey, tab: asked, at, from }) {
   const { data: task, problem } = useTask(taskKey, at);
