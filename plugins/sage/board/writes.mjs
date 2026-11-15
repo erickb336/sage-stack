@@ -5,7 +5,10 @@ import { createStateTool } from "../core/index.mjs";
 
 const OWNER = [["gate", "answer"], ["gate", "undo"], ["gate", "give"], ["chief", "name"]];
 const WRITE_MS = 30_000;
+const UNEXPECTED = { code: 2, pending: true, text: "The logbook write stopped with an unexpected error, so the board cannot say whether it landed. Reload the board to see it before you try again." };
+const open = new Set();
 export const ownerCommand = argv => Array.isArray(argv) && argv.every(word => typeof word === "string") && OWNER.some(([cmd, sub]) => argv[0] === cmd && argv[1] === sub);
+export const writesEnded = () => Promise.all(open);
 
 function checkouts(shared, folder) {
   let text;
@@ -23,16 +26,21 @@ export function ownerWrite({ shared, folder, argv }, env = process.env) {
   const dir = join(shared, folder);
   const project = checkouts(shared, folder).find(root => { try { return tool.locate(root, settings).dir === dir; } catch { return false; } });
   if (!project) return { code: 1, text: `No checkout of this project is on this Mac, so the board cannot write its logbook. Answer in the chief's chat.` };
-  return tool.command([...argv, "--project", project], settings);
+  const done = tool.command([...argv, "--project", project], settings);
+  if (done.code !== 2) return done;
+  console.error(done.text);
+  return UNEXPECTED;
 }
 
 export function writeInWorker(job, { timeout = WRITE_MS } = {}) {
   return new Promise(done => {
     const worker = new Worker(new URL(import.meta.url), { workerData: { write: job } });
+    const ended = new Promise(end => worker.once("exit", end)).then(() => open.delete(ended));
+    open.add(ended);
     const timer = setTimeout(() => done({ code: 2, pending: true, text: "Not confirmed yet: the logbook was busy. The write may still finish: reload the board to see it before you try again." }), timeout);
     worker.once("message", result => { clearTimeout(timer); done(result); });
-    worker.once("error", error => { clearTimeout(timer); done({ code: 2, text: `The logbook write failed: ${error.message}` }); });
-    worker.once("exit", () => { clearTimeout(timer); done({ code: 2, text: "The logbook write stopped before it answered." }); });
+    worker.once("error", error => { clearTimeout(timer); console.error(error); done(UNEXPECTED); });
+    worker.once("exit", () => { clearTimeout(timer); done(UNEXPECTED); });
   });
 }
 

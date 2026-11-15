@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync, watch } from "node:fs";
 import { createServer } from "node:http";
-import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readBoardSources, buildBoardModel, boardOverview, taskPanel, landingRule, pageTaskFolder, renderBoardHtml, renderAgentsHtml, renderMilestonesHtml, renderReleasesHtml, BOARD_PORT } from "../sage-core/index.mjs";
 import { COOKIE, boardAccess, readJson } from "./access.mjs";
 import { pagesRequest, servePages, taskFiles } from "./pages.mjs";
 import { designSummary, logbookDir, readerPage, recordedPages } from "./reader.mjs";
-import { writeInWorker } from "./writes.mjs";
+import { writeInWorker, writesEnded } from "./writes.mjs";
 
 const MARKDOWN = await import("./markdown.mjs").then(module => module.renderMarkdown, () => null);
 const NO_READER = "The reader's Markdown renderer is not in this copy of the board. Run the board from the sage plugin, or run npm ci and npm run build.";
@@ -85,6 +85,7 @@ function appPolicy(origin) {
 const forwarded = name => name === "forwarded" || name.startsWith("x-forwarded-");
 
 const BODY_MAX = 16 * 1024;
+const HEADERS_MAX = 64 * 1024;
 const GATE = /^G[1-9]\d*$/, TASK = /^T[1-9]\d*$/, CHIEF = /^C[1-9]\d*$/, LOGBOOK = /^([A-Za-z0-9_-]{1,80})\/([a-z0-9-]+-[0-9a-f]{6})$/;
 const JOBS = {
   answer: body => GATE.test(body.gate) && Number.isInteger(body.option) && body.option >= 1 && body.option <= 99 && /^[0-9a-f]{16}$/.test(body.digest ?? "") && ["gate", "answer", body.gate, "--via", "board", "--option", String(body.option), "--seen", body.digest],
@@ -92,6 +93,8 @@ const JOBS = {
   give: body => TASK.test(body.task) && CHIEF.test(body.to) && ["gate", "give", body.task, "--to", body.to],
   name: body => CHIEF.test(body.chief) && typeof body.name === "string" && body.name.length <= 240 && ["chief", "name", body.chief, ...(body.name.trim() ? [body.name.trim()] : [])],
 };
+const LOCAL_PATH = /(?<![\w.~/-])~?\/(?!\/[^/])[^\s"'`]+(?:(?: [^\s"'`/]+){0,3} [^\s"'`/]+\/[^\s"'`]*)*/g;
+export const withoutPaths = text => text.replace(LOCAL_PATH, path => `…/${basename(path)}`);
 const jsonCell = text => { try { const value = JSON.parse(text || "null"); return value && typeof value === "object" && !Array.isArray(value) ? value : null; } catch { return null; } };
 
 function json(response, status, body, headers = {}) {
@@ -105,7 +108,7 @@ function jsonBody(request) {
   return new Promise((accept, reject) => {
     const parts = []; let size = 0;
     request.on("data", part => { size += part.length; if (size > BODY_MAX) { reject(new Error("too large")); request.destroy(); } else parts.push(part); });
-    request.on("end", () => { try { const value = JSON.parse(Buffer.concat(parts).toString("utf8")); value && typeof value === "object" && !Array.isArray(value) ? accept(value) : reject(new Error("not an object")); } catch (error) { reject(error); } });
+    request.on("end", () => { try { const value = JSON.parse(Buffer.concat(parts).toString("utf8")); value && typeof value === "object" && !Array.isArray(value) && Object.values(value).every(item => typeof item === "string" || typeof item === "number") ? accept(value) : reject(new Error("not an object")); } catch (error) { reject(error); } });
     request.on("error", reject);
   });
 }
@@ -286,7 +289,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     if (Number.isFinite(boundary)) { boundaryTimer = setTimeout(schedule, Math.min(boundary - now, 2_147_483_647)); boundaryTimer.unref(); }
   }
 
-  const server = createServer({ maxHeaderSize: 8192 }, (request, response) => {
+  const server = createServer({ maxHeaderSize: HEADERS_MAX }, (request, response) => {
     securityHeaders(response);
     if (pagesRequest(request.url)) return servePages(request, response, { onMac, model });
     const fail = (status, text) => { response.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" }); response.end(request.method === "HEAD" ? undefined : `${text}\n`); };
@@ -332,7 +335,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     if (!/^application\/json(?:;\s*charset=utf-8)?$/i.test(oneHeader(request, "content-type") ?? "")) return fail(415, "A write sends JSON.");
     if (!access) return fail(503, "This board writes nothing: it started without its config folder.");
     let body;
-    try { body = await jsonBody(request); } catch { return response.destroyed ? undefined : fail(400, "A write is one JSON object of at most 16 KiB."); }
+    try { body = await jsonBody(request); } catch { return response.destroyed ? undefined : fail(400, "A write is one JSON object of strings and numbers, of at most 16 KiB."); }
     const name = request.url.slice("/api/".length);
     if (name === "pair") {
       const paired = access.pair(body.code);
@@ -347,7 +350,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     const argv = Object.hasOwn(JOBS, name) && JOBS[name](body);
     if (!argv || !source || !model?.sources.some(item => item.id === source.id && item.shared)) return reply(400, { problem: "The board cannot send this write: it names no question, task or chief of a shared logbook." });
     const done = await write({ shared: source.path, folder: book[2], argv });
-    return reply(done.pending ? 202 : done.code ? 409 : 200, { ok: !done.code, ...(done.pending && { pending: true }), text: String(done.text).replace(/^sage: /, "") });
+    return reply(done.pending ? 202 : done.code ? 409 : 200, { ok: !done.code, ...(done.pending && { pending: true }), text: withoutPaths(String(done.text).replace(/^sage: /, "")) });
   }
 
   function gateDetail(key) {
@@ -355,7 +358,8 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     const task = GATE.test(id) && model?.tasks.find(item => item.project === logbook && item.gateRows?.some(gate => gate.id === id));
     if (!task) return null;
     const gate = task.gateRows.find(row => row.id === id), source = configured.find(item => item.id === task.source);
-    const kept = source && LOGBOOK.test(logbook) ? readJson(join(source.path, logbook.slice(logbook.indexOf("/") + 1), "gates"), `${id}.json`, 1 << 20) : null;
+    let kept = null;
+    try { kept = source && LOGBOOK.test(logbook) ? readJson(join(source.path, logbook.slice(logbook.indexOf("/") + 1), "gates"), `${id}.json`, 1 << 20) : null; } catch {}
     const answered = jsonCell(gate.answered), picked = jsonCell(gate.picked), need = model.needsOwner.flatMap(item => item.reasons).find(reason => reason.key === key);
     return { key, id, logbook, task: { key: task.key, id: task.id, title: task.title }, project: task.projectName, question: String(gate.question ?? ""), options: String(gate.options ?? "").split("|").map(option => option.trim()).filter(Boolean),
       recommendation: gate.recommendation || null, default: gate.default || null, at: gate.at || null, answer: gate.answer || null, answered: answered && { at: String(answered.at ?? ""), via: String(answered.via ?? ""), answer: answered.answer == null ? null : String(answered.answer) },
@@ -450,6 +454,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
       for (const client of clients) { client.response.destroy(); removeClient(client); }
       closePromise = (async () => {
         if (startPromise) await startPromise.catch(() => {});
+        await writesEnded();
         if (server.listening) { server.closeAllConnections(); await new Promise((accept, reject) => server.close(error => error ? reject(error) : accept())); }
       })();
       return closePromise;

@@ -349,3 +349,18 @@ test("F-T1059-43: a write that the board stops waiting for says one thing: not c
   assert.equal(await page.getByText(/Not recorded/).count(), 0, "no \"Not recorded\" before a write that may still finish");
   await w.shot("t1059-write-timeout");
 });
+
+test("F-T1076-13: a write whose connection drops after the server got it says that it may have landed, not that nothing was written", async t => {
+  const w = await openBoard(t), { page } = w;
+  await w.pair();
+  await w.context.route(`${w.origin}/api/answer`, async route => {
+    await route.fetch({ headers: { ...await route.request().allHeaders(), "sec-fetch-site": "same-origin" } });
+    await route.abort("connectionreset");
+  });
+  await page.getByRole("link", { name: MESSAGE.title }).click();
+  await page.getByRole("radio", { name: /^no/ }).check();
+  await page.getByRole("button", { name: "Send answer" }).click();
+  await page.getByRole("alert").filter({ hasText: /^The board lost its connection to its server on this Mac, so it cannot say whether the write landed\. Reload the board to see it before you try again\.$/ }).waitFor();
+  assert.equal(await page.getByText(/Not recorded|Nothing was written/).count(), 0, "no claim that the write did not land");
+  assert.equal(JSON.parse(w.gate("G1").answered).answer, "no", "the write landed");
+});
