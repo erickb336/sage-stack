@@ -52,12 +52,11 @@ try {
     const read = core.readBoardSources(sources, {});
     const model = core.buildBoardModel(read, { now: new Date().toISOString() });
     core.boardOverview(model);
-    for (const render of [core.renderBoardHtml, core.renderAgentsHtml, core.renderMilestonesHtml, core.renderReleasesHtml]) render(model, { live: true });
     times.push(performance.now() - start);
   }
   console.log(`checkout: ${repo}`);
   console.log(`fixture: 1 logbook, ${RUNS} runs, ${Math.ceil(RUNS / 4)} tasks, ${RUNNING} running agents with hook slots`);
-  console.log(`one full refresh (read every table, build the model, the overview and 4 pages): ${stats(times)}`);
+  console.log(`one full refresh (read every table, build the model and the overview, as the board server does for the app): ${stats(times)}`);
 
   let reads = 0;
   const server = createBoardServer({ sources, port: await freePort(), settleReads: [], duringRead: () => { reads++; } });
