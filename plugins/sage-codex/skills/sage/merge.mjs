@@ -4,8 +4,9 @@ import { createHash } from "node:crypto";
 import { realpathSync, renameSync, rmSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { readModeFile } from "../../core/index.mjs";
-import { autopilotSwitch, readRecord, turnAborted } from "../../hooks/owner-record.mjs";
+import { autopilotSwitch, dispatchBinding, dispatchId, readRecord, turnAborted } from "../../hooks/owner-record.mjs";
 import { privateDirectory, readState } from "../../hooks/hook-state.mjs";
 
 const PERMIT_AGE = 300_000;
@@ -15,6 +16,7 @@ const text = (value) => typeof value === "string" && value.length > 0;
 const REPOSITORY = /^[A-Za-z0-9][A-Za-z0-9-]*\/(?!\.\.?$)[A-Za-z0-9_.][A-Za-z0-9_.-]*$/;
 const REDIRECTS = ["GH_HOST", "GH_REPO", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
 const PERMIT_FIELDS = [["session", text], ["repo", (v) => REPOSITORY.test(v)], ["pr", text], ["sha", text], ["command", text], ["cwd", text], ["turn", text],
+  ["callId", dispatchId], ["turnStart", Number.isInteger], ["ownerTurn", dispatchId], ["startFile", (v) => text(v) && isAbsolute(v)],
   ["transcript", text], ["mark", (v) => v !== null && typeof v === "object"], ["mode", text], ["gh", (v) => text(v) && isAbsolute(v)],
   ["path", (v) => text(v) && v.split(":").every(isAbsolute)], ["time", Number.isFinite]];
 
@@ -35,9 +37,9 @@ function check(args, env, now) {
   if (args.length !== 2 || !/^[1-9]\d*$/.test(args[0]) || !/^[0-9a-f]{40}$/.test(args[1])) return { why: "give exactly two arguments: the pull request number and its 40-character head SHA" };
   const [pr, sha] = args;
   const session = env.CODEX_SESSION_ID;
-  if (!session || env.CODEX_THREAD_ID !== session) return { why: "only the chief merges, not a subagent. Ask the chief to run the merge" };
+  if (!dispatchId(session) || env.CODEX_THREAD_ID !== session) return { why: "only the chief merges, not a subagent. Ask the chief to run the merge" };
   const callId = env.CODEX_TOOL_CALL_ID;
-  if (!callId) return { why: `Codex gave this command no tool call id. ${AGAIN}` };
+  if (!dispatchId(callId)) return { why: `Codex gave this command no valid tool call id. ${AGAIN}` };
   const file = permitFile(callId);
   if (!file) return { why: "this copy of sage is not installed as a Codex plugin, so it has no merge permits. The owner merges the pull request in GitHub" };
   const used = file.replace(/\.json$/, ".used.json");
@@ -52,9 +54,11 @@ function check(args, env, now) {
   const age = now - permit.time;
   if (!(age >= 0 && age <= PERMIT_AGE)) return { why: `the merge permit is not from the last 300 s. ${AGAIN}` };
   if (permit.session !== session) return { why: `the merge permit is for another session. ${AGAIN}` };
+  if (permit.callId !== callId) return { why: `the merge permit is for another tool call. ${AGAIN}` };
   if (permit.pr !== pr) return { why: `the merge permit is for another pull request. ${AGAIN}` };
   if (permit.sha !== sha) return { why: `the merge permit is for another head SHA. ${AGAIN}` };
   if (permit.command !== mergeCommand(pr, sha)) return { why: `the merge permit is for another command. ${AGAIN}` };
+  if (realpathSync(process.cwd()) !== realpathSync(permit.cwd)) return { why: `the merge permit is for another project. ${AGAIN}` };
   const record = readRecord(permit.transcript);
   if (record.refused) return { why: record.refused };
   const { state } = readModeFile(readState, permit.mode);
@@ -63,6 +67,11 @@ function check(args, env, now) {
   if (owner.refused) return { why: owner.refused };
   if (!owner.on) return { why: `${owner.reason}. ${SWITCH_ON}` };
   if (turnAborted(record, permit.turn)) return { why: "the owner stopped the turn of this merge with Esc. Ask for the merge again only if the owner wants it" };
+  let mark;
+  try { mark = readState(permit.startFile); } catch { mark = undefined; }
+  if (!isDeepStrictEqual(mark, permit.mark)) return { why: `the session start changed since this merge was admitted. ${AGAIN}` };
+  const binding = dispatchBinding(record, mark, { session, turn: permit.turn, callId });
+  if (!binding || binding.turnStart !== permit.turnStart || state.onTurn !== permit.ownerTurn) return { why: `the admitted root turn or owner authorization changed. ${AGAIN}` };
   return { repo: permit.repo, gh: permit.gh, path: permit.path };
 }
 

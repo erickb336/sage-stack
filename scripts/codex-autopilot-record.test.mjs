@@ -9,7 +9,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const PLUGIN = fileURLToPath(new URL("../plugins/sage-codex", import.meta.url));
-const { readRecord, autopilotSwitch, onCanCount, turnAborted } = await import(join(PLUGIN, "hooks/owner-record.mjs"));
+const { readRecord, autopilotSwitch, onCanCount, turnAborted, dispatchBinding } = await import(join(PLUGIN, "hooks/owner-record.mjs"));
 const { exactPhrase, switchModes } = await import(join(PLUGIN, "core/index.mjs"));
 const { markFile } = await import(join(PLUGIN, "hooks/start-mark.mjs"));
 const { modeDirectory } = await import(join(PLUGIN, "hooks/sage-codex-hook.mjs"));
@@ -21,7 +21,7 @@ const SCRATCH = realpathSync(mkdtempSync(join(tmpdir(), "sage-autopilot-record-"
 process.on("exit", () => rmSync(SCRATCH, { recursive: true, force: true }));
 process.env.HOME = SCRATCH;
 process.env.SAGE_HOME = join(SCRATCH, "sage");
-delete process.env.CODEX_HOME;
+process.env.CODEX_HOME = join(SCRATCH, "codex");
 let files = 0;
 function recordFile(lines, end = "\n") {
   const file = join(SCRATCH, `record-${++files}.jsonl`);
@@ -57,6 +57,37 @@ const started = (turn, trigger) => ({ ...startLine, payload: { ...startLine.payl
 const owner = (turn, text, provenance = ["user"]) => ({ ...ownerLine, payload: { ...ownerLine.payload, content: provenance.map((_, i) => ({ type: "input_text", text: i ? "" : text })),
   internal_chat_message_metadata_passthrough: { ...ownerLine.payload.internal_chat_message_metadata_passthrough, turn_id: turn, content_item_metadata: provenance.map((type) => ({ provenance: { type } })) } } });
 const meta = (cli_version) => ({ ...META, payload: { ...META.payload, cli_version } });
+
+test("T1087: root dispatch evidence uses recorded lifecycle and startup boundaries", () => {
+  const session = META.payload.id, callId = "nested-id";
+  const mark = { session, source: "startup", lines: 1, pid: 4242 };
+  const binding = { session, turn: TURN, callId };
+  const base = [META, started(TURN, "composer")];
+  assert.deepEqual(dispatchBinding(read(base), mark, binding), { turnStart: 1 });
+  for (const source of ["resume", "clear", "fork"]) assert.deepEqual(dispatchBinding(read(base), { ...mark, source }, binding), { turnStart: 1 });
+  for (const terminal of ["task_complete", "turn_aborted"]) {
+    assert.equal(dispatchBinding(read([...base, { type: "event_msg", payload: { type: terminal, turn_id: TURN } }]), mark, binding), null);
+  }
+  assert.equal(dispatchBinding(read(base), { ...mark, lines: 2 }, binding), null);
+  assert.equal(dispatchBinding(read([...base, started(TURN, "composer")]), mark, binding), null);
+  assert.equal(dispatchBinding(read([...base, started("another", "composer")]), mark, binding), null);
+  assert.equal(dispatchBinding(read([...base, started("another", "composer"), { type: "event_msg", payload: { type: "task_complete", turn_id: "another" } }]), mark, binding), null);
+  const child = { ...META, payload: { ...META.payload, source: { subagent: { thread_spawn: {} } } } };
+  assert.equal(dispatchBinding(read([child, base[1]]), mark, binding), null);
+  const call = { type: "response_item", payload: { type: "function_call", call_id: callId } };
+  assert.equal(dispatchBinding(read([META, call, base[1]]), mark, binding), null);
+  assert.deepEqual(dispatchBinding(read([...base, call]), mark, binding), { turnStart: 1 });
+});
+
+test("F-T1087-1: active-turn ambiguity starts at the startup boundary", () => {
+  const session = META.payload.id, binding = { session, turn: TURN, callId: "resumed-nested" };
+  const mark = { session, source: "resume", lines: 2, pid: 4242 };
+  const history = [META, started("unfinished-history", "composer")];
+  assert.deepEqual(dispatchBinding(read([...history, started(TURN, "composer")]), mark, binding), { turnStart: 2 });
+  assert.equal(dispatchBinding(read([...history, started(TURN, "composer")]), { ...mark, lines: 1 }, binding), null);
+  assert.equal(dispatchBinding(read([...history, started("current-other", "composer"), started(TURN, "composer")]), mark, binding), null);
+  assert.equal(dispatchBinding(read([...history, started("unfinished-history", "composer"), started(TURN, "composer")]), mark, binding), null);
+});
 function withMode(lines) {
   const first = lines.findIndex((o) => o.payload.type === "task_started");
   return [...lines.slice(0, first), started("mode-turn", lines[first].payload.turn_attribution.turn_trigger), owner("mode-turn", "sage mode"), ...lines.slice(first)];

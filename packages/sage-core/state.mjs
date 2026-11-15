@@ -1816,8 +1816,11 @@ function planTaskChanges(before, id, changes, at, facts) {
       }
       if (v === "verified") {
         const rows = facts.ledger.filter((r) => r.task === task.id);
-        const head = rows.at(-1)?.sha ?? refuse(`${task.id} has no verdicts yet`);
-        const r = judge("", task, facts.findings, decisions, task.id, rows.filter((r) => r.sha === head), 1);
+        const tip = task.branch && branchTip(facts.project, task.branch, facts.env);
+        const head = tip || rows.at(-1)?.sha || refuse(`${task.id} has no verdicts yet`);
+        const checkout = tip ? branchCheckout(storeDir(facts.project, facts.env), facts.project, task.branch, facts.env) : undefined;
+        const carry = carryOver(checkout, task, head, rows);
+        const r = judge("", task, facts.findings, decisions, task.id, carry.rows, 1);
         if (!r.ok) refuse(`${task.id} is not verified on ${head.slice(0, 7)}: ${r.reason}`);
       }
       if (["merged", "concluded", "abandoned"].includes(v)) decided.push({ at: at, task: task.id, decision: `state ${v}`, why: (v === "abandoned" && facts.why) || "task set" });
@@ -1959,7 +1962,8 @@ function judge(dir, task, findings, decisions, id, rows, cycles, repaired, cfg, 
 const cleanKinds = (task) => list(task.route).map((b) => VERDICT[b]).filter((k) => k && k !== "checks-pass");
 const cleanCycles = (task, rows) => [...new Set(rows.map((r) => r.cycle))].filter((c) => cleanKinds(task).every((k) => rows.some((r) => r.cycle === c && r.kind === k))).length;
 
-function carryOver(checkout, task, head, own, all) {
+function carryOver(checkout, task, head, all) {
+  const own = all.filter((r) => String(r.sha).toLowerCase() === String(head).toLowerCase());
   if (!task || checkout === undefined) return { rows: own };
   const earlier = new Map();
   for (const r of all) if (r.sha !== head && /^[0-9a-f]{40}$/.test(r.sha) && REVIEWED.includes(r.kind)) (earlier.get(r.sha) ?? earlier.set(r.sha, []).get(r.sha)).push(r);
@@ -2190,7 +2194,7 @@ function judgeMerge(sha, env, { cycles, pr, readOnly, head, project, locked, ses
       const [tasks, findings, decisions, runs] = book ? [rowsOf(book.tasks), rowsOf(book.findings), rowsOf(book.decisions), rowsOf(book.runs)] : [[], [], [], []];
       const repaired = decisions.some((d) => d.decision.startsWith("tasks.tsv started again without rows"));
       const ofPr = pr && (mine === undefined || basename(dir) === mine) ? prHistory(pr, tasks, decisions, ledger) : new Set();
-      const [byId, ownOf, findingsOf, runsOf, decisionsOf, ledgerOf] = [new Map(tasks.map((t) => [t.id, t])), group(rows), group(findings), group(runs), group(decisions), group(ledger)];
+      const [byId, findingsOf, runsOf, decisionsOf, ledgerOf] = [new Map(tasks.map((t) => [t.id, t])), group(findings), group(runs), group(decisions), group(ledger)];
       const candidates = runs.filter(isCandidate);
       const ranOn = new Map();
       for (const r of runs) if (sameBranch(r.branch, head) && !ranOn.has(r.task)) ranOn.set(r.task, r.id);
@@ -2205,7 +2209,7 @@ function judgeMerge(sha, env, { cycles, pr, readOnly, head, project, locked, ses
       const chief = basename(dir) !== mine ? undefined : merger ?? (session !== undefined ? chiefFor(project, session, env) : undefined);
       const lint = lintNeed(gitOf(dir));
       const checked =[...new Set([...rows.map((r) => r.task), ...ofPr])].map((id) => {
-        const task = byId.get(id), carry = carryOver(gitOf(dir), task, sha, ownOf.get(id) ?? [], ledgerOf.get(id) ?? []), own = carry.rows;
+        const task = byId.get(id), carry = carryOver(gitOf(dir), task, sha, ledgerOf.get(id) ?? []), own = carry.rows;
         const held = task?.state === "held" && { ok: false, reason: `${id} is held: only the sage moves a held task, and it does not merge until then.` };
         const judged = judge(dir, task, findingsOf.get(id) ?? [], decisionsOf.get(id) ?? [], id, own, task ? Math.max(cycles ?? 0, cyclesFor(task, cfg)) : cycles, repaired, cfg, pr, carry.from, lint);
         const note = carry.from ? `cycles from ${carry.from} carried to ${sha}: clean merge of main, same patch-id` : carry.why;
@@ -2405,8 +2409,11 @@ function logbookView(project, env = process.env, { max = Infinity } = {}) {
     shas: (task) => new Set(rows("ledger").filter((r) => r.task === task && r.sha).map((r) => r.sha)),
     verdicts: (task) => rows("ledger").filter((r) => r.task === task),
     cleanCycles: (id, sha) => {
-      const task = one(rows("tasks").filter((t) => t.id === id)), on = rows("ledger").filter((r) => r.task === id && String(r.sha).toLowerCase() === String(sha).toLowerCase());
-      return !task ? 0 : cleanKinds(task).length ? cleanCycles(task, on) : null;
+      const task = one(rows("tasks").filter((t) => t.id === id));
+      if (!task) return 0;
+      const carry = carryOver(branchCheckout(dir, project, task.branch, env), task, sha, rows("ledger").filter((r) => r.task === id));
+      if (carry.from && !judge(dir, task, rows("findings"), rows("decisions"), id, carry.rows, 1).ok) return 0;
+      return cleanKinds(task).length ? cleanCycles(task, carry.rows) : null;
     },
     endedLeadRuns: () => rows("runs").filter((r) => r.role === "lead" && RUN_ENDS.includes(r.status)),
     prTasks: (pr) => prHistory(prNumber(pr), rows("tasks"), rows("decisions"), rows("ledger")),
@@ -3174,7 +3181,7 @@ function act(cmd, pos, opt, dir, env, skip, project) {
       const why = opt.why === undefined ? undefined : [cell(opt.why), opt.chief && `abandoned by ${opt.chief}${task.chief ? "" : ", with no owning chief"}`].filter(Boolean).join(" · ");
       if (id === "set") {
         const before = { tasks, runs: read(dir, "runs"), decisions: read(dir, "decisions") };
-        const planned = planTaskChanges(before, task.id, more, now(), { ...Object.fromEntries(["findings", "ledger", "gates", "milestones", "releases"].map((t) => [t, read(dir, t)])), maxRounds: config(env, dir).max_rounds, why });
+        const planned = planTaskChanges(before, task.id, more, now(), { ...Object.fromEntries(["findings", "ledger", "gates", "milestones", "releases"].map((t) => [t, read(dir, t)])), maxRounds: config(env, dir).max_rounds, why, project, env });
         const bar = moveBar(more, planned);
         if (bar) refuse(bar);
         if (JSON.stringify(planned.decisions) !== JSON.stringify(before.decisions)) write(dir, "decisions", planned.decisions);
