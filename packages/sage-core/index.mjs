@@ -19,8 +19,8 @@ export { PHRASES, exactPhrase, hasPhrase, phrasesNear, phraseHelp, switchModes, 
 export { BRIEF_FIELDS, briefSections, missingBriefFields } from "./brief.mjs";
 export { renderRoleInstructions, renderReportInstructions, renderChiefInstructions, ROLE_PRINCIPLES } from "./roles.mjs";
 export { commitIdentity, PRIORITIES, PRIORITY_SCALE, startsInSageMode } from "./logbook-fields.mjs";
-export { readBoardSources } from "./board-reader.mjs";
-export { buildBoardModel } from "./board-model.mjs";
+export { readActions, readBoardSources, readHookNotes } from "./board-reader.mjs";
+export { AGENT_QUIET_MS, buildBoardModel } from "./board-model.mjs";
 export { boardOverview, taskPanel } from "./board-overview.mjs";
 export { taskWord, milestoneWord, releaseWord } from "./state-words.mjs";
 export { renderBoardHtml, renderAgentsHtml, renderMilestonesHtml, renderReleasesHtml, renderBoardText, renderTaskText, renderBoardStatus } from "./board-render.mjs";

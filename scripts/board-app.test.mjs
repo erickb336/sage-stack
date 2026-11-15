@@ -44,6 +44,7 @@ async function models(url, count, change = () => {}, wait = 30_000) {
       buffer += decoder.decode(value, { stream: true });
       for (let end; (end = buffer.indexOf("\n\n")) !== -1;) {
         const frame = buffer.slice(0, end); buffer = buffer.slice(end + 2);
+        if (frame.startsWith("event: activity\n")) continue;
         assert.match(frame, /^id: \d+\nevent: model\ndata: /);
         seen.push(JSON.parse(frame.split("\n")[2].slice("data: ".length)));
         if (seen.length < count) await change(seen.length);
@@ -160,11 +161,14 @@ test("F-T1065-14: the app stream sends a model only when it changed, and refuses
     writeFileSync(file, text);
   });
   assert.deepEqual(frames.map(frame => frame.stale), [false, true, false], "a second read of the same damaged table, with the same last good data, sent nothing");
-  const controllers = Array.from({ length: 16 }, () => new AbortController());
-  t.after(() => controllers.forEach(controller => controller.abort()));
-  for (const controller of controllers) assert.equal((await fetch(`${base}/app/events`, { signal: controller.signal })).status, 200);
+  const streams = [];
+  t.after(() => Promise.all(streams.map(stream => stream.body.cancel())));
+  for (let count = 0; count < 16; count++) {
+    streams.push(await fetch(`${base}/app/events`));
+    assert.equal(streams.at(-1).status, 200);
+  }
   const extra = await fetch(`${base}/app/events`);
-  assert.equal(extra.status, 503);
+  assert.equal(extra.status, 503, "the 16 responses stay referenced until t.after, as fetch cancels the body of a response that is garbage collected, and that frees a slot");
   assert.match(await extra.text(), /too many open board streams/);
 });
 
