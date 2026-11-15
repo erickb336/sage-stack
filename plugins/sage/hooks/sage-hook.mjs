@@ -991,19 +991,21 @@ const mentionsMerge = (text) => commandPolicy.error || commandPolicy.mentionsMer
 const sharedCommands = commandPolicy.commands;
 const nodeCommand = (script, args) => (/\s/.test(script) ? `node "${script}" ${args}` : `node ${script} ${args}`);
 export const stateCommand = (args) => nodeCommand(TOOL, args);
-const SPACE_NOTE = /\s/.test(TOOL) ? "The plugin path has a space: when the sandbox is on, it needs a plugin path without spaces. " : "";
+const spaceNote = (path) => (/\s/.test(path) ? "The plugin path has a space: when the sandbox is on, it needs a plugin path without spaces. " : "");
+const SPACE_NOTE = spaceNote(TOOL);
 export function shellCommands(src) {
   if (commandReader.error) throw commandReader.error;
   return commandReader.shellCommands(src);
 }
 
-export function chiefText() {
+export function chiefText(folder = ROOT) {
   const m = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(readFileSync(join(ROOT, "agents/chief-of-staff.md"), "utf8"));
   const skills = [...m[1].matchAll(/^\s+-\s+(\S+)\s*$/gm)].map((x) => x[1]);
+  const tool = join(folder, "skills/sage/sage.mjs");
   return [
     `sage: sage mode is on. You are the user's chief of staff until the user sends the message "sage mode off", alone.`,
-    `${SPACE_NOTE}The state tool: ${stateCommand("<command> --project <path>")}. Each shell call starts fresh, so write this full command every time; do not keep it in a variable. Load these skills now: ${skills.join(", ")}.`,
-    `The sage plugin's folder: ${ROOT}. A reference path in these instructions and in the sage skill, such as \`core/references/<name>.md\` or \`skills/sage/references/<name>.md\`, is in that folder: read the file there when its trigger holds.`,
+    `${spaceNote(tool)}The state tool: ${nodeCommand(tool, "<command> --project <path>")}. Each shell call starts fresh, so write this full command every time; do not keep it in a variable. Load these skills now: ${skills.join(", ")}.`,
+    `The sage plugin's folder: ${folder}. A reference path in these instructions and in the sage skill, such as \`core/references/<name>.md\` or \`skills/sage/references/<name>.md\`, is in that folder: read the file there when its trigger holds.`,
     m[2].trim(),
   ].join("\n\n");
 }
