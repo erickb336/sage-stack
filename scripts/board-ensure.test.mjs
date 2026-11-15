@@ -76,7 +76,7 @@ async function freePort() {
 const get = (port) => new Promise((done) => {
   const req = request({ host: "127.0.0.1", port, path: "/", agent: false, headers: { Host: `127.0.0.1:${port}` } }, (response) => {
     let body = ""; response.setEncoding("utf8"); response.on("data", (chunk) => { body += chunk; });
-    response.on("end", () => done({ status: response.statusCode, body, board: response.headers["x-sage-board"] }));
+    response.on("end", () => done({ status: response.statusCode, location: response.headers.location, body, board: response.headers["x-sage-board"] }));
   });
   req.once("error", (error) => done({ error: error.code }));
   req.end();
@@ -124,8 +124,7 @@ test("T216: ensure sets the board up, starts one detached server, and leaves a r
     assert.deepEqual([secret, password, allowedHosts], [undefined, undefined, undefined], "T229, T1053: ensure writes no secret, password or allowed hosts");
     assert.deepEqual(sources.map((source) => source.id), ["claude", "codex", "shared"]);
     const page = await get(port);
-    assert.equal(page.status, 200);
-    assert.match(page.body, /<html/);
+    assert.deepEqual([page.status, page.location], [302, "/app/"], "the board's address opens the app");
     const pidFile = join(dir, "home", ".config", "sage-board", "board.pid"), log = join(dir, "home", ".config", "sage-board", "board.log");
     const pid = readFileSync(pidFile, "utf8");
     assert.match(pid, /^[1-9]\d*\n$/);
@@ -179,7 +178,7 @@ test("T216: board --stop stops this config's board, and ensure says when the con
   const port = await freePort(), pidFile = join(dirname(config), "board.pid");
   try {
     assert.equal((await board(CLI, ["--ensure", "--port", String(port)], env)).status, 0);
-    assert.equal((await get(port)).status, 200);
+    assert.equal((await get(port)).status, 302);
     const later = new Date(Date.now() + 5000); utimesSync(config, later, later);
     const changed = await board(CLI, ["--ensure"], env);
     assert.equal(changed.status, 0, changed.stderr);
@@ -226,8 +225,8 @@ test("T1079: another program holds the port; the error names board --port, and t
   const other = createHttpServer((request, response) => response.end("another program\n"));
   const busyPort = await listen(other), newPort = await freePort();
   try {
-    createBoardConfig(config, { sources: [{ id: "sample", path: join(dir, "logbooks") }], port: busyPort, pagesDir: join(dir, "exports") });
-    writeFileSync(config, `${JSON.stringify({ ...JSON.parse(readFileSync(config, "utf8")), secret: "old-secret-value" }, null, 2)}\n`);
+    createBoardConfig(config, { sources: [{ id: "sample", path: join(dir, "logbooks") }], port: busyPort });
+    writeFileSync(config, `${JSON.stringify({ ...JSON.parse(readFileSync(config, "utf8")), secret: "old-secret-value", pagesDir: join(dir, "exports") }, null, 2)}\n`);
     chmodSync(config, 0o640);
     const before = JSON.parse(readFileSync(config, "utf8"));
     const busy = await board(CLI, ["--ensure"], env);
@@ -237,10 +236,10 @@ test("T1079: another program holds the port; the error names board --port, and t
     assert.equal(moved.status, 0, moved.stderr);
     assert.equal(moved.stdout, `Board moved to port ${newPort}: ${config} names it now.\nSage board started: http://127.0.0.1:${newPort}/ · only on this Mac.\nA Page link in a message from before still names port ${busyPort}: change the port in that link.\n`);
     assert.doesNotMatch(moved.stdout + moved.stderr + busy.stderr, /old-secret-value/, "no secret in the output");
-    assert.deepEqual(JSON.parse(readFileSync(config, "utf8")), { ...before, port: newPort }, "only the port changed; the pages folder and the old secret key stay");
+    assert.deepEqual(JSON.parse(readFileSync(config, "utf8")), { ...before, port: newPort }, "only the port changed; the old pagesDir and secret keys stay");
     assert.equal(statSync(config).mode & 0o777, 0o640, "the file keeps its mode");
     const page = await get(newPort);
-    assert.equal(page.status, 200);
+    assert.deepEqual([page.status, page.location], [302, "/app/"], "the board's address opens the app");
     assert.match(page.board, new RegExp(`^id=${configId(config)}; pid=\\d+; started=\\d+$`), "this config's board answers on the new port");
     assert.equal(readFileSync(portFile(config), "utf8"), `${newPort}\n`, "the board writes its port for the Page links");
     assert.equal(boardPort(env), newPort, "core reads that port for the Page links");
@@ -280,7 +279,7 @@ test("T1079: board --port refuses a bad number, a busy port, a missing config an
     const unchanged = async (label) => {
       assert.deepEqual(snapshot(config), kept, `${label}: the config is as before`);
       assert.equal(readFileSync(join(dirname(config), "board.pid"), "utf8"), pid, `${label}: the same board runs`);
-      assert.equal((await get(port)).status, 200, `${label}: the board still answers on its port`);
+      assert.equal((await get(port)).status, 302, `${label}: the board still answers on its port`);
       assert.equal((await get(newPort)).error, "ECONNREFUSED", `${label}: nothing started on the new port`);
     };
     for (const value of ["80", "1023", "65536", "abc", "4312a", "-5", "043124"]) {
@@ -476,7 +475,7 @@ test("T216: a board of another config on the port is not reported as this one, a
     const signals = [];
     await assert.rejects(runBoardCli(["board", "--stop"], { env, output: () => {}, kill: (...args) => signals.push(args) }), /another board config holds/);
     assert.deepEqual(signals, [], "no signal to another config's board");
-    assert.equal((await get(port)).status, 200);
+    assert.equal((await get(port)).status, 302);
   } finally { await other.close(); }
 });
 
@@ -596,7 +595,7 @@ test("F-T216-17: the board guide's set-up commands run as written in the board f
       child.once("close", (status) => { clearTimeout(timer); fail(new Error(`serve exited with ${status}`)); });
     });
     assert.equal(line, `Sage board: http://127.0.0.1:${port}/ · only on this Mac.\n`);
-    assert.equal((await get(port)).status, 200);
+    assert.equal((await get(port)).status, 302);
   } finally {
     await closeChild(child);
   }
@@ -677,7 +676,7 @@ test("board test supervisor closes its server tree when the parent disconnects",
   child.stdout.resume(); child.stderr.resume();
   const result = await resultOf(child);
   assert.equal(result.status, 0, result.stderr);
-  assert.equal((await get(port)).status, 200);
+  assert.equal((await get(port)).status, 302);
   child.disconnect();
   await owned.get(child).closed;
   assert.equal((await get(port)).error, "ECONNREFUSED");

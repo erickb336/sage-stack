@@ -1,6 +1,6 @@
 # Board design
 
-This page holds two designs. The first part is the board redesign of milestone M7, which the owner approved (gates G154, G156 and G159). It replaces the board step by step at `/app/`. The second part, from "The classic board (T205)", is the board that stays at `/` until task T770 retires it.
+This page holds the design of the board: the redesign of milestone M7, which the owner approved (gates G154, G156 and G159), and the service rules that stay from the first board (T205). Task T770 retired the first, script-free board: the address `/` now sends the browser to the app at `/app/`, and the chat board is the view that needs no scripts.
 
 ## The board redesign (M7)
 
@@ -31,7 +31,7 @@ The owner approved these tenets (G156). Each page and each element of the board 
 | J3 | Where a task is in its dev cycle, and what its agents made | A milestone on the Overview, then a task: the side panel (T1061); the artifact viewer |
 | J4 | Which agents run, for which chief, against the limit | The Agents page |
 | J5 | Which PRs are open, merged or waiting, and what depends on what | The Pull requests page |
-| J6 | What changed since I looked | Overview, the counts (the last 24 hours until T1059 adds "since you looked") |
+| J6 | What changed since I looked | Overview, the counts: "Since you looked" with a paired browser, else the last 24 hours |
 | J7 | Whether each chief runs, and whether autopilot is on | The chief chips under the top bar |
 
 ### The ux-review checklist
@@ -104,17 +104,28 @@ A ux review of a board page checks each line. A line that fails is a finding.
 - The counts in the top bar of every page: "Agents 7 of 20 · C1 4 · C2 3 · 2 queued" and "Leads 3 of 5". They come from the logbook's `config.json`, with the rule of the state tool (`projectLimits` in `logbook-fields.mjs`): before the limits move into the logbook, the largest `cap.<name>` or `max_agents` of the provider roots, for the folder name and each bound checkout's name. A count turns amber at its limit, and a click opens the Agents page (one click from the Overview). A lead counts while it runs or waits in the queue, as the lead limit counts it. A chief filter hides other chiefs' agents, but the counts stay whole, because the limits are shared.
 - An admitted run's start time is the time of its admission, so its clock and its agent time leave out the time in the queue. A queued run shows once in its task's log, as queued with its place, and the task's step line names it when no agent of the task runs.
 
-## The classic board (T205)
+### Acceptance of the seven jobs (T770)
 
-This is the approved design for issue #74. The implementation is under review. All 17 requirements remain in scope. The owner approved the recommended sample layout and recorded-data extension on 2026-10-08. Backend work may proceed; all runtime acceptance remains required.
+Each job is answered from the Overview in at most two clicks. `scripts/board-jobs-browser.test.mjs` walks each job on sample data (`writeTasksLogbook` of `scripts/fixtures/board-app.mjs`), at 1440 px and at 390 px, counts the clicks, and fails on more than two or on a page error. The owner's walkthrough page has one screenshot of each job at each width.
 
-## Experience
+| Job | Steps from the Overview | Clicks | Browser test |
+| --- | --- | --- | --- |
+| J1 | Needs you: click the question. The question view shows the question, its context and the answers, with "Read the full question" for the reader. | 1 | `J1 at <width> px: one click on a Needs you row opens the question …` |
+| J2 | The Milestones card shows each milestone by priority (0 clicks). Tasks, then "Priority" in Group by, gives the groups P0 to P3. | 0 and 2 | `J2 at <width> px: the milestones stand by priority …` |
+| J3 | Click a milestone (the Tasks page at that milestone), then a task row. The task page shows the steps, About this task, and the tabs Artifacts, Log and Decisions. | 2 | `J3 at <width> px: a milestone, then a task, shows the task's dev cycle …` |
+| J4 | The top bar: "Agents 8 of 20 · C1 4 · C2 4 · 3 waiting" and "Leads 4 of 5" (0 clicks). A click on the count opens the Agents page, with a box for each chief. | 0 and 1 | `J4 at <width> px: the top bar counts the agents …` |
+| J5 | Pull requests: the groups by next action. Graph: what waits for what. | 1 and 2 | `J5 at <width> px: Pull requests groups each PR …` |
+| J6 | The counts at the end of the Overview: merged, failed or may be stuck, new tasks. | 0 | `J6 at <width> px: the Overview counts what changed …` |
+| J7 | The chief chips: a dot for live or stopped, and "autopilot on" or "autopilot off". | 0 | `J7 at <width> px: each chief's chip says …` |
 
-The board shows six state columns, dark by default. Each card opens a task page. The text board and task detail remain available without a server. A single-file HTML export keeps all task details in that file.
+The ux-review checklist above applies to each page. Its line 14 (from 1024 px wide) holds, and a phone-width window (390 px) works for every job too, with the narrow layout of T1099.
 
-A task page shows the loop, brief, runs, evidence, findings, artifacts and decisions. Missing evidence says unknown. A recorded run and work inferred from a PR have separate counts. Two roots may contain the same task ID; each task keeps its source identity.
+### What T770 retired
 
-Abandoned tasks remain available through task lookup, outside the active columns. Projects share a group only when their recorded identity matches. The owner approved these presentation choices for v1; later feedback can refine them.
+- The server-rendered pages `/` (the task board), `/task/<id>`, `/agents`, `/milestones`, `/milestone/<id>`, `/releases`, the old `/program...` addresses and their streams (`?events=1`). Each now gives 404, and `/` gives a redirect (302) to `/app/`.
+- The HTML parts of `board-render.mjs`; it keeps the chat board (`renderBoardText`), the chat task view (`renderTaskText`) and the status lines (`renderBoardStatus`).
+- The one-file HTML export: `board --html --out`, the `--pages` setup option and the state tool's `board --view html`. A config that still names `pagesDir` loads; the board ignores the key.
+- The facts that only the old pages showed stay in the chat board: the move banner, the offer line, the checkout of each run, "Old · read-only", the changing note, the logbook notes and the releases frame.
 
 ## Packages and service
 
@@ -123,7 +134,7 @@ Abandoned tasks remain available through task lookup, outside the active columns
 - The server listens only on 127.0.0.1. The default configurable port is 43123. A busy port causes a clear failure; the server never stops another process or changes ports silently.
 - A stable installed command supports optional per-user launchd startup. Provider cache changes must not replace the service.
 - The board is for a desktop browser on this Mac only (T1053). It answers a request only when the request comes from loopback, names a loopback host at the board's port (`127.0.0.1`, `localhost` or `[::1]`), and has no forwarded header; every other request gets 403. The exact Host check also stops DNS rebinding. The read routes take only GET and HEAD. The board has no sign-in, no secret, and no phone or remote access.
-- The initial page contains its content without scripts. File events update an open page. Watch errors show stale data, not an empty board.
+- The app needs scripts; the chat board is the view without scripts. File events update an open page through `/app/events`. Watch errors show stale data, not an empty board.
 
 Read-only access can still expose private briefs and reports to any account or program on the Mac.
 
@@ -140,18 +151,18 @@ Alternative: keep existing fields and show unknown or inferred values. This pres
 | Requirements | Evidence required |
 | --- | --- |
 | 1–2 | Provider-neutral multi-root data; the reader takes no lock and writes no logbook (the server's owner writes go through the state tool in a worker thread, T1059); no provider calls; escaped agent text. |
-| 3–4 | One self-contained script-free export; exact six-column mapping; backlog PRs visible; seven-day Done window. |
+| 3–4 | The chat board's exact six-section mapping; backlog PRs visible; seven-day Done window. The script-free export is retired (T770). |
 | 5–6 | Complete cards and evidence-backed cycles, agents and owner reasons; matching project filters and counts. |
 | 7–9 | Dark and light themes, AA contrast, reduced motion, numbered text board from the same data. |
-| 10–11 | Task detail in HTML and text; all views use one shared model with source-qualified task identities. |
+| 10–11 | Task detail in the app's task page and in the chat; all views use one shared model with source-qualified task identities. |
 | 12–13 | Board/task-only service, no file browsing; event-driven updates, reconnects and explicit stale state. |
 | 14–15 | Desktop only: a configurable loopback port, one start command, optional startup at login and stop instructions. No sign-in, and no phone or remote access. |
 | 16–17 | Server-independent chat views; every requested board, task and status phrase; owner-text-only parsing and provider capability disclosure. |
 
-Current board history writes, project-list initialization and Git-derived head checks cannot be reused in the new pure reader. Snapshot export is an explicit artifact write, separate from model reads and server operation.
+Current board history writes, project-list initialization and Git-derived head checks cannot be reused in the new pure reader.
 
 ## Verification limits
 
-The design reviews inspected source and official Node and Apple documentation. They did not install a service or read private logbooks. The sample pages use invented data. Static checks confirm no scripts or external assets in the new samples. The earlier sample file was not rendered because the browser tool refused local-file URLs. Separate browser tests now exercise the implemented renderer with invented data and blocked network access.
+The design reviews inspected source and official Node and Apple documentation. They did not install a service or read private logbooks. The browser tests exercise the app with invented data and blocked network access.
 
-Backend acceptance needs multi-root fixtures, exact-head changes, missing evidence, read-only spies, hostile text, server access checks, watcher replacement, and script-free views. Local tests cover these behaviors; login startup remains unverified.
+Backend acceptance needs multi-root fixtures, exact-head changes, missing evidence, read-only spies, hostile text, server access checks and watcher replacement. Local tests cover these behaviors; login startup remains unverified.

@@ -163,15 +163,13 @@ test("F-T995-24: a word that a plain object has, such as constructor, is no old 
   }
 });
 
-test("T995: the chat board and the browser board of an old logbook say milestone, before and after the migration", () => {
+test("T995: the chat board and the task view of an old logbook say milestone, before and after the migration", () => {
   const s = oldLogbook();
   for (const when of ["before", "after"]) {
     if (when === "after") s.ok("log", "-", "a note", "--why", "w");
-    const chat = s.ok("board"), html = s.ok("board", "--view", "html");
-    assert.match(chat, /Sage feel/, when);
-    assert.match(html, />Milestones</, `${when}: the tab`);
-    for (const line of ["M5 proposed: Sage feel, pilot T984, gate G140", "G140 answered: approve"]) assert.ok(html.includes(line), `${when}: the milestone page says ${line}`);
-    for (const page of [chat, html.replace(/<ol class="log">[\s\S]*?<\/ol>/g, "")]) assert.doesNotMatch(page, /\bprograms?\b|\bPG\d/i, `${when}: no program word and no old id`);
+    const chat = s.ok("board"), task = s.ok("board", "T984", "--view", "task");
+    assert.match(chat, /### ◫ Milestones\n- Milestone \d+\\: Sage feel/, when);
+    for (const page of [chat, task.split("**Latest decisions**")[0]]) assert.doesNotMatch(page, /\bprograms?\b|\bPG\d/i, `${when}: no program word and no old id`);
   }
 });
 

@@ -14,7 +14,7 @@ This is the index of sage's documentation, by reader. Start with the [README](..
 
 - [Concepts](guide/concepts.md) and [Principles](guide/principles.md): sage's words, and the rules that each role agent starts with.
 - [Using sage](guide/using-sage.md): the switch phrases, when the chief asks you, how to update, stop and uninstall sage, and troubleshooting.
-- [The board](guide/board.md): the columns, the cards, Needs you, the Agents page and milestones.
+- [The board](guide/board.md): the Overview, Tasks, the task page, Agents, Pull requests and the reader.
 - [Remote Control](guide/remote-control.md): follow and start sessions from your phone.
 - [sage in Codex](guide/codex.md): what works in Codex today, and how to try it.
 - [Board service guide](../packages/sage-board/README.md): the board server by hand and the login service.

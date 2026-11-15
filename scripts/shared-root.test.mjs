@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { actorOptions, locate as claudeLocate, sage as claudeRun, sageRoot as claudeRootOf } from "../plugins/sage/skills/sage/sage.mjs";
 import { tool } from "../plugins/sage-codex/skills/sage/sage.mjs";
-import { buildBoardModel, createStateTool, readBoardSources, renderBoardHtml, renderBoardText, renderTaskText, sharedRoot } from "../packages/sage-core/index.mjs";
+import { buildBoardModel, createStateTool, readBoardSources, renderBoardText, renderTaskText, sharedRoot } from "../packages/sage-core/index.mjs";
 import { githubRemote } from "../packages/sage-core/shared-root.mjs";
 
 const acting = (run, options) => (argv, env) => run([...argv, ...options(argv[argv.indexOf("--project") + 1], argv, { native: "test-chief" }, env)], env);
@@ -384,7 +384,7 @@ test("the current folder that is gone gets a next step, not a raw error", (t) =>
   process.cwd = () => { throw Object.assign(new Error("ENOENT: process.cwd failed"), { code: "ENOENT" }); };
   const { SAGE_PROJECT: _unused, ...env } = w.env;
   for (const run of [claudeRun, tool.sage]) {
-    for (const command of [["config"], ["projects", "rebuild", "--accept-listing", "yes"], ["board", "--view", "html"], ["status"]]) {
+    for (const command of [["config"], ["projects", "rebuild", "--accept-listing", "yes"], ["board", "--view", "chat"], ["status"]]) {
       assert.throws(() => run(command, env), (e) => {
         assert.equal(e.constructor.name, "Refusal");
         assert.equal(e.message, "the current folder is gone: it was moved or removed. Nothing changed. Go to the project's folder, or give --project with its path.");
@@ -1468,7 +1468,7 @@ test("the move takes the open tasks of both old logbooks into one shared logbook
   assert.deepEqual([card(`shared/${folder}/T4`).was, card(`shared/${folder}/T6`).was, card(`shared/${folder}/T7`).was, card(`claude/${folder}/T1`).was], ["was Claude T2", "was Codex T1", undefined, undefined]);
   assert.equal(card(`claude/${folder}/T1`).old.label, "Old · Claude · read-only");
   assert.equal(model.projects.length, 1, "one project");
-  assert.match(renderBoardHtml(model), /<span class="id">T4<\/span>.*?<\/div><div class="nextline was">was Claude T2<\/div><div class="title" title="claude open">/);
+  assert.match(renderBoardText(model), /\*\*claude open\*\* T4 · was Claude T2 · /);
   assert.match(renderTaskText(card(`shared/${folder}/T6`)), /^\*\*codex open\*\* T6 · was Codex T1\n/);
 });
 
@@ -2018,11 +2018,10 @@ test("the board shows a banner for 7 days after a move, with the map page by nam
   w.claude("move", "--gate", w.ask().id);
   const at = rowsIn(join(w.shared, folder, "sources.tsv"))[0].at, after = (days) => boardOf(w, { now: new Date(Date.parse(at) + days * 86400000).toISOString() });
   const text = `3 open tasks have new numbers, and each card shows its old number. Finished tasks stay in Done as Old and read-only. The old-to-new map is move-map.html in the logbook folder ${folder}, on this Mac.`;
-  const html = renderBoardHtml(after(1));
-  assert.ok(html.includes(`<div class="banner info moved" role="status"><div><b>project moved to one shared logbook on ${at.slice(0, 10)} ${at.slice(11, 16)} UTC.</b> ${text}</div></div>`));
-  assert.equal(html.includes(w.base), false, "no path of the Mac on the board");
-  assert.ok(renderBoardText(after(1)).replaceAll("\\", "").includes(`⇢ project moved to one shared logbook on ${at.slice(0, 10)} ${at.slice(11, 16)} UTC. ${text}`));
-  assert.equal(renderBoardHtml(after(8)).includes("moved to one shared logbook"), false, "gone after 7 days, as Done is");
+  const chat = renderBoardText(after(1));
+  assert.ok(chat.replaceAll("\\", "").includes(`⇢ project moved to one shared logbook on ${at.slice(0, 10)} ${at.slice(11, 16)} UTC. ${text}`));
+  assert.equal(chat.includes(w.base), false, "no path of the Mac on the board");
+  assert.equal(renderBoardText(after(8)).includes("moved to one shared logbook"), false, "gone after 7 days, as Done is");
 });
 
 function restoreByHand(w, plan) {
@@ -2537,7 +2536,7 @@ test("the move banner says that the finished tasks of a moved milestone have new
   w.claude("move", "--gate", w.ask().id);
   const model = boardOf(w);
   assert.deepEqual(model.moved.map((m) => [m.tasks, m.finished]), [[4, 1]]);
-  assert.match(renderBoardHtml(model), /Finished tasks stay in Done as Old and read-only, except 1 finished task of a milestone, which moved with its milestone and has a new number too\./);
+  assert.match(renderBoardText(model).replaceAll("\\", ""), /Finished tasks stay in Done as Old and read-only, except 1 finished task of a milestone, which moved with its milestone and has a new number too\./);
 });
 
 test("the map page lists a finished task of a moved milestone and says that it moved with its milestone (F-T645-9)", (t) => {

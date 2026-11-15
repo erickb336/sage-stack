@@ -38,7 +38,7 @@ See [Stop a running task](using-sage.md#stop-a-running-task).
 **How do I uninstall it?** Follow the full steps in [Uninstall sage](using-sage.md#uninstall-sage). In short:
 
 1. Stop the board server, its login service and the Remote Control server.
-2. Remove `~/.local/share/sage-board`, if it exists. This also deletes the board's offline pages: copy each page that you want to keep first.
+2. Remove `~/.local/share/sage-board`, if it exists. This also deletes the HTML files that an older board exported there: copy each file that you want to keep first.
 3. Remove the `"agent": "sage:chief-of-staff"` line from each `.claude/settings.json` that has it.
 4. Run `claude plugin uninstall sage@sage`.
 5. Run `claude plugin marketplace remove sage`.
@@ -50,5 +50,5 @@ Your logbooks stay.
 - **[pstack](https://github.com/cursor/plugins/tree/main/pstack) and poteto mode, by [Lauren Tan (poteto)](https://github.com/poteto).** sage's principles come from pstack, and sage mode takes its main ideas from poteto mode: the chief that never writes code, the brief, the ledger of verdicts by commit, the arena, and the trust ladder. I adopted pstack the day I found it, and I thank Lauren for it.
 - **Sage Mode in *Naruto*, by Masashi Kishimoto**, gave the name and the look: a sage stays still and gathers the energy around it, as the chief gathers its team's work. The graphics and the toad sage mascot are original drawings, and no character from the series appears. sage is a fan's nod and is not affiliated with *Naruto* or its owners.
 - **My [Orchestrator](https://github.com/erickb336/orchestrator)** taught the lessons that sage keeps in code.
-- **[affectUI](https://github.com/flohoeller/affectui), by Florian Höller (adfects)**, MIT licence: some colour, shadow, radius and easing values of the board page come from its free items. The board copies no code, component or font.
+- **[affectUI](https://github.com/flohoeller/affectui), by Florian Höller (adfects)**, MIT licence: some colour, shadow, radius and easing values of the board in the browser come from its free items. The board copies no code, component or font.
 - **Anthropic's and Cognition's writing on multi-agent systems** shaped the rules: one writer at a time, fresh reviewers, and evidence before a claim.

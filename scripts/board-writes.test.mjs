@@ -435,7 +435,7 @@ test("F-T1076-9: about 12 KiB of other apps' cookies for 127.0.0.1 do not stop t
   const w = await board(t), p = await pair(w);
   const cookies = [0, 1, 2].map(i => `sample_auth.${i}=${"a".repeat(4000)}`).concat(p.cookie).join("; ");
   assert.ok(cookies.length > 12_000, `${cookies.length} bytes of cookies`);
-  for (const path of ["/app/", "/"]) assert.equal((await call(w.port, path, { method: "GET", headers: { Cookie: cookies } })).status, 200, `GET ${path}`);
+  for (const [path, status] of [["/app/", 200], ["/", 302]]) assert.equal((await call(w.port, path, { method: "GET", headers: { Cookie: cookies } })).status, status, `GET ${path}`);
   const open = await needs(w), need = open.needs.find(item => item.gate === "G1");
   const answered = await call(w.port, "/api/answer", { headers: { ...p.headers, Cookie: cookies }, body: { logbook: w.logbook, gate: "G1", option: 1, digest: need.digest } });
   assert.equal(answered.status, 200, answered.text);

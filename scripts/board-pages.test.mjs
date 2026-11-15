@@ -9,7 +9,7 @@ import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createBoardServer } from "../packages/sage-board/server.mjs";
+import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
 import { SWITCH_SCRIPT } from "../packages/sage-core/message-page.mjs";
 import { renderMessage } from "../packages/sage-core/message-checks.mjs";
 import { pagePath } from "../packages/sage-core/message.mjs";
@@ -75,7 +75,7 @@ async function fixture(t) {
   logbook(source, LOGBOOK);
   const root = sampleRoot(base), before = process.env.SAGE_WORKTREES;
   process.env.SAGE_WORKTREES = root;
-  const server = createBoardServer({ sources: [{ id: "sample", path: source, label: "Sample" }], port });
+  const server = createBoardServer({ sources: [{ id: "sample", path: source, label: "Sample" }], port, app: loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", import.meta.url))) });
   t.after(async () => { await server.close(); if (before === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = before; rmSync(base, { recursive: true, force: true }); });
   await server.start();
   return { base, root, port, t1: join(root, LOGBOOK, "pages", "T1") };
@@ -231,7 +231,7 @@ test("the pages route refuses each path that leaves a task's pages, a link, a se
   }
   const index = (await get(f, `/pages/${LOGBOOK}/T1/`)).body;
   for (const name of ["link.html", "hard.html", "checkout", "alias", "big.html", "state.json", ".hidden.html", "too-deep.txt", "upper.HTML", "v1..v2.html", "notes..md", "locked.html"]) assert.equal(index.includes(name), false, name);
-  assert.match((await get(f, "/")).headers["content-security-policy"], /^default-src 'none'; script-src 'sha256-.*connect-src 'self'/);
+  assert.equal((await get(f, "/")).headers["content-security-policy"], "default-src 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'", "the board's own policy, not a page's");
 });
 
 function swapAtCheck(secret, inside, each) {
@@ -289,13 +289,13 @@ test("a page whose folder flips between a link and a folder while the board chec
   assert.equal((await get(f, `/pages/${LOGBOOK}/T1/flip/notes.md`)).body, "decoy", "a real folder in the path");
 });
 
-test("T1010, T1079: a task page links the task's pages index on the board's own address, and only when the route serves the task's folder", async (t) => {
+test("T1010, T1079, T770: a task's panel lists the task's pages only when the route serves the task's folder", async (t) => {
   const f = await fixture(t);
-  const taskPage = (id, options) => get(f, `/task/${Buffer.from(`sample/${LOGBOOK}/${id}`).toString("base64url")}`, options);
-  const pagesHref = (body) => [...body.matchAll(/<a href="([^"]+)"[^>]*>Pages<\/a>/g)].map((m) => m[1]);
+  const taskPage = (id, options) => get(f, `/app/task/${Buffer.from(`sample/${LOGBOOK}/${id}`).toString("base64url")}`, options);
+  const pagesOf = (body) => JSON.parse(body).files.pages;
   const mac = await taskPage("T1");
   assert.equal(mac.status, 200);
-  assert.deepEqual(pagesHref(mac.body), [`/pages/${LOGBOOK}/T1/`], "T1079: a path on the board's own address, so the link follows the board to any port");
+  assert.ok(pagesOf(mac.body).some((page) => page.name === "research.html"), "the panel lists the folder that the pages route serves");
   const index = await get(f, pagePath(LOGBOOK, "T1", ""));
   assert.equal(index.status, 200);
   assert.match(index.body, /<h1>Pages of T1<\/h1>/);
@@ -307,7 +307,7 @@ test("T1010, T1079: a task page links the task's pages index on the board's own 
   for (const id of ["T4", "T7"]) {
     const r = await taskPage(id);
     assert.equal(r.status, 200, id);
-    assert.deepEqual(pagesHref(r.body), [], id);
+    assert.equal(pagesOf(r.body), null, id);
     assert.equal((await get(f, pagePath(LOGBOOK, id, ""))).status, 404, `${id}: the route serves no index either`);
   }
 });

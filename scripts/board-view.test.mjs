@@ -38,11 +38,11 @@ test("rich task lookup gives details and unknown tasks suggest nearest ids witho
   assert.throws(() => run("board", "T9", "--view", "task"), /Nearest recorded ids: T1.*No task was opened/);
   assert.deepEqual(snapshot(root), before);
 });
-test("rich status and HTML use the same task and leave history unchanged", t => {
+test("rich status leaves history unchanged; the HTML view is gone (T770)", t => {
   const { root, run } = fixture(t), before = snapshot(root);
-  let status, html; assert.doesNotThrow(() => { status = run("board", "this", "--view", "status"); html = run("board", "this", "--view", "html"); });
+  let status; assert.doesNotThrow(() => { status = run("board", "this", "--view", "status"); });
   assert.ok(status.includes("framed 1")); assert.ok(status.includes("Budget this week: unknown"));
-  assert.ok(html.startsWith("<!doctype html>")); assert.ok(html.includes("Sample task"));
+  assert.throws(() => run("board", "this", "--view", "html"), /unknown board format/);
   assert.deepEqual(snapshot(root), before);
 });
 

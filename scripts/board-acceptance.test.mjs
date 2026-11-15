@@ -58,10 +58,11 @@ function fixture(t) {
   };
   return { dir, project, sources, add, ...first, invoke, view };
 }
-const cards = html => /<main class="board"[^>]*>([\s\S]*?)<\/main>/.exec(html)?.[1] ?? "";
+const plain = text => text.replace(/\\(.)/g, "$1");
 const clean = (id, number, sha, kinds = ["checks-pass", "review-clean", "qa-pass"]) => kinds.map(kind => ({ task: id, pr: number, sha, kind, cycle: "1", run: "", at: AT }));
 const known = f => writeFileSync(join(f.root, "projects.tsv"), `logbook\tat\thow\nproject-abcdef\t${AT}\tinit\n`);
-const columnsOf = html => Object.fromEntries([...cards(html).matchAll(/<h2>([^<]+?) <span class="n">\d+<\/span><\/h2>([\s\S]*?)(?=<h2>|$)/g)].flatMap(([, name, body]) => [...body.matchAll(/Sample (T\d+)/g)].map(([, id]) => [id, name])));
+const sections = text => Object.fromEntries([...text.matchAll(/^### \S+ ([^\n]+?) \((\d+)\)\n([\s\S]*?)(?=^### |(?![\s\S]))/gm)].map(([, name, count, body]) => [name, { count: Number(count), body }]));
+const columnsOf = text => Object.fromEntries(Object.entries(sections(text)).filter(([name]) => name !== "Needs you").flatMap(([name, { body }]) => [...body.matchAll(/\*\*Sample (T\d+)\*\*/g)].map(([, id]) => [id, name])));
 
 test("T280 acceptance: the board shows a PR ready to merge only when sage's own merge check passes on its head", t => {
   const f = fixture(t);
@@ -72,31 +73,29 @@ test("T280 acceptance: the board shows a PR ready to merge only when sage's own 
   table(stranger, "ledger", clean("T5", "25", five, ["checks-pass"]));
   table(f.book, "findings", [{ task: "T2", key: "F-T2-1", round: "0", source: "R9", severity: "medium", summary: "Sample finding", triage: "fix", status: "open" }]);
   known(f);
-  const before = snapshot(f.root), html = f.view("html"), text = f.view("chat");
-  assert.deepEqual(columnsOf(html), { T1: "Ready to merge", T2: "In review", T3: "In review", T4: "In review", T5: "In review" });
-  assert.match(html, /The merge check refuses 5555555\. Stranger-123456 has verdicts on 5555555/, "the reason names the folder, not its path");
-  assert.match(html, /The merge check passes on 1111111\. The board does not check the PR&#39;s head branch\./);
-  assert.match(html, /The merge check refuses 2222222\. T2 has open findings/);
-  assert.match(html, /The merge check refuses 3333333\. T3/);
-  assert.match(html, /The merge check is not checked, because the board does not know the last commit of PR 24\./);
-  assert.doesNotMatch(html, new RegExp(f.root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "no root path on the page");
+  const before = snapshot(f.root), text = f.view("chat"), detail = plain(["T1", "T2", "T3", "T4", "T5"].map(id => f.view("task", { id })).join("\n"));
+  assert.deepEqual(columnsOf(text), { T1: "Ready to merge", T2: "In review", T3: "In review", T4: "In review", T5: "In review" });
+  assert.match(detail, /The merge check refuses 5555555\. Stranger-123456 has verdicts on 5555555/, "the reason names the folder, not its path");
+  assert.match(detail, /The merge check passes on 1111111\. The board does not check the PR's head branch\./);
+  assert.match(detail, /The merge check refuses 2222222\. T2 has open findings/);
+  assert.match(detail, /The merge check refuses 3333333\. T3/);
+  assert.match(detail, /The merge check is not checked, because the board does not know the last commit of PR 24\./);
+  assert.doesNotMatch(text + detail, new RegExp(f.root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "no root path in the board");
   assert.match(text, /### ✅ Ready to merge[\s\S]*Sample T1/);
   assert.deepEqual(snapshot(f.root), before, "the board's merge check writes nothing");
 });
 
-test("T205 acceptance: HTML state columns and phone text describe the same recorded tasks without logbook writes", t => {
+test("T205 acceptance: the chat board's state columns describe the recorded tasks without logbook writes", t => {
   const f = fixture(t);
   table(f.book, "tasks", [task("T1", "framed"), task("T2", "designing"), task("T3", "held"), task("T4", "reviewing"), task("T5", "pr-ready", { pr: "12" }), task("T6", "merged"), task("T7", "abandoned")]);
   table(f.book, "ledger", clean("T5", "12", HEAD));
   known(f);
   const recent = new Date(Date.now() - 86400000).toISOString();
   records(f.book, [{ task: "T6", kind: "completion", observedAt: recent, recordedAt: recent, data: { state: "merged", at: recent } }]);
-  const before = snapshot(f.root), html = f.view("html"), text = f.view("chat");
-  for (const name of ["Backlog", "Design", "Building", "In review", "Ready to merge", "Done, last 7 days"]) assert.ok(cards(html).includes(`<h2>${name} <span class="n">1</span></h2>`), name);
-  for (const id of ["T1", "T2", "T3", "T4", "T5", "T6"]) { assert.ok(cards(html).includes(`Sample ${id}`)); assert.ok(text.includes(`Sample ${id}`)); }
-  assert.ok(!cards(html).includes("Sample T7"));
-  assert.match(text, /### 🔴 Needs you/); assert.match(text, /### 🔁 In review/); assert.match(text, /### 🔨 Building/); assert.match(text, /### ✅ Ready to merge/);
-  assert.ok(html.indexOf("Sample T1") < html.lastIndexOf("<script>"), "initial cards must exist without running the page script");
+  const before = snapshot(f.root), text = f.view("chat");
+  for (const name of ["Backlog", "Design", "Building", "In review", "Ready to merge", "Done, last 7 days"]) assert.equal(sections(text)[name]?.count, 1, name);
+  assert.deepEqual(columnsOf(text), { T1: "Backlog", T2: "Design", T3: "Building", T4: "In review", T5: "Ready to merge", T6: "Done, last 7 days" }, "T7, abandoned, is in no column");
+  assert.match(text, /### 🔴 Needs you/);
   assert.deepEqual(snapshot(f.root), before);
 });
 
@@ -133,12 +132,11 @@ test("T205 acceptance: owner questions and hostile text remain escaped, complete
   const f = fixture(t);
   table(f.book, "tasks", [task("T1", "held", { title: "<script>sample</script> [sample](https://example.test)" })]);
   table(f.book, "gates", [{ id: "G1", task: "T1", question: "Pick <sample>?", options: "keep|change", recommendation: "keep", default: "keep", answer: "", at: AT }]);
-  const text = f.view("chat"), html = f.view("html");
+  const text = f.view("chat");
   assert.match(text, /\*\*1 · [^\n]+\*\* T1 · /); assert.ok(text.includes("sample/project-abcdef/G1"));
   assert.ok(text.includes("> Options: 1: keep · 2: change")); assert.ok(text.includes("> Recommended: keep"));
   assert.ok(text.includes("\\<script\\>sample\\</script\\>")); assert.ok(!text.includes("[sample](https://example.test)"));
-  assert.ok(html.includes("&lt;script&gt;sample&lt;/script&gt;")); assert.ok(!html.includes("<script>sample</script>"));
-  assert.ok(html.includes("Pick &lt;sample&gt;?"));
+  assert.ok(text.includes("Pick \\<sample\\>?")); assert.ok(!text.includes("<script>sample</script>") && !text.includes("<sample>"));
 });
 
 test("T205 acceptance: task details show verified briefs, report proof, run time and screenshots, then reject tampering", t => {
@@ -150,30 +148,30 @@ test("T205 acceptance: task details show verified briefs, report proof, run time
   const saved = [["briefs/T1.md", brief, "brief", "Sample brief"], ["reports/R1.md", proof, "proof", "Sample proof"], ["artifacts/screen.png", image, "artifact", "Sample screenshot"]];
   for (const [path, content] of saved) writeFileSync(join(f.book, path), content);
   records(f.book, saved.map(([path, content, type, label]) => ({ kind: "artifact", data: { type, label, path, ...(type === "proof" ? { run: "R1" } : {}), sha256: createHash("sha256").update(content).digest("hex") } })));
-  const before = snapshot(f.root), text = f.view("task", { id: "T1" }), html = f.view("html");
+  const before = snapshot(f.root), text = f.view("task", { id: "T1" });
   assert.ok(text.includes("Goal: Show recorded work")); assert.ok(text.includes("Acceptance: Keep both views equal\n- Preserve detail"));
   assert.ok(text.includes("tests 12\npass 12")); assert.ok(text.includes("120 s")); assert.ok(text.includes("tokens 200"));
-  assert.ok(text.includes("R1 · digest verified")); assert.ok(html.includes("R1 · digest verified"));
-  assert.ok(html.includes(">Full brief</summary>")); assert.ok(html.includes("&lt;sample proof&gt;")); assert.ok(html.includes("data:image/png;base64,"));
+  assert.ok(text.includes("R1 · digest verified")); assert.ok(text.includes("Full brief:")); assert.ok(text.includes("\\<sample proof\\>"));
+  assert.ok(text.includes("Sample screenshot · local artifact; digest verified"));
   assert.ok(text.includes("digest verified")); assert.ok(!text.includes("content not verified"));
   assert.deepEqual(snapshot(f.root), before);
   writeFileSync(join(f.book, "reports/R1.md"), "TAMPERED CONTENT MUST NOT SHOW");
-  const damaged = f.view("html"); assert.ok(damaged.includes("artifact digest does not match")); assert.ok(!damaged.includes("TAMPERED CONTENT MUST NOT SHOW"));
+  const damaged = f.view("task", { id: "T1" }); assert.ok(damaged.includes("content not verified")); assert.ok(!damaged.includes("TAMPERED CONTENT MUST NOT SHOW"));
 });
 
 test("T205 acceptance: missing and malformed inputs show diagnostics without exposing content or initializing files", t => {
   const f = fixture(t);
-  const valid = f.view("html"); assert.ok(valid.includes("Sample T1"));
+  const valid = f.view("chat"); assert.ok(valid.includes("Sample T1"));
   f.sources.push({ id: "missing", path: join(f.dir, "does-not-exist") });
   writeFileSync(join(f.root, "config.json"), "SAMPLE_PRIVATE_CONFIG_DO_NOT_SHOW");
   writeFileSync(join(f.book, "runs.tsv"), "bad header\nSAMPLE_PRIVATE_TABLE_DO_NOT_SHOW\n");
-  const before = snapshot(f.root), html = f.view("html");
-  assert.ok(html.includes("Incomplete sources")); assert.ok(html.includes("missing")); assert.ok(html.includes("its folder is missing") && !html.includes("ENOENT"), "R1075-6: plain words, not the code"); assert.ok(html.includes("config: invalid JSON"));
-  assert.ok(!html.includes("SAMPLE_PRIVATE_CONFIG_DO_NOT_SHOW")); assert.ok(!html.includes("SAMPLE_PRIVATE_TABLE_DO_NOT_SHOW"));
+  const before = snapshot(f.root), text = plain(f.view("chat"));
+  assert.ok(text.includes("Incomplete source: missing")); assert.ok(text.includes("its folder is missing") && !text.includes("ENOENT"), "R1075-6: plain words, not the code"); assert.ok(text.includes("config: invalid JSON"));
+  assert.ok(!text.includes("SAMPLE_PRIVATE_CONFIG_DO_NOT_SHOW")); assert.ok(!text.includes("SAMPLE_PRIVATE_TABLE_DO_NOT_SHOW"));
   assert.deepEqual(snapshot(f.root), before);
   rmSync(join(f.book, "runs.tsv"));
   const external = join(f.dir, "external.tsv"); writeFileSync(external, "SAMPLE_LINK_TARGET_DO_NOT_SHOW"); symlinkSync(external, join(f.book, "runs.tsv"));
-  const linked = f.view("html"); assert.ok(linked.includes("its runs file is a link, which the board does not follow"), "R1075-6"); assert.ok(!linked.includes("SAMPLE_LINK_TARGET_DO_NOT_SHOW"));
+  const linked = plain(f.view("chat")); assert.ok(linked.includes("its runs file is a link, which the board does not follow"), "R1075-6"); assert.ok(!linked.includes("SAMPLE_LINK_TARGET_DO_NOT_SHOW"));
   assert.equal(readFileSync(external, "utf8"), "SAMPLE_LINK_TARGET_DO_NOT_SHOW");
 });
 
@@ -182,9 +180,9 @@ test("T205 acceptance: Done uses completion evidence and status preserves actual
   table(f.book, "tasks", [task("T1", "merged", { title: "Recent completion" }), task("T2", "merged", { title: "Old completion" }), task("T3", "concluded", { title: "Unknown completion" })]);
   records(f.book, [{ task: "T1", kind: "completion", observedAt: recent, recordedAt: recent, data: { state: "merged", at: recent } }, { task: "T2", kind: "completion", observedAt: old, recordedAt: old, data: { state: "merged", at: old } }]);
   table(f.book, "decisions", [{ task: "T2", at: recent, decision: "renamed title", why: "sample" }, { task: "T3", at: recent, decision: "added note", why: "sample" }]);
-  const html = f.view("html"), status = f.view("status");
-  assert.ok(cards(html).includes('Done, last 7 days <span class="n">1</span>')); assert.ok(cards(html).includes("Recent completion"));
-  assert.ok(!cards(html).includes("Old completion")); assert.ok(!cards(html).includes("Unknown completion"));
+  const text = f.view("chat"), status = f.view("status");
+  assert.equal(sections(text)["Done, last 7 days"]?.count, 1); assert.ok(text.includes("Recent completion"));
+  assert.ok(!text.includes("Old completion")); assert.ok(!text.includes("Unknown completion"));
   assert.equal(status.split("\n")[0], "Tasks: merged 2 · concluded 1");
   assert.equal(status.split("\n")[1], "Agents: 0 recorded running · 0 inferred PRs");
   assert.ok(f.view("task", { id: "T2" }).includes("Old completion"), "old tasks remain available by exact task request");
@@ -194,9 +192,8 @@ test("T205 acceptance: the task loop marks recorded PE work current without infe
   const f = fixture(t);
   table(f.book, "tasks", [task("T1", "designing", { route: "design,pe,build,code-review,qa" })]);
   table(f.book, "runs", [{ id: "R1", task: "T1", role: "pe", status: "running", started: FRESH() }]);
-  const text = f.view("task", { id: "T1" }), html = f.view("html");
+  const text = f.view("task", { id: "T1" });
   assert.ok(text.includes("▶ PE check: in progress")); assert.ok(text.includes("Now: The PE is at work on the design\\."));
-  assert.ok(html.includes('<span class="part p-run"><span aria-hidden="true">▶</span> PE check: in progress</span>'));
   table(f.book, "runs", []);
   const unknown = f.view("task", { id: "T1" });
   assert.ok(unknown.includes("⧗ design: waiting")); assert.ok(!unknown.includes("▶")); assert.ok(!unknown.includes("at work on"), "no run: nothing says running now (R1077)");

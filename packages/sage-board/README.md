@@ -2,15 +2,15 @@
 
 The Sage board shows recorded tasks from explicit Claude and Codex logbook roots, and from the shared root that both providers use for a shared project. It reads them without changing them.
 
-The service runs independently of a chat session. It is for a desktop browser on this Mac only: it listens on 127.0.0.1, needs no sign-in, and refuses every request that does not come from the Mac itself. Chat and offline views use the same task model.
+The service runs independently of a chat session. It is for a desktop browser on this Mac only: it listens on 127.0.0.1, needs no sign-in, and refuses every request that does not come from the Mac itself. The board in the chat uses the same task model, and it needs no server.
 
 ## Start locally
 
-Use Node.js 20 or later. In Claude and in Codex, the board phrase does this for you: the chief runs `board --ensure` (in Codex, escalated, after your approval), which sets the board up when `~/.config/sage-board/board.json` is missing, starts the server in the background when nothing answers on its port, and prints the address or why the server is not running. The server log goes to `board.log` next to the config. The server writes its pid to `board.pid` there once it listens, and removes the file when it stops. Without `--config`, every board command uses that file; without `--sources`, setup uses the standard roots: `$SAGE_HOME` when it is set, or else `$CLAUDE_CONFIG_DIR/sage` or `~/.claude/sage`, and `$CODEX_HOME/sage` or `~/.codex/sage`, then the shared root: `$SAGE_SHARED_HOME`, `$SAGE_HOME/shared` or `~/.sage`. A root that does not exist shows as "not set up yet" until it appears. The shared root is the exception: until a project is shared, it is not there, and the board says nothing about it.
+Use Node.js 20 or later. In Claude and in Codex, the board phrase does this for you: the chief runs `board --ensure` (in Codex, escalated, after your approval), which sets the board up when `~/.config/sage-board/board.json` is missing, starts the server in the background when nothing answers on its port, and prints the address or why the server is not running. The server log goes to `board.log` next to the config. The server writes its pid to `board.pid` there once it listens, and removes the file when it stops. Without `--config`, every board command uses that file; without `--sources`, setup uses the standard roots: `$SAGE_HOME` when it is set, or else `$CLAUDE_CONFIG_DIR/sage` or `~/.claude/sage`, and `$CODEX_HOME/sage` or `~/.codex/sage`, then the shared root: `$SAGE_SHARED_HOME`, `$SAGE_HOME/shared` or `~/.sage`. A root that does not exist shows no task and no problem until it appears. The shared root is not there until a project is shared.
 
 A config from before the shared root names only the Claude and Codex roots. The server and each board command add the shared root when they read, when no source of the config names its path, so a shared project shows without a new config. They do not change the config file.
 
-The board reads a logbook again when it changed during the read: at most 3 times, each with its own share of the read limit. After the third change, the server keeps its last good read under the note "The logbook is changing", which is not a diagnostic, so the page is not stale. It reads again soon, and the next read with no change removes the note.
+The board reads a logbook again when it changed during the read: at most 3 times, each with its own share of the read limit. After the third change, the server keeps its last good read, which is not stale, because the change is not a problem. It reads again soon, and the next read with no change shows the new state. The chat board shows that third read with the note "The logbook is changing".
 
 Each server sends a non-secret id of its config on the Mac, so `board --ensure` tells this config's board from an older board server or a board of another config on the same port, and says which. A server reads its config once, when it starts. After you change the config, or update sage, `board --ensure` says that a restart is needed. A server keeps the code that it started with: after you update sage to the version that shows shared projects, stop the board with the command below, then ask for the board again. To restart, run:
 
@@ -25,14 +25,14 @@ An older board server, from before the board sent its id, does not name its proc
 To set it up by hand, run these commands in the `board/` folder of the installed plugin. `board --ensure` does the first and the last step for you; the install step makes a copy that does not change when the plugin updates. Replace the source paths when your provider uses another root.
 
 ```sh
-node cli.mjs board --setup --config "$HOME/.config/sage-board/board.json" --sources "[{\"id\":\"claude\",\"path\":\"$HOME/.claude/sage\"},{\"id\":\"codex\",\"path\":\"$HOME/.codex/sage\"}]" --pages "$HOME/.local/share/sage-board/pages"
+node cli.mjs board --setup --config "$HOME/.config/sage-board/board.json" --sources "[{\"id\":\"claude\",\"path\":\"$HOME/.claude/sage\"},{\"id\":\"codex\",\"path\":\"$HOME/.codex/sage\"}]"
 node cli.mjs board --install --config "$HOME/.config/sage-board/board.json" --install-dir "$HOME/.local/share/sage-board/service" --login-file "$HOME/Library/LaunchAgents/dev.sage.board.plist"
 node "$HOME/.local/share/sage-board/service/packages/board/cli.mjs" board --serve --config "$HOME/.config/sage-board/board.json"
 ```
 
 The last line runs the installed copy: use the path that the install step prints after "Installed board command". From the Sage checkout, run the same commands in `packages/sage-board/`; the installed copy is then `service/packages/sage-board/cli.mjs`.
 
-Open the printed localhost URL in a desktop browser on the Mac. The board answers a request only when it comes from loopback, names a loopback host (`127.0.0.1`, `localhost` or `[::1]` at the board's port), and has no header that a proxy adds (`X-Forwarded-*` or `Forwarded`). Every other request is refused: status 403, or 404 on the pages route. The read routes take only GET and HEAD.
+Open the printed localhost URL in a desktop browser on the Mac. The address `/` sends the browser to the board app at `/app/`. The board answers a request only when it comes from loopback, names a loopback host (`127.0.0.1`, `localhost` or `[::1]` at the board's port), and has no header that a proxy adds (`X-Forwarded-*` or `Forwarded`). Every other request is refused: status 403, or 404 on the pages route. The read routes take only GET and HEAD.
 
 A config from an earlier version can still hold the keys `allowedHosts`, `password` or `secret`. It still loads, and this version of the board ignores those keys. An installed copy of an earlier version does not ignore them: the login service runs that copy, and the copy does not change when sage updates. So after an update, remove the keys from the file, then restart the board. To run this version at login, stop the login service with `launchctl bootout` (below), remove the old install folder and the login file, then run the install step again.
 
@@ -56,9 +56,11 @@ The manual way, when your sage has no `board --port`: stop the board with `board
 
 The stable installation copies only board and core sources, and the licence files of the packages in the board's bundles. It does not depend on a provider plugin cache. Stop the foreground service with Ctrl+C.
 
-## The new board (preview)
+## The board in the browser
 
-The new board is at `/app/` on the same server: open `http://127.0.0.1:43123/app/` (or the port of your config) in a desktop browser. It needs scripts. Its Overview has:
+The board is a React app at `/app/` on the server: open `http://127.0.0.1:43123/` (or the port of your config) in a desktop browser, and the server sends you to `/app/`. It needs scripts. A browser with scripts off gets one line that points to the chat board, which needs none. The [board guide](../../docs/guide/board.md) shows each page with a screenshot: Overview, Tasks, the task page, Agents, Pull requests, the question view and the reader.
+
+The Overview has:
 
 - **The chiefs:** a chip for each chief of each shared project, with live, waits for you, stopped or not known, and the autopilot state. A click shows only that chief's work, on each page.
 - **Needs you:** each open question, oldest first, with its chief, its task, its recommendation and when it was asked. A click opens the question with the message that the chief kept for it (`gates/G<n>.json`).
@@ -76,7 +78,7 @@ Limits of the writes. Each one needs a program on this Mac that acts on purpose:
 
 **Request size.** The board accepts up to 64 KiB of request headers. A browser sends the cookies of `127.0.0.1` to every port of it, so the cookies of other apps on `127.0.0.1` come to the board too. Ordinary cookie sets are far below 64 KiB: a cookie has at most 4 KiB, and most servers, Node's too, refuse more than 8 to 16 KiB of headers. When the cookies for `127.0.0.1` are more than 64 KiB in all, the board answers HTTP 431 to every request, reads and writes, until those cookies end. Nothing is written and nothing leaks. To recover, clear the browser's site data for `127.0.0.1` (F-T1076-9).
 
-The pages Tasks, Agents and Pull requests sit beside the Overview. The top bar of each page shows the agent and lead counts against the project's limits, from the logbook's `config.json` (`max_agents`, `max_leads`), and links to the Agents page. The new board loads only its own files from the board server, under a content security policy with no inline code and no outside source. Its data comes from one stream, `/app/events`. The classic board keeps working beside it.
+The pages Tasks, Agents and Pull requests sit beside the Overview. The top bar of each page shows the agent and lead counts against the project's limits, from the logbook's `config.json` (`max_agents`, `max_leads`), and links to the Agents page. The board loads only its own files from the board server, under a content security policy with no inline code and no outside source. Its data comes from one stream, `/app/events`.
 
 ### The reader for agent documents (T1064)
 
@@ -111,7 +113,7 @@ A version with `candidate` or `final` belongs to the arena, not to the design's 
 
 Use the same command with `--status` for short text, or without a format option for the chat board. A project name selects that project. `T197` selects a task in the current checkout. If two sources contain that task, add `--scope <source/project-key>` from the choices in the error.
 
-Use `--html --out <absolute-path.html>` for an offline file. The command prints its path. The file contains the selected tasks and their details. Each default export gets a fresh filename. An explicit output path refuses to overwrite a file.
+The board has no HTML file export: `--html`, `--out` and `--pages` say that they are gone. A config that still names `pagesDir` loads, and the board ignores that key.
 
 ## Optional login startup
 
@@ -131,7 +133,7 @@ The board displays recorded facts. Missing provider, head, completion, or budget
 
 Claude owner phrases can request the board and task views. Codex uses the manual skill commands until native owner phrase delivery is verified. The service does not start agent orchestration or autopilot.
 
-The server has four pages: the task board (`/`, with a page for each task at `/task/<id>`), the Releases tab (`/releases`, T996), the milestones list (`/milestones`, with a page for each milestone at `/milestone/<id>`) and the Agents page (`/agents`). Each page has its live stream (`/?events=1`, `/releases?events=1`, `/milestones?events=1`, `/milestone/<id>?events=1` and `/agents?events=1`), with the same access check. A task or milestone id in a route is the base64url of its key; an unknown milestone gives a not-found page with status 404. The Agents page also reads the hook's agent slots and helper notes under each logbook root (`.hooks/slots` and `.hooks/helpers`), by name and change time only. It refreshes by itself when an agent's state changes with time (30 min with no activity, or running long), as no file changes then.
+The server has these routes, all with the same access check: `/` (it sends the browser to `/app/`), `/app/` and the app's files, the stream `/app/events`, a task's panel data at `/app/task/<id>` and a question at `/app/gate/<id>` (each id is the base64url of the key), the reader at `/read/...`, the pages at `/pages/...` and the writes at `/api/...`. Every other path gets 404. The Agents data also reads the hook's agent slots and helper notes under each logbook root (`.hooks/slots` and `.hooks/helpers`), by name and change time only. It refreshes by itself when an agent's state changes with time (30 min with no activity, or running long), as no file changes then.
 
 **Agent activity (T1100).** The hook renews an agent's slot on each of its tool calls, and an agent's actions go to `<logbook>/actions/R<n>.jsonl` (one short record a line; the writer comes in a later task). A change under `.hooks/` or under a logbook's `actions/` folder does not read the logbook again. The server reads only the slot times and the last line of each running agent's action file, at most once every 2 s, and sends the runs that changed as a small `activity` event on `/app/events`: `{"<logbook>/R<n>": {"activity": <slot time in ms or null>, "now": <last action or null>}}`. A new stream gets the activity of each running agent after its first model. A slot or a helper note that comes or goes, or a quiet agent that wakes, still reads the logbook again, because the Agents page changes then.
 
@@ -150,4 +152,4 @@ Limits of the pages route:
 - On macOS, the board opens a page with no link in any folder of its path (`O_NOFOLLOW_ANY`). Other systems have no such flag, so there a folder that flips between a link and a folder during the board's checks can pass them.
 - The folder of the pages comes from `SAGE_WORKTREES`, or else `~/sage-worktrees`. A board that launchd starts gets no `SAGE_WORKTREES` from your shell, so it shows the pages under `~/sage-worktrees` only.
 
-Local tests exercise the access check, file updates, task routes, the Agents page, reconnects, offline export, and stable installation. Login startup and browser appearance still need direct checks.
+Local tests exercise the access check, file updates, the app's routes and stream, reconnects and stable installation. Browser tests walk each of the board's seven jobs from the Overview (`scripts/board-jobs-browser.test.mjs`). Login startup still needs a direct check.
