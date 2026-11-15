@@ -30,7 +30,8 @@ These words work inside a request. They switch nothing:
 
 | Put this in your request | What happens |
 | --- | --- |
-| `arena` or `arena <n>`, for example `arena 4` | The chief runs an [arena](how-it-works.md#the-arena) for the design: 3 candidates by default, or the number that you give, and a judge that combines them. |
+| `arena` or `arena <n>`, for example `arena 4` | The chief runs an [arena](how-it-works.md#the-arena) for the design: 3 candidates by default, or the number that you give, and a judge that combines them. A large task of kind ui or design gets an arena by default. |
+| `no arena` | For a large task of kind ui or design: the chief frames it with one designer and no arena, and the state tool keeps your reason. |
 
 <a href="../assets/tip-start-light.svg">
 <picture>

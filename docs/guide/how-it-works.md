@@ -82,7 +82,14 @@ A risk flag adds the security review, and then a tiny task needs 2 clean cycles 
 
 ## The arena
 
-When a design has no clear answer, the chief can run an **arena**. You can also ask for one: `arena` or `arena 4`.
+An **arena** runs by default for the design of a large task of kind ui (a screen) or design. So you see several design options at once, combined into one final version. For another design with no clear answer, the chief can run one, and you can ask for one: `arena` or `arena 4`.
+
+| Task | Arena |
+| --- | --- |
+| Large, of kind ui or design | Yes, by default, with the count in `sage config` (`arena`, 3 by default). Say `no arena` for the task, and the chief frames it with one designer; the state tool keeps your reason as a decision row |
+| Any other task | Only when the chief decides, or when you say `arena` or `arena <n>` |
+
+An arena costs more than one designer. The estimate: about 1 to 1.5 M tokens and about 1 hour of agent time for one design, against about 250 k tokens for one designer. This is an estimate from the size of the runs, because no arena has run in this project yet.
 
 <a href="../assets/arena-light.svg">
 <picture>
