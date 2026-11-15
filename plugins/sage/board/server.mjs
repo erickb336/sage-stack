@@ -243,7 +243,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
       if (JSON.stringify(next) !== JSON.stringify(entry)) { activity.set(key, next); changes[key] = next; }
     };
     try {
-      if (folders) reconcileWatchers(true);
+      if (folders || hooks.length) reconcileWatchers(true);
       for (const id of hooks) {
         const notes = readHookNotes(configured.find(source => source.id === id).path), before = lastRead.find(source => source.id === id)?.hooks;
         if (!before || hookShape(notes) !== hookShape(before)) { schedule(); continue; }
