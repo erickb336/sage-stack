@@ -78,7 +78,6 @@ function findingsOf(task) {
   return { open: open.length, closed: task.findings.filter(row => row.status === "closed").length, worst: SEVERITIES.find(severity => open.some(row => row.severity === severity)) ?? null };
 }
 
-// Two logbooks may share a display name; the board then adds each one's own key, so that groups, filters and chips keep them apart.
 function projectNames(model) {
   const projects = model.projects ?? [], count = name => projects.filter(project => project.name === name).length;
   return new Map(projects.map(project => [project.key, count(project.name) > 1 ? `${project.name} (${project.key})` : project.name]));
