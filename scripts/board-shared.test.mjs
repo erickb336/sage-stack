@@ -147,6 +147,37 @@ test("Needs you: an open takeover gate asks its question in one line, and a stal
   assert.match(text, /> The owning chief, Codex · C2, may have stopped\\: R412 shows no change for over 24 h\\\./);
 });
 
+test("old logbooks: finished tasks show in Done with their old label, a moved row is hidden, and a path that is not an old logbook folder is never read", t => {
+  const w = world(t), model = modelOf(w.sources);
+  assert.deepEqual(["T316", "T96"].map(id => [card(model, id).holder, card(model, id).who, card(model, id).column]), [["Old · Claude · read-only", "claude", "done"], ["Old · Codex · read-only", "codex", "done"]]);
+  assert.ok(!model.tasks.some(item => item.id === "T90"), "the moved row shows only in the shared logbook");
+  assert.match(renderTaskText(card(model, "T316")), /A finished task of the old Claude logbook\\\. It stays there, read-only/);
+  writeFileSync(join(w.codexRoot, FOLDER, "decisions.tsv"), sheet(COLS.decisions, [{ at: iso(-8 * DAY), task: "T96", decision: "state concluded" }]));
+  assert.equal(card(modelOf(w.sources), "T96").visible, false);
+  const outside = join(w.base, "elsewhere", FOLDER), link = join(w.claudeRoot, "other-111111");
+  logbook(outside, { tasks: [task("T1", "Outside", "merged")] }, LEGACY);
+  symlinkSync(join(w.codexRoot, FOLDER), link);
+  writeFileSync(join(w.shared, FOLDER, "sources.tsv"), `provider\tpath\tat\nclaude\t${outside}\tx\nclaude\t${link}\tx\nclaude\t${join(w.claudeRoot, ".hooks")}\tx\n`);
+  const read = readBoardSources(w.sources, { now: NOW }), shared = read.find(source => source.id === "shared");
+  assert.deepEqual(shared.projects.map(project => project.key), [`shared/${FOLDER}`]);
+  assert.deepEqual([shared.projects[0].diagnostics, shared.projects[0].notes], [[], [2, 3, 4].map(line => `sources: line ${line} does not name a moved logbook of its provider under a provider root`)]);
+  writeFileSync(join(w.shared, FOLDER, "sources.tsv"), `provider\tpath\tat\ncodex\t${join(w.codexRoot, FOLDER)}\tx\n`);
+  const session = sources => readBoardSources([{ id: "current", path: w.claudeRoot }, { id: "shared", path: w.shared }], { now: NOW, ...sources }).find(source => source.id === "shared");
+  assert.deepEqual(session({ providerRoots: view.sessionRoots(w.claudeRoot, [w.claudeRoot, w.codexRoot], "claude") }).projects.map(project => project.key), [`shared/${FOLDER}`, `old-codex/${FOLDER}`]);
+  assert.deepEqual(session({}).projects.map(project => project.key), [`shared/${FOLDER}`], "a root that the board does not know is not read");
+});
+
+test("the hook notes of each provider root join the shared runs: no false may be stuck for a shared Claude run, and a Codex run shows from the logbook", t => {
+  const model = modelOf(world(t).sources);
+  const lantern = model.agents.projects.find(project => project.name === "lantern");
+  const all = lantern.agents.flatMap(agent => [agent, ...agent.children]);
+  const agent = id => all.find(item => item.runId === id);
+  assert.deepEqual(["R420", "R407", "R412"].map(id => agent(id)?.state), ["work", "work", "unk"]);
+  assert.deepEqual(model.agents.unmatched.map(item => item.run).sort(), ["R410", "R411", "R5"], "only the runs that no slot holds");
+  assert.equal(agent("R412").provider, "codex");
+  assert.doesNotMatch(agent("R420").why ?? "", /may be stuck/);
+});
+
 test("a lead slot's logbook mark, as the hook writes it for a linked project, equals the reader's name of the shared folder", t => {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-shared-link-")));
   t.after(() => rmSync(base, { recursive: true, force: true }));
@@ -331,6 +362,15 @@ test("F-T624-6: a sources.tsv row reads an old logbook only when it has moved.js
   assert.deepEqual(read.find(source => source.id === "claude").projects.map(project => project.key), [`claude/${HARBOR}`, `claude/${FOLDER}`]);
   const t41 = card(buildBoardModel(read, { now: iso() }), "T41");
   assert.deepEqual([t41.key, t41.holder, t41.old], [`claude/${HARBOR}/T41`, undefined, undefined]);
+});
+
+test("F-T624-8: a damaged chiefs.tsv gives its one table diagnostic, and no warning for each task", t => {
+  const w = world(t);
+  writeFileSync(join(w.shared, FOLDER, "chiefs.tsv"), "id\tprovider\nC1\tclaude\n");
+  const model = modelOf(w.sources);
+  assert.deepEqual(model.warnings, []);
+  assert.deepEqual(model.diagnostics.filter(item => item.project === `shared/${FOLDER}`).map(item => item.message), ["chiefs: damaged table"]);
+  assert.doesNotMatch(renderTaskText(card(model, "T321")), /not in chiefs/);
 });
 
 test("F-T624-12: a milestone that moved with its open task leaves the old logbook, as no stuck or second milestone; a finished old milestone stays", t => {
