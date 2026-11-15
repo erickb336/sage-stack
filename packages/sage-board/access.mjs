@@ -61,10 +61,10 @@ export function boardAccess(dir) {
         writeJson(dir, "pair-code.json", { ...wanted, tries: wanted.tries + 1 });
         return { problem: wanted.tries + 1 < TRIES ? "This code is not the one that board --pair printed. Type it again." : "Five wrong codes: this code no longer works. Run board --pair in Terminal for a new code." };
       }
-      rmSync(join(dir, "pair-code.json"), { force: true });
       const old = readJson(dir, "paired.json"), cookie = randomBytes(32).toString("base64url"), token = randomBytes(32).toString("base64url");
       const browsers = [...(Array.isArray(old?.browsers) ? old.browsers : []), { hash: sha(cookie), token: sha(token), at: new Date(now).toISOString() }].slice(-BROWSERS);
       writeJson(dir, "paired.json", { browsers });
+      rmSync(join(dir, "pair-code.json"), { force: true });
       return { cookie, token };
     },
     seen(now = Date.now()) {
