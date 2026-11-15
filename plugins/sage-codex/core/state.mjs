@@ -62,6 +62,7 @@ const SIZES = {
   investigate: ["investigate", "evidence-review"],
 };
 const BLOCKS = ["design", "arena", "pe", "build", "code-review", "security-review", "ux-review", "qa", "investigate", "evidence-review"];
+const ARENA_KINDS = ["ui", "design"];
 const RISKS = ["auth", "data", "schema", "money", "secrets", "input"];
 const VERDICT = { build: "checks-pass", "code-review": "review-clean", "security-review": "security-clean", "ux-review": "ux-clean", qa: "qa-pass", "evidence-review": "evidence-clean" };
 const FOUND = ["findings", "qa-fail"];
@@ -121,7 +122,7 @@ const OPTIONS = {
   "gate replace": ["to"],
   "gate give": ["to"],
   "projects rebuild": ["accept-listing"],
-  "task add": ["title", "size", "risk", "add", "why", "priority", "kind", "waits", "milestone"],
+  "task add": ["title", "size", "risk", "add", "no-arena", "why", "priority", "kind", "waits", "milestone"],
   task: ["why"],
   round: ["why"],
   "task-adopt": ["source-logbook", "source-provider", "source-task", "pr", "branch"],
@@ -3152,12 +3153,21 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         const graph = graphOf(dir), next = { id: nextId(dir, "T"), state: "framed" };
         if (opt.waits !== undefined) tags.waits = waitsValue(next, opt.waits, [...graph.byId.values()]);
         if (opt.milestone !== undefined) tags.milestone = milestoneValue(next, opt.milestone, graph);
-        const task = frame(dir, need(opt.title, "--title"), size, risk, list(opt.add), tags);
+        const byDefault = size === "large" && ARENA_KINDS.includes(tags.kind) && !list(opt.add).includes("arena");
+        const noArena = opt["no-arena"] === undefined ? undefined : cell(opt["no-arena"]);
+        if (noArena !== undefined && !byDefault) refuse(`--no-arena takes the arena out of a large task of kind ${ARENA_KINDS.join(" or ")}, which gets it by default, and this task ${list(opt.add).includes("arena") ? "adds it with --add arena" : "has no arena by default"}. Nothing changed.`);
+        if (noArena === "") refuse(`--no-arena needs the reason: --no-arena "<reason>". Nothing changed.`);
+        const arena = byDefault && noArena === undefined;
+        const task = frame(dir, need(opt.title, "--title"), size, risk, [...list(opt.add), ...(arena ? ["arena"] : [])], tags);
         checkout(dir, project, env);
-        const at = now(), joined = milestoneDecision(task, "", at, "task add", graph);
-        const decided = [...(opt.add ? [{ at, task: task.id, decision: `added ${opt.add}`, why }] : []), ...waitsDecision(task, "", at, "task add"), ...joined.rows];
+        const at = now(), joined = milestoneDecision(task, "", at, "task add", graph), count = config(env, dir).arena;
+        const decided = [...(opt.add ? [{ at, task: task.id, decision: `added ${opt.add}`, why }] : []),
+          ...(arena ? [{ at, task: task.id, decision: `added arena · ${count} candidates`, why: `by default: a large ${tags.kind} task` }] : []),
+          ...(noArena ? [{ at, task: task.id, decision: "no arena", why: noArena }] : []),
+          ...waitsDecision(task, "", at, "task add"), ...joined.rows];
         if (decided.length) write(dir, "decisions", [...read(dir, "decisions"), ...decided]);
-        return `${framed(task)}${joined.note}`;
+        const arenaNote = arena ? ` · arena of ${count} by default for a large ${tags.kind} task (one designer instead: frame it with --no-arena "<reason>")` : "";
+        return `${framed(task)}${arenaNote}${joined.note}`;
       }
       const { tasks, task } = taskOf(dir, need(sub, "the task id"));
       let note = "";

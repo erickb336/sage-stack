@@ -44,6 +44,7 @@ export const TOOLS = {
     describe: "Frame a task and its route. The size gives the least route; a risk flag adds the security review.",
     input: { title: z.string(), size: z.enum(Object.keys(tool.SIZES)), risk: optional(`risk flags joined by a comma: ${tool.RISKS.join(", ")}`),
       add: optional("added blocks, joined by a comma (needs why)"), why: optional("the reason for the added blocks"),
+      "no-arena": optional("the owner's reason to run one designer, not the arena that a large ui or design task gets by default"),
       priority: z.enum(PRIORITIES, { error: PRIORITY_SCALE }).describe(PRIORITY_SCALE), kind: optional("the task's main kind"), waits: optional("the task ids that it waits for, joined by a comma"),
       milestone: optional("the milestone id, for example M1") },
     argv: () => ["task", "add"],
