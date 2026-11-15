@@ -80,12 +80,22 @@ A ux review of a board page checks each line. A line that fails is a finding.
 ### What T1063 built
 
 - The Pull requests page at `/app/#pull-requests`. It groups the tasks with a PR by the next action: Needs you, In review, Repairing, Ready to merge, Waiting for another task, and Merged recently (the last 7 days). A task with no PR that waits for another task is in the Waiting group too.
-- Each row shows the PR number, which links to the PR on GitHub, the title, which opens the task's side panel, the chief tag, the task, the milestone, "may conflict", the state word, the clean cycles and the CI state. The CI state is the checks verdict on the PR's current head in the ledger: "CI passes", "CI fails" or "CI not known". The board never asks GitHub.
-- A PR number links to GitHub only when it is a whole number and a PR record names the repository.
+- Each row shows the PR number, which links to the PR on GitHub, the title, which opens the task's side panel, the chief tag, the task, the milestone, "may conflict", the clean cycles and the CI state. The CI state is the checks verdict on the PR's current head in the ledger: "CI passes", "CI fails" or "CI not known". The board never asks GitHub.
+- A PR number links to GitHub only when it is a whole number and the logbook names the repository: the PR record's repository, or else the project's. With no repository, the row says so in words.
 - The Graph view shows each item that waits for another item on the page, or may conflict with one, in columns by "waits for": an arrow from A to B means that B waits for A. It is React Flow (`@xyflow/react`, MIT) in its own graph file, which the page loads only when the graph opens. The graph file has its own size budget.
 - A link of the graph never passes through a box, and no two links share a line. A link runs only in the gaps between the boxes, on lines that only it uses: its own point on each box side, its own track in each column gap, and its own lane in a gap between two rows when it skips a column or goes back. A gap grows to hold all its tracks. A wait and a "may conflict" link between the same two tasks are two separate lines.
 - Two boxes in one column that may conflict get a dashed link that leaves and comes back on their right side.
 - A loop in the "waits for" links shows one link that goes back, under the boxes, with the mark "loop". A task that waits for itself shows a link around its box, with the mark "waits for itself".
+
+### What T1081 changed on the Pull requests page
+
+- A seventh group, Building, holds a task with a PR whose build or plan still runs (framed, designing, awaiting-you, briefed, building, held, replan). In review holds only reviewing and verifying tasks, and verified tasks that the merge check refuses. A task with no PR is only in the Waiting group, also when a question for you is open.
+- Each row and group has its group's icon. A row has no state word, because its group says it; a state that the board cannot read shows "state not known". A row shows the open findings and the worst open severity ("1 open · medium"), or "0 open · 2 closed".
+- A row shows its reason (the "why" line) and its waits line together. The waits line names a wait for a missing task or a milestone breakdown too. A merged row counts its clean cycles ("2 clean cycles"), not against today's configured count, and a merge time in the future says so. Ages count from now.
+- Logbook text shows each control character as an escape, so a right-to-left override reverses nothing. With two projects, each row and each box names its project.
+- Beside the panel or below 1280 px, the cycles, CI, findings and age go to a line under the row. The page keeps the List or Graph choice in the browser. An empty project shows no view switch.
+- The graph draws a box for each task that a task on the page waits for but that the page does not list ("Not on this page", or "Not in the logbook"). It refits when its width changes, shows each box of a large graph at first (zoom down to 0.2), and keeps its links while the panel opens. A met wait has its own legend line. React Flow's link is gone; the legend credits it as text.
+- Labels never cover each other or a box: a loop or self-wait mark is placed first; a "may conflict" label with no free place is left out. The router has no recursion, so a long chain cannot overflow the stack, and an error while drawing shows a message in place of the graph.
 
 ## The classic board (T205)
 

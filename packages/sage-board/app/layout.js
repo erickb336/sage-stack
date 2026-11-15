@@ -1,6 +1,6 @@
 export const W = 240, H = 104;
 const GAP_X = 96, GAP_Y = 30, STEP = 8;
-const ORDER = ["merged", "ready", "review", "repair", "need", "wait"];
+const ORDER = ["away", "merged", "ready", "review", "build", "repair", "need", "wait"];
 export const labelArea = (label, x, y) => ({ x: x - label.length * 3.2 - 6, y: y - 10, w: label.length * 6.4 + 12, h: 20 });
 export const meets = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 const along = points => points.slice(1).flatMap(([qx, qy], i) => {
