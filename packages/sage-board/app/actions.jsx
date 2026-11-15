@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { when } from "./use-model.js";
 import { UNKNOWN, chiefName } from "../../sage-core/state-words.mjs";
-import { chiefState, chiefSub, encodeKey, readLink, taskLink } from "./task.jsx";
+import { chiefState, chiefSub, encodeKey, taskLink } from "./task.jsx";
 
 const TOKEN_KEY = "board-token";
 const stored = { get: () => { try { return localStorage.getItem(TOKEN_KEY) ?? ""; } catch { return ""; } }, set: value => { try { value ? localStorage.setItem(TOKEN_KEY, value) : localStorage.removeItem(TOKEN_KEY); } catch {} } };
@@ -206,7 +206,7 @@ export function UndoButton({ logbook, gate, onDone }) {
   );
 }
 
-export function QuestionView({ needKey, model }) {
+export function QuestionView({ needKey, model, theme }) {
   const { gate, problem } = useGate(needKey, model.at), writes = useAccess();
   const [pick, setPick] = useState(null), [said, setSaid] = useState(null), [busy, setBusy] = useState(false), sending = useRef(false);
   useEffect(() => { document.getElementById("question-h")?.focus(); }, [needKey, !gate]);
@@ -221,7 +221,7 @@ export function QuestionView({ needKey, model }) {
   return (
     <article className="question" aria-labelledby="question-h">
       <a href="#" className="back">Back to Needs you</a>
-      <p className="facts-line">{owner} · <span className="mono">{gate.id}</span> · asked {gate.at ? clock(gate.at) : "at a time not recorded"} · <a href={taskLink(gate.task.key)}>{gate.task.id} · {gate.task.title}</a> · <a href={readLink(gate.task.key, "question", gate.id)}>Read the full question</a></p>
+      <p className="facts-line">{owner} · <span className="mono">{gate.id}</span> · asked {gate.at ? clock(gate.at) : "at a time not recorded"} · <a href={taskLink(gate.task.key)}>{gate.task.id} · {gate.task.title}</a> · <a href={`/read/${encodeKey(gate.task.key)}/question/${gate.id}${theme === "light" ? "?theme=light" : ""}`}>Read the full question</a></p>
       <h1 id="question-h" tabIndex={-1}>{gate.message?.title ?? gate.text ?? gate.question}</h1>
       {gate.message ? <div className="context"><Blocks blocks={gate.message.blocks.filter(block => !(block.t === "table" && same(block.head[0], "Answer")))} /></div>
         : <p className="hint">This question has no kept message, so the board shows its question and its options only.{gate.default && ` Default: ${gate.default}.`}</p>}

@@ -63,7 +63,7 @@ function trailOf(task) {
   const merged = task.steps.find(step => step.key === "merge")?.status === "done";
   return [...new Set(task.route.map(block => BLOCKS[block] ?? block.replace("-", " ")))].map(label => {
     const phase = PHASE[label] ?? "review", names = label === "reviews" ? ["code review", "security review", "UX review"] : [label];
-    const steps = task.steps.filter(step => step.key.startsWith(phase) || phase === "review" && ["repair", "again"].includes(step.key));
+    const steps = task.steps.filter(step => step.key.startsWith(phase) || phase === "review" && /^(repair|again)/.test(step.key));
     const open = steps.find(step => TRAIL(step.status) !== "done"), parts = (open?.parts ?? []).filter(part => names.includes(part.name)).map(part => TRAIL(part.status));
     const mark = merged || steps.length && !open ? "done" : !open ? "" : !parts.length ? TRAIL(open.status) : parts.every(part => part === "done") ? "done" : parts.every(part => !part) ? "" : "now";
     return { label, mark };
