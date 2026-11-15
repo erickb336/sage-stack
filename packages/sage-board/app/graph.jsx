@@ -39,18 +39,20 @@ export default function Graph({ data }) {
     const far = (axis, extent) => placed.reduce((most, node) => Math.max(most, node.position[axis] + extent), 0);
     return { placed, edges, height, size: { left: placed[0]?.position.x ?? 0, right: far("x", W), bottom: far("y", H) } };
   }, [data]);
+  const latest = useRef(size);
+  latest.current = size;
   const fit = useCallback(async () => {
-    const { width, height } = canvas.current.getBoundingClientRect(), large = Math.min((width - 2 * PAD) / (size.right - size.left), (height - 2 * PAD) / size.bottom) < FLOOR;
+    const size = latest.current, { width, height } = canvas.current.getBoundingClientRect(), large = Math.min((width - 2 * PAD) / (size.right - size.left), (height - 2 * PAD) / size.bottom) < FLOOR;
     await flow.fitView(FIT);
     if (large) flow.setViewport({ x: PAD - size.left * FLOOR, y: PAD, zoom: FLOOR });
     setMore(large);
-  }, [flow, size]);
+  }, [flow]);
   useEffect(() => {
     if (!flow || !canvas.current) return;
     const watch = new ResizeObserver(fit);
     watch.observe(canvas.current);
     return () => watch.disconnect();
-  }, [flow, fit]);
+  }, [fit]);
   const used = new Set(data.nodes.map(node => node.group)), met = data.waits.some(link => link.met);
   return (
     <section className="card graph" aria-labelledby="graph-h">

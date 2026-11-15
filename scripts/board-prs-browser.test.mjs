@@ -369,6 +369,32 @@ test("F-T1081-10: a graph too large to fit starts at its first column and says t
   assert.equal(await page.locator(".graph").getByText(NOTICE).count(), 0, "18 boxes fit: no notice");
 });
 
+test("F-T1081-30: a logbook change keeps the pan and the zoom of the graph, and a resize of the window still refits it", async t => {
+  let logbook;
+  const { page } = await open(t, { edit: path => { logbook = path; } }, "/app/#pull-requests");
+  await page.getByRole("button", { name: "Graph" }).click();
+  await page.locator(".gnode").first().waitFor();
+  await page.waitForTimeout(300);
+  const view = () => page.locator(".react-flow__viewport").evaluate(node => node.style.transform);
+  const fitted = await view();
+  await page.getByRole("button", { name: "Zoom In" }).click();
+  const box = await page.locator(".g-canvas").boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 - 300, box.y + box.height / 2 - 40, { steps: 10 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  const moved = await view();
+  assert.notEqual(moved, fitted, "the drag and the zoom move the view");
+  editTable(logbook, "tasks", rows => rows.map(row => row.id === "T5" ? { ...row, title: `${row.title} (renamed)` } : row));
+  await page.locator(".graph").getByText("(renamed)").first().waitFor({ timeout: 10_000 });
+  await page.waitForTimeout(300);
+  assert.equal(await view(), moved, "the logbook change keeps the pan and the zoom");
+  await page.setViewportSize({ width: 1000, height: 1000 });
+  await page.waitForFunction(before => document.querySelector(".react-flow__viewport").style.transform !== before, moved);
+  assert.equal(await inCanvas(page), 0, "a resize of the window refits the graph");
+});
+
 test("F-T1081-27: a held task and a task that you answered, each with a PR, show their state in the Building group, and the hint covers them", async t => {
   const edit = logbook => editTable(logbook, "tasks", rows => [...rows, task("T91", "Sample held change", "held", { pr: "91" }), task("T92", "Sample answered change", "awaiting-you", { pr: "92" }), task("T93", "Sample built change", "building", { pr: "93" })]);
   const answered = logbook => { edit(logbook); editTable(logbook, "gates", rows => [...rows, { ...gate("G30", "T92", "Keep the old layout?"), answer: "A" }]); };
