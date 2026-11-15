@@ -31,13 +31,13 @@ async function freePort() {
 async function openBoard(t, options = {}, path = "/app/") {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-tasks-browser-")), port = await freePort(), saved = process.env.SAGE_WORKTREES;
   process.env.SAGE_WORKTREES = join(dir, "worktrees");
-  const { twin, clock, ...fixture } = options, written = writeTasksLogbook(join(dir, "logbooks"), join(dir, "worktrees"), new Date().toISOString(), fixture);
+  const { twin, clock, source = { id: "shared", label: "Shared" }, ...fixture } = options, written = writeTasksLogbook(join(dir, "logbooks"), join(dir, "worktrees"), new Date().toISOString(), fixture);
   if (twin) cpSync(written, join(dir, "logbooks", "other-app-def456"), { recursive: true });
   if (twin === "one name") for (const book of [written, join(dir, "logbooks", "other-app-def456")]) {
     const config = join(book, "config.json");
     writeFileSync(config, JSON.stringify({ ...existsSync(config) && JSON.parse(readFileSync(config, "utf8")), name: "twin" }));
   }
-  const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port, app: APP, settleReads: [] });
+  const server = createBoardServer({ sources: [{ ...source, path: join(dir, "logbooks") }], port, app: APP, settleReads: [] });
   await server.start();
   const base = `http://127.0.0.1:${port}`;
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, colorScheme: "dark" });
@@ -474,6 +474,15 @@ test("T1080 (F-T1080-19): a live chief's dot has a name, and the task page says 
     await taskTitle(page).filter({ hasText: title }).waitFor();
     assert.match(await page.locator(".facts-line").textContent(), new RegExp(`Run by ${text}(?: ·|$)`));
   }
+});
+
+test("T1099 (F-T1099-56): a task in a logbook that records no chief names the logbook's provider and an unknown chief once, not \"Chief unknown (chief unknown)\"", async t => {
+  const { page, base } = await open(t, { source: { id: "claude", label: "Claude", provider: "claude" } }, "/app/#tasks");
+  await page.goto(`${base}/app/#task?key=${encodeURIComponent("claude/sample-app-abc123/T3")}`);
+  await taskTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
+  const facts = await page.locator(".facts-line").textContent();
+  assert.match(facts, /Run by Claude · chief unknown(?: ·|$)/);
+  assert.doesNotMatch(facts, /\(chief unknown\)/);
 });
 
 test("T1080 (F-T1080-3, F-T1080-22): the task page puts the question, the recommendation and the next step on their own lines; Back from an ended task puts the focus on its row", async t => {
