@@ -2,7 +2,9 @@
 
 The chief runs an arena with these steps.
 
-For a design with no clear answer, or when the user says "arena" or "arena N": frame the task with `--add arena --why "<reason>"`. You run the arena yourself, before any lead.
+**A large task of kind ui or design gets the arena by default.** `sage task add --size large --kind ui` (or `--kind design`) adds the arena block and writes a decision row with the count of candidates (config `arena`, 3 by default). An arena costs about 1 to 1.5 M tokens and about 1 hour of agent time for one design, against about 250 k tokens for one designer (an estimate: no arena has run in this project yet). When the user says "no arena" for the task, frame it with `--no-arena "<the user's reason>"`: the route keeps one designer, and a decision row keeps the reason. The state tool refuses `--no-arena` with no reason, and on a task that has no arena by default.
+
+For another design with no clear answer, or when the user says "arena" or "arena N": frame the task with `--add arena --why "<reason>"`. You run the arena yourself, before any lead.
 
 **A large task's arena is a design arena.** It stands for the route's design block, so start no other designer, and its order is arena, PE, the user's answer on the design, build. A build arena runs only on a tiny or small task, or on a briefed task whose design may go ahead.
 
