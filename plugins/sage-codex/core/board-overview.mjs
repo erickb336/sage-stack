@@ -3,7 +3,7 @@ import { milestoneName } from "./milestone-rules.mjs";
 import { STOPPED_MS } from "./chief-live.mjs";
 import { AGENT_QUIET_MS } from "./board-model.mjs";
 import { TEAM } from "./role-policy.mjs";
-import { taskWord } from "./state-words.mjs";
+import { runWord, taskWord } from "./state-words.mjs";
 
 const DAY = 86_400_000, DONE_DAYS = 7;
 const ENDED = ["merged", "concluded", "abandoned"];
@@ -86,7 +86,7 @@ function taskRow(task, chiefs) {
     milestone: task.milestone ? { key: task.milestone.key, id: task.milestone.id, title: milestoneName({ id: task.milestone.id, name: task.milestone.name ?? "" }) } : null,
     chief: chiefTag(task, chiefs), needsYou: task.reasons.length > 0, waits: task.waitLine?.text ?? null,
     waitsFor: task.waits.filter(wait => wait.id).map(wait => ({ key: `${task.project}/${wait.id}`, id: wait.id, met: wait.met })),
-    why: task.reasons.length ? taskWord(task).reason : null,
+    why: task.reasons.length || task.problems?.length ? taskWord(task).reason : null,
     conflicts: task.mayConflict.map(other => ({ key: other.key, id: other.id, chief: other.chief })),
     step: step ? { label: step.label, status: step.status } : null, lastActivity: task.lastActivity,
     addedAt: iso(task.addedAt), doneAt: iso(task.completedAt),
@@ -223,7 +223,7 @@ function logOf(task) {
     ...(task.decisionRows ?? []).map(row => ({ at: row.at, who: "chief", text: `${row.decision}${row.why ? ` · ${row.why}` : ""}` })),
     ...task.runs.flatMap(run => run.status === "queued" ? [{ at: run.started, who: run.id, text: `${run.role} queued for an agent slot${run.place ? `, place ${run.place}` : ""}` }] : [
       { at: run.started, who: run.id, text: failReason(task, run) === LAPSED ? `${run.role} admitted from the queue, but its agent did not start` : `${run.role} started${run.admitted ? " after its place in the queue" : ""}` },
-      ...(run.status === "running" ? [] : [{ at: run.ended, who: run.id, text: `${run.role} ended: ${run.status}` }]),
+      ...(run.status === "running" ? [] : [{ at: run.ended, who: run.id, text: `${run.role} ended: ${runWord(run.status).text}` }]),
     ]),
     ...task.ledger.map(row => ({ at: row.at, who: row.run || "CI", text: `${row.kind}${row.cycle ? ` · cycle ${row.cycle}` : ""}${row.sha ? ` on ${String(row.sha).slice(0, 7)}` : ""}` })),
   ].map(event => ({ ...event, at: iso(event.at) }));

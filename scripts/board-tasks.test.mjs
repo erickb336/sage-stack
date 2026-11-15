@@ -47,7 +47,7 @@ test("T1061: the stream lists every task with its state word, priority, kind, ch
   const row = id => tasks.find(task => task.id === id);
   assert.deepEqual(tasks.map(task => task.id).sort(), ["T1", "T10", "T11", "T2", "T20", "T21", "T3", "T30", "T4", "T40"], "every task, ended ones too");
   assert.deepEqual([row("T3").word, row("T3").priority, row("T3").kind, row("T3").chief, row("T3").pr, row("T3").ended], ["in progress", "P2", "providers", { id: "C2", provider: "Codex", stopped: false, waits: false }, "12", false]);
-  assert.deepEqual(row("T3").conflicts, [{ key: KEY("T40"), id: "T40", chief: "C1 · Claude" }], "T3 (C2) and T40 (C1) change src/shared.js; the chief reads as on its row (F-T1080-17)");
+  assert.deepEqual(row("T3").conflicts, [{ key: KEY("T40"), id: "T40", chief: "Claude · C1" }], "T3 (C2) and T40 (C1) change src/shared.js; the chief reads as on its row (F-T1080-17)");
   assert.deepEqual(row("T40").conflicts.map(other => other.id), ["T3"]);
   assert.deepEqual(row("T2").conflicts, [], "a task with no files record has no flag");
   assert.deepEqual([row("T1").word, row("T1").ended], ["done", true]);
@@ -69,7 +69,7 @@ test("T1061: the panel gives the route's steps with the current step, the clean-
   assert.deepEqual(panel.decisions, [{ id: "G6", question: "Keep one limit for both providers?", answer: "A: yes", pending: null, recommendation: "A: yes", waits: false, at: "2026-11-13T04:00:00.000Z" }]);
   assert.deepEqual(panel.artifacts.map(item => [item.label, item.run, item.url]), [["Limits design note", "R7", "https://github.com/sample-owner/sample-app/pull/12"]]);
   assert.equal(panel.prUrl, "https://github.com/sample-owner/sample-app/pull/12", "from the PR observation's repository");
-  assert.deepEqual(panel.conflicts, [{ key: KEY("T40"), id: "T40", chief: "C1 · Claude", paths: ["src/shared.js"] }]);
+  assert.deepEqual(panel.conflicts, [{ key: KEY("T40"), id: "T40", chief: "Claude · C1", paths: ["src/shared.js"] }]);
   assert.equal(taskPanel(modelOf(world(t).sources), KEY("T999")), null);
 });
 
@@ -231,7 +231,7 @@ test("T1062 F-T1062-9, F-T1062-11, F-T1062-14, F-T1062-18, F-T1062-19: helpers, 
   assert.equal(byId.R20.endedHelpers, 1300, "the lead knows how many ended helpers it has");
   assert.equal(book.runs.filter(run => run.lead === "R20" && run.status === "done").length, 20, "only the last 20 ended helpers travel to the page");
   const log = taskPanel(model, KEY("T40")).log;
-  assert.deepEqual(log.filter(event => event.who === "R38").map(event => event.text), ["qa ended: failed", "qa admitted from the queue, but its agent did not start"], "a lapsed admission never says started");
+  assert.deepEqual(log.filter(event => event.who === "R38").map(event => event.text), ["qa ended: stopped · failed", "qa admitted from the queue, but its agent did not start"], "a lapsed admission never says started");
   assert.deepEqual(log.filter(event => event.who === "R39").map(event => event.text), ["code-reviewer ended: done", "code-reviewer started after its place in the queue"]);
 });
 

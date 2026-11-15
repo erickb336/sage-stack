@@ -7,9 +7,11 @@ This page gives sage's own words, one meaning each. In the table, "the owner" is
 | Word | Meaning |
 | --- | --- |
 | **Request** | What the owner asks for in the chat, in the owner's words, before sage frames it. |
+| **Project** | One repository and its logbook. |
 | **Release** | A version that the owner ships, such as 1.0: it holds milestones and single tasks, and it is optional. |
 | **Milestone** | A request that sage runs as two or more tasks for one goal, where at least one task waits for another. It has a goal, a done condition (a count of merged tasks), a breakdown that the owner approves, and one pilot task. |
 | **Task** | One unit of work in one project, with one route and at most one pull request. It is in at most one milestone or, outside one, in a release, and it may wait for other tasks of its logbook ("waits for": it builds and merges only after they are merged or concluded). It ends in one of three states: merged (its pull request is in main), concluded (a route with no build step, such as investigate, ended with a clean evidence review) or abandoned (its work stopped for good, from any state). |
+| **Pull request** | A task's one change; in short "PR 44". |
 | **Step** | One block of a task's route, done by one agent role: design, arena, pe, build, code-review, security-review, ux-review, qa, investigate, evidence-review. |
 | **Route** | The ordered steps of one task, set by its size and risk flags. |
 | **Run** | One agent's work on one step of a task, from brief to report; it has an id such as R12. Also the PE check of a breakdown. |
@@ -21,7 +23,7 @@ This page gives sage's own words, one meaning each. In the table, "the owner" is
 | **Finding** | One problem that a review or QA reports, with a severity (high, medium or low), a triage and a status. |
 | **Verdict** | The result of one check (checks, a review, QA) on one head commit, kept in the ledger by SHA and cycle. |
 | **Cycle** | One full set of fresh reviews and QA on one head commit; a new commit starts again from cycle 1. |
-| **Gate** | A question parked for the owner, with options, a recommendation and a default; the work behind it waits for the answer. The owner approves a milestone's breakdown through a gate. |
+| **Gate** | A question parked for the owner, with options, a recommendation and a default; the work behind it waits for the answer. The owner approves a milestone's breakdown through a gate. Owners read "question". |
 | **Logbook** | sage's local record of one project: its tasks, runs, findings, verdicts, gates and decisions, kept on the owner's Mac. |
 | **Agent time** | The wall-clock hours of agent runs, given with their tokens. The default for every time figure: give it with its basis and a range. |
 | **Human time** | The time of the owner's own actions only: reviews, approvals, merges and setup. Give it with its basis and a range. |

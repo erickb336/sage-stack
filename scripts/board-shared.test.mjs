@@ -124,7 +124,7 @@ test("the provider of each run comes from its chief in chiefs.tsv; a run with no
   assert.match(page(`shared/${FOLDER}/T319`), /<td class="id">R412<\/td><td><span class="ptag ptag-codex">Codex<\/span><\/td><td>designer<\/td>/);
   assert.match(page(`shared/${FOLDER}/T322`), /<td class="id">R430<\/td><td><span class="standin" tabindex="0" title="Stand-in: the run names no chief, so the board does not know its provider\."/);
   assert.match(page(`claude/${HARBOR}/T41`), /<th>Run<\/th><th>Agent<\/th><th>Status<\/th>/);
-  assert.match(renderTaskText(card(model, "T319")), /R412 Codex · designer · running/);
+  assert.match(renderTaskText(card(model, "T319")), /R412 Codex · designer · in progress/);
 });
 
 test("each shared card names its owning chief, an open offer, or Unclaimed; the Who filter goes by the owning chief's provider", t => {
@@ -145,7 +145,7 @@ test("each shared card names its owning chief, an open offer, or Unclaimed; the 
   assert.equal(cardFits({ provider: "", priority: "P2", kind: "", milestone: "" }, { who: "claude" }), false);
   assert.equal(cardFits({ provider: "", priority: "P2", kind: "", milestone: "" }, { who: "" }), true);
   assert.equal(cardFits({ provider: "claude", priority: "P2", kind: "", milestone: "" }, { who: "claude" }), true);
-  assert.match(renderBoardText(model), /\*\*T321 Show the board in both providers\*\* · in progress · Claude · C1 · lantern · PR 88/);
+  assert.match(renderBoardText(model), /\*\*Show the board in both providers\*\* T321 · in progress · Claude · C1 · lantern · PR 88/);
   assert.match(renderBoardText(model), /⇄ Offered to Codex · C2\\\. It waits for R407 and R420 to end, then Codex · C2 accepts\\\./);
 });
 
@@ -216,10 +216,10 @@ test("a lead slot's logbook mark, as the hook writes it for a linked project, eq
   const files = () => readdirSync(sharedRoot(env), { recursive: true, withFileTypes: true }).filter(entry => entry.isFile()).map(entry => [join(entry.parentPath, entry.name), readFileSync(join(entry.parentPath, entry.name), "hex")]).sort();
   const before = files();
   const chat = claude.sage(["board", "this", "--view", "chat", "--project", project], env);
-  assert.match(chat, /\*\*T1 Sample shared task\*\* · not started · Claude · C1 · lantern/);
+  assert.match(chat, /\*\*Sample shared task\*\* T1 · not started · Claude · C1 · lantern/);
   mkdirSync(join(project, "sub"));
-  assert.match(claude.sage(["board", "this", "--view", "chat", "--project", join(project, "sub")], env), /T1 Sample shared task/);
-  assert.match(claude.sage(["board", "T1", "--view", "task", "--project", project], env), /^\*\*T1 Sample shared task\*\*\nClaude · C1 · lantern/);
+  assert.match(claude.sage(["board", "this", "--view", "chat", "--project", join(project, "sub")], env), /Sample shared task\*\* T1/);
+  assert.match(claude.sage(["board", "T1", "--view", "task", "--project", project], env), /^\*\*Sample shared task\*\* T1\nClaude · C1 · lantern/);
   assert.deepEqual(files(), before, "the board writes nothing");
 });
 
@@ -271,7 +271,7 @@ test("a table that changes during a read gives a retry; after two more differenc
   assert.deepEqual(model.changing, [{ project: "harbor", at: iso() }]);
   assert.deepEqual(model.diagnostics, []);
   assert.match(renderBoardHtml(model), /<div class="banner warn changing" role="status">.*<b>The logbook is changing\.<\/b> The board shows the last read\. It reads again at the next change\.<ul class="diag"><li>harbor · last read \d\d:\d\d UTC<\/li><\/ul>/);
-  assert.match(renderBoardText(model), /⧗ The logbook is changing: harbor · read at \d\d\\:\d\d UTC\. The board shows that read; ask for the board again for a read with no change\./);
+  assert.match(renderBoardText(model), /The logbook is changing: harbor · read at \d\d\\:\d\d UTC\. The board shows that read; ask for the board again for a read with no change\./);
 });
 
 test("the server shows the changing note over its last good read, not stale, and the next read with no change removes it", async t => {
@@ -344,7 +344,7 @@ test("F-T624-2: when the third read lost its data, the changing note says what d
   const model = buildBoardModel(read, { now: iso() });
   assert.deepEqual(model.changing, [{ project: "harbor", at: iso(), dropped: ["the whole logbook"] }]);
   assert.match(renderBoardHtml(model), /<li>harbor · last read \d\d:\d\d UTC · not shown, as it changed during that read: the whole logbook<\/li>/);
-  assert.match(renderBoardText(model), /⧗ The logbook is changing: harbor · read at \d\d\\:\d\d UTC, without what changed during it \(the whole logbook\)\. The board shows that read;/);
+  assert.match(renderBoardText(model), /The logbook is changing: harbor · read at \d\d\\:\d\d UTC, without what changed during it \(the whole logbook\)\. The board shows that read;/);
   const calm = buildBoardModel(readBoardSources(sources, { now: NOW, duringRead: key => key.endsWith(HARBOR) && rewrite(dir, "Busy") }), { now: iso() });
   assert.deepEqual(calm.changing, [{ project: "harbor", at: iso() }]);
   assert.doesNotMatch(renderBoardText(calm), /without what changed/);
@@ -464,8 +464,8 @@ test("T625: a shared run shows its checkout folder under its role, never the pat
   const html = page("T321"), text = renderTaskText(card(model, "T321"));
   assert.match(html, /<td class="id">R407<\/td><td><span class="ptag ptag-claude">Claude<\/span><\/td><td>qa<div class="faint ck">checkout lantern<\/div><\/td>/);
   assert.match(html, /<td class="id">R420<\/td><td><span class="ptag ptag-claude">Claude<\/span><\/td><td>lead<\/td>/, "a run with no checkout shows no line");
-  assert.match(text, /^R407 Claude · qa · checkout lantern · running · /m);
-  assert.match(text, /^R420 Claude · lead · running · /m);
+  assert.match(text, /^R407 Claude · qa · checkout lantern · in progress · /m);
+  assert.match(text, /^R420 Claude · lead · in progress · /m);
   assert.doesNotMatch(html, /class="cknote"/);
   const note = "The folder lantern of R451 is not on this Mac now, so sage cannot read the branch there. The next review step of T330 stops until the folder is back.";
   const active = page("T330"), activeText = renderTaskText(card(model, "T330"));
@@ -474,7 +474,7 @@ test("T625: a shared run shows its checkout folder under its role, never the pat
   assert.equal(active.match(/class="cknote"/g)?.length, 1);
   assert.match(active, /<p class="cknote"><svg[^]*?<\/svg><span>The folder <b>lantern<\/b> of R451 is not on this Mac now, so sage cannot read the branch there\. The next review step of T330 stops until the folder is back\.<\/span><\/p>/);
   assert.match(activeText, /^R451 Claude · implementer · checkout lantern \(gone\) · done · /m);
-  assert.match(activeText, /^R452 Claude · code-reviewer · checkout lantern \(gone\) · running · /m);
+  assert.match(activeText, /^R452 Claude · code-reviewer · checkout lantern \(gone\) · in progress · /m);
   assert.ok(activeText.includes(`\n${note}\n\n**Evidence**`), "one line after the runs");
   const ended = page("T318"), endedText = renderTaskText(card(model, "T318"));
   assert.match(ended, /checkout lantern <span class="gone" tabindex="0"[^>]*>· gone/);
@@ -486,7 +486,7 @@ test("T625: a shared run shows its checkout folder under its role, never the pat
   const legacy = modelOf(w.sources), t41 = renderBoardHtml(legacy, { taskKey: `claude/${HARBOR}/T41`, snapshot: false });
   assert.match(t41, /<td class="id">R5<\/td><td>[^<]*(<[^>]*>[^<]*)*? · implementer<\/td>/);
   assert.doesNotMatch(t41, /class="faint ck"|class="cknote"|lantern \(gone\)/);
-  assert.match(renderTaskText(legacy.tasks.find(item => item.id === "T41")), /^R5 .* · implementer · running · /m);
+  assert.match(renderTaskText(legacy.tasks.find(item => item.id === "T41")), /^R5 .* · implementer · in progress · /m);
   assert.ok(!t41.includes(moved));
 });
 
@@ -514,7 +514,7 @@ test("T633: one checkout reads as before: its row adds nothing to the board, the
   const now = buildBoardModel(read, { now: iso() });
   assert.deepEqual(viewsOf(now), viewsOf(buildBoardModel(before, { now: iso() })));
   assert.equal(now.projects.find(project => project.name === "lantern").sub, "sample-owner/lantern · folder lantern");
-  assert.match(viewsOf(now)[4], /^R500 Claude · implementer · checkout lantern · running · /m);
+  assert.match(viewsOf(now)[4], /^R500 Claude · implementer · checkout lantern · in progress · /m);
   assert.deepEqual(now.notes, []);
 });
 
@@ -526,7 +526,7 @@ test("T633: two live checkouts show both names in the picker line and on their r
   assert.match(views[1], /2 checkouts: lantern, lantern-b/);
   assert.match(html, /<td class="id">R500<\/td><td><span class="ptag ptag-claude">Claude<\/span><\/td><td>implementer<div class="faint ck">checkout lantern<\/div><\/td>/);
   assert.match(html, /<td class="id">R501<\/td><td><span class="ptag ptag-claude">Claude<\/span><\/td><td>implementer<div class="faint ck">checkout lantern-b<\/div><\/td>/);
-  assert.match(text, /^R501 Claude · implementer · checkout lantern-b · running · /m);
+  assert.match(text, /^R501 Claude · implementer · checkout lantern-b · in progress · /m);
   assert.ok(lantern.terms.includes("lantern-b"));
   noPath(w, views);
   assert.ok(renderBoardHtml(model, { snapshot: false, paths: true }).includes(w.at("lantern-b")));
@@ -537,13 +537,13 @@ test("T633: two checkouts of one folder name get #1 and #2 by link order, and a 
   const both = withRuns(w, [w.checkout, w.at("clones/lantern")]);
   assert.equal(both.lantern.sub, "sample-owner/lantern · 2 checkouts: lantern #1, lantern #2");
   assert.match(both.html, /<td class="id">R500<\/td><td><span class="ptag ptag-claude">Claude<\/span><\/td><td>implementer<div class="faint ck">checkout lantern #1<\/div><\/td>/);
-  assert.match(both.text, /^R501 Claude · implementer · checkout lantern \\#2 · running · /m);
+  assert.match(both.text, /^R501 Claude · implementer · checkout lantern \\#2 · in progress · /m);
   noPath(w, both.views);
   rmSync(w.checkout, { recursive: true });
   const gone = withRuns(w, [w.checkout, w.at("clones/lantern")]);
   assert.equal(gone.lantern.sub, "sample-owner/lantern · folder lantern", "only live checkouts count");
-  assert.match(gone.text, /^R500 Claude · implementer · checkout lantern \\#1 \(gone\) · running · /m);
-  assert.match(gone.text, /^R501 Claude · implementer · checkout lantern \\#2 · running · /m);
+  assert.match(gone.text, /^R500 Claude · implementer · checkout lantern \\#1 \(gone\) · in progress · /m);
+  assert.match(gone.text, /^R501 Claude · implementer · checkout lantern \\#2 · in progress · /m);
   noPath(w, gone.views);
 });
 
@@ -562,8 +562,8 @@ test("T633 (Q3): the in-session board of an unlinked clone does not show a share
   mkdirSync(clone, { recursive: true });
   const board = (project, here = null) => view.boardView({ sources: w.sources, scope: "this", project, here, format: "chat", now: iso() });
   assert.throws(() => board(clone), /No recorded project matches this board scope/);
-  assert.match(board(clone, `shared/${FOLDER}`), /T321 Show the board in both providers/, "a linked clone finds it by its logbook");
-  assert.match(board(join(w.base, "harbor")), /T41 Legacy task at work/, "a legacy logbook still matches by folder name");
+  assert.match(board(clone, `shared/${FOLDER}`), /Show the board in both providers\*\* T321/, "a linked clone finds it by its logbook");
+  assert.match(board(join(w.base, "harbor")), /Legacy task at work\*\* T41/, "a legacy logbook still matches by folder name");
 });
 
 test("T633: one project with two linked clones: the board of this project from either clone, the owner when one is gone, one Agents group", t => {
@@ -581,7 +581,7 @@ test("T633: one project with two linked clones: the board of this project from e
   claude.sage(["task", "add", "--title", "Task from clone A", "--size", "small", "--priority", "P2", "--project", a, "--chief", claude.chiefFor(a, "session-a", env)], env);
   claude.sage(["task", "add", "--title", "Task from clone B", "--size", "small", "--priority", "P2", "--project", b, "--chief", claude.chiefFor(b, "session-b", env)], env);
   const chat = project => claude.sage(["board", "this", "--view", "chat", "--project", project], env);
-  for (const project of [a, b]) for (const title of ["T1 Task from clone A", "T2 Task from clone B"]) assert.ok(chat(project).includes(title), `${title} from ${basename(project)}`);
+  for (const project of [a, b]) for (const title of ["Task from clone A** T1", "Task from clone B** T2"]) assert.ok(chat(project).includes(title), `${title} from ${basename(project)}`);
   const sources = [{ id: "shared", label: "Shared", path: sharedRoot(env) }];
   assert.deepEqual(modelOf(sources).projects.map(project => [project.name, project.sub]), [["lantern", "no GitHub remote · 2 checkouts: lantern, lantern-b"]]);
   const mark = createHash("sha256").update(claude.logbookView(b, env).dir).digest("hex"), slots = join(env.CLAUDE_CONFIG_DIR, "sage", ".hooks", "slots");
@@ -594,11 +594,11 @@ test("T633: one project with two linked clones: the board of this project from e
   assert.deepEqual(agents.map(group => group.name), ["lantern"]);
   assert.deepEqual(agents[0].agents.map(agent => [agent.runId, agent.state]).sort(), [["R1", "work"], ["R2", "work"]], "each slot holds its run");
   renameSync(a, `${a}.away`);
-  assert.ok(chat(b).includes("T1 Task from clone A"));
+  assert.ok(chat(b).includes("Task from clone A** T1"));
   assert.equal(readBoardSources(sources, { now: NOW })[0].projects[0].checkout, b);
   assert.equal(modelOf(sources).projects[0].sub, "no GitHub remote · folder lantern-b");
   renameSync(`${a}.away`, a); renameSync(b, `${b}.away`);
-  assert.ok(chat(a).includes("T2 Task from clone B"));
+  assert.ok(chat(a).includes("Task from clone B** T2"));
   assert.equal(modelOf(sources).projects[0].sub, "no GitHub remote · folder lantern");
 });
 
@@ -672,9 +672,9 @@ test("F-T624-20: a sources.tsv row that stays refused is a note: the server stay
 test("F-T624-21: the in-session task view of a shared logbook finds an old finished task by its id", t => {
   const w = world(t), sources = view.sessionSources(w.claudeRoot, w.shared, "claude"), providerRoots = view.sessionRoots(w.claudeRoot, [w.claudeRoot, w.codexRoot], "claude");
   const task = id => view.boardView({ sources, scope: "this", project: w.checkout, logbookKey: `shared/${FOLDER}`, providerRoots, taskId: id, format: "task" });
-  assert.match(task("T316"), /^\*\*T316 Old finished task of Claude\*\*\nOld · Claude · read-only/);
-  assert.match(task("T96"), /^\*\*T96 Old finished task of Codex\*\*\nOld · Codex · read-only/);
-  assert.match(task("T321"), /^\*\*T321 Show the board in both providers\*\*\nClaude · C1/);
+  assert.match(task("T316"), /^\*\*Old finished task of Claude\*\* T316\nOld · Claude · read-only/);
+  assert.match(task("T96"), /^\*\*Old finished task of Codex\*\* T96\nOld · Codex · read-only/);
+  assert.match(task("T321"), /^\*\*Show the board in both providers\*\* T321\nClaude · C1/);
 });
 
 test("F-T624-22: a shared root that is a link or a file gives a legacy-only owner one quiet note, not a lasting diagnostic", t => {
@@ -709,7 +709,7 @@ test("F-T625-2, F-T625-5 and F-T625-6: a checkout name loses bidi characters; a 
   assert.deepEqual([past.checkoutName, past.checkoutGone], ["lantern", null], "the 68th distinct path is not checked");
   assert.equal(t320.runs.find(item => item.id === "R10").checkoutGone, true, "a path within the 64 checks is");
   assert.match(renderBoardHtml(model, { taskKey: `shared/${FOLDER}/T320`, snapshot: false }), /checkout lantern <span title="The board checks at most 64 checkout folders of a logbook, so it did not check if this one is on this Mac\.">· not checked/);
-  assert.match(renderTaskText(t320), /^R90 Claude · qa · checkout lantern \(not checked\) · running · /m);
+  assert.match(renderTaskText(t320), /^R90 Claude · qa · checkout lantern \(not checked\) · in progress · /m);
 });
 
 test("F-T624-5: the takeover gate's recommendation says when, as the design does: when you know that the chief stopped", t => {
@@ -816,7 +816,7 @@ test("F-T633-7: with the first checkout gone, a live clone keeps the logbook, an
 test("F-T633-11: the task lookup from a linked second clone finds the shared project, also with the same folder name", t => {
   const w = linked(t, [["clones/lantern", "2026-10-02T00:00:00Z"]]);
   const text = view.boardView({ sources: w.sources, scope: "this", project: w.at("clones/lantern"), taskId: "T321", format: "task" });
-  assert.match(text, /^\*\*T321 Show the board in both providers\*\*/);
+  assert.match(text, /^\*\*Show the board in both providers\*\* T321/);
 });
 
 test("F-T633-12: a folder named lantern #2 beside two lantern folders gets its own label", t => {
