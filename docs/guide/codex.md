@@ -29,7 +29,7 @@ The design of the two provider plugins is in [Separate provider packages](../des
 | Autopilot | Yes | Yes, in Codex 0.164 and later: autopilot merges verified work with sage's merge command, with no prompt for the merge ([Autopilot in Codex](#autopilot-in-codex)). The hook refuses `gh pr merge` in every mode |
 | The merge rule, the no-edit rules and the `.codex` rule | Yes | Yes, in the plugin's hooks ([The rules in Codex](#the-rules-in-codex)) |
 | The mode phrases (`sage mode`, `sage mode off`, `autopilot on`, `autopilot off`, `sage help`) | Yes | Yes |
-| The board phrases (`show board`, `show status`) | Yes | Yes: the hook gives the chief the same board note as in Claude Code. The board page starts after you approve one prompt ([The board in Codex](#the-board-in-codex)) |
+| The board phrases (`show board`, `show status`) | Yes | Yes: the hook gives the chief the same board note as in Claude Code. The board in the browser starts after you approve one prompt ([The board in Codex](#the-board-in-codex)) |
 
 A project can use one [shared logbook](using-sage.md#shared-logbooks) for Claude and Codex, in `~/.sage` (or `SAGE_SHARED_HOME`). A new project gets one when both plugins are updated, and the chief can [move an existing project](using-sage.md#move-an-existing-project) into one. A project that did not move keeps its Codex logbook in `~/.codex/sage` (or `CODEX_HOME`), apart from Claude's.
 
@@ -198,9 +198,9 @@ The hooks run only after you trust them (step 3). In `codex exec`, Codex skips h
 
 The board phrases work in Codex as in Claude Code, at the start of your message, also with sage mode off: `show board`, `show status` and the other forms of [Ask for the board](board.md#ask-for-the-board). The sage hook gives the chief the same board note as in Claude Code, from the same code.
 
-1. The chief runs `board --ensure` from the plugin's `board` folder. This command starts the board page: it writes the board config the first time, starts the board server in the background and opens a local port.
+1. The chief runs `board --ensure` from the plugin's `board` folder. This command starts the board in the browser: it writes the board config the first time, starts the board server in the background and opens a local port.
 2. Codex's sandbox blocks the write in your home folder and the local port. The default `workspace-write` sandbox lets a command write only "inside the active workspace roots and system temp directories", and it "keeps network access turned off" ([Codex: Permissions](https://learn.chatgpt.com/docs/permissions), [Codex: Agent approvals & security](https://learn.chatgpt.com/docs/agent-approvals-security)). In the sandbox of Codex 0.164.0, a local port gives `EPERM`.
-3. So the chief runs `board --ensure` escalated, and Codex asks you to approve it: one prompt each time that you ask for the board. Approve it, and the chief shows the board page's address, as in Claude Code.
+3. So the chief runs `board --ensure` escalated, and Codex asks you to approve it: one prompt each time that you ask for the board. Approve it, and the chief shows the address of the board in the browser, as in Claude Code.
 4. Then the chief runs the chat board in the sandbox, with no prompt: it only reads the logbooks and writes nothing, so it shows the same board as in Claude Code.
 
 - If you decline the prompt, or your approval policy is `never`, the chief still shows the chat board, and gives you the `board --ensure` command to run in Terminal on the Mac.
