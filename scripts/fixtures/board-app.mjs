@@ -283,13 +283,13 @@ NOT VERIFIED  - A Codex chief on another Mac.
 BRANCH        sage/t3-limits, head ${"b".repeat(40)}, PR 12
 `);
   writeFileSync(join(dir, "gates", "G4.json"), JSON.stringify({ gate: "G4", task: "T10", at: at(3), message: { kind: "question", title: "Can a viewer copy a shared list into their own lists?", blocks: [
-    { t: "field", label: "Where this is", text: "Milestone Offline sync · task T10 · step Plan. The share sheet design (v2) is approved." },
-    { t: "field", label: "What you approve", text: "The rule for viewers. It goes into the permission table of the design and into the tests." },
-    { t: "field", label: "The one real choice in it", text: "Does a viewer get a \"Copy to my lists\" action?" },
-    { t: "table", head: ["Answer", "What happens next", "Cost"], rows: [["B: no", "C1 builds now with view only.", "No extra cost now."], ["A: yes, as a new private list", "C1 adds \"Copy to my lists\" and builds after T3 merges.", "About 1 to 2 h more agent time. Basis: the build of T3."]], pick: 1 },
-    { t: "field", label: "If you do not answer", text: "C1 takes A at 20:00 today." },
-    { t: "field", label: "Needed by", text: "20:00 today, so that T11 can build tonight." },
-    { t: "field", label: "After you answer", text: hostile ? "C1 records it. <script>window.hacked=13</script> \u202eevil" : "C1 records your answer and starts T11." },
+    { t: "field", label: "Where", text: "Milestone Offline sync · task T10 · step Plan. The share sheet design (v2) is approved." },
+    { t: "field", label: "Approve", text: "The rule for viewers. It goes into the permission table of the design and into the tests." },
+    { t: "field", label: "Choice", text: "Does a viewer get a \"Copy to my lists\" action?" },
+    { t: "table", head: ["Answer", "Next", "Cost"], rows: [["B: no", "C1 builds now with view only.", "No extra cost now."], ["A: yes, as a new private list", "C1 adds \"Copy to my lists\" and builds after T3 merges.", "About 1 to 2 h more agent time. Basis: the build of T3."]], pick: 1 },
+    { t: "field", label: "Default", text: "C1 takes A at 20:00 today." },
+    { t: "field", label: "Due", text: "20:00 today, so that T11 can build tonight." },
+    { t: "field", label: "Next", text: hostile ? "C1 records it. <script>window.hacked=13</script> \u202eevil" : "C1 records your answer and starts T11." },
     { t: "page", title: "Design notes of v2", task: "T10", file: "designs/v2/notes.md" }] }, text: "QUESTION" }));
   const pages = join(pagesRoot, "T3"), design = join(pagesRoot, "T10");
   writeFileSync(join(pages, DOCUMENT_PAGE), `# Retry with backoff\n\nThe design for retries after a reconnect.\n\n## The rule\n\n| Try | Wait |\n| --- | --- |\n| 1 | 1 s |\n| 2 | 4 s |\n\n![The retry screen](retry.svg)\n\n## The code\n\n\`\`\`js\nretry({ times: 5 });\n\`\`\`\n\nSee [the notes](notes.md).\n`);

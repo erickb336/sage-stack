@@ -4,7 +4,7 @@
   "blocks": [
     {
       "t": "field",
-      "label": "Where this is",
+      "label": "Where",
       "text": "Release 1.0 › single task: the new words, part 1 of 3 (the rename) › step: review"
     },
     {
@@ -13,12 +13,12 @@
     },
     {
       "t": "field",
-      "label": "Since my last note",
+      "label": "Since",
       "text": "Your approval of the design, at 18:43."
     },
     {
       "t": "field",
-      "label": "What changed",
+      "label": "Changes",
       "text": "The implementer finished the build and opened the pull request at 19:55. A code review, a security review, a UX review and QA started on it at once."
     },
     {
@@ -28,12 +28,12 @@
     },
     {
       "t": "field",
-      "label": "Cost so far",
+      "label": "Cost",
       "text": "1.0 M tokens and about 1.5 h of agent time (measured; the lead's own tokens come at its end). The estimate for this task is 5 to 10 M tokens."
     },
     {
       "t": "field",
-      "label": "What I need from you",
+      "label": "Needs you",
       "text": "Nothing."
     }
   ],

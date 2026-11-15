@@ -56,9 +56,9 @@ function blockHtml(b, listed, level = 2) {
     case "picture": return figure(b.title, b.lines, b.key);
     case "toggle": {
       const side = (cls, label, pics) => `<div class="tg-pane ${cls}"><p class="tg-label">${label}</p>${pics.map((p) => figure(p.title, p.lines)).join("")}</div>`;
-      return `<div class="tg"><div class="tg-bar" hidden role="group" aria-label="Which picture"><button type="button" data-v="after" aria-pressed="true">After this change</button><button type="button" data-v="today" aria-pressed="false">Today</button></div>${side("tg-after", "After this change", b.after)}${side("tg-today", "Today", b.today)}</div>`;
+      return `<div class="tg"><div class="tg-bar" hidden role="group" aria-label="Which picture"><button type="button" data-v="after" aria-pressed="true">After</button><button type="button" data-v="today" aria-pressed="false">Today</button></div>${side("tg-after", "After", b.after)}${side("tg-today", "Today", b.today)}</div>`;
     }
-    case "changes": return `<div class="m-table"><table><thead><tr><th>Where you see it</th><th>Today</th><th>After this change</th><th>Why</th></tr></thead><tbody>${b.rows.map((r) => `<tr>${[r.where, r.today, r.after, r.why].map((c) => `<td>${inline(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+    case "changes": return `<div class="m-table"><table><thead><tr><th>Place</th><th>Today</th><th>After</th><th>Why</th></tr></thead><tbody>${b.rows.map((r) => `<tr>${[r.where, r.today, r.after, r.why].map((c) => `<td>${inline(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
     case "page": return `<div class="m-page"><div class="m-page-title">Page · ${inline(b.title)}</div>${b.url ? `<div class="m-page-path">${esc(b.url)}</div>` : ""}<div class="m-page-path">${esc(b.path ?? b.file)}</div></div>`;
     case "code": return `<pre>${esc(b.lines.join("\n"))}</pre>`;
     case "steps": return `<ol>${b.items.map((s) => `<li>${inline(s.text)}${s.cmd ? `<pre>${esc(s.cmd.join("\n"))}</pre>` : ""}${s.see ? `<p class="m-see">${inline(s.see)}</p>` : ""}</li>`).join("")}</ol>`;

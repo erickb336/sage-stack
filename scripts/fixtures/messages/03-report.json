@@ -4,17 +4,17 @@
   "blocks": [
     {
       "t": "field",
-      "label": "Where this is",
+      "label": "Where",
       "text": "Release 1.0 › two single tasks from your request of 7 Nov for fewer restrictions › both merged on 10 Nov"
     },
     {
       "t": "table",
       "head": [
-        "Piece of work",
-        "What changes for you",
-        "How I know it works",
+        "Work",
+        "For you",
+        "Evidence",
         "Cost",
-        "You must act"
+        "Needs you"
       ],
       "rows": [
         [
@@ -35,7 +35,7 @@
     },
     {
       "t": "field",
-      "label": "What I did not check",
+      "label": "Not checked",
       "text": "How many review tokens the wait saves; that needs a week of runs after your update. I did not see either change in a live session, because your sessions run the older sage."
     },
     {
@@ -45,7 +45,7 @@
     },
     {
       "t": "field",
-      "label": "What you need to do",
+      "label": "Needs you",
       "text": "Update sage in Claude Code and in Codex, and start new sessions. Until you do, your sessions run the older sage."
     }
   ],
