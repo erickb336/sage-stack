@@ -339,3 +339,32 @@ test("F-T1081-6, -19: the view choice holds after a reload, the age shows in a n
   assert.equal(await empty.page.getByRole("group", { name: "View" }).count(), 0);
   assert.equal(await empty.page.getByRole("status").filter({ hasText: /open PRs?$/ }).count(), 0);
 });
+
+const shownBoxes = page => page.evaluate(() => {
+  const canvas = document.querySelector(".g-canvas").getBoundingClientRect();
+  return [...document.querySelectorAll(".react-flow__node")].filter(node => { const r = node.getBoundingClientRect(); return r.right > canvas.left && r.left < canvas.right && r.bottom > canvas.top && r.top < canvas.bottom; }).map(node => node.dataset.id.split("/").pop());
+});
+const firstBox = page => page.evaluate(() => [...document.querySelectorAll(".react-flow__node")].map(node => [node.dataset.id.split("/").pop(), ...node.style.transform.match(/-?[\d.]+/g).map(Number)]).sort((a, b) => a[1] - b[1] || a[2] - b[2])[0][0]);
+const chain = n => logbook => editTable(logbook, "tasks", rows => [...rows, ...Array.from({ length: n }, (_, i) => task(`T${300 + i}`, `Sample chain ${i + 1}`, "reviewing", { pr: String(300 + i), waits: i ? `T${299 + i}` : "" }))]);
+
+test("F-T1081-10: a graph too large to fit starts at its first column and says that it continues; a graph that fits says nothing", async t => {
+  const NOTICE = "The graph is larger than the view. It starts at the first column: drag it to see the rest.";
+  const seen = {};
+  for (const [name, options] of [["a chain of 30 tasks", { edit: chain(30) }], ["a chain of 120 tasks and 25 tasks in one column", { edit: chain(120), crowd: 25 }]]) {
+    const { page, problems } = await open(t, options, "/app/#pull-requests");
+    await page.getByRole("button", { name: "Graph" }).click();
+    await page.locator(".react-flow__edge-path").first().waitFor({ state: "attached" });
+    await page.waitForFunction(() => document.querySelector(".react-flow__viewport")?.style.transform);
+    await page.waitForTimeout(300);
+    const first = await firstBox(page), shown = await shownBoxes(page), notice = (await page.locator(".graph").innerText()).includes(NOTICE);
+    await page.getByRole("button", { name: "Fit View" }).click();
+    await page.waitForTimeout(300);
+    seen[name] = { blank: !shown.length, firstColumn: shown.includes(first), notice, afterFitButton: (await shownBoxes(page)).includes(first), problems };
+  }
+  const want = { blank: false, firstColumn: true, notice: true, afterFitButton: true, problems: [] };
+  assert.deepEqual(seen, { "a chain of 30 tasks": want, "a chain of 120 tasks and 25 tasks in one column": want });
+  const { page } = await open(t, { crowd: 12 }, "/app/#pull-requests");
+  await page.getByRole("button", { name: "Graph" }).click();
+  await page.locator(".gnode").first().waitFor();
+  assert.equal(await page.locator(".graph").getByText(NOTICE).count(), 0, "18 boxes fit: no notice");
+});

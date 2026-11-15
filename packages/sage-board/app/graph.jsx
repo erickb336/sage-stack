@@ -1,5 +1,5 @@
 import "react-dom/client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BaseEdge, Controls, Handle, MarkerType, Position, ReactFlow } from "@xyflow/react";
 import { H, W, layout } from "./layout.js";
 
@@ -24,26 +24,33 @@ function Item({ data }) {
 const TYPES = { item: Item };
 const Route = ({ data, label, markerEnd }) => <BaseEdge path={data.path} label={label} labelX={data.x} labelY={data.y} markerEnd={markerEnd} />;
 const ROUTES = { route: Route };
-const FIT = { maxZoom: 1, minZoom: 0.2, padding: "56px" };
+const FLOOR = 0.2, PAD = 56, FIT = { maxZoom: 1, minZoom: FLOOR, padding: `${PAD}px` };
 const GROUPS = [["ready", "Ready to merge"], ["review", "In review"], ["repair", "Repairing"], ["build", "Building"], ["need", "Needs you"], ["wait", "Waiting"], ["merged", "Merged"], ["away", "Not on this page"]];
 const PRO = { hideAttribution: true };
 
 export default function Graph({ data }) {
-  const [flow, setFlow] = useState(null), canvas = useRef(null);
-  const { placed, edges, height } = useMemo(() => {
+  const [flow, setFlow] = useState(null), [more, setMore] = useState(false), canvas = useRef(null);
+  const { placed, edges, height, size } = useMemo(() => {
     const { boxes, links, height } = layout(data);
     const placed = boxes.map(({ node, x, y }) => ({ id: node.key, type: "item", position: { x, y }, data: node, width: W, height: H, ...fixed }))
       .sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y);
     const edges = links.map(link => ({ id: link.id, source: link.source, target: link.target, sourceHandle: "out", targetHandle: "in", type: "route", className: link.kind, data: link, label: link.label,
       ...(link.kind !== "conflict" && { markerEnd: { type: MarkerType.ArrowClosed } }), ...fixed }));
-    return { placed, edges, height };
+    const far = (axis, extent) => placed.reduce((most, node) => Math.max(most, node.position[axis] + extent), 0);
+    return { placed, edges, height, size: { left: placed[0]?.position.x ?? 0, right: far("x", W), bottom: far("y", H) } };
   }, [data]);
+  const fit = useCallback(async () => {
+    const { width, height } = canvas.current.getBoundingClientRect(), large = Math.min((width - 2 * PAD) / (size.right - size.left), (height - 2 * PAD) / size.bottom) < FLOOR;
+    await flow.fitView(FIT);
+    if (large) flow.setViewport({ x: PAD - size.left * FLOOR, y: PAD, zoom: FLOOR });
+    setMore(large);
+  }, [flow, size]);
   useEffect(() => {
     if (!flow || !canvas.current) return;
-    const watch = new ResizeObserver(() => flow.fitView(FIT));
+    const watch = new ResizeObserver(fit);
     watch.observe(canvas.current);
     return () => watch.disconnect();
-  }, [flow]);
+  }, [flow, fit]);
   const used = new Set(data.nodes.map(node => node.group)), met = data.waits.some(link => link.met);
   return (
     <section className="card graph" aria-labelledby="graph-h">
@@ -52,12 +59,13 @@ export default function Graph({ data }) {
         <span className="grow" />
         <span className="hint">An arrow from A to B: B waits for A. A dashed box is a task with no PR yet.</span>
       </div>
+      {more && <p className="g-more">The graph is larger than the view. It starts at the first column: drag it to see the rest.</p>}
       {placed.length > 0
         ? <div className="g-canvas" style={{ height }} ref={canvas}>
           <ReactFlow nodes={placed} edges={edges} nodeTypes={TYPES} edgeTypes={ROUTES} fitView fitViewOptions={FIT} minZoom={0.2} onInit={setFlow} proOptions={PRO}
             nodesDraggable={false} nodesConnectable={false} nodesFocusable={false} edgesFocusable={false} elementsSelectable={false}
             zoomOnScroll={false} preventScrolling={false} zoomOnDoubleClick={false}>
-            <Controls showInteractive={false} fitViewOptions={FIT} position="top-right" />
+            <Controls showInteractive={false} fitViewOptions={FIT} onFitView={fit} position="top-right" />
           </ReactFlow>
         </div>
         : <p className="empty">No pull request or task on this page waits for another, and none may conflict with another.</p>}
