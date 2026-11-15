@@ -391,7 +391,7 @@ Each line of the list gives the path, the branch, the task, the task's state and
 - The list uses the origin/main that git has now, and prints its commit. It does not fetch, so fetch first when main moved.
 - The prune also keeps the primary checkout, the worktree that the command runs in, a locked worktree, a worktree that holds another worktree, and a worktree with uncommitted changes, untracked files, ignored files or unpushed commits. A commit counts as pushed when a remote branch holds it, or when the ledger has a verdict on it or on a later commit of its task: a squash merge deletes the task's branch on GitHub.
 - An ignored file, such as `.env`, or a whole ignored folder, such as `secrets/`, keeps the worktree, because `git worktree remove` deletes ignored files with the folder. The reason names them, for example `ignored files that the prune would delete: .env, secrets/`.
-- Only two ignored folders keep no worktree, because a package install or a build makes them again: `node_modules` and `dist`, at any depth, also as a link, but not as a regular file. The prune deletes them with the worktree, so keep no work of your own in them. The removed line names them, for example `removed <path> · merged · also deleted ignored node_modules/`.
+- Only two ignored folders keep no worktree, because a package install or a build makes them again: `node_modules` and `dist`, at any depth, also as a link, but not as a regular file. The prune deletes them with the worktree, so keep no work of your own in them; only a git repository inside one (a `.git` entry at any depth) keeps the worktree. The removed line names them, for example `removed <path> · merged · also deleted ignored node_modules/`.
 - The list of these folders is `REBUILT` in `packages/sage-core/worktrees.mjs`.
 - It prints each path that it removes or keeps, with the reason. It removes the entry of a worktree whose folder is gone, and it deletes no branch.
 - Only the chief runs it. A lead, a reviewer or QA cannot.
@@ -409,7 +409,7 @@ The logbook stays small, but the sage worktrees folder (`~/sage-worktrees/<proje
 The plan lists only the worktrees in the project's sage worktrees folder whose task is merged, concluded or abandoned:
 
 - A clean worktree gets a `remove` line, with its size. The line names its build leftovers, such as `node_modules/` (see `REBUILT` above), with their size: git deletes them with the folder.
-- A worktree with uncommitted changes, untracked files, ignored files or unpushed commits gets the line `kept <path> · <task> · has unsaved work: <what>`.
+- A worktree with uncommitted changes, untracked files, ignored files, unpushed commits, a git repository inside a build leftover, or tracked files that git status does not check (skip-worktree or assume-unchanged) gets the line `kept <path> · <task> · has unsaved work: <what>`.
 - The other reasons of the prune above also keep a worktree, and so does a path with a link in it, or a path that resolves outside the folder.
 - A worktree of a task in any other state (building, reviewing, held and so on) is never in the plan.
 - The plan never lists the logbook, its kept briefs and reports, or the pages folder: design versions and research stay.

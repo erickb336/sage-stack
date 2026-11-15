@@ -64,7 +64,7 @@ function world(t) {
   writeFileSync(join(dir, "briefs", "R1.md"), "GOAL a brief");
   mkdirSync(join(dir, "reports"), { recursive: true });
   writeFileSync(join(dir, "reports", "R1.md"), "STATUS done");
-  return { base, env, project, dir, folder, wt, ok, no, cell };
+  return { base, env, project, dir, folder, wt, ok, no, cell, task };
 }
 
 const tokenOf = (plan) => plan.match(/sage storage clean ([0-9a-f]{12})$/)?.[1];
@@ -154,4 +154,45 @@ test("T1095: storage clean checks each worktree again just before it removes it"
   assert.equal(readFileSync(join(w.wt.T1, ".env"), "utf8"), "SECRET=kept");
   assert.deepEqual(rows.map((r) => r.task), ["T6"]);
   assert.throws(() => storageClean(input, undefined, { refuse: (m) => { throw new Error(m); }, record: () => assert.fail("no record") }), /needs the token/);
+});
+
+test("T1095: the plan keeps work that git status cannot see: a git repository inside a build leftover, and a hidden edit of a tracked file; the clean leaves them", (t) => {
+  const w = world(t);
+  writeFileSync(join(w.project, ".git", "info", "exclude"), "dist/\n");
+  const nested = join(w.task("T9", "merged"), "dist");
+  mkdirSync(nested);
+  execFileSync("git", ["init", "-q", "-b", "gh-pages", nested], { env: gitEnv });
+  writeFileSync(join(nested, "index.html"), "a page");
+  git(nested, "add", "index.html");
+  git(nested, "commit", "-q", "-m", "a local commit, not pushed");
+  const skip = w.task("T10", "merged");
+  git(skip, "update-index", "--skip-worktree", "README.md");
+  writeFileSync(join(skip, "README.md"), "a local edit under skip-worktree");
+  const assume = w.task("T11", "abandoned");
+  git(assume, "update-index", "--assume-unchanged", "README.md");
+  writeFileSync(join(assume, "README.md"), "a local edit under assume-unchanged");
+  const plan = w.ok(["storage", "plan"]), lines = plan.split("\n");
+  t.diagnostic(`sage storage plan\n${plan}`);
+  assert.equal(lines.find((l) => l.includes(w.wt.T9)), `kept ${w.wt.T9} · T9 merged · has unsaved work: a git repository inside dist/`);
+  assert.equal(lines.find((l) => l.includes(skip)), `kept ${skip} · T10 merged · has unsaved work: tracked files that git status does not check (skip-worktree or assume-unchanged): README.md`);
+  assert.equal(lines.find((l) => l.includes(assume)), `kept ${assume} · T11 abandoned · has unsaved work: tracked files that git status does not check (skip-worktree or assume-unchanged): README.md`);
+  const out = w.ok(["storage", "clean", tokenOf(plan)]);
+  assert.equal(out.split("\n").at(-1), "Removed 2 of 2 planned. No branch was deleted.");
+  assert.equal(git(nested, "log", "-1", "--format=%s"), "a local commit, not pushed");
+  assert.equal(readFileSync(join(skip, "README.md"), "utf8"), "a local edit under skip-worktree");
+  assert.equal(readFileSync(join(assume, "README.md"), "utf8"), "a local edit under assume-unchanged");
+});
+
+test("T1095: storage and its plan print a control character in a folder name as an escape, never raw", (t) => {
+  const w = world(t);
+  w.task("T9", "merged", join(w.folder, "t9\x1b[2J"));
+  mkdirSync(join(w.folder, "junk\x1b]0;x\x07"));
+  mkdirSync(join(w.folder, "pages", "T13\x1b[31m"), { recursive: true });
+  writeFileSync(join(w.folder, "pages", "T13\x1b[31m", "page.html"), "x".repeat(5_000));
+  const view = w.ok(["storage"]), plan = w.ok(["storage", "plan"]);
+  t.diagnostic(`sage storage\n${view}\nsage storage plan\n${plan}`);
+  for (const out of [view, plan]) assert.ok(!/[\x00-\x08\x0b-\x1f\x7f]/.test(out), `a raw control character reached the output: ${JSON.stringify(out)}`);
+  assert.ok(plan.includes(`kept ${w.folder}/t9\\x1b[2J · T9 merged · its path has a control character`), plan);
+  assert.ok(view.includes("junk\\x1b]0;x\\x07"), view);
+  assert.ok(view.includes("T13\\x1b[31m · not in the logbook"), view);
 });

@@ -62,7 +62,7 @@ function plan(input) {
   return { items, check, token, gone: items.filter((i) => !i.why) };
 }
 
-const keptLine = (i) => `kept ${i.w.path} · ${states(i.w)} · ${/^(uncommitted|untracked|ignored|\d+ unpushed)/.test(i.why) ? `has unsaved work: ${i.why}` : i.why}`;
+const keptLine = (i) => `kept ${i.w.path} · ${states(i.w)} · ${/^(uncommitted|untracked|tracked|ignored|a git repository|\d+ unpushed)/.test(i.why) ? `has unsaved work: ${i.why}` : i.why}`;
 const goLine = (i, verb = "remove") => `${verb} ${i.w.path} · ${states(i.w)} · ${human(i.bytes)}${i.leftovers.length ? ` · with the build leftovers ${i.leftovers.map((l) => `${l.name} (${human(l.bytes)})`).join(", ")}` : ""}`;
 const NEVER = "Never planned: the logbook, its kept briefs and reports, and the pages folder.";
 
