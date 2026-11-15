@@ -10,7 +10,7 @@ Design v3 · the sage plugin · 4 Oct 2026 · status: **the kitchen and the team
 
 **New in v2.** Your decisions ([section 15](#decide)), autopilot as "everything merges through a pull request after a set number of cycles", the [arena](#arena) block, and a [sample session](#prototype) that shows the experience.
 
-**What I need from you.** Two details and your go to build, in [the last section](#decide).
+**Needs you.** Two details and your go to build, in [the last section](#decide).
 
 <a id="fit"></a>
 

@@ -3,39 +3,39 @@ import { milestoneWord, releaseWord, taskWord } from "./state-words.mjs";
 
 export const WIDTH = 46, LONG_WIDTH = 66;
 export const INCIDENT_STATUS = ["Investigating", "Identified", "Monitoring", "Resolved"];
-const QUESTION_HEAD = ["Answer", "What happens next", "Cost"];
-const REPORT_HEAD = ["Piece of work", "What changes for you", "How I know it works", "Cost", "You must act"];
-const LESSON_HEAD = ["Where the lesson lives now", "What it holds", "State"];
+const QUESTION_HEAD = ["Answer", "Next", "Cost"];
+const REPORT_HEAD = ["Work", "For you", "Evidence", "Cost", "Needs you"];
+const LESSON_HEAD = ["Kept in", "Holds", "State"];
 
 export const KINDS = {
   progress: { head: "PROGRESS", use: "While a task runs: one short note when it moves to a new step, with nothing for the owner to do.",
-    parts: ["Where this is", "?Since my last note", "What changed", "Next", "?Cost so far", "What I need from you"] },
+    parts: ["Where", "?Since", "Changes", "Next", "?Cost", "Needs you"] },
   question: { head: "QUESTION", use: "When work waits for the owner's choice. The title is the question. Ask it on the choice card when the card rule above allows it, else in this text form. Each part starts with a ### heading on its own line. The answers are a numbered list, never a table. A batch puts each question in a section “Question <n>: <short title>”, with its own answers.", tableHead: QUESTION_HEAD, pick: true, card: true,
-    parts: ["Where this is", "What you approve", "The one real choice in it", "table+", "If you do not answer", "Needed by", "?Judged by", "?The bad side of my pick", "After you answer", "?page"] },
-  report: { head: "REPORT", use: "When work ends: a pull request merged, or a study concluded. The title says what happened and what it needs. The table of the pieces of work goes under its own ### What changed heading.", tableHead: REPORT_HEAD, tableLabel: "What changed",
-    parts: ["Where this is", "?Why this change", "picture*", "table", "What I did not check", "Weak points", "What you need to do", "?page"] },
+    parts: ["Where", "Approve", "Choice", "table+", "Default", "Due", "?Judged by", "?Weak points", "Next", "?page"] },
+  report: { head: "REPORT", use: "When work ends: a pull request merged, or a study concluded. The title says what happened and what it needs. The table of the pieces of work goes under its own ### Changes heading.", tableHead: REPORT_HEAD, tableLabel: "Changes",
+    parts: ["Where", "?Why", "picture*", "table", "Not checked", "Weak points", "Needs you", "?page"] },
   "request understood": { head: "REQUEST UNDERSTOOD", use: "Right after the owner asks for new work, before agents spend hours on it. It starts on its defaults unless the owner corrects it.",
-    parts: ["Your words", "What I understood", "Read back (costly if wrong)", "In", "Out", "Appetite", "?Unsure, with my default", "If you say nothing"] },
+    parts: ["Request", "Goal", "Check these", "In", "Out", "Budget", "?Open questions", "Default"] },
   explainer: { head: "EXPLAINER", use: "When the owner asks what a part of sage is, or a message uses a word that is new to the owner. The title is “About …”.",
-    parts: ["What it is", "Why it exists", "A real example", "picture*", "?Like, and where the likeness stops", "?What it is not", "?New words", "?page"] },
+    parts: ["Meaning", "Why", "Example", "picture*", "?Similar to", "?Is not", "?New words", "?page"] },
   incident: { head: "INCIDENT", use: "When an agent did what it must not do, or sage told the owner something that proved wrong. The status is Investigating, Identified, Monitoring or Resolved.",
-    parts: ["Where this is", "What happened", "?What I told you, and what is true", "What it changed for you", "What I did", "Why it could happen", "Has it happened before", "What stops it next time", "What you need to do", "Next update"] },
+    parts: ["Where", "What happened", "?Correction", "For you", "Action", "Cause", "Seen before", "Lasting fix", "Needs you", "Next update"] },
   design: { head: "DESIGN FOR APPROVAL", use: "When a design is ready for approval, before any build. Before and after: one picture of the result with each change tagged and a Today switch, or a change table for changes without a screen.",
-    parts: ["Where this is", "?Try it", "?page", "How you will use it", "picture*", "?toggle", "?changes", "?Key", "?Why each change matters", "Goals", "Non-goals", "The choices, and the options I dropped", "?Why we might not do this", "Safety and cost", "Open questions", "What you approve"] },
+    parts: ["Where", "?Try it", "?page", "In use", "picture*", "?toggle", "?changes", "?Key", "?Why", "Goals", "Non-goals", "Decisions", "?Weak points", "Safety", "Cost", "Open questions", "Approve"] },
   architecture: { head: "ARCHITECTURE", use: "When the owner asks how something is built. Usually a picture inside a design or a question: one zoom in each picture, at most 6 boxes, a [type] for each part, labelled one-way arrows, a key that names what is left out.",
-    parts: ["picture+", "What changes for you", "What I need from you", "?page"] },
+    parts: ["picture+", "For you", "Needs you", "?page"] },
   "state chart": { head: "STATE CHART", use: "When the owner needs to know how one thing moves from state to state. Usually a picture inside another kind: groups as dashed boxes, about 8 to 13 states, a key that names the rest.",
-    parts: ["picture", "?table", "What I need from you", "?page"] },
+    parts: ["picture", "?table", "Needs you", "?page"] },
   "catch-up": { head: "CATCH-UP", use: "When the owner comes back after time away, or asks where the work is: boxes inside boxes (release › milestone › task), each with its state word, the current task in a double box.",
-    parts: ["picture", "Each box", "Since", "What changed", "If this happens", "What I need from you"] },
+    parts: ["picture", "Boxes", "Since", "Changes", "What if", "Needs you"] },
   estimate: { head: "ESTIMATE", use: "Before work starts, when the owner asks how long or how much, or when a cost changes a choice. The title is the number, with its unit and range.",
-    parts: ["What it covers", "table", "picture*", "Basis", "How sure", "?What would change it", "?So far", "?Your time", "What I need from you"] },
+    parts: ["Covers", "table", "picture*", "Basis", "How sure", "?What if", "?Cost", "?Your time", "Needs you"] },
   "steps for you": { head: "STEPS FOR YOU", use: "When only the owner can do something: an install, an update, a setting, a sign-in. A warning goes before the steps it is about.",
-    parts: ["When", "Why", "steps", "How you know it worked", "Your time", "If a step fails"] },
+    parts: ["When", "Why", "steps", "Success", "Your time", "If stuck"] },
   confirm: { head: "CONFIRM", use: "Just before an act that cannot be undone: a delete, a publish, a message to other people. The title names the act and says that it cannot be undone. Ask it on the choice card too when the card rule above allows it, else in its text form, with a ### heading for each part.", card: true,
-    parts: ["What I will do", "table", "What stays", "If you say yes", "If you say no, or nothing"] },
+    parts: ["Action", "table", "Unchanged", "If yes", "If not"] },
   "lesson kept": { head: "LESSON KEPT", use: "When a mistake teaches sage something: the lesson once, and where it now lives.", tableHead: LESSON_HEAD,
-    parts: ["What happened", "picture*", "The lesson", "Has it happened before", "table", "What changes for you", "What I need from you"] },
+    parts: ["What happened", "picture*", "Lesson", "Seen before", "table", "For you", "Needs you"] },
 };
 
 export const headOf = (msg) => `${KINDS[msg.kind].head}${msg.status ? ` · ${msg.status}` : ""}`;
@@ -236,10 +236,10 @@ function blockText(b, width, today = false, depth = 0) {
     case "picture": return [b.title, FENCE, ...b.lines, FENCE, ...(b.key ? ["", ...wrap(plain(b.key), width)] : [])];
     case "toggle": {
       const side = (label, pics) => [label, ...pics.flatMap((p) => ["", p.title, FENCE, ...p.lines, FENCE])];
-      return [...side("After this change", b.after), ...(today ? ["", ...side("Today", b.today)] : [])];
+      return [...side("After", b.after), ...(today ? ["", ...side("Today", b.today)] : [])];
     }
     case "changes": return b.rows.flatMap((r, i) => [...(i ? [""] : []), ...bullet(r.where, width, `${i + 1}. `),
-      ...[["Today", r.today], ["After this change", r.after], ["Why", r.why]].flatMap(([label, text]) => bullet(`${label}: ${text}`, width, "- ", 3))]);
+      ...[["Today", r.today], ["After", r.after], ["Why", r.why]].flatMap(([label, text]) => bullet(`${label}: ${text}`, width, "- ", 3))]);
     case "page": return pageBlock(b, width);
     case "code": return [FENCE, ...b.lines, FENCE];
     case "steps": return b.items.flatMap((s, i) => [...(i ? [""] : []), ...bullet(s.text, width, `${i + 1}. `),

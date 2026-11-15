@@ -52,6 +52,7 @@ function ownWords(lines) {
 }
 
 const labelAt = (line, label) => {
+  if (/^\s/.test(line)) return false;
   const l = line.trim().replace(/^#+\s*/, "").replace(/^- /, ""), bare = l.replace(/\*\*/g, "");
   return bare === label || bare.startsWith(`${label}:`) || l.startsWith(`**${label}**`);
 };

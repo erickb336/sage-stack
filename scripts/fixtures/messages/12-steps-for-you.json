@@ -45,7 +45,7 @@
     },
     {
       "t": "field",
-      "label": "How you know it worked",
+      "label": "Success",
       "text": "The board names “Milestone 5: Sage feel”, and each task has a state word such as “in progress”."
     },
     {
@@ -55,7 +55,7 @@
     },
     {
       "t": "field",
-      "label": "If a step fails",
+      "label": "If stuck",
       "text": "Tell me the step and what you see."
     }
   ],

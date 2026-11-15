@@ -11,7 +11,11 @@ import { renderMessage, textProblems } from "../packages/sage-core/message-check
 const PLUGIN = fileURLToPath(new URL("../plugins/sage", import.meta.url));
 const fixture = (name) => JSON.parse(readFileSync(fileURLToPath(new URL(`./fixtures/messages/${name}`, import.meta.url)), "utf8"));
 const QUESTION = renderMessage(fixture("02-question.json")).text;
-const MISSED = QUESTION.replace(/\n\n### Needed by\n\n[\s\S]*?(?=\n\n)/, "").replace("Should sage stop", "Should T77 stop");
+const MISSED = QUESTION.replace(/\n\n### Due\n\n[\s\S]*?(?=\n\n)/, "").replace("Should sage stop", "Should T77 stop");
+
+const OLD = { Where: "Where this is", Approve: "What you approve", Choice: "The one real choice in it", Default: "If you do not answer", Due: "Needed by", "Weak points": "The bad side of my pick", Next: "After you answer" };
+const OLD_QUESTION = Object.entries(OLD).reduce((text, [now, before]) => text.replace(`### ${now}\n`, `### ${before}\n`), QUESTION).replaceAll("   - Next: ", "   - What happens next: ");
+const SHORT = ["Where", "Approve", "Choice", "Default", "Due", "Next"];
 
 function session(plugin = PLUGIN) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "sage-shape-")));
@@ -38,7 +42,7 @@ test("a chief's message that names its kind and misses its shape gives one note 
   const s = session();
   assert.match(s.prompt("sage mode"), /sage mode is on/);
   const problems = textProblems(MISSED);
-  assert.ok(problems.some((p) => /needs "Needed by"/.test(p)) && problems.some((p) => /raw ids/.test(p)), "the fixture misses two ways");
+  assert.ok(problems.some((p) => /needs "Due"/.test(p)) && problems.some((p) => /raw ids/.test(p)), "the fixture misses two ways");
   assert.equal(s.stop(MISSED), undefined, "the Stop is never blocked: the owner already sees the message");
   const note = s.prompt("go on");
   assert.match(note, /^sage: your last message names the kind "question"/, "the note names the kind");
@@ -49,11 +53,21 @@ test("a chief's message that names its kind and misses its shape gives one note 
   assert.deepEqual(Object.keys(miss), ["at", "kind", "problems"]);
   assert.ok(Math.abs(Date.parse(miss.at) - Date.now()) < 10 * 60_000, "the time of the miss");
   assert.equal(miss.kind, "question");
-  assert.deepEqual(miss.problems, ["raw ids", "missing: Needed by"]);
+  assert.deepEqual(miss.problems, ["raw ids", "missing: Due"]);
   const line = readFileSync(join(s.dir, "state", "shape-misses.jsonl"), "utf8");
   assert.ok(!line.includes("T77") && !line.includes("Should"), "no id and no words of the message");
   s.stop(MISSED);
   assert.equal(s.misses().length, 2);
+});
+
+test("T1093: a chief's message with the labels from before the short labels is never blocked, and gets one note that names each short label", () => {
+  const s = session();
+  s.prompt("sage mode");
+  assert.match(OLD_QUESTION, /### Where this is\n[\s\S]*### Needed by\n/);
+  assert.equal(s.stop(OLD_QUESTION), undefined, "the Stop is never blocked");
+  const note = s.prompt("go on");
+  assert.deepEqual(note.split("\n").filter((line) => line.startsWith("- ")), SHORT.map((label) => `- a question needs "${label}"`));
+  assert.equal(s.prompt("and then?"), undefined, "the note comes once");
 });
 
 test("a chief's message that fits its shape, or that names no kind, gives no note and no count", () => {
@@ -108,7 +122,7 @@ test("F-T1004-4: the note is about the last message before a prompt: of two miss
   const s = session();
   s.prompt("sage mode");
   const onlyId = QUESTION.replace("Should sage stop", "Should T77 stop");
-  const onlyPart = QUESTION.replace(/\n\n### Needed by\n\n[\s\S]*?(?=\n\n)/, "");
+  const onlyPart = QUESTION.replace(/\n\n### Due\n\n[\s\S]*?(?=\n\n)/, "");
   assert.deepEqual(textProblems(onlyId).length, 1);
   assert.deepEqual(textProblems(onlyPart).length, 1);
   s.stop(onlyId);
@@ -116,7 +130,7 @@ test("F-T1004-4: the note is about the last message before a prompt: of two miss
   const note = s.prompt("go on");
   assert.match(note, /^sage: your last message /);
   assert.deepEqual(problemLines(note), [`- ${textProblems(onlyPart)[0]}`], "the problem of the last message only");
-  assert.deepEqual(s.misses().map((m) => m.problems), [["raw ids"], ["missing: Needed by"]]);
+  assert.deepEqual(s.misses().map((m) => m.problems), [["raw ids"], ["missing: Due"]]);
   s.stop(onlyId);
   s.stop(onlyPart);
   s.stop(QUESTION);
@@ -137,7 +151,7 @@ test("F-T1004-2: a message with thousands of problems gives a note of 20 problem
   assert.equal(names[0], "picture");
   assert.equal(new Set(names).size, names.length, "the count names each kind of problem once");
   s.stop(MISSED);
-  assert.match(s.prompt("and then?"), /needs "Needed by"/);
+  assert.match(s.prompt("and then?"), /needs "Due"/);
 });
 
 test("F-T1004-2: the raw-id problem lists at most 20 ids, and the count of the rest", () => {

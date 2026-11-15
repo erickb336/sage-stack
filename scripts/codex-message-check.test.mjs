@@ -11,7 +11,11 @@ import { renderMessage } from "../plugins/sage-codex/core/index.mjs";
 const PLUGIN = join(ROOT, "plugins/sage-codex");
 const fixture = (name) => JSON.parse(readFileSync(join(ROOT, "scripts/fixtures/messages", name), "utf8"));
 const QUESTION = renderMessage(fixture("02-question.json"), { pagePath: (name) => `/pages/T1/${name}` }).text;
-const MISSED = QUESTION.replace(/\n\n### Needed by\n\n[\s\S]*?(?=\n\n)/, "").replace("### Where this is\n\n", "### Where this is\n\nT4242 waits. ");
+const MISSED = QUESTION.replace(/\n\n### Due\n\n[\s\S]*?(?=\n\n)/, "").replace("### Where\n\n", "### Where\n\nT4242 waits. ");
+
+const OLD = { Where: "Where this is", Approve: "What you approve", Choice: "The one real choice in it", Default: "If you do not answer", Due: "Needed by", "Weak points": "The bad side of my pick", Next: "After you answer" };
+const OLD_QUESTION = Object.entries(OLD).reduce((text, [now, before]) => text.replace(`### ${now}\n`, `### ${before}\n`), QUESTION).replaceAll("   - Next: ", "   - What happens next: ");
+const SHORT = ["Where", "Approve", "Choice", "Default", "Due", "Next"];
 
 let sessions = 0, turns = 0;
 function setup(t) {
@@ -52,7 +56,7 @@ test("a chief message that names its kind and misses its shape: no block at Stop
   assert.equal(note, [
     'sage: your last message names the kind "question" on its first line, but it misses the shape of that kind:',
     "- raw ids in the message: T4242. Name the work in words; put its ids in the Ref line",
-    '- a question needs "Needed by"',
+    '- a question needs "Due"',
     "Fix this in your next message of that kind: the presentation skill gives each kind's parts, and sage's message command prints a message in its kind's shape.",
   ].join("\n"));
   assert.equal(s.note(s.prompt("and the next one")), undefined, "the note comes once");
@@ -60,10 +64,20 @@ test("a chief message that names its kind and misses its shape: no block at Stop
   assert.equal(lines.length, 1);
   assert.deepEqual(Object.keys(lines[0]), ["at", "kind", "problems"]);
   assert.ok(Date.parse(lines[0].at) >= start && Date.parse(lines[0].at) <= Date.now(), "the time of the miss");
-  assert.deepEqual(lines[0], { at: lines[0].at, kind: "question", problems: ["raw ids", "missing: Needed by"] });
+  assert.deepEqual(lines[0], { at: lines[0].at, kind: "question", problems: ["raw ids", "missing: Due"] });
   assert.doesNotMatch(readFileSync(s.misses, "utf8"), /T4242|waits/, "no word of the message");
   s.stop(MISSED);
   assert.equal(s.count().length, 2);
+});
+
+test("T1093: a chief message with the labels from before the short labels: no block at Stop, one note at the next prompt that names each short label", (t) => {
+  const s = setup(t);
+  s.prompt("sage mode");
+  assert.match(OLD_QUESTION, /### Where this is\n[\s\S]*### Needed by\n/);
+  assert.equal(s.stop(OLD_QUESTION), undefined, "nothing blocks");
+  const note = s.note(s.prompt("ok, go on"));
+  assert.deepEqual(note.split("\n").filter((line) => line.startsWith("- ")), SHORT.map((label) => `- a question needs "${label}"`));
+  assert.equal(s.note(s.prompt("and the next one")), undefined, "the note comes once");
 });
 
 test("a message that fits its kind's shape, and a message that names no kind, give no note and no count", (t) => {
