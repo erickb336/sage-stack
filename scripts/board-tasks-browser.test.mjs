@@ -186,6 +186,15 @@ test("T1080 (F-T1080-1): with two projects, chief groups, chief filter values an
   assert.match(await row(page, "T3").textContent(), /^P2Sample shared limitssample-appproviders/, "the row names its project");
 });
 
+test("T1099 (F-T1099-37, F-T1099-38): two logbooks with one display name keep apart in the chief groups, the chief filter and the chief chips", async t => {
+  const { page } = await open(t, { twin: "one name" }, "/app/#tasks?group=chief");
+  const titles = ["Claude · C1 · twin (other-app-def456)", "Claude · C1 · twin (sample-app-abc123)", "Codex · C2 · twin (other-app-def456)", "Codex · C2 · twin (sample-app-abc123)"];
+  await settles(() => groupTitles(page), titles);
+  assert.deepEqual((await filter(page, "chief").locator("option").allTextContents()).slice(1), titles);
+  const chips = await page.locator("button.chip[data-chief]").allTextContents();
+  assert.equal(new Set(chips).size, chips.length, `each chief chip reads differently: ${chips.join(" | ")}`);
+});
+
 test("T1098 (R4165-2): two logbooks with one display name and the same chief ids: the chief filter of Tasks and Pull requests shows only the chosen logbook's tasks", async t => {
   const { page, problems } = await open(t, { twin: "one name" }, "/app/#tasks");
   const books = async selector => [...new Set((await page.locator(selector).evaluateAll(rows => rows.map(row => row.dataset.task ?? row.dataset.prTask))).map(key => key.slice(0, key.lastIndexOf("/"))))].sort();
