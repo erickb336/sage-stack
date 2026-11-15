@@ -44,6 +44,7 @@ async function models(url, count, change = () => {}, wait = 30_000) {
       buffer += decoder.decode(value, { stream: true });
       for (let end; (end = buffer.indexOf("\n\n")) !== -1;) {
         const frame = buffer.slice(0, end); buffer = buffer.slice(end + 2);
+        if (frame.startsWith("event: activity\n")) continue;
         assert.match(frame, /^id: \d+\nevent: model\ndata: /);
         seen.push(JSON.parse(frame.split("\n")[2].slice("data: ".length)));
         if (seen.length < count) await change(seen.length);
