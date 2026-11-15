@@ -95,11 +95,11 @@ function ChiefBox({ chief, runs, failedMore, tasks, now, selected }) {
       </div>
       {stopped && (
         <div className="stopped-note">
-          <p>{running || queued.length ? "No run of this chief shows activity, although the logbook lists the runs below." : "No agent runs."} Last event {clock(chief.heartbeat)}: the heartbeat stopped. Nothing moves on its own.</p>
+          <p>{running || queued.length ? "No run of this chief shows activity, although the logbook lists the runs below." : "No agent is running."} Last event {clock(chief.heartbeat)}: the heartbeat stopped. Nothing moves on its own.</p>
           {owned.length > 0 && <p>It owns {owned.map((task, i) => <span key={task.key}>{i > 0 && ", "}<a href={taskLink(task.key, PAGE)} data-task={task.key}>{task.id} · {task.title}</a></span>)}. To give a task to another chief, use the Overview.</p>}
         </div>
       )}
-      {!stopped && !running && !queued.length && <p className="empty">No agent runs now.</p>}
+      {!stopped && !running && !queued.length && <p className="empty">No agent is running now.</p>}
       {(leads.length > 0 || own.length > 0 || failed.length > 0) && (
         <div className="acards">
           {leads.map(lead => <LeadCard key={lead.id} lead={lead} helpers={runs.filter(run => run.lead === lead.id && run.status !== "queued")} queued={runs.filter(run => run.lead === lead.id && run.status === "queued").length} more={more(lead.id)} now={now} selected={selected} />)}
@@ -177,7 +177,7 @@ function Book({ book, model, chief, selected, now, many }) {
       </div>
       <p className="hint limits-note">One limit for the whole project, shared by every chief in Claude and Codex, from the project's logbook. Chiefs do not count; only running agents do. A lead counts while it runs or waits in the queue.</p>
       {boxes.length ? boxes.map(({ chief: item, runs }) => <ChiefBox key={item.key} chief={item} runs={runs} failedMore={book.failedMore} tasks={model.tasks} now={now} selected={selected} />)
-        : <p className="empty card">{chief ? `${chief.id} has no agent in this project.` : "No agent runs now. When a chief starts an agent, it shows here within a few seconds."}</p>}
+        : <p className="empty card">{chief ? `${chief.id} has no agent in this project.` : "No agent is running now. When a chief starts an agent, it shows here within a few seconds."}</p>}
       <Timeline groups={boxes.map(({ chief: item, runs }) => lanesOf(item, runs)).filter(group => group.lanes.length)} now={now} />
     </div>
   );

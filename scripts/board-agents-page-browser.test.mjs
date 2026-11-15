@@ -91,7 +91,7 @@ test("T1062: J4 is one click from the Overview: the top bar counts open the Agen
   assert.deepEqual(await box(page, "C2").locator(".acard.own .arow .who").allTextContents(), ["designerR31"], "a chief's own run with no lead");
   assert.deepEqual(await box(page, "C1").locator(".queue .arow").evaluateAll(rows => rows.map(row => row.dataset.run + " " + row.querySelector(".num:last-child").textContent)), ["R24 1st in line", "R33 3rd in line"]);
   assert.match(await box(page, "C2").locator(".queue .arow").textContent(), /^leadR32Queued · 2ndT30 · Sample crash reportsqueued \d\d:\d\dwaits 1 min2nd in line$/);
-  assert.match(await box(page, "C3").textContent(), /Stopped0 leads · 0 runningNo agent runs\. Last event \d\d:\d\d: the heartbeat stopped\. Nothing moves on its own\.It owns T70 · Sample stopped chief\./, "a stopped chief shows as stopped, with its tasks");
+  assert.match(await box(page, "C3").textContent(), /Stopped0 leads · 0 runningNo agent is running\. Last event \d\d:\d\d: the heartbeat stopped\. Nothing moves on its own\.It owns T70 · Sample stopped chief\./, "a stopped chief shows as stopped, with its tasks");
   assert.equal(await box(page, "C3").getByRole("button").count(), 0, "the page only reads: no write action");
   assert.equal(await page.locator(".timeline .lane-group").count(), 2, "a lane group for each chief with agents");
   assert.deepEqual(await page.locator(".timeline .lane-group").first().locator(".lane-l").evaluateAll(lanes => lanes.map(lane => lane.textContent)),
@@ -208,6 +208,14 @@ test("F-T1062-42: two logbooks with one display name and the same chief ids: a s
   await page.locator('section.chief-box.stopped[data-chief="shared/other-app-def456/C3"]').waitFor();
   assert.deepEqual(await owns(KEY("C3")), [`T70 · Sample stopped chief ${KEY("T70")}`], "C3 of the first logbook owns only its own T70");
   assert.deepEqual(await owns("shared/other-app-def456/C3"), ["T70 · Task of the other logbook shared/other-app-def456/T70"], "C3 of the second logbook owns only its own T70");
+  assert.deepEqual(problems, []);
+});
+
+test("F-T1062-44: a chief with no agent says that no agent is running", async t => {
+  const { page, problems } = await open(t, { agents: false }, { path: "/app/#agents" });
+  await box(page, "C1").waitFor();
+  assert.equal(await box(page, "C1").locator("p.empty").textContent(), "No agent is running now.");
+  assert.match(await box(page, "C3").locator(".stopped-note").textContent(), /^No agent is running\. Last event/);
   assert.deepEqual(problems, []);
 });
 
