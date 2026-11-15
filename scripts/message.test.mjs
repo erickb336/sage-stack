@@ -181,6 +181,15 @@ test("T1005: messageMiss gives the note of a hand-written message that misses it
   assert.deepEqual(messageMiss(chart).names, ["missing picture"]);
 });
 
+test("F1 of T1093: an answer's indented row is not a part, so a question with no Next part is missing Next, not out of order", () => {
+  const out = render(fixture("02-question.json")).text;
+  assert.match(out, /\n {3}- Next: /, "each answer has a Next row");
+  assert.deepEqual(messageMiss(out.replace(/\n\n### Next\n\n[\s\S]*?(?=\n\n)/, "")).names, ["missing: Next"]);
+  const report = render(fixture("03-report.json")).text;
+  assert.match(report, /\n {3}- Needs you: /, "each piece of work has a Needs you row");
+  assert.deepEqual(messageMiss(report.replace(/\n\n### Needs you\n\n[\s\S]*?(?=\n\n)/, "")).names, ["missing: Needs you"]);
+});
+
 test("T1093: a message with the labels from before T1093 gets a note that names the short labels it misses", () => {
   const OLD = { Where: "Where this is", Approve: "What you approve", Choice: "The one real choice in it", Default: "If you do not answer", Due: "Needed by", "Weak points": "The bad side of my pick", Next: "After you answer" };
   const old = Object.entries(OLD).reduce((text, [now, before]) => text.replace(`### ${now}\n`, `### ${before}\n`), render(fixture("02-question.json")).text).replaceAll("   - Next: ", "   - What happens next: ");
