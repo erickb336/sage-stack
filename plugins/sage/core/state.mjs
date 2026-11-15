@@ -23,6 +23,7 @@ import { pushedBranches } from "./push-policy.mjs";
 import { MOVES, PLAN_MAX, checkoutGone, createSharedRoot, sharedRoot, unreadableFolder } from "./shared-root.mjs";
 import { changedText, countsOf, endText, gateQuestion, gateText, localTime, mapHtml, mismatchText, previewText, providersOf, reconciliationText, startText, stepText, stoppedText, title } from "./move-text.mjs";
 import { pagesFolder, worktreeRoot, worktrees } from "./worktrees.mjs";
+import { storageClean, storagePlan, storageView } from "./storage.mjs";
 import { CHIEF, TAKEOVER_OPTIONS, chiefOnly, createChiefs, crossed, offerOf, replaceOf, replaceQuestion, writerClass } from "./chiefs.mjs";
 import { NAMES_FILE, chiefNames } from "./chief-live.mjs";
 import { LEAD_COMMANDS, leadProblem as leadPolicy, leadRequest } from "./lead-policy.mjs";
@@ -108,7 +109,7 @@ const SPARSE = { tasks: [CHIEF_COLUMN, "offer", RELEASE_COLUMN], runs: [CHIEF_CO
 const TABLES = { ...PLAIN_TABLES, ...Object.fromEntries(Object.entries(SPARSE).map(([t, cols]) => [t, [...PLAIN_TABLES[t], ...cols]])) };
 const ADDED = { ...FILLED, ...Object.fromEntries(Object.entries(SPARSE).map(([t, cols]) => [t, [...(FILLED[t] ?? []), ...cols]])) };
 const RUN_ENDS = ["done", "blocked", "question", "failed"];
-const COMMANDS = ["init", "logbook", "standing", "pages", "message", "task", "task-adopt", "milestone", "release", "round", "run", "finding", "verdict", "lint", "gate", "log", "status", "stats", "merge-check", "config", "projects", "board", "observe", "link", "claim", "offer", "cancel", "accept", "unclaim", "move", "worktrees", "chief"];
+const COMMANDS = ["init", "logbook", "standing", "pages", "message", "task", "task-adopt", "milestone", "release", "round", "run", "finding", "verdict", "lint", "gate", "log", "status", "stats", "merge-check", "config", "projects", "board", "observe", "link", "claim", "offer", "cancel", "accept", "unclaim", "move", "worktrees", "storage", "chief"];
 const OPTIONS = {
   "logbook repair": ["accept-loss", "accept-change-loss"],
   link: ["to", "separate"],
@@ -2563,7 +2564,7 @@ function sageCommand(argv, env) {
     const printed = visible(project);
     refuse(`no logbook for the project ${printed}. ${printed === project ? `Run: sage init --project ${shell(project)}` : "Its path has control characters, so no command is printed to paste. Rename the folder, or run sage init from inside it."}`);
   }
-  if (readOnly || (cmd === "logbook" && !repair) || cmd === "status" || cmd === "stats" || (cmd === "standing" && pos[0] !== "add") || (cmd === "pages" && pos[1] !== "record") || cmd === "message" || cmd === "worktrees") return act(cmd, pos, opt, dir, env, [], project);
+  if (readOnly || (cmd === "logbook" && !repair) || cmd === "status" || cmd === "stats" || (cmd === "standing" && pos[0] !== "add") || (cmd === "pages" && pos[1] !== "record") || cmd === "message" || cmd === "worktrees" || (cmd === "storage" && pos[0] !== "clean")) return act(cmd, pos, opt, dir, env, [], project);
   notePlugin(env);
   if (place.row && !place.row.commits && fillCommits(place.checkout, env)) locate(project, env);
   const run = () => change(cmd, pos, opt, dir, env, skip, project, place.shared);
@@ -3582,6 +3583,16 @@ function act(cmd, pos, opt, dir, env, skip, project) {
       const root = projectRoot(project);
       try { git(["-C", root, "rev-parse", "--git-dir"], env); } catch { refuse(`${visible(root)} is not a git repository, so it has no worktrees. Nothing changed.`); }
       return worktrees({ git: (args) => git(args, env), root, tasks: read(dir, "tasks"), runs: read(dir, "runs"), ledger: read(dir, "ledger"), here: [folderHere(), project], prune });
+    }
+    case "storage": {
+      if (!(sub === undefined || (sub === "plan" && id === undefined) || (sub === "clean" && more.length === 0))) refuse("storage takes no words, plan, or clean <token>: sage storage, then sage storage plan, then, after the owner's yes, sage storage clean <the plan's token>.");
+      assertNoPendingWrite(dir);
+      const root = projectRoot(project);
+      try { git(["-C", root, "rev-parse", "--git-dir"], env); } catch { refuse(`${visible(root)} is not a git repository, so it has no worktrees. Nothing changed.`); }
+      const input = { git: (args) => git(args, env), root, dir, folder: dirname(pagesRoot(project, env)), tasks: read(dir, "tasks"), runs: read(dir, "runs"), ledger: read(dir, "ledger"), here: [folderHere(), project] };
+      if (sub === undefined) return storageView(input);
+      if (sub === "plan") return storagePlan(input);
+      return storageClean(input, id, { refuse, record: (row) => write(dir, "decisions", [...read(dir, "decisions"), { at: now(), ...row }]) });
     }
     case "message": {
       const taskId = taskOf(dir, need(sub, "the task id")).task.id;
