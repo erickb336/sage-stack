@@ -80,7 +80,7 @@ To add a principle, add `principles/<name>.md`. A principle adapted from pstack 
    npm run test:browser
    ```
 
-   To run one file: `node --test scripts/board-picker.test.mjs`. CI installs the same browser in each run, with no browser cache, as Playwright advises, and runs `npm run test:browser` after `npm run check`.
+   To run one file: `node --test scripts/board-app-browser.test.mjs`. CI installs the same browser in each run, with no browser cache, as Playwright advises, and runs `npm run test:browser` after `npm run check`.
 
 ## A branch from before the sweep
 
@@ -110,7 +110,7 @@ PR 540 removed every comment from the sources. Strip the files that a branch mad
 
 ## The board screenshots
 
-The board screenshots of the README and of [Learn sage in 5 minutes](docs/guide/learn-sage.md) come from `scripts/board-shots.mjs`. It renders the built board with fixed sample logbooks (made-up data, from `scripts/fixtures/board-milestones.mjs` and `scripts/fixtures/board-walkthrough.mjs`) in Playwright's Chromium. Each shot is at laptop width (1280 by 800 CSS pixels, so the board shows its desktop layout) and 2x, and carries a SAMPLE DATA label. It uses the same browser as the browser tests (step 7 above):
+The board screenshots of the README, the [board guide](docs/guide/board.md) and [Learn sage in 5 minutes](docs/guide/learn-sage.md) come from `scripts/board-shots.mjs`. It writes sample logbooks (made-up data, from `scripts/fixtures/board-app.mjs` and `scripts/fixtures/board-walkthrough.mjs`) to a temporary folder, starts a board server on a free port with the built app, and opens each page in Playwright's Chromium. Each shot is at laptop width (1280 by 800 CSS pixels; the narrow shot is 390 by 844) and 2x, and carries a SAMPLE DATA label. It uses the same browser as the browser tests (step 7 above):
 
 ```sh
 node scripts/board-shots.mjs

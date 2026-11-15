@@ -169,3 +169,27 @@ test("F-T1065-19: at 200% zoom of a 1280 px window, the pages bar goes above the
   assert.ok(main.y >= side.y + side.height && main.width === 640, JSON.stringify({ side, main }));
   assert.equal(await page.getByRole("link", { name: /^Tasks/ }).isVisible(), true, "the page links keep their names");
 });
+
+test("R1349: the contrast helper's edge measure takes the better of a control's fill and its border", async t => {
+  const context = await browser.newContext();
+  t.after(() => context.close());
+  const page = await context.newPage();
+  await page.setContent('<div id="tray"><span id="flat">Sample</span><span id="edged">Sample</span><span id="filled">Sample</span></div>');
+  await page.addStyleTag({ content: "#tray{background:#f0f0f1}span{background:#fff;border:1px solid transparent}#edged{border-color:#87878d}#filled{background:#555;border:0}" });
+  const [[flat], [edged], [filled]] = await page.evaluate(measureContrast, [["flat", "#flat", "edge"], ["edged", "#edged", "edge"], ["filled", "#filled", "edge"]]);
+  assert.ok(flat.ratio < 1.2, `white on the tray with no edge: ${flat.ratio}`);
+  assert.ok(edged.ratio >= 3 && edged.ratio < 3.3, `the edge colour: ${edged.ratio}`);
+  assert.ok(filled.ratio > 6, `a dark fill with no border: ${filled.ratio}`);
+});
+
+test("T349: the contrast helper takes the worst stop of a gradient, and refuses an image", async t => {
+  const context = await browser.newContext();
+  t.after(() => context.close());
+  const page = await context.newPage();
+  await page.setContent('<p id="even">Sample</p><p id="half">Sample</p><p id="image">Sample</p>');
+  await page.addStyleTag({ content: "p{color:#000}#even{background:linear-gradient(#fff,#eee)}#half{background:linear-gradient(90deg,#fff,#555)}#image{background:url(data:image/gif;base64,R0lGODlhAQABAAAAACw=)}" });
+  const [[even], [half]] = await page.evaluate(measureContrast, [["even", "#even"], ["half", "#half"]]);
+  assert.ok(even.ratio >= 17, `black on a light gradient: ${even.ratio}`);
+  assert.ok(half.ratio < 4.5, `black on a gradient that ends dark grey fails: ${half.ratio}`);
+  await assert.rejects(page.evaluate(measureContrast, [["image", "#image"]]), /An image needs a separate contrast check/);
+});

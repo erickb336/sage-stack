@@ -1,18 +1,3 @@
-import { buildBoardModel } from "../../packages/sage-core/board-model.mjs";
-import assert from "node:assert/strict";
-import * as render from "../../packages/sage-core/board-render.mjs";
-import { NOW, milestonesSource } from "./board-milestones.mjs";
-
-const { renderAgentsHtml, renderBoardHtml, renderMilestonesHtml } = render;
-const b64 = value => Buffer.from(value).toString("base64url");
-export const themeToken = (theme, name) => (theme === "light" ? render.LIGHT : render.DARK).split(";").find(item => item.startsWith(`${name}:`)).slice(name.length + 1);
-export const shownTheme = page => page.locator("body").evaluate(body => ["--scheme", "--bg"].map(name => getComputedStyle(body).getPropertyValue(name).trim()));
-export async function expectTheme(page, theme, message = "") {
-  const [scheme, bg] = await shownTheme(page);
-  assert.equal(scheme, theme, message);
-  assert.equal(bg, themeToken(theme, "--bg"), message);
-}
-
 export function measureContrast(list = null) {
   const rgba = text => { const v = text.match(/[\d.]+/g).map(Number); return [v[0], v[1], v[2], v[3] ?? 1]; };
   const over = (front, back) => front.slice(0, 3).map((value, i) => value * front[3] + back[i] * (1 - front[3]));
@@ -57,36 +42,4 @@ export function measureContrast(list = null) {
   return [...document.querySelectorAll("body *")]
     .filter(element => !["SCRIPT", "STYLE", "OPTION"].includes(element.tagName) && !(element instanceof SVGElement) && [...element.childNodes].some(node => node.nodeType === 3 && node.textContent.trim()) && shown(element))
     .map(element => measure(`${element.tagName.toLowerCase()}${element.className ? "." + String(element.className).trim().split(/\s+/).join(".") : ""}`, element));
-}
-
-export function contrastPages() {
-  const source = milestonesSource(), codex = milestonesSource("codex", { gates: [], runs: [] }), tables = source.projects[0].tables;
-  tables.runs = [
-    { id: "R3", task: "T12", role: "lead", status: "running", started: "2026-10-20T11:20:00Z", tokens: "", model: "opus" },
-    { id: "R1", task: "T12", role: "code-reviewer", status: "running", started: "2026-10-20T11:30:00Z", tokens: "" },
-    { id: "R4", task: "T12", role: "qa", status: "running", started: "2026-10-20T11:40:00Z", tokens: "" },
-    { id: "R2", task: "T40", role: "implementer", status: "running", started: "2026-10-20T11:00:00Z", tokens: "" },
-  ];
-  codex.projects[0].tables.runs = [{ id: "R9", task: "T40", role: "implementer", status: "running", started: "2026-10-20T11:50:00Z", tokens: "" }];
-  const now = Date.parse(NOW), lead = "a".repeat(64);
-  source.hooks = { present: true, problem: null, helpers: [], slots: [
-    { name: "s1", at: now - 2 * 60000, marks: ["ok", "project-sage", "role-sage_lead", "run-R3", `bound-${lead}`] },
-    { name: "s2", at: now - 60000, marks: ["ok", "project-sage", "role-sage_code-reviewer", "run-R1", `parent-${lead}`] },
-    { name: "s3", at: now - 41 * 60000, marks: ["ok", "project-sage", "role-sage_qa", "run-R4", `parent-${lead}`] },
-    { name: "s4", at: now - 3 * 60000, marks: ["ok", "project-sage", "role-sage_implementer", "run-R2"] },
-  ] };
-  const model = buildBoardModel([source, codex], { now: NOW });
-  const task = model.tasks.find(item => item.id === "T12"), milestone = model.milestones.find(item => item.id === "M3");
-  return {
-    model,
-    pages: {
-      board: renderBoardHtml(model, { snapshot: false }),
-      task: renderBoardHtml(model, { snapshot: false, taskKey: task.key }),
-      milestones: renderMilestonesHtml(model),
-      milestone: renderMilestonesHtml(model, { milestoneKey: milestone.key }),
-      agents: renderAgentsHtml(model),
-      snapshot: renderBoardHtml(model),
-    },
-    targets: { "snapshot task": `#task-${b64(task.key)}`, "snapshot milestones": "#milestones", "snapshot milestone": `#milestone-${b64(milestone.key)}` },
-  };
 }

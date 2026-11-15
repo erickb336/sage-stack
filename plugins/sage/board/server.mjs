@@ -3,7 +3,7 @@ import { lstatSync, readFileSync, readdirSync, watch } from "node:fs";
 import { createServer } from "node:http";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AGENT_QUIET_MS, readActions, readHookNotes, readBoardSources, buildBoardModel, boardOverview, taskPanel, landingRule, pageTaskFolder, renderBoardHtml, renderAgentsHtml, renderMilestonesHtml, renderReleasesHtml, BOARD_PORT } from "../core/index.mjs";
+import { AGENT_QUIET_MS, readActions, readHookNotes, readBoardSources, buildBoardModel, boardOverview, taskPanel, landingRule, pageTaskFolder, BOARD_PORT } from "../core/index.mjs";
 import { COOKIE, boardAccess, readJson } from "./access.mjs";
 import { pagesRequest, servePages, taskFiles } from "./pages.mjs";
 import { briefAbout, designSummary, logbookDir, readerPage, recordedPages } from "./reader.mjs";
@@ -12,12 +12,10 @@ import { writeInWorker, writesEnded } from "./writes.mjs";
 const MARKDOWN = await import("./markdown.mjs").then(module => module.renderMarkdown, () => null);
 const NO_READER = "The reader's Markdown renderer is not in this copy of the board. Run the board from the sage plugin, or run npm ci and npm run build.";
 
-const MAX_HTML = 8 * 1024 * 1024;
+const MAX_MODEL = 8 * 1024 * 1024;
 const MAX_CLIENTS = 16;
 const digest = text => createHash("sha256").update(text).digest();
 const unavailable = [{ source: "board", message: "The board snapshot is unavailable." }];
-const TOO_LARGE = "The page that you opened is too large to show (over 8 MB), so the board shows this page instead.";
-const NO_STREAM = " This page does not update: reload the address to try again.";
 const own = (object, name) => Object.hasOwn(object, name);
 const SETTLE_READS = [250, 1000, 3000, 7000, 15000];
 const LIGHT_EVERY = 2000;
@@ -44,26 +42,8 @@ function taskKey(encoded) {
   } catch { return null; }
 }
 
-function route(target) {
-  if (typeof target !== "string" || target.length > 4096) return null;
-  if (target === "/") return { task: null, events: false };
-  if (target === "/agents" || target === "/agents?events=1") return { task: null, agents: true, events: target !== "/agents" };
-  if (target === "/releases" || target === "/releases?events=1") return { task: null, releases: true, events: target !== "/releases" };
-  if (target === "/milestones" || target === "/milestones?events=1") return { task: null, milestones: true, events: target !== "/milestones" };
-  const milestone = /^\/milestone\/([A-Za-z0-9_-]+)(\?events=1)?$/.exec(target);
-  const old = /^\/program(?:s|\/([A-Za-z0-9_-]+))(\?events=1)?$/.exec(target);
-  if (old) { const key = old[1] && taskKey(old[1]); return old[1] && !key ? null : { renamed: key ?? null, events: !!old[2] }; }
-  if (milestone) { const key = taskKey(milestone[1]); return key ? { task: null, milestone: key, events: !!milestone[2] } : null; }
-  const page = /^\/task\/([A-Za-z0-9_-]+)$/.exec(target);
-  if (page) { const key = taskKey(page[1]); return key ? { task: key, events: false } : null; }
-  const stream = /^\/\?events=1(?:&task=([A-Za-z0-9_-]+))?$/.exec(target);
-  if (stream) { const key = stream[1] ? taskKey(stream[1]) : null; return !stream[1] || key ? { task: key, events: true } : null; }
-  return null;
-}
-
-function securityHeaders(response, html = null) {
-  const hashes = tag => [...(html ?? "").matchAll(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "g"))].map(match => `'sha256-${digest(match[1]).toString("base64")}'`).join(" ") || "'none'";
-  response.setHeader("Content-Security-Policy", `default-src 'none'; script-src ${hashes("script")}; style-src ${hashes("style")}; connect-src 'self'; img-src data:; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'`);
+function securityHeaders(response) {
+  response.setHeader("Content-Security-Policy", "default-src 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'");
   response.setHeader("Cache-Control", "no-store");
   response.setHeader("Referrer-Policy", "no-referrer");
   response.setHeader("X-Content-Type-Options", "nosniff");
@@ -156,17 +136,6 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
       (site === undefined || ["none", "same-origin"].includes(site));
   }
 
-  const render = (state, view, live = true) => view.agents ? renderAgentsHtml(state, { live, paths: true }) : view.releases ? renderReleasesHtml(state, { live, paths: true }) : view.milestones || view.milestone ? renderMilestonesHtml(state, { milestoneKey: view.milestone ?? null, live, paths: true })
-    : renderBoardHtml(state, { taskKey: view.task, snapshot: false, live, paths: true });
-  const fits = html => Buffer.byteLength(html) <= MAX_HTML;
-  function pageFor(view, stream = false) {
-    const html = render(model, view);
-    if (fits(html)) return { html, stale: model.stale, diagnostics: model.diagnostics };
-    const other = render({ ...model, pageNote: stream ? TOO_LARGE : TOO_LARGE + NO_STREAM }, { milestones: !!view.milestone }, false);
-    if (!fits(other)) throw new RangeError("board rendering exceeds the size limit");
-    return { html: other, stale: model.stale, diagnostics: model.diagnostics };
-  }
-
   function removeClient(client) {
     clients.delete(client);
     clearTimeout(client.deadline);
@@ -190,24 +159,15 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
   }
 
   function publish(client) {
-    if (client.app) {
-      const data = JSON.stringify(overview), sent = digest(data).toString("base64");
-      if (client.sent === sent) return;
-      client.sent = sent;
-      if (Buffer.byteLength(data) > MAX_HTML) { client.response.end(); removeClient(client); return; }
-      return send(client, `id: ${revision}\nevent: model\ndata: ${data}\n\n`);
-    }
-    try {
-      const payload = { revision: String(revision), ...pageFor(client, true) };
-      const sent = digest(JSON.stringify([payload.html, payload.stale, payload.diagnostics])).toString("base64");
-      if (client.sent === sent) return;
-      client.sent = sent;
-      send(client, `id: ${revision}\nevent: board\ndata: ${JSON.stringify(payload)}\n\n`);
-    } catch { client.response.end(); removeClient(client); }
+    const data = JSON.stringify(overview), sent = digest(data).toString("base64");
+    if (client.sent === sent) return;
+    client.sent = sent;
+    if (Buffer.byteLength(data) > MAX_MODEL) { client.response.end(); removeClient(client); return; }
+    send(client, `id: ${revision}\nevent: model\ndata: ${data}\n\n`);
   }
 
   function sendActivity(client, changes) {
-    if (!client.app || !Object.keys(changes).length) return;
+    if (!Object.keys(changes).length) return;
     if (client.blocked) { client.activity = new Set([...client.activity ?? [], ...Object.keys(changes)]); return; }
     send(client, `event: activity\ndata: ${JSON.stringify(changes)}\n\n`);
   }
@@ -336,23 +296,17 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     let next;
     try {
       reconcileWatchers();
-      const read = readBoardSources(configured, { duringRead, providerRoots }), notSetUp = [];
+      const read = readBoardSources(configured, { duringRead, providerRoots });
       lastRead = read;
-      for (const [index, source] of read.entries()) {
-        if (lstatSync(configured[index].path, { throwIfNoEntry: false })) continue;
-        source.diagnostics = source.diagnostics.filter(message => message !== "ENOENT");
-        if (!source.shared) notSetUp.push(source.label);
-      }
-      next = { ...buildBoardModel(read, { now: clock(), landing }), notSetUp };
+      for (const [index, source] of read.entries()) if (!lstatSync(configured[index].path, { throwIfNoEntry: false })) source.diagnostics = source.diagnostics.filter(message => message !== "ENOENT");
+      next = buildBoardModel(read, { now: clock(), landing });
       next.diagnostics = [...next.diagnostics, ...watchErrors.values()];
-      const pages = [() => renderBoardHtml(next, { snapshot: false, live: true }), () => renderAgentsHtml(next, { live: true }), () => renderMilestonesHtml(next, { live: true }), () => renderReleasesHtml(next, { live: true })];
-      if (pages.some(render => Buffer.byteLength(render()) > MAX_HTML)) throw new RangeError("board rendering exceeds the size limit");
     } catch { next = { ...buildBoardModel([], { now: clock() }), diagnostics: unavailable }; }
     const changing = next.changing ?? [];
     if (changing.length && !model?.changing?.length) settle();
     if (!next.diagnostics.length && !changing.length) { lastGood = next; model = { ...next, stale: false }; }
     else if (!next.diagnostics.length) model = lastGood ? { ...lastGood, stale: false, changing: changing.map(item => ({ project: item.project, at: lastGood.at })) } : { ...next, stale: false };
-    else model = { ...(lastGood ?? next), stale: true, diagnostics: next.diagnostics, notSetUp: next.notSetUp, changing };
+    else model = { ...(lastGood ?? next), stale: true, diagnostics: next.diagnostics, changing };
     overview = boardOverview(model);
     const known = activity;
     activity = new Map();
@@ -381,33 +335,8 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     if (!["GET", "HEAD"].includes(request.method)) { response.setHeader("Allow", "GET, HEAD"); return fail(405, "This method is not permitted."); }
     if (request.url === "/app" || request.url.startsWith("/app/")) return serveApp(request, response, fail);
     if (request.url.startsWith("/read/")) return serveReader(request, response, fail);
-    let selected = route(request.url);
-    if (selected?.renamed !== undefined) {
-      const key = selected.renamed && (model.milestones.find(milestone => milestone.was && `${milestone.project}/${milestone.was}` === selected.renamed)?.key ?? selected.renamed);
-      if (selected.events) selected = key ? { task: null, milestone: key, events: true } : { task: null, milestones: true, events: true };
-      else {
-        response.writeHead(301, { Location: key ? `/milestone/${Buffer.from(key).toString("base64url")}` : "/milestones" });
-        return response.end();
-      }
-    }
-    if (!selected || selected.task && !model.tasks.some(task => task.key === selected.task)) return fail(404, "This board page does not exist.");
-    const missing = selected.milestone && !model.milestones.some(milestone => milestone.key === selected.milestone);
-    if (missing && selected.events) return fail(404, "This board page does not exist.");
-    if (selected.events) {
-      if (clients.size >= MAX_CLIENTS && request.method !== "HEAD") return fail(503, "There are too many open board streams.");
-      response.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "X-Accel-Buffering": "no" });
-      if (request.method === "HEAD") return response.end();
-      response.flushHeaders();
-      const client = { response, task: selected.task, agents: !!selected.agents, releases: !!selected.releases, milestones: !!selected.milestones, milestone: selected.milestone ?? null, blocked: false, pending: null, deadline: null, sent: null };
-      clients.add(client); response.once("close", () => removeClient(client)); publish(client);
-      return;
-    }
-    try {
-      const { html } = pageFor(selected);
-      securityHeaders(response, html);
-      response.writeHead(missing ? 404 : 200, { "Content-Type": "text/html; charset=utf-8", "Content-Length": Buffer.byteLength(html) });
-      response.end(request.method === "HEAD" ? undefined : html);
-    } catch { fail(503, "The board snapshot is unavailable."); }
+    if (request.url === "/") { response.writeHead(302, { Location: "/app/" }); return response.end(); }
+    fail(404, "This board page does not exist.");
   });
   async function serveApi(request, response, fail) {
     const reply = (status, body, headers) => json(response, status, body, headers);
@@ -472,7 +401,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
       response.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "X-Accel-Buffering": "no" });
       if (request.method === "HEAD") return response.end();
       response.flushHeaders();
-      const client = { response, app: true, blocked: false, pending: null, activity: null, deadline: null, sent: null };
+      const client = { response, blocked: false, pending: null, activity: null, deadline: null, sent: null };
       clients.add(client); response.once("close", () => removeClient(client)); publish(client);
       sendActivity(client, Object.fromEntries(activity));
       return;

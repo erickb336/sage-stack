@@ -23,7 +23,7 @@ export { readActions, readBoardSources, readHookNotes } from "./board-reader.mjs
 export { AGENT_QUIET_MS, buildBoardModel } from "./board-model.mjs";
 export { boardOverview, taskPanel } from "./board-overview.mjs";
 export { chiefName, prName, runWord, taskWord, milestoneWord, releaseWord } from "./state-words.mjs";
-export { renderBoardHtml, renderAgentsHtml, renderMilestonesHtml, renderReleasesHtml, renderBoardText, renderTaskText, renderBoardStatus } from "./board-render.mjs";
+export { renderBoardText, renderTaskText, renderBoardStatus } from "./board-render.mjs";
 export { boardView, landingRule } from "./board-view.mjs";
 export { BOARD_PORT, KINDS, LONG_WIDTH, PAGE_MAX, PAGE_TYPES, WIDTH, frameLines, pageBlock, pageType } from "./message.mjs";
 export { PAGE_POLICY, SWITCH_SCRIPT } from "./message-page.mjs";

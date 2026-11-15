@@ -7,7 +7,7 @@ import { dirname, join, relative } from "node:path";
 import { test } from "node:test";
 import { Lang, parse } from "@ast-grep/napi";
 import { buildBoardModel } from "../packages/sage-core/board-model.mjs";
-import { renderAgentsHtml, renderBoardHtml, renderMilestonesHtml, renderReleasesHtml } from "../packages/sage-core/board-render.mjs";
+import {  } from "../packages/sage-core/board-render.mjs";
 import { servePages } from "../packages/sage-board/pages.mjs";
 import { prepareMessage } from "../packages/sage-core/message.mjs";
 import { messagePage } from "../packages/sage-core/message-page.mjs";
@@ -187,38 +187,6 @@ function pagesIndex() {
     rmSync(root, { recursive: true, force: true });
   }
 }
-
-test("F-T1027-6, F-T1027-8: every page that the board, a message, a move and a pages folder serve has no comment in its HTML, its scripts or its styles, which the source scan reads as string text, also with sample logbooks", () => {
-  const models = {
-    empty: buildBoardModel([], { now: "2026-10-20T12:00:00Z" }),
-    milestones: buildBoardModel([milestonesSource()], { now: NOW }),
-    ...Object.fromEntries(Object.keys(STAGES).map((stage) => [stage, buildBoardModel([walkthroughSource(stage)], { now: WALK_NOW })])),
-  };
-  const message = prepareMessage(JSON.parse(readFileSync(join(ROOT, "scripts/fixtures/messages/02-question.json"), "utf8"))).msg;
-  const plan = { folder: "sample-abcdef.shared", digest: "0123456789abcdef", map: { tasks: [], gates: [], milestones: [], findings: [] } };
-  const pages = {
-    message: messagePage(message, ""),
-    "move map": mapHtml(plan, { at: "2026-10-20T12:00:00Z", backups: [], shown: (name) => name }),
-  };
-  for (const [name, model] of Object.entries(models)) {
-    Object.assign(pages, {
-      [`${name} board`]: renderBoardHtml(model, { live: true }),
-      [`${name} agents`]: renderAgentsHtml(model, { live: true }),
-      [`${name} releases`]: renderReleasesHtml(model, { live: true }),
-      [`${name} milestones`]: renderMilestonesHtml(model, { live: true }),
-    });
-    for (const task of model.tasks) pages[`${name} ${task.key}`] = renderBoardHtml(model, { taskKey: task.key, live: true });
-    for (const milestone of model.milestones) pages[`${name} ${milestone.key}`] = renderMilestonesHtml(model, { milestoneKey: milestone.key, live: true });
-  }
-  assert.ok(models.milestones.tasks.length && models.milestones.milestones.length && models.building.agents.count, "the sample logbooks hold tasks, milestones and running agents");
-  for (const [name, html] of Object.entries(pages)) {
-    assert.match(html, /<script>[^<]/, `${name}: the page has a script`);
-    assert.deepEqual(servedComments(html), [], name);
-  }
-  const index = pagesIndex();
-  assert.match(index, /<style>[^<]/, "the pages index has a style");
-  assert.deepEqual(servedComments(index), [], "pages index");
-});
 
 function repository(files) {
   const f = folder(files);

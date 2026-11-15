@@ -261,7 +261,7 @@ A milestone is one request that sage runs as several tasks for one goal, with on
 
 Milestones were called programs before. At its first write, this version renames each program of a logbook to a milestone with a new number, such as M5 for PG1. Your old answers stay as you gave them.
 
-The board shows each milestone on its Milestones tab: see [Milestones on the board](board.md#milestones-on-the-board). The full rules are in [Rules held in code](../design/rules-in-code.md#waits-and-milestones).
+The board shows each milestone on its Overview and its Tasks page: see [Milestones on the board](board.md#milestones-on-the-board). The full rules are in [Rules held in code](../design/rules-in-code.md#waits-and-milestones).
 
 ### Releases
 
@@ -456,7 +456,7 @@ Only the chief runs the clean; a lead, a reviewer or QA cannot.
 
 3. If the folder `~/.local/share/sage-board` exists, remove its installed copy (`service/`) and its pages folder (`pages/`). The board has no command that removes them.
 
-   > **Warning:** this command also deletes the board's offline pages. Copy each page that you want to keep first.
+   > **Warning:** this command also deletes the HTML files that an older board exported to `pages/`. Copy each file that you want to keep first.
 
    ```sh
    rm -r ~/.local/share/sage-board
@@ -480,7 +480,7 @@ Only the chief runs the clean; a lead, a reviewer or QA cannot.
 
 Claude Code keeps the plugin files in `~/.claude/plugins/cache/sage/` after the uninstall. It removes each version 14 days later, but only while another plugin is still installed ([plugin loading](https://code.claude.com/docs/en/plugins/loading)). To remove them at once, delete that folder, but only after step 1: the stop command is in it.
 
-The uninstall keeps your logbooks, the task pages in each project's pages folder and the board's config; only step 3 deletes the board's offline pages. They are plain files in the folders below. Delete them yourself when you no longer want the record.
+The uninstall keeps your logbooks, the task pages in each project's pages folder and the board's config; only step 3 deletes the HTML files that an older board exported. They are plain files in the folders below. Delete them yourself when you no longer want the record.
 
 ## Shared logbooks
 
@@ -551,7 +551,7 @@ A moved folder with no Git commits, or that is no Git repository, has no first c
 - Each chief's own hook keeps `live/C<n>.json` in the logbook: its checkout, sage mode, autopilot and the time. It writes the file at most once a minute, and at once when sage mode or autopilot changes. The board shows a chief as stopped when that time is over 30 minutes old and the chief has no running run, other than a run that the board shows with no news for over 24 hours.
 - A chief with an open question of yours is not stopped: the board shows that it waits for you. A stopped chief shows no sage mode and no autopilot state.
 - A chief with no live file, or with a time more than 5 minutes in the future, shows unknown values: the board does not know its sage mode, its autopilot or whether it stopped.
-- The new board page shows each chief as a chip under its top bar, by its default name, "provider · folder · start time". The folder part has at most 30 characters, and when two chiefs have the same name, each name ends with its chief id.
+- The board page shows each chief as a chip under its top bar, by its default name, "provider · folder · start time". The folder part has at most 30 characters, and when two chiefs have the same name, each name ends with its chief id.
 - To give a chief your own name, rename it on the board (the chief's menu, then Rename), or ask the chief in the chat, for example "name C2 Night shift". Either runs the state tool's `chief name C<n> <name>`, and the same command with no name clears your name.
 - A name has 1 to 60 characters, with no space at its start or end and no two spaces together. It has no tab, line break or other control, format or hidden character, and at least one visible character. A bad entry in `chief-names.json` hides only that chief's name: the board shows its default name and a warning.
 - A resume keeps the session, so it is the same chief.
@@ -708,7 +708,7 @@ After a restore, the old move gate moves nothing: to move again, ask the chief f
 - **The pages** of each task: `~/sage-worktrees/<project>-<hash>/pages/<task>/`, outside the logbook. Agents save their research pages and designs there. The chief makes the folder and prints its path.
 - **The board's config**: `~/.config/sage-board/`, when you use the board server. It holds `board.json`, `board.log` and `board.pid`.
 - **The board's login service**, when you install it ([Optional login startup](../../packages/sage-board/README.md#optional-login-startup)): the login file `~/Library/LaunchAgents/dev.sage.board.plist`, and the installed copy of the board in `~/.local/share/sage-board/service/`.
-- **The board's pages folder**: `~/.local/share/sage-board/pages/`, when the board's setup names it. The board saves its offline HTML pages there.
+- **The board's old export folder**: `~/.local/share/sage-board/pages/`, when an older board's setup named it. An older board saved its HTML file exports there; the board of today exports nothing.
 
 ## Troubleshooting
 

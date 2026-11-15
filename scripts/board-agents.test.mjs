@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildBoardModel } from "../packages/sage-core/board-model.mjs";
 import { readBoardSources, readHookNotes } from "../packages/sage-core/board-reader.mjs";
-import { renderAgentsHtml, renderBoardHtml } from "../packages/sage-core/board-render.mjs";
+import {  } from "../packages/sage-core/board-render.mjs";
 import { agentCaps } from "../packages/sage-core/logbook-fields.mjs";
 
 const NOW = "2026-10-18T12:00:00.000Z", at = Date.parse(NOW);
@@ -98,16 +98,6 @@ test("T308: Codex agents come from the logbook only: running, no activity, no he
   assert.deepEqual(model.caps, [{ label: "Claude", total: { used: 1, cap: 20 }, projects: [{ name: "sample", used: 1, cap: 3 }] }]);
 });
 
-test("T308: unreadable hook notes show every Claude run from the logbook, with activity unknown and no caps", () => {
-  const model = agents(claude([book("sample-abcdef", [run("R1", "qa", 5)])], [], { problem: "EACCES" }));
-  assert.deepEqual(rows(model).map(agent => [agent.state, agent.why]), [["unk", "no hook notes: activity unknown"]]);
-  assert.deepEqual(model.problems, [{ source: "claude", message: "its folder has no read permission" }]);
-  assert.deepEqual([model.caps, model.unmatched], [[], []]);
-  const html = renderAgentsHtml(buildBoardModel([claude([book("sample-abcdef", [run("R1", "qa", 5)])], [], { problem: "EACCES" })], { now: NOW }));
-  assert.match(html, /<b>The hook notes cannot be read<\/b> \(claude: its folder has no read permission\)/);
-  assert.match(html, /Caps: unknown · the hook notes cannot be read\./);
-});
-
 test("T308: the caps are the hook's: cap.<project>, else max_agents, and cap_total, read as the state tool reads a count", () => {
   assert.deepEqual([agentCaps({}).cap("x"), agentCaps({}).total], [10, 20]);
   const caps = agentCaps({ max_agents: "2.9", "cap.sage": 6, cap_total: "0", "cap.bad": "many" });
@@ -140,54 +130,3 @@ test("T308: the reader takes slot marks and times, helper notes by name only, an
   assert.equal(source.projects[0].logbook, sha256(join(dir, "sample-abcdef")));
 });
 
-test("T308: the page shows each state with a mark and a word, the tree, the caps and the links; logbook text is escaped", () => {
-  const lead = sha256("lead agent"), b = book("sample-abcdef", [run("R3", "lead", 50, { model: "opus" }), run("R4", "qa", 20), run("R9", "implementer", 300)]);
-  b.tables.tasks = [task("T1", `<img src=x onerror=alert(1)> title`)];
-  const model = buildBoardModel([claude([b], [
-    slot("slot-1", ["project-sample", "role-sage_lead", "run-R3", `bound-${lead}`], 1),
-    slot("slot-2", ["project-sample", "role-sage_qa", "run-R4", `parent-${lead}`], 2),
-  ], { config: { "cap.sample": 2 } })], { now: NOW });
-  const html = renderAgentsHtml(model, { live: true });
-  assert.ok(!html.includes("<img src=x"), "a task title is text");
-  assert.match(html, /<span class="st st-wait"><span class="m" aria-hidden="true">⧗<\/span>waiting<\/span>/);
-  assert.match(html, /<span class="st st-stuck"><span class="m" aria-hidden="true">!<\/span>in progress · may be stuck<\/span>/);
-  assert.match(html, /<ul aria-label="Helpers of R3"><li><div class="arow child">.*<span class="role">qa<\/span><span class="id">R4<\/span><span class="faint">helper of R3<\/span>/);
-  assert.match(html, new RegExp(`<a class="t" id="al-[\\w-]+" href="/task/${Buffer.from("claude/sample-abcdef/T1").toString("base64url")}"><span class="id">T1</span> &lt;img`));
-  assert.match(html, /<span class="cap full">.*sample 2 of 2 · at cap<\/span>/);
-  assert.match(html, /model opus<\/span><span>running 50 min<\/span><span>last activity 1 min ago/);
-  assert.ok(html.includes('<b>1 run has no hook record.</b> The logbook says R9 (sample) runs, but no agent slot holds it. Each row stays, marked "may be stuck", until the chief ends the run.</div>'), "R1449-1: the chief ends the run");
-  assert.match(html, /<b class="needn">1<\/b> with a problem flag/);
-  assert.match(html, /<a href="\/agents" aria-current="page">Agents \(3\)<\/a>/);
-  const offline = renderAgentsHtml(model);
-  assert.ok(!offline.includes('class="boardtabs"') && !offline.includes('href="/task/'));
-  assert.match(renderBoardHtml(model, { snapshot: false }), /<nav class="boardtabs" id="board-pages" aria-label="Board pages"><a href="\/" aria-current="page">Task board<\/a><a href="\/milestones">Milestones<\/a><a href="\/agents">Agents \(3\)<\/a><\/nav>/);
-  assert.ok(!renderBoardHtml(model).includes('id="board-pages"'));
-  assert.match(renderAgentsHtml(buildBoardModel([claude([book("sample-abcdef", [])])], { now: NOW }), { live: true }), /<b>No agent runs now\.<\/b>/);
-});
-
-test("T308: two clones of one name show the end of their paths only on the Mac's own page", () => {
-  const twin = (name, folder) => ({ ...book(name, [run("R1", "qa", 5)]), checkout: `/Users/sample/${folder}/trip`, repository: "https://github.com/sample/trip" });
-  const model = buildBoardModel([claude([twin("trip-aaaaaa", "one"), twin("trip-bbbbbb", "two")], [])], { now: NOW });
-  const mac = renderAgentsHtml(model, { live: true, paths: true }), remote = renderAgentsHtml(model, { live: true });
-  assert.match(mac, /…\/one\/trip · sample\/trip/);
-  assert.ok(!remote.includes("/one/trip") && remote.includes("clone 1"), "the offline snapshot shows clone 1 and clone 2");
-});
-
-test("T1062 F-T1062-1, F-T1062-2: a shared project shows its logbook's limit and its running runs, not a provider root's cap", () => {
-  const sharedBook = { ...book("sample-abcdef", [run("R1", "qa", 5, { chief: "C1" }), run("R2", "qa", 5, { chief: "C2" })]), key: "shared/sample-abcdef", source: "shared", shared: true, limits: { max_agents: 4, max_leads: 2 }, chiefs: [] };
-  const shared = { id: "shared", label: "Shared", shared: true, config: {}, diagnostics: [], projects: [sharedBook], hooks: { present: false, slots: [], helpers: [], problem: null } };
-  const model = buildBoardModel([shared, claude([], [slot("slot-1", ["project-sample", "role-sage_qa", "run-R1"], 1)], { config: { "cap.sample": 9, max_agents: 9 } })], { now: NOW });
-  assert.deepEqual(model.agents.projects.map(project => [project.name, project.cap]), [["sample", { label: "Project", used: 2, cap: 4 }]], "both chiefs' runs against the logbook's max_agents");
-  assert.deepEqual(model.agents.caps, [{ label: "Claude", total: { used: 1, cap: 20 }, projects: [] }], "the root's cap.sample is not the shared project's limit");
-  const html = renderAgentsHtml(model, { live: true });
-  assert.match(html, /Project cap 2 of 4/);
-  assert.ok(!html.includes("of 9"), "no provider root value shows");
-});
-
-test("F-T1096-6: the Agents page's key 'How each state is decided' names each state with the table's mark and words, and shows no 'undefined'", () => {
-  const html = renderAgentsHtml(buildBoardModel([claude([book("sample-abcdef", [run("R1", "qa", 5)])], [slot("slot-1", ["project-sample", "role-sage_qa", "run-R1"], 1)])], { now: NOW }));
-  const key = html.slice(html.indexOf("How each state is decided"), html.indexOf("</section>", html.indexOf("How each state is decided")));
-  assert.doesNotMatch(key, /undefined/);
-  assert.deepEqual([...key.matchAll(/<li><b>([^<]+)<\/b>/g)].map(([, name]) => name),
-    ["▶ in progress", "⧗ waiting", "! in progress · may be stuck", "! in progress · running long", "! stopped · run still open", "▶ in progress"]);
-});

@@ -1,7 +1,7 @@
 import { basename, isAbsolute, resolve, sep } from "node:path";
 import { readBoardSources } from "./board-reader.mjs";
 import { buildBoardModel, projectName } from "./board-model.mjs";
-import { renderBoardHtml, renderBoardText, renderTaskText, renderBoardStatus } from "./board-render.mjs";
+import { renderBoardText, renderTaskText, renderBoardStatus } from "./board-render.mjs";
 import { createStateTool } from "./state.mjs";
 
 export function landingRule(sources, logbookKey = null) {
@@ -21,7 +21,7 @@ export const sessionRoots = (root, legacy, provider) => [...new Set([root, ...le
 
 const fold = value => String(value).normalize("NFC").toLowerCase();
 export function boardView({ sources, scope = "all", project = null, logbookKey = null, here = null, providerRoots = [], taskId = null, format = "chat", now = new Date().toISOString() }) {
-  if (!["chat", "task", "status", "html"].includes(format)) throw new TypeError("unknown board format");
+  if (!["chat", "task", "status"].includes(format)) throw new TypeError("unknown board format");
   if (taskId !== null && !/^T[1-9]\d*$/.test(taskId)) throw new TypeError("task id must be T followed by a positive number");
   const snapshots = readBoardSources(sources, { now: Date.parse(now), logbookKey, providerRoots });
   const projects = snapshots.flatMap(source => source.projects);
@@ -54,8 +54,8 @@ export function boardView({ sources, scope = "all", project = null, logbookKey =
       const nearby = [...new Set(model.tasks.map(task => task.id))].sort((a,b) => Math.abs(Number(a.slice(1)) - Number(taskId.slice(1))) - Math.abs(Number(b.slice(1)) - Number(taskId.slice(1)))).slice(0, 3);
       throw new RangeError(`Unknown task ${taskId}. Nearest recorded ids: ${nearby.join(", ") || "none"}. No task was opened.`);
     }
-    return format === "html" ? renderBoardHtml(model, { taskKey: tasks[0].key }) : renderTaskText(tasks[0]);
+    return renderTaskText(tasks[0]);
   }
   if (format === "task") throw new TypeError("task view needs a task id");
-  return format === "html" ? renderBoardHtml(model) : format === "status" ? renderBoardStatus(model) : renderBoardText(model);
+  return format === "status" ? renderBoardStatus(model) : renderBoardText(model);
 }

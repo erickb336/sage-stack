@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { createBoardServer } from "../packages/sage-board/server.mjs";
+import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
 import { renderMessage } from "../packages/sage-core/message-checks.mjs";
 import { SWITCH_SCRIPT } from "../packages/sage-core/message-page.mjs";
 
@@ -93,7 +93,7 @@ before(async () => {
   await new Promise((accept) => other.listen(otherPort, "127.0.0.1", accept));
   before_ = process.env.SAGE_WORKTREES;
   process.env.SAGE_WORKTREES = join(dir, "worktrees");
-  board = createBoardServer({ sources: [{ id: "sample", path: join(dir, "source") }], port: boardPort });
+  board = createBoardServer({ sources: [{ id: "sample", path: join(dir, "source") }], port: boardPort, app: loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", import.meta.url))) });
   await board.start();
   browser = await chromium.launch({ headless: true, ...(process.env.BOARD_BROWSER_PATH ? { executablePath: process.env.BOARD_BROWSER_PATH } : {}) });
 });
@@ -110,7 +110,7 @@ async function context(t) {
   const ctx = await browser.newContext();
   t.after(() => ctx.close());
   const page = await ctx.newPage();
-  assert.equal((await page.goto(`http://127.0.0.1:${boardPort}/`)).status(), 200);
+  assert.equal((await page.goto(`http://127.0.0.1:${boardPort}/app/`)).status(), 200);
   await page.evaluate(() => localStorage.setItem("sage-sample", "SAMPLE board value"));
   return { ctx, page };
 }
@@ -144,7 +144,7 @@ test("with ?scripts=1 a hostile page's own script runs, but it cannot fetch the 
   assert.equal(new URL(page.url()).pathname, `/pages/${LOGBOOK}/T1/hostile.html`, "the form did not move the page");
   await page.waitForTimeout(500);
   assert.deepEqual(reached, [], "nothing reached the other site");
-  await page.goto(`http://127.0.0.1:${boardPort}/`);
+  await page.goto(`http://127.0.0.1:${boardPort}/app/`);
   assert.equal(await page.evaluate(() => localStorage.getItem("sage-sample")), "SAMPLE board value");
 });
 

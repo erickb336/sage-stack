@@ -127,17 +127,19 @@ test("T1054: the event stream sends the Overview model as JSON, and again when t
   assert.equal(second.needs[1].question, "Crash reports: <b>send</b> them?", "the model carries text, never HTML");
 });
 
-test("T1054: a copy with no built app says so at /app/, and the old board still works", async t => {
+test("T1054, T770: a copy with no built app says so at /app/, and the board's address leads there", async t => {
   const { base } = await board(t, { app: null });
   const app = await fetch(`${base}/app/`);
   assert.equal(app.status, 503);
   assert.match(await app.text(), /not built in this copy/);
-  const old = await fetch(`${base}/`);
-  assert.equal(old.status, 200);
-  assert.match(await old.text(), /Sample crash reports/);
+  const first = await fetch(`${base}/`, { redirect: "manual" });
+  assert.deepEqual([first.status, first.headers.get("location")], [302, "/app/"]);
+  const followed = await fetch(`${base}/`);
+  assert.equal(followed.status, 503);
+  assert.match(await followed.text(), /not built in this copy/);
 });
 
-test("F-T1065-4, -12: a manifest that names a missing file leaves only /app/ off, with the way to fix it, and the old board works", async t => {
+test("F-T1065-4, -12: a manifest that names a missing file leaves /app/ off, with the way to fix it", async t => {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-app-copy-")), plugin = join(ROOT, "plugins/sage/board/app");
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const manifest = JSON.parse(readFileSync(join(plugin, "manifest.json"), "utf8"));
@@ -148,7 +150,6 @@ test("F-T1065-4, -12: a manifest that names a missing file leaves only /app/ off
   const app = await fetch(`${base}/app/`);
   assert.equal(app.status, 503);
   assert.match(await app.text(), /start the board from the sage plugin's board\/cli\.mjs/);
-  assert.equal((await fetch(`${base}/`)).status, 200);
 });
 
 test("F-T1065-14: the app stream sends a model only when it changed, and refuses a 17th stream as the old board does", async t => {

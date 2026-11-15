@@ -33,7 +33,7 @@ The design of the two provider plugins is in [Separate provider packages](../des
 
 A project can use one [shared logbook](using-sage.md#shared-logbooks) for Claude and Codex, in `~/.sage` (or `SAGE_SHARED_HOME`). A new project gets one when both plugins are updated, and the chief can [move an existing project](using-sage.md#move-an-existing-project) into one. A project that did not move keeps its Codex logbook in `~/.codex/sage` (or `CODEX_HOME`), apart from Claude's.
 
-The browser board shows every logbook by default, and each card says which provider's logbook holds it.
+The board in the browser shows every logbook by default, and each task shows its chief and that chief's provider.
 
 ## What you need
 
