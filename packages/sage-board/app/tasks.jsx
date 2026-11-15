@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ago } from "./overview.jsx";
-import { ChiefDot, Panel, chiefName, controlsShown } from "./panel.jsx";
+import { ChiefDot, Panel, chiefName, controlsShown, ofChief } from "./panel.jsx";
 import { useNow } from "./use-model.js";
 
 const PRIORITIES = ["P0", "P1", "P2", "P3"];
@@ -76,7 +76,6 @@ function Group({ group, milestone, why, focus, open, shown, toggle, row }) {
 
 const Why = ({ needs }) => needs.length > 0 && <div className="why" role="note">{needs.map(need => <p key={need.key}><b>{need.question}.</b> {need.more.join(" ")}</p>)}</div>;
 
-export const ofChief = (task, chief) => !chief || task.project === chief.project && task.chief?.id === chief.id;
 const hashOf = (params, changes) => {
   const next = new URLSearchParams(params);
   for (const [key, value] of Object.entries(changes)) value ? next.set(key, value) : next.delete(key);

@@ -211,6 +211,15 @@ test("F-T1062-42: two logbooks with one display name and the same chief ids: a s
   assert.deepEqual(problems, []);
 });
 
+test("T1098 (R4165-1): two logbooks with one display name and the same chief ids: the Overview's stopped chief lists and gives only its own logbook's tasks", async t => {
+  const { page, problems } = await open(t, {}, { twin: true });
+  const owns = chief => page.locator(`li[data-stopped="${chief}"] ul.owned > li`).evaluateAll(rows => rows.map(row => `${row.querySelector("a").textContent} ${row.querySelector("a").getAttribute("href")} [${row.querySelector("button")?.textContent}]`));
+  await page.locator('li[data-stopped="shared/other-app-def456/C3"] ul.owned').waitFor();
+  assert.deepEqual(await owns(KEY("C3")), [`T70 · Sample stopped chief #tasks?task=${encodeURIComponent(KEY("T70"))} [Give to another chief]`], "C3 of the first logbook lists and offers only its own T70");
+  assert.deepEqual(await owns("shared/other-app-def456/C3"), [`T70 · Task of the other logbook #tasks?task=${encodeURIComponent("shared/other-app-def456/T70")} [Give to another chief]`], "C3 of the second logbook lists and offers only its own T70");
+  assert.deepEqual(problems, []);
+});
+
 test("F-T1062-44: a chief with no agent says that no agent is running", async t => {
   const { page, problems } = await open(t, { agents: false }, { path: "/app/#agents" });
   await box(page, "C1").waitFor();
