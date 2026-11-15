@@ -7,7 +7,7 @@ import { Overview, ago } from "./overview.jsx";
 import { Pulls } from "./pulls.jsx";
 import { Tasks } from "./tasks.jsx";
 import { useModel, useNow, when } from "./use-model.js";
-import { OBJECTS } from "../../sage-core/state-words.mjs";
+import { OBJECTS, runWord } from "../../sage-core/state-words.mjs";
 
 const THEME_KEY = "board-theme";
 const PAGES = [
@@ -145,7 +145,7 @@ export function App() {
                   {!item.hash && model && model.needs.length > 0 && <span className="count need" aria-label={`${model.needs.length} need you`}>{model.needs.length}</span>}
                   {item.hash === "tasks" && model && <span className="count" aria-label={`${open} open`}>{open}</span>}
                   {item.hash === "pull-requests" && model && <span className="count" aria-label={`${prs} open`}>{prs}</span>}
-                  {item.hash === "agents" && model && <span className="count" aria-label={`${running} running`}>{running}</span>}
+                  {item.hash === "agents" && model && <span className="count" aria-label={`${running} ${runWord("running").text}`}>{running}</span>}
                 </a>
               </li>
             ))}

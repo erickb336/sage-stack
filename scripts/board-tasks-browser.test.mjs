@@ -31,13 +31,13 @@ async function freePort() {
 async function openBoard(t, options = {}, path = "/app/") {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-tasks-browser-")), port = await freePort(), saved = process.env.SAGE_WORKTREES;
   process.env.SAGE_WORKTREES = join(dir, "worktrees");
-  const { twin, clock, ...fixture } = options, written = writeTasksLogbook(join(dir, "logbooks"), join(dir, "worktrees"), new Date().toISOString(), fixture);
+  const { twin, clock, source = { id: "shared", label: "Shared" }, ...fixture } = options, written = writeTasksLogbook(join(dir, "logbooks"), join(dir, "worktrees"), new Date().toISOString(), fixture);
   if (twin) cpSync(written, join(dir, "logbooks", "other-app-def456"), { recursive: true });
   if (twin === "one name") for (const book of [written, join(dir, "logbooks", "other-app-def456")]) {
     const config = join(book, "config.json");
     writeFileSync(config, JSON.stringify({ ...existsSync(config) && JSON.parse(readFileSync(config, "utf8")), name: "twin" }));
   }
-  const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port, app: APP, settleReads: [] });
+  const server = createBoardServer({ sources: [{ ...source, path: join(dir, "logbooks") }], port, app: APP, settleReads: [] });
   await server.start();
   const base = `http://127.0.0.1:${port}`;
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, colorScheme: "dark" });
@@ -184,6 +184,15 @@ test("T1080 (F-T1080-1): with two projects, chief groups, chief filter values an
   await settles(() => groupTitles(page), ["Claude · C1 · other-app", "Claude · C1 · sample-app", "Codex · C2 · other-app", "Codex · C2 · sample-app"]);
   assert.deepEqual((await filter(page, "chief").locator("option").allTextContents()).slice(1), ["Claude · C1 · other-app", "Claude · C1 · sample-app", "Codex · C2 · other-app", "Codex · C2 · sample-app"]);
   assert.match(await row(page, "T3").textContent(), /^P2Sample shared limitssample-appproviders/, "the row names its project");
+});
+
+test("T1099 (F-T1099-37, F-T1099-38): two logbooks with one display name keep apart in the chief groups, the chief filter and the chief chips", async t => {
+  const { page } = await open(t, { twin: "one name" }, "/app/#tasks?group=chief");
+  const titles = ["Claude · C1 · twin (other-app-def456)", "Claude · C1 · twin (sample-app-abc123)", "Codex · C2 · twin (other-app-def456)", "Codex · C2 · twin (sample-app-abc123)"];
+  await settles(() => groupTitles(page), titles);
+  assert.deepEqual((await filter(page, "chief").locator("option").allTextContents()).slice(1), titles);
+  const chips = await page.locator("button.chip[data-chief]").allTextContents();
+  assert.equal(new Set(chips).size, chips.length, `each chief chip reads differently: ${chips.join(" | ")}`);
 });
 
 test("T1098 (R4165-2): two logbooks with one display name and the same chief ids: the chief filter of Tasks and Pull requests shows only the chosen logbook's tasks", async t => {
@@ -474,6 +483,39 @@ test("T1080 (F-T1080-19): a live chief's dot has a name, and the task page says 
     await taskTitle(page).filter({ hasText: title }).waitFor();
     assert.match(await page.locator(".facts-line").textContent(), new RegExp(`Run by ${text}(?: ·|$)`));
   }
+});
+
+test("T1099 (F-T1099-56): a task in a logbook that records no chief names the logbook's provider and an unknown chief once, not \"Chief unknown (chief unknown)\"", async t => {
+  const { page, base } = await open(t, { source: { id: "claude", label: "Claude", provider: "claude" } }, "/app/#tasks");
+  await page.goto(`${base}/app/#task?key=${encodeURIComponent("claude/sample-app-abc123/T3")}`);
+  await taskTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
+  const facts = await page.locator(".facts-line").textContent();
+  assert.match(facts, /Run by Claude · chief unknown(?: ·|$)/);
+  assert.doesNotMatch(facts, /\(chief unknown\)/);
+});
+
+test("T1099 (F-T1099-47): no Tasks, Pull requests or Agents row shows a bare dash: an absent value is blank, an unknown one says unknown", async t => {
+  const { page, base } = await open(t, { agents: true, prs: true, chiefCases: true }, "/app/#tasks");
+  const dash = /(^|[\s·])[–—]([\s·]|$)/;
+  for (const [hash, cells] of [["tasks", "a.row > span"], ["pull-requests", ".facts > span, .meta > span"], ["agents", ".acard-f, .tot, a.ag .num, .chief-box .cm"]]) {
+    await page.goto(`${base}/app/#${hash}`);
+    await page.locator(cells).first().waitFor();
+    const texts = await page.locator(cells).allTextContents();
+    assert.ok(texts.length > 3, `${hash}: the page has rows`);
+    assert.deepEqual(texts.filter(text => dash.test(text.trim())), [], `${hash}: no bare dash`);
+  }
+  await page.goto(`${base}/app/#tasks`);
+  assert.equal(await row(page, "T72").locator(".pr").textContent(), "", "a task with no PR leaves the PR cell blank");
+});
+
+test("T1099 (F-T1099-64, F-T1099-72): a task address with a bad percent key, then a good one, still shows the task and its back link", async t => {
+  const { page, base, problems } = await open(t, {}, "/app/#tasks");
+  await page.goto(`${base}/app/#task?key=%E0%A4%A`);
+  await page.locator(".taskpage h1").waitFor();
+  await page.evaluate(key => { location.hash = `#task?key=${encodeURIComponent(key)}`; }, KEY("T3"));
+  await taskTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
+  assert.match(await page.locator(".taskpage a.back").textContent(), /^‹ Task /);
+  assert.deepEqual(problems.filter(problem => !/status of 404/.test(problem)), [], "no page error; the 404 is the board's answer for the bad key");
 });
 
 test("T1080 (F-T1080-3, F-T1080-22): the task page puts the question, the recommendation and the next step on their own lines; Back from an ended task puts the focus on its row", async t => {

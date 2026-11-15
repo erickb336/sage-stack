@@ -112,13 +112,13 @@ Each job is answered from the Overview in at most two clicks. `scripts/board-job
 | --- | --- | --- | --- |
 | J1 | Needs you: click the question. The question view shows the question, its context and the answers, with "Read the full question" for the reader. | 1 | `J1 at <width> px: one click on a Needs you row opens the question …` |
 | J2 | The Milestones card shows each milestone by priority (0 clicks). Tasks, then "Priority" in Group by, gives the groups P0 to P3. | 0 and 2 | `J2 at <width> px: the milestones stand by priority …` |
-| J3 | Click a milestone (the Tasks page at that milestone), then a task row. The task page shows the steps, About this task, and the tabs Artifacts, Log and Decisions. Below 1024 px the first click is Tasks in the menu, because the milestone rows do not fit a phone-width window yet. | 2 | `J3 at <width> px: a milestone, then a task, shows the task's dev cycle …` |
-| J4 | The top bar: "Agents 8 of 20 · C1 4 · C2 4 · 3 queued" and "Leads 4 of 5" (0 clicks). A click on the count opens the Agents page, with a box for each chief. | 0 and 1 | `J4 at <width> px: the top bar counts the agents …` |
+| J3 | Click a milestone (the Tasks page at that milestone), then a task row. The task page shows the steps, About this task, and the tabs Artifacts, Log and Decisions. | 2 | `J3 at <width> px: a milestone, then a task, shows the task's dev cycle …` |
+| J4 | The top bar: "Agents 8 of 20 · C1 4 · C2 4 · 3 waiting" and "Leads 4 of 5" (0 clicks). A click on the count opens the Agents page, with a box for each chief. | 0 and 1 | `J4 at <width> px: the top bar counts the agents …` |
 | J5 | Pull requests: the groups by next action. Graph: what waits for what. | 1 and 2 | `J5 at <width> px: Pull requests groups each PR …` |
 | J6 | The counts at the end of the Overview: merged, failed or may be stuck, new tasks. | 0 | `J6 at <width> px: the Overview counts what changed …` |
 | J7 | The chief chips: a dot for live or stopped, and "autopilot on" or "autopilot off". | 0 | `J7 at <width> px: each chief's chip says …` |
 
-The ux-review checklist above applies to each page. Its line 14 (from 1024 px wide) holds; a phone-width window works for every job, and its layout polish is task T1099's.
+The ux-review checklist above applies to each page. Its line 14 (from 1024 px wide) holds, and a phone-width window (390 px) works for every job too, with the narrow layout of T1099.
 
 ### What T770 retired
 

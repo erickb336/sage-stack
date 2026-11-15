@@ -98,7 +98,7 @@ function stepLine({ task, route, cycles, required, head, judged, reasons, proble
   const failed = reviewing && judged && !allClean ? cycles[at].steps.filter(step => step.status === "failed").map(step => ROLE_WORD[step.role] ?? step.role) : [];
   let [step, who, started] = PHASE[state];
   if (allClean) [step, who, started] = ["merge", "chief", false];
-  if (["verified", "pr-ready"].includes(state) && (autopilot || !build)) who = "chief";
+  if (["verified", "pr-ready"].includes(state) && (autopilot || !build) && !reasons.length) who = "chief";
   if (state === "awaiting-you" && answered) who = "chief";
   if (gate && who !== "done") who = "owner";
   else if (problems.length && who === "owner") who = "chief";
@@ -157,7 +157,7 @@ function stepLine({ task, route, cycles, required, head, judged, reasons, proble
   }
 
   const mergeDetail = { before: build ? task.state === "concluded" ? "Closed with no merge." : "Merged." : "The report went to you.", after: build ? `After ${plural(required, "clean cycle")}${required > 1 ? " on one commit" : ""}.` : "The report goes to you." }[place("merge")]
-    ?? heldAt ?? (!build ? "The chief concludes it." : task.state === "verifying" || allClean ? "The chief checks the verdicts first." : merge && !merge.ok ? merge.text
+    ?? (heldAt && merge && !merge.ok ? `${merge.text} ${heldAt}` : heldAt) ?? (!build ? "The chief concludes it." : task.state === "verifying" || allClean ? "The chief checks the verdicts first." : merge && !merge.ok ? merge.text
       : `${merge ? `${merge.text} ` : ""}${autopilot ? "Autopilot merges it."
       : reasons.some(reason => reason.kind === "merge" && reason.mode) ? "Autopilot is off, so the merge waits for you." : "The board cannot tell if autopilot is on, so the merge waits for you."}`);
   steps.push({ key: "merge", label: build ? "Merge" : "Conclude", status: mark("merge"), detail: mergeDetail });
@@ -192,7 +192,7 @@ function stepLine({ task, route, cycles, required, head, judged, reasons, proble
     "awaiting-you": answered ? `The chief briefs ${NAME.build}.` : `${cap(NAME.build)} is briefed after your answer.`,
     briefed: `${cap(NAME.build)}.`,
     building: build ? `Review cycle 1 of ${required}, ${task.pr ? "on the PR's last commit" : "when the PR opens"}.` : `${cap(reviewName(1))}.`,
-    held: answered ? `${cap(NAME.build)} goes on, or the chief briefs it again.` : "The chief asks you how to go on.",
+    held: answered ? `${cap(NAME.build)} goes on, or the chief briefs it again.` : "The chief decides how it goes on. If it needs you, its question shows in Needs you.",
     replan: "The chief briefs it again.",
     reviewing: allClean ? build ? "The chief checks the verdicts, then the merge." : "The chief checks the evidence review, then the conclusion."
       : failed.length ? build ? "A repair round, then the reviews start again at cycle 1." : "A repair round, then the evidence review starts again."

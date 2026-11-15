@@ -58,6 +58,11 @@ The same words and marks show the steps of a task and the agents, from one table
 - `!` is a problem: failed, blocked, may be stuck, running long or run still open. The problem shows after the word, for example "in progress · may be stuck".
 - `◌` is a state that the board does not know. It reads "unknown".
 
+Two marks are not states:
+
+- `⊘` is a wait that is never met: the task that it waits for stopped, so this task cannot start. For example "⊘ Waits for T20 (pilot, stopped): it cannot start".
+- 🔴 starts the chat board's top line, before the count of items that need you.
+
 Each kind tag (for example `◇ Design` or `⋈ Orchestration`) and the offer line (`⇄`) have marks of their own, which no state uses.
 
 - A wait names the word of the task that it waits for, for example "Waits for T12 (in progress)".
@@ -84,7 +89,7 @@ The board in the browser answers seven questions. Each answer is at most two cli
 
 The address of the board opens the Overview. From the top:
 
-- **The top bar:** the counts of agents and leads against the project's limits, for example "Agents 8 of 20 · C1 4 · C2 4 · 3 queued" and "Leads 4 of 5". A count turns amber at its limit, and a click opens the Agents page.
+- **The top bar:** the counts of agents and leads against the project's limits, for example "Agents 8 of 20 · C1 4 · C2 4 · 3 waiting" and "Leads 4 of 5". A count turns amber at its limit, and a click opens the Agents page.
 - **The time and the theme:** "Live · read 10:56" gives the time of the last read. The board is dark until you choose the light theme with the switch, and it keeps your choice in this browser.
 - **The chief chips:** one chip for each chief, Claude and Codex alike, with a green dot for a live chief, a yellow dot for a chief that waits for your answer, a ring for a stopped chief, and "autopilot on" or "autopilot off". A click on a chip shows only that chief's work, on each page; "All chiefs" shows all again.
 - **Needs you:** each open question and each problem, oldest first, with its chief, its task and when it was asked. A click on a question opens the [question view](#the-question-view-and-the-reader).
@@ -179,7 +184,7 @@ A page says "not written yet" while its run runs, "not kept" for a run older tha
 
 The board is for a desktop window from 1024 px wide. A narrower window still works: below 900 px, the menu moves above the page, and the cards and the answers stack in one column.
 
-Some rows, such as the milestone rows of the Overview, do not fit a phone-width window yet. The board is for this Mac only: it has no phone or remote access.
+The board is for this Mac only: it has no phone or remote access.
 
 ## Act from the board
 

@@ -54,7 +54,8 @@ test("T1054: the Overview answers J1 and J2 with no click, from the logbook, and
   assert.match(await page.locator(".needs li").first().textContent(), /Recommended: A: yes, as a new private list.*G4.*T10 · Sample sync design.*asked 3 h ago/);
   assert.deepEqual(await texts(page.locator(".ms .name")), ["Milestone 2: Offline syncP0in progress", "Milestone 1: Board redesignP1in progress", "Milestone 3: Sign-in reworkdone"], "J2: milestones by priority");
   assert.deepEqual(await texts(page.locator(".ms .of")), ["0 of 2 merged", "1 of 4 merged", "2 of 2 merged"]);
-  assert.deepEqual(await texts(page.locator(".kpi .n")), ["1", "1", "–"]);
+  assert.deepEqual(await texts(page.locator(".kpi .n")), ["1", "1", "unknown"]);
+  assert.equal(await page.locator('.kpi[data-count="stuck"] .l').textContent(), "failed, may be stuck or run still open", "T1099 (F-T1099-51): the label names each flag that the count counts");
   assert.equal(await page.locator(".counts h2").textContent(), "In the last 24 hours");
   assert.equal(await page.locator("header.top a.limit").first().textContent(), "Agents 1 of 10 · no chief 1", "a logbook with no limit in its config has the default limit");
   await page.getByRole("navigation", { name: "Pages" }).getByRole("link", { name: /^Agents/ }).click();

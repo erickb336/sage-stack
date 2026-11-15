@@ -89,7 +89,7 @@ for (const width of WIDTHS) {
   test(`J3 at ${width} px: a milestone, then a task, shows the task's dev cycle and what its agents made`, async t => {
     const clicks = await walk(t, "J3", width, async (page, click) => {
       const milestone = page.locator(`a[href="#tasks?milestone=${encodeURIComponent(KEY("M1"))}"]`);
-      await click(width >= 1024 ? milestone : page.locator('nav a[href="#tasks"]').first());
+      await click(milestone);
       await page.locator("main h1", { hasText: "Tasks" }).waitFor();
       await click(page.locator(`a.row[href="#task?key=${encodeURIComponent(KEY("T3"))}"]`));
       await page.locator(".taskpage h1", { hasText: "Sample shared limits" }).waitFor();
@@ -129,7 +129,7 @@ for (const width of WIDTHS) {
       const counts = page.locator("section.counts");
       assert.match(await counts.locator("h2").textContent(), /In the last 24 hours|Since you looked/);
       assert.match(await counts.textContent(), /\d+\s*Merged/);
-      assert.match(await counts.textContent(), /failed or may be stuck/);
+      assert.match(await counts.textContent(), /\d+\s*failed/);
     });
     assert.equal(clicks, 0);
   });

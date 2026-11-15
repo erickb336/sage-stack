@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { when } from "./use-model.js";
-import { UNKNOWN, chiefName } from "../../sage-core/state-words.mjs";
+import { UNKNOWN, chiefName, runWord } from "../../sage-core/state-words.mjs";
 import { chiefState, chiefSub, encodeKey, taskLink } from "./task.jsx";
 
 const TOKEN_KEY = "board-token";
@@ -88,7 +88,7 @@ function ChiefMenu({ chief, onFilter, close }) {
       <dl className="facts">
         <dt>Started</dt><dd>{chief.startedAt ? when(chief.startedAt) : UNKNOWN}</dd>
         <dt>Last event</dt><dd>{chief.heartbeat ? clock(chief.heartbeat) : UNKNOWN}</dd>
-        <dt>Agents</dt><dd>{chief.agents} running</dd>
+        <dt>Agents</dt><dd>{chief.agents} {runWord("running").text}</dd>
         <dt>Autopilot</dt><dd>{chief.autopilot === null ? UNKNOWN : chief.autopilot ? "on" : "off"} · you switch it in the chief's chat</dd>
       </dl>
       {writes === "paired" ? (
