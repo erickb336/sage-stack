@@ -380,3 +380,14 @@ test("F-T1081-27: a held task and a task that you answered, each with a PR, show
   assert.deepEqual(await row(page, "T92").locator(".meta .badge").allTextContents(), ["you answered"]);
   assert.deepEqual(await row(page, "T93").locator(".meta .badge").allTextContents(), [], "agents build it: the group says so, and the row needs no note");
 });
+
+test("F-T1081-28: when the graph fails to draw, the page says so and the list still works", async t => {
+  const { page } = await open(t, {}, "/app/#pull-requests");
+  await row(page, "T5").waitFor();
+  await page.evaluate(() => { window.ResizeObserver = class { constructor() { throw new Error("sample failure"); } }; });
+  await page.getByRole("button", { name: "Graph" }).click();
+  await page.getByRole("alert").filter({ hasText: "The board could not draw the graph. The list view shows each pull request." }).waitFor({ timeout: 5_000 });
+  assert.equal(await page.locator("main h1").textContent(), "Pull requests", "the rest of the page stays");
+  await page.getByRole("button", { name: "List" }).click();
+  await row(page, "T5").waitFor({ timeout: 5_000 });
+});
