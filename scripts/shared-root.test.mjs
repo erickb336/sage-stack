@@ -1,11 +1,13 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
 import { actorOptions, locate as claudeLocate, sage as claudeRun, sageRoot as claudeRootOf } from "../plugins/sage/skills/sage/sage.mjs";
 import { tool } from "../plugins/sage-codex/skills/sage/sage.mjs";
 import { buildBoardModel, createStateTool, readBoardSources, renderBoardHtml, renderBoardText, renderTaskText, sharedRoot } from "../packages/sage-core/index.mjs";
@@ -54,6 +56,190 @@ const refusalOf = (call) => {
   assert.fail("no refusal");
 };
 const NOTE = "Note: no sage command can change this answer later.";
+
+function identityWorld(t, name) {
+  const base = join(realpathSync(tmpdir()), name);
+  assert.equal(existsSync(base), false, "the fixture starts in a fresh scratch folder");
+  mkdirSync(base);
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  const env = { ...process.env, HOME: join(base, "home"), CLAUDE_CONFIG_DIR: join(base, "claude"), CODEX_HOME: join(base, "codex"), SAGE_HOME: join(base, "claude", "sage"), SAGE_SHARED_HOME: join(base, "shared"), SAGE_WORKTREES: join(base, "pages"), SAGE_TEST_PIDS: "{}" };
+  const repo = (project) => {
+    mkdirSync(project, { recursive: true });
+    git(project, "init", "-q", "-b", "main");
+    git(project, "-c", "user.name=Erick Benitez-Ramos", "-c", "user.email=141277478+erickb336@users.noreply.github.com", "commit", "-q", "--allow-empty", "-m", `first of ${project}`);
+    assert.equal(realpathSync(project), project, "the checkout path is canonical");
+    return project;
+  };
+  const run = (project, ...args) => claudeSage([...args, "--project", project], env);
+  const read = (file) => existsSync(file) ? readFileSync(file, "utf8") : null;
+  const snapshot = (dir) => ({
+    identity: read(join(dir, "checkout.txt")),
+    tables: Object.fromEntries(readdirSync(dir).filter((file) => file.endsWith(".tsv")).sort().map((file) => [file, read(join(dir, file))])),
+    registries: Object.fromEntries([env.SAGE_HOME, join(env.CODEX_HOME, "sage"), env.SAGE_SHARED_HOME].flatMap((root) => ["projects.tsv", "projects.made", "bindings.tsv"].map((file) => [join(root, file), read(join(root, file))]))),
+  });
+  return { base, env, repo, run, snapshot };
+}
+
+test("T847: legacy initialization refuses a different canonical checkout with the same short key", (t) => {
+  const w = identityWorld(t, "t847-legacy-collision"), seen = new Map();
+  let pair;
+  for (let i = 0; i < 100000 && !pair; i++) {
+    const path = join(w.base, String(i), "project");
+    const key = createHash("sha1").update(path).digest("hex").slice(0, 6);
+    if (seen.has(key)) pair = [seen.get(key), path, key];
+    else seen.set(key, path);
+  }
+  assert.ok(pair, "the deterministic candidate sequence contains a six-character collision");
+  const [a, b, key] = pair;
+  w.repo(a);
+  w.repo(b);
+  assert.notEqual(a, b, "the canonical checkout paths differ");
+  assert.equal(basename(a), basename(b), "the checkouts have the same slug");
+  assert.match(key, /^[0-9a-f]{6}$/);
+  const dir = tool.storeDir(a, w.env);
+  assert.equal(basename(dir), `project-${key}`);
+  assert.equal(tool.storeDir(b, w.env), dir, "both real checkouts resolve to the same short key");
+  mkdirSync(w.env.SAGE_SHARED_HOME, { recursive: true });
+  writeFileSync(join(w.env.SAGE_SHARED_HOME, "plugins.tsv"), "provider\tcontract\tat\nclaude\t2\t2026-11-03T00:00:00Z\ncodex\t1\t2026-11-03T00:00:00Z\n");
+  assert.equal(w.run(a, "init"), `logbook ${dir}`, "a supported older provider keeps initialization legacy");
+  assert.equal(dirname(dir), w.env.SAGE_HOME);
+  assert.equal(claudeLocate(a, w.env).shared, false);
+  assert.equal(existsSync(join(w.env.SAGE_SHARED_HOME, "bindings.tsv")), false);
+  assert.match(w.run(a, "task", "add", "--priority", "P2", "--title", "Original checkout task", "--size", "tiny"), /^T1 /);
+  const before = w.snapshot(dir);
+  assert.equal(before.identity, `${a}\n`);
+  assert.deepEqual(tool.read(dir, "tasks").map(({ id, title }) => ({ id, title })), [{ id: "T1", title: "Original checkout task" }]);
+  assert.ok(before.registries[join(w.env.SAGE_HOME, "projects.tsv")], "the project registry exists before B initializes");
+  let refusal = null, output = null;
+  try { output = w.run(b, "init"); } catch (error) { refusal = error.message; }
+  const after = w.snapshot(dir);
+  t.diagnostic(JSON.stringify({ a, b, key, legacy: true, output, refusal, identityUnchanged: after.identity === before.identity, tablesUnchanged: JSON.stringify(after.tables) === JSON.stringify(before.tables), registriesUnchanged: JSON.stringify(after.registries) === JSON.stringify(before.registries), tableCount: Object.keys(before.tables).length }));
+  assert.deepEqual({ refused: refusal !== null, snapshot: after }, { refused: true, snapshot: before }, "B must refuse and preserve A's identity, every task table and each registry");
+  const pluginBefore = readFileSync(join(w.env.SAGE_SHARED_HOME, "plugins.tsv"), "utf8");
+  assert.throws(() => tool.sage(["init", "--project", b], w.env), /checkout identity/);
+  assert.equal(readFileSync(join(w.env.SAGE_SHARED_HOME, "plugins.tsv"), "utf8"), pluginBefore, "a refused initializer cannot register another provider");
+  assert.deepEqual(w.snapshot(dir), before);
+});
+
+test("T847: shared occupied destination control refuses and preserves its existing records", (t) => {
+  const w = identityWorld(t, "t847-shared-control");
+  const a = w.repo(join(w.base, "project")), other = w.repo(join(w.base, "other"));
+  w.run(other, "link", "--separate");
+  const otherDir = tool.storeDir(other, w.env), occupied = join(w.env.SAGE_SHARED_HOME, basename(tool.storeDir(a, w.env)));
+  assert.throws(() => w.run(a, "link", "--to", basename(otherDir)), /belongs to another project .*no first commit in common/);
+  mkdirSync(occupied);
+  const before = w.snapshot(otherDir), occupiedBefore = readdirSync(occupied);
+  assert.throws(() => w.run(a, "link", "--separate"), /already in use/);
+  assert.deepEqual(w.snapshot(otherDir), before);
+  assert.deepEqual(readdirSync(occupied), occupiedBefore);
+  t.diagnostic("occupied shared destination refused; existing identity, tables, registries and occupied folder stayed unchanged");
+});
+
+function legacyIdentityWorld(t, name) {
+  const w = identityWorld(t, name);
+  mkdirSync(w.env.SAGE_SHARED_HOME, { recursive: true });
+  writeFileSync(join(w.env.SAGE_SHARED_HOME, "plugins.tsv"), "provider\tcontract\tat\nclaude\t2\t2026-11-03T00:00:00Z\ncodex\t1\t2026-11-03T00:00:00Z\n");
+  return w;
+}
+
+test("T847: legacy retries retain identity through canonical aliases and linked worktrees", (t) => {
+  const w = legacyIdentityWorld(t, "t847-retry"), project = w.repo(join(w.base, "project"));
+  const dir = tool.storeDir(project, w.env);
+  mkdirSync(dir, { recursive: true });
+  assert.equal(w.run(project, "init"), `logbook ${dir}`, "an empty unbound folder initializes");
+  w.run(project, "task", "add", "--title", "Keep this task", "--size", "tiny", "--priority", "P2");
+  const alias = join(w.base, "alias"), tree = join(w.base, "tree");
+  symlinkSync(project, alias);
+  git(project, "worktree", "add", "-q", "-b", "feature", tree);
+  writeFileSync(join(dir, "checkout.txt"), `${alias}\n`);
+  const before = w.snapshot(dir);
+  for (const path of [project, alias, tree, project]) {
+    assert.equal(w.run(path, "init"), `logbook ${dir}`);
+    assert.deepEqual(w.snapshot(dir), before, "a retry preserves the recorded alias and tasks");
+  }
+});
+
+test("T847: a shared explicit link and its worktree can retry initialization", (t) => {
+  const w = identityWorld(t, "t847-shared-retry"), project = w.repo(join(w.base, "project"));
+  w.run(project, "link", "--separate");
+  const dir = tool.storeDir(project, w.env), clone = join(w.base, "clone"), tree = join(w.base, "tree");
+  git(w.base, "clone", "-q", project, clone);
+  w.run(clone, "link", "--to", basename(dir));
+  git(clone, "worktree", "add", "-q", "-b", "feature", tree);
+  w.run(project, "init");
+  const before = w.snapshot(dir);
+  for (const path of [project, clone, tree]) {
+    assert.equal(w.run(path, "init"), `logbook ${dir}`);
+    assert.deepEqual(w.snapshot(dir), before);
+  }
+  assert.equal(before.identity, null, "shared bindings remain the identity authority");
+});
+
+test("T847: missing or damaged legacy identity refuses before tables or registries change", (t) => {
+  const w = legacyIdentityWorld(t, "t847-damaged"), project = w.repo(join(w.base, "project"));
+  w.run(project, "init");
+  const dir = tool.storeDir(project, w.env), file = join(dir, "checkout.txt");
+  for (const value of [null, "", "relative\n", `${project}\nextra\n`, `${join(w.base, "gone")}\n`]) {
+    if (value === null) rmSync(file);
+    else writeFileSync(file, value);
+    const before = w.snapshot(dir);
+    assert.throws(() => w.run(project, "init"), /checkout identity/);
+    assert.deepEqual(w.snapshot(dir), before);
+    assert.throws(() => w.run(project, "task", "add", "--title", "Must not exist", "--size", "tiny", "--priority", "P2"), /checkout identity/);
+    assert.deepEqual(w.snapshot(dir), before, "task creation cannot overwrite the identity either");
+  }
+  rmSync(file);
+  const target = join(w.base, "identity");
+  writeFileSync(target, `${project}\n`);
+  symlinkSync(target, file);
+  const before = w.snapshot(dir);
+  assert.throws(() => w.run(project, "init"), /not a regular file/);
+  assert.deepEqual(w.snapshot(dir), before);
+  assert.equal(readFileSync(target, "utf8"), `${project}\n`);
+});
+
+async function concurrentInitializations(env, projects) {
+  const workers = projects.map((project) => new Worker(new URL("./fixtures/identity-init.mjs", import.meta.url), { workerData: { env, project } }));
+  const exits = workers.map((worker) => new Promise((resolve, reject) => {
+    worker.once("error", reject);
+    worker.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`initializer worker exited ${code}`)));
+  }));
+  const message = (worker) => new Promise((resolve, reject) => { worker.once("message", resolve); worker.once("error", reject); });
+  try {
+    assert.deepEqual(await Promise.all(workers.map(message)), projects.map(() => "ready"));
+    const results = workers.map(message);
+    for (const worker of workers) worker.postMessage("initialize");
+    return await Promise.all(results);
+  } finally {
+    await Promise.all(exits);
+  }
+}
+
+test("T847: concurrent legacy creators and retries keep one checkout identity", async (t) => {
+  const w = legacyIdentityWorld(t, "t847-concurrent"), seen = new Map();
+  let pair;
+  for (let i = 0; i < 100000 && !pair; i++) {
+    const path = join(w.base, String(i), "project"), key = createHash("sha1").update(path).digest("hex").slice(0, 6);
+    if (seen.has(key)) pair = [seen.get(key), path];
+    else seen.set(key, path);
+  }
+  assert.ok(pair);
+  pair.forEach(w.repo);
+  const [a, b] = pair, dir = tool.storeDir(a, w.env);
+  assert.equal(tool.storeDir(b, w.env), dir);
+  const results = await concurrentInitializations(w.env, [a, b]);
+  assert.equal(results.filter(({ ok }) => ok).length, 1, JSON.stringify(results));
+  const winner = pair[results.findIndex(({ ok }) => ok)], loser = pair.find((path) => path !== winner);
+  assert.equal(readFileSync(join(dir, "checkout.txt"), "utf8"), `${winner}\n`);
+  w.run(winner, "task", "add", "--title", "Winner task", "--size", "tiny", "--priority", "P2");
+  const before = w.snapshot(dir);
+  const retries = await concurrentInitializations(w.env, [winner, winner, loser]);
+  assert.deepEqual(retries.map(({ ok }) => ok), [true, true, false]);
+  assert.deepEqual(w.snapshot(dir), before);
+  const fresh = w.repo(join(w.base, "fresh"));
+  assert.deepEqual((await concurrentInitializations(w.env, [fresh, fresh])).map(({ ok }) => ok), [true, true]);
+  assert.equal(tool.read(tool.storeDir(fresh, w.env), "tasks").length, 0);
+});
 
 test("one function picks the shared root: the fixed option, SAGE_SHARED_HOME, <SAGE_HOME>/shared, then ~/.sage", () => {
   const all = { HOME: "/h", SAGE_HOME: "/s", SAGE_SHARED_HOME: "/x" };

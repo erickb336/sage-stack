@@ -2864,12 +2864,14 @@ test("T72-Q6-RECOMMEND: gate add takes a recommendation and a default among the 
   assert.match(s.ok(...add("--options", "yes|otherwise: no", "--recommend", "1")), /^G2 open/, "a word that only starts with other passes");
 });
 
-test("T72-Q6-CHECKOUT: init and task add name the project's main checkout in checkout.txt", () => {
+test("T72-Q6-CHECKOUT: init records the checkout and task add refuses a missing identity", () => {
   const s = store();
   assert.equal(readFileSync(join(s.dir, "checkout.txt"), "utf8"), `${s.project}\n`);
   rmSync(join(s.dir, "checkout.txt"));
-  s.ok("task", "add", "--priority", "P2", "--title", "t", "--size", "tiny");
-  assert.equal(readFileSync(join(s.dir, "checkout.txt"), "utf8"), `${s.project}\n`);
+  const before = snapshot(s.dir);
+  assert.match(s.no("task", "add", "--priority", "P2", "--title", "t", "--size", "tiny"), /checkout identity .* is missing/);
+  assert.deepEqual(snapshot(s.dir), before);
+  assert.equal(existsSync(join(s.dir, "checkout.txt")), false);
 });
 
 test("F-R64-2: a table that is a link to nothing refuses a write before any change", () => {

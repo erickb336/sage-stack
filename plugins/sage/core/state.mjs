@@ -191,8 +191,19 @@ const unhex = (hex) => {
   } catch {}
 };
 const looks = (s) => String(s).normalize("NFKC").replace(/[\p{Cc}\p{Cf}]/gu, "").replace(/\s+/g, " ").trim().toLowerCase();
-const checkout = (dir, project, env) => {
-  if (!isShared(dir, env)) put(join(dir, "checkout.txt"), `${projectRoot(resolve(project))}\n`);
+const checkout = (dir, project, env, initialize = false) => {
+  if (isShared(dir, env)) return;
+  const file = join(dir, "checkout.txt"), root = projectRoot(resolve(project));
+  const saved = readRegular(file, { link: false, max: 65536 });
+  if (saved !== undefined) {
+    const path = saved.replace(/\r?\n$/, "");
+    if (!isAbsolute(path) || /[\r\n\0]/.test(path) || !sameDir(projectRoot(path), root))
+      refuse(`The checkout identity in ${file} does not match this project. Nothing changed. Ask the owner to check the logbook and its checkout.`);
+    return;
+  }
+  if (!initialize || readdirSync(dir).some((name) => name !== ".lock" && !new RegExp(`^\\.lock\\.${UUID}$`).test(name)))
+    refuse(`The checkout identity in ${file} is missing. Nothing changed. Ask the owner to restore it from a backup.`);
+  put(file, `${root}\n`);
 };
 
 
@@ -2130,7 +2141,6 @@ function adoptTask(dir, g, opt, project, env) {
   if (at.config) return ` · origin/main ${at.main.slice(0, 7)} has a root ${LINT_CONFIG} now, so sage frames no task.`;
   const languages = projectLanguages(at.top, at.main), tools = toolsDir(dir), own = astGrepBinary(at.top, tools);
   const task = frame(dir, `Add the no-comments lint rules for ${languageList(languages) || "the project"}`, "small", [], [], { priority: "P2", ...chiefTag(opt) });
-  checkout(dir, project, env);
   const folder = pagesDir(project, task.id, env), page = join(folder, "brief.md");
   mkdirSync(folder, { recursive: true, mode: 0o700 });
   writeFileSync(page, adoptBrief({ task: task.id, gate: g.id, top: at.top, main: at.main, languages, binary: own ?? join(tools, "node_modules", ".bin", "ast-grep"), standing: `sage standing --project ${shell(at.top)}` }), { mode: 0o600 });
@@ -2567,7 +2577,8 @@ function sageCommand(argv, env) {
     refuse(`no logbook for the project ${printed}. ${printed === project ? `Run: sage init --project ${shell(project)}` : "Its path has control characters, so no command is printed to paste. Rename the folder, or run sage init from inside it."}`);
   }
   if (readOnly || (cmd === "logbook" && !repair) || cmd === "status" || cmd === "stats" || (cmd === "standing" && pos[0] !== "add") || (cmd === "pages" && pos[1] !== "record") || cmd === "message" || cmd === "worktrees" || (cmd === "storage" && pos[0] !== "clean")) return act(cmd, pos, opt, dir, env, [], project);
-  notePlugin(env);
+  const deferredPlugin = cmd === "init" && !place.shared && (existsSync(dir) || place.legacy);
+  if (!deferredPlugin) notePlugin(env);
   if (place.row && !place.row.commits && fillCommits(place.checkout, env)) locate(project, env);
   const run = () => change(cmd, pos, opt, dir, env, skip, project, place.shared);
   if (cmd !== "init") return run();
@@ -2577,6 +2588,7 @@ function sageCommand(argv, env) {
   known(dirname(dir), basename(dir), () => {
     out = makeLogbook(dir, project, env);
   });
+  if (deferredPlugin) notePlugin(env);
   return out;
 }
 
@@ -2614,6 +2626,7 @@ function lostChangeLine(dir, { request, aside }) {
 function change(cmd, pos, opt, dir, env, skip, project, guarded) {
   const changeLoss = opt["accept-change-loss"] !== undefined;
   return withLock(dir, () => {
+    checkout(dir, project, env, cmd === "init");
     if (!changeLoss) ready(dir, env, skip);
     if (guarded) opt.chief = guard(dir, cmd, pos, opt, project, env);
     if (!changeLoss && !skip.length && isShared(dir, env)) moveLimits(dir, env, cmd === "init");
@@ -2929,8 +2942,7 @@ function actorOptions(project, [cmd, ...rest], { native, leadTask }, env = proce
 }
 
 function makeLogbook(dir, project, env) {
-  mkdirSync(join(dir, "briefs"), { recursive: true });
-  mkdirSync(join(dir, "reports"), { recursive: true });
+  mkdirSync(dir, { recursive: true });
   return change("init", [], Object.create(null), dir, env, [], project);
 }
 
@@ -3074,9 +3086,10 @@ function act(cmd, pos, opt, dir, env, skip, project) {
       return `${task.id} unclaimed · no owning chief. Only ${opt.chief} claims it back; another chief needs the owner's takeover gate.`;
     }
     case "init":
+      mkdirSync(join(dir, "briefs"), { recursive: true });
+      mkdirSync(join(dir, "reports"), { recursive: true });
       for (const t of Object.keys(TABLES).reverse()) if (!existsSync(join(dir, `${t}.tsv`))) write(dir, t, []);
       if (!existsSync(join(dir, "standing.md"))) put(join(dir, "standing.md"), STANDING);
-      checkout(dir, project, env);
       return `logbook ${dir}`;
     case "logbook": {
       if (sub !== "repair") return dir;
@@ -3166,7 +3179,6 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         if (noArena === "") refuse(`--no-arena needs the reason: --no-arena "<reason>". Nothing changed.`);
         const arena = byDefault && noArena === undefined;
         const task = frame(dir, need(opt.title, "--title"), size, risk, [...list(opt.add), ...(arena ? ["arena"] : [])], tags);
-        checkout(dir, project, env);
         const at = now(), joined = milestoneDecision(task, "", at, "task add", graph), count = config(env, dir).arena;
         const decided = [...(opt.add ? [{ at, task: task.id, decision: `added ${opt.add}`, why }] : []),
           ...(arena ? [{ at, task: task.id, decision: `added arena · ${count} candidates`, why: `by default: a large ${tags.kind} task` }] : []),
