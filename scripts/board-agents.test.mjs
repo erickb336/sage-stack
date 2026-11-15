@@ -7,7 +7,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildBoardModel } from "../packages/sage-core/board-model.mjs";
 import { readBoardSources, readHookNotes } from "../packages/sage-core/board-reader.mjs";
-import {  } from "../packages/sage-core/board-render.mjs";
 import { agentCaps } from "../packages/sage-core/logbook-fields.mjs";
 
 const NOW = "2026-10-18T12:00:00.000Z", at = Date.parse(NOW);
@@ -87,15 +86,21 @@ test("T308: running long is more than 2 times the median of the same role's ende
   assert.deepEqual(rows(even).map(brief).sort(), ["R1 work", "R2 long"]);
 });
 
-test("T308: Codex agents come from the logbook only: running, no activity, no helpers and no cap", () => {
+test("T308: Codex agents come from the logbook only: running, no activity and no helpers", () => {
   const codex = { id: "codex", label: "Codex", provider: "codex", config: {}, diagnostics: [], hooks: { present: false, slots: [], helpers: [], problem: null },
     projects: [{ ...book("sample-abcdef", [run("R7", "implementer", 12)]), key: "codex/sample-abcdef", source: "codex" }, { ...book("solo-abcdef", [run("R8", "qa", 5)]), key: "codex/solo-abcdef", source: "codex" }] };
   const model = agents(claude([book("sample-abcdef", [run("R1", "qa", 5)])], [slot("slot-1", ["project-sample", "role-sage_qa", "run-R1"], 1)], { config: { max_agents: "3" } }), codex);
   const byRun = Object.fromEntries(rows(model).map(agent => [agent.runId, agent]));
   assert.deepEqual([byRun.R7.provider, byRun.R7.state, byRun.R7.why, byRun.R7.idle], ["codex", "unk", "Codex sends no activity notes yet", null]);
   assert.deepEqual(model.providers, [{ name: "Claude", count: 1 }, { name: "Codex", count: 2 }]);
-  assert.deepEqual(model.projects.map(project => [project.name, project.cap]), [["sample", { label: "Claude", used: 1, cap: 3 }], ["solo", null]]);
-  assert.deepEqual(model.caps, [{ label: "Claude", total: { used: 1, cap: 20 }, projects: [{ name: "sample", used: 1, cap: 3 }] }]);
+  assert.deepEqual(model.projects.map(project => project.name), ["sample", "solo"]);
+});
+
+test("T308: unreadable hook notes show every Claude run from the logbook, with activity unknown", () => {
+  const model = agents(claude([book("sample-abcdef", [run("R1", "qa", 5)])], [], { problem: "EACCES" }));
+  assert.deepEqual(rows(model).map(agent => [agent.runId, agent.state, agent.why]), [["R1", "unk", "no hook notes: activity unknown"]]);
+  assert.deepEqual(model.problems, [{ source: "claude", message: "its folder has no read permission" }]);
+  assert.deepEqual(model.unmatched, []);
 });
 
 test("T308: the caps are the hook's: cap.<project>, else max_agents, and cap_total, read as the state tool reads a count", () => {

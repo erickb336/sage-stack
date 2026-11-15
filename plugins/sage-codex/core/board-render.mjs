@@ -6,12 +6,6 @@ const md = value => String(value ?? "").replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029
 const mdLines = (value, join = "\n") => String(value ?? "").split(LINE).map(md).join(join);
 const mdBlock = value => String(value ?? "").split(/\r?\n/).map(md).join("\n");
 const evidenceArtifacts = task => task.artifacts.filter(record => ["report", "proof"].includes(record.data.type) && record.content?.verified && typeof record.content.text === "string");
-const b64 = value => Buffer.from(value).toString("base64url");
-const route = task => `/task/${b64(task.key)}`;
-const anchor = task => `task-${b64(task.key)}`;
-const milestoneAnchor = key => `milestone-${b64(key)}`;
-const milestoneHref = (ctx, key) => ctx.snapshot ? `#${milestoneAnchor(key)}` : `/milestone/${b64(key)}`;
-const taskHref = (ctx, task) => ctx.snapshot ? `#${anchor(task)}` : route(task);
 const prUrl = task => task.repository && /^[1-9]\d*$/.test(task.pr) ? `${task.repository}/pull/${task.pr}` : null;
 const mdUrl = url => url.replace(/[()<>\[\]\\\s]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`);
 const SEVERITIES = ["high", "medium", "low"];
@@ -27,16 +21,7 @@ function runTime(run) {
   return Number.isFinite(start) && Number.isFinite(end) && end >= start ? `${Math.floor((end - start) / 1000)} s · ${run.started} to ${run.ended}` : run.started ? `${run.started} · duration unknown` : "time unknown";
 }
 const oldWhat = (task, where) => `${task.old.finished ? "A finished" : "An open"} task ${where} the old ${title(task.old.provider)} logbook`;
-function context(model, snapshot) {
-  const keys = [...new Set([...(model.projects ?? []).map(project => project.key), ...model.tasks.map(task => task.group ?? task.project)])].sort();
-  const waitedBy = new Map();
-  for (const task of model.tasks) for (const wait of task.waits ?? []) if (wait.id) waitedBy.set(`${task.project}/${wait.id}`, [...(waitedBy.get(`${task.project}/${wait.id}`) ?? []), task]);
-  const providers = model.sources.filter(source => !source.shared);
-  const renamed = new Map();
-  for (const milestone of model.milestones ?? []) if (milestone.was) (renamed.get(milestone.project) ?? renamed.set(milestone.project, new Map()).get(milestone.project)).set(milestone.was, milestone.id);
-  return { snapshot, slot: new Map(keys.map((key, i) => [key, `p${i % 8}`])), sources: providers.map(source => source.id), names: providers.map(source => title(source.standIn)), at: model.at,
-    tasks: new Map(model.tasks.map(task => [task.key, task])), milestones: new Map((model.milestones ?? []).map(milestone => [milestone.key, milestone])), renamed, waitedBy, model };
-}
+const context = model => ({ tasks: new Map(model.tasks.map(task => [task.key, task])), milestones: new Map((model.milestones ?? []).map(milestone => [milestone.key, milestone])) });
 const archivedCounts = book => `${book.tasks} task${book.tasks === 1 ? "" : "s"}${book.needsOwner ? ` · ${book.needsOwner} need${book.needsOwner === 1 ? "s" : ""} you` : ""}`;
 const goneNote = task => { const run = !ENDED.includes(task.state) && task.runs.find(item => item.id === task.goneRun); return run ? { run: run.id, name: run.checkoutName } : null; };
 function waitNext(task) {
@@ -67,14 +52,14 @@ function waitingFor(ctx, items) {
 }
 function frameOf(ctx, entry) {
   const task = key => ctx.tasks.get(key), milestone = key => ctx.milestones.get(key);
-  const taskNode = (item, pilot) => ({ level: "task", id: item.id, name: item.title, href: taskHref(ctx, item), word: item.word, here: ["needs you", "in progress"].includes(item.word), note: item.word === "in progress" ? "you are here" : pilot ? "the pilot" : "" });
+  const taskNode = (item, pilot) => ({ level: "task", id: item.id, name: item.title, word: item.word, here: ["needs you", "in progress"].includes(item.word), note: item.word === "in progress" ? "you are here" : pilot ? "the pilot" : "" });
   const milestoneNode = m => {
     const tasks = m.tasks.map(task).filter(open), shown = tasks.filter(item => ["needs you", "in progress"].includes(item.word)).sort(byWord).slice(0, 3), rest = tasks.filter(item => !shown.includes(item));
     const groups = WORDS.map(word => [word, rest.filter(item => item.word === word)]).filter(([, items]) => items.length).map(([word, items]) => ({ level: "group", name: plural(items.length, "task"), word, note: word === "waiting" ? waitingFor(ctx, items) : "" }));
-    return { level: "milestone", name: milestoneName(m), href: milestoneHref(ctx, m.key), word: m.word, here: m.word === "needs you", done: doneText(m.progress.merged, m.progress.total, m.progress.abandoned.length),
+    return { level: "milestone", name: milestoneName(m), word: m.word, here: m.word === "needs you", done: doneText(m.progress.merged, m.progress.total, m.progress.abandoned.length),
       note: m.word === "needs you" ? m.reason : m.state === "dropped" && m.open ? droppedNext(m) : "", kids: [...shown.map(item => taskNode(item, item.id === m.pilot)), ...groups] };
   };
-  const list = (name, tasks, extra = {}) => ({ level: "list", name, word: releaseWord(tasks.map(item => item.word)).word, list: [...tasks].sort(byWord).map(item => ({ id: item.id, title: item.title, word: item.word, href: taskHref(ctx, item) })), ...extra });
+  const list = (name, tasks, extra = {}) => ({ level: "list", name, word: releaseWord(tasks.map(item => item.word)).word, list: [...tasks].sort(byWord).map(item => ({ id: item.id, title: item.title, word: item.word })), ...extra });
   const nodes = frameReleases(entry).map(release => {
     const milestones = release.milestones.map(milestone).filter(Boolean), singles = release.singles.map(task).filter(item => item?.word);
     const ended = state => milestones.filter(m => !open(m) && m.word === state).length;
@@ -98,7 +83,7 @@ function frameText(node, w = FRAME_WIDTH) {
   const text = line => line ? [line] : [];
   return box({ w, title: fit(name, w - 6), style: node.here ? "double" : "round", lines: [...text(first), ...text(short ? "" : node.note), ...(node.kids ?? []).map(kid => frameText(kid, w - 4)), ...text(node.tail)] });
 }
-const whereText = model => { const ctx = context(model, false); return shownReleases(model).map(entry => `### ${MARKS.release} Where we are · ${md(entry.projectName)}\n${"```"}\n${frameOf(ctx, entry).flatMap(node => frameText(node)).join("\n")}\n${"```"}`); };
+const whereText = model => { const ctx = context(model); return shownReleases(model).map(entry => `### ${MARKS.release} Where we are · ${md(entry.projectName)}\n${"```"}\n${frameOf(ctx, entry).flatMap(node => frameText(node)).join("\n")}\n${"```"}`); };
 const goneText = task => { const note = goneNote(task); return note ? `\nThe folder ${md(note.name)} of ${md(note.run)} is not on this Mac now, so sage cannot read the branch there. The next review step of ${md(task.id)} stops until the folder is back.` : ""; };
 const columnMark = key => ({ backlog: "📋", design: "🎨", building: "🔨", review: "🔁", ready: "✅", done: "🏁" }[key]);
 const providerText = (name, task) => name ? md(name) : `${md(title(task.providerStandIn))} (${task.shared ? "the run names no chief" : "logbook source"})`;
