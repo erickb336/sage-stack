@@ -1,4 +1,4 @@
-import { lstatSync, realpathSync } from "node:fs";
+import { lstatSync, readdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 
@@ -11,6 +11,7 @@ const REMOVABLE = REASONS.slice(0, 4);
 const REBUILT = ["node_modules", "dist"];
 const isLink = (path) => { try { return lstatSync(path).isSymbolicLink(); } catch { return false; } };
 const rebuilt = (top, entry) => REBUILT.includes(entry.replace(/\/$/, "").split("/").at(-1)) && (entry.endsWith("/") || isLink(join(top, entry)));
+const holdsGit = (path) => { try { return readdirSync(path, { withFileTypes: true }).some((d) => d.name === ".git" || (d.isDirectory() && holdsGit(join(path, d.name)))); } catch { return false; } };
 const some = (items) => (items.length > 3 ? `${items.slice(0, 3).join(", ")} and ${items.length - 3} more` : items.join(", "));
 const real = (path) => { try { return realpathSync(path); } catch { return path; } };
 const short = (sha) => String(sha ?? "").slice(0, 7);
@@ -81,11 +82,23 @@ function changed(git, root, w, ledger) {
   const untracked = status.filter((s) => s.startsWith("?? ")).length, edits = status.filter((s) => !/^(\?\?|!!) /.test(s)).length;
   const ignored = status.filter((s) => s.startsWith("!! ")).map((s) => s.slice(3));
   const again = ignored.filter((s) => rebuilt(w.path, s)), lost = ignored.filter((s) => !again.includes(s));
-  const why = [edits && "uncommitted changes", untracked && "untracked files", lost.length && `ignored files that the prune would delete: ${some(lost)}`].filter(Boolean);
+  const repos = again.filter((s) => !isLink(join(w.path, s)) && holdsGit(join(w.path, s)));
+  const hidden = git(["-C", w.path, "ls-files", "-v", "-z"]).split("\0").filter((s) => /^(S|[a-z]) /.test(s)).map((s) => s.slice(2));
+  const why = [edits && "uncommitted changes", untracked && "untracked files", hidden.length && `tracked files that git status does not check (skip-worktree or assume-unchanged): ${some(hidden)}`, lost.length && `ignored files that the prune would delete: ${some(lost)}`, repos.length && `a git repository inside ${some(repos)}`].filter(Boolean);
   if (why.length) return { why: why.join(" and "), again };
   const ids = w.tasks.map((t) => t.id), reviewed = [...new Set(ledger.filter((l) => ids.includes(l.task) && /^[0-9a-f]{40}$/i.test(l.sha ?? "")).map((l) => l.sha))];
   const ahead = Number(git(["-C", root, "rev-list", "--count", "--ignore-missing", w.head, "--not", "--remotes", ...reviewed]).trim());
   return { why: ahead ? `${ahead} unpushed commit${ahead === 1 ? "" : "s"}` : "", again };
+}
+
+export function survey({ git, root, tasks, runs, ledger, here }) {
+  const all = rows({ git, root, tasks, runs, main: commitOf(git, root, "refs/remotes/origin/main") });
+  const homes = here.map((p) => topOf(git, p)).filter(Boolean);
+  const check = (w) => {
+    const why = kept(w, homes, all);
+    return why ? { why, again: [] } : changed(git, root, w, ledger);
+  };
+  return { all, check };
 }
 
 export function worktrees({ git, root, tasks, runs, ledger, here, prune = false }) {
