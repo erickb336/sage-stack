@@ -21,14 +21,15 @@ Before you send a message, read it as the owner would after a week away, with no
 ## Rules for every message
 
 - **The first line** is the kind's head, for example `QUESTION` or `INCIDENT · Resolved`. The checks read the kind from it.
-- **Where this is**: release › milestone or single task › step, for example "Release 1.0 › milestone 5, Sage feel › step: review". Leave out the release when the logbook has none.
+- **Where**: release › milestone or single task › step, for example "Release 1.0 › milestone 5, Sage feel › step: review". Leave out the release when the logbook has none.
 - **State words**: a task, a milestone or a release is not started, waiting, needs you, in progress, done or stopped. Use these six words, not the tool's states.
-- **A heading for each part**: start each part with a `### <label>` heading line, such as `### Where this is`, with a blank line before and after it. Never write a part's label as a bold line: it looks like one more progress line. Bold inside the text is still allowed for a word that needs it.
+- **A heading for each part**: start each part with a `### <label>` heading line, such as `### Where`, with a blank line before and after it. Never write a part's label as a bold line: it looks like one more progress line. Bold inside the text is still allowed for a word that needs it.
+- **Short labels, full text**: each label is one or two plain words, above its text, in one column. The text under a label is as full as the reader needs. Use the labels of the kind's parts below, word for word.
 - **One blank line** between the parts. A table becomes numbered rows, with one line for each column.
 - **Progress lines stay plain**: between tool calls, write one plain sentence, such as "Starting the lead for the new words now." No heading, no bold, no list.
 - **A rule before the message**: when the turn had progress lines, start the final message with a `---` line and a blank line, so that the message is separate from them. The checks read the kind from the first line after the rule.
 - **No raw ids** (a task, run, gate, milestone, chief, finding or pull request number) in the text or in a picture. Put them in one last line: `Ref: T12 · PR 40`.
-- **Large choices only**: "Judged by" and "The bad side of my pick" go in a question only when the choice is large.
+- **Large choices only**: "Judged by" and "Weak points" go in a question only when the choice is large.
 
 ## Pictures
 
@@ -95,11 +96,11 @@ Use the tool only for a choice that is the owner's: product direction, or an act
 
 The owner's rules for the chat message and the text form (12 Nov 2026), because the parts ran together and a table made long answers hard to read. Then the owner asked for clearer labels, because a bold label looked like one more progress line, so each label is now a heading:
 
-1. **Separate segments.** Give each part a `###` heading line, such as `### Where this is` or `### If you do not answer`, with a blank line before and after it, and its text under it. Keep each part to one or two short sentences.
+1. **Separate segments.** Give each part a `###` heading line, such as `### Where` or `### Default`, with a blank line before and after it, and its text under it. Keep each part to one or two short sentences.
 2. **No tables for answers or explanations.** On the card, the long text goes in the option's description. In the text form, the answers are a short numbered list, with what happens next and the cost under each answer. Use a table only for short, uniform data, such as numbers or dates.
 3. **The same rules with no tool.** The text form has the same headings and the same list of answers, your pick first. `sage message` prints it so, and the message check notes a bold label, a label in the line, a table of answers or a pick that is not answer 1.
 
-**A batch in the text form.** Put each question under its own `### Question <n>: <short title>` heading, with the question in one sentence and its own numbered answers, your pick first. In the JSON, each question is a `section` with that label, a `p` and a `table`. The check reads the pick of each question. The shared parts, such as `### If you do not answer`, come once, after the last question.
+**A batch in the text form.** Put each question under its own `### Question <n>: <short title>` heading, with the question in one sentence and its own numbered answers, your pick first. In the JSON, each question is a `section` with that label, a `p` and a `table`. The check reads the pick of each question. The shared parts, such as `### Default`, come once, after the last question.
 
 | Part of the question | On the card |
 | --- | --- |
@@ -107,8 +108,8 @@ The owner's rules for the chat message and the text form (12 Nov 2026), because 
 | A short name of the topic | The header chip, at most 12 characters. |
 | Each answer | One option. Its label is the answer, in 1 to 5 words. |
 | Your pick | The first option, with "(Recommended)" at the end of its label. In the text form, it is answer 1, with "(my pick)". |
-| What happens next, and the cost | The option's description. |
-| If you do not answer | Not on the card: it stays in the chat message. |
+| Next, and the cost | The option's description. |
+| Default | Not on the card: it stays in the chat message. |
 
 Each host has its tool:
 
@@ -125,9 +126,9 @@ SAMPLE CONTENT: a shorter copy of an approved question of 11 Nov 2026.
 ```text
 QUESTION
 
-Should pages reach you only by a link to your Mac? Where this is: Release 1.0 › single task: one way to show visuals › step: investigate. What you approve: how pages reach you in the Claude app. The one real choice in it: a page inside the chat, or a page that never leaves your Mac. If you do not answer: the build uses my pick. Needed by: before the page link build starts. After you answer: I say in one line what I recorded.
+Should pages reach you only by a link to your Mac? Where: Release 1.0 › single task: one way to show visuals › step: investigate. Approve: how pages reach you in the Claude app. Choice: a page inside the chat, or a page that never leaves your Mac. Default: the build uses my pick. Due: before the page link build starts. Next: I say in one line what I recorded.
 
-| Answer | What happens next | Cost |
+| Answer | Next | Cost |
 | --- | --- | --- |
 | Link only (my pick) | Every page comes as a link and a path, in Claude and in Codex. No copy leaves your Mac. | None: it is part of the planned page link work. |
 | Keep the file tool too | Some pages open inside the Claude chat. A copy of each goes through Anthropic's servers. | Small: one more rule for the chief. |
@@ -138,27 +139,27 @@ Should pages reach you only by a link to your Mac? Where this is: Release 1.0 �
 ```text
 ---
 
-### Where this is
+### Where
 
 Release 1.0 › single task: one way to show visuals › step: investigate
 
-### What you approve
+### Approve
 
 How pages reach you in the Claude app.
 
-### The one real choice in it
+### Choice
 
 A page inside the chat, or a page that never leaves your Mac.
 
-### If you do not answer
+### Default
 
 The build uses my pick.
 
-### Needed by
+### Due
 
 Before the page link build starts.
 
-### After you answer
+### Next
 
 I say in one line what I recorded.
 ```
@@ -193,42 +194,42 @@ QUESTION
 Should pages reach you only by a link to your
 Mac?
 
-### Where this is
+### Where
 
 Release 1.0 › single task: one way to show
 visuals › step: investigate
 
-### What you approve
+### Approve
 
 How pages reach you in the Claude app.
 
-### The one real choice in it
+### Choice
 
 A page inside the chat, or a page that never
 leaves your Mac.
 
 1. Link only (my pick)
-   - What happens next: Every page comes as a
-     link and a path, in Claude and in Codex.
-     No copy leaves your Mac.
+   - Next: Every page comes as a link and a
+     path, in Claude and in Codex. No copy
+     leaves your Mac.
    - Cost: None: it is part of the planned
      page link work.
 
 2. Keep the file tool too
-   - What happens next: Some pages open inside
-     the Claude chat. A copy of each goes
-     through Anthropic's servers.
+   - Next: Some pages open inside the Claude
+     chat. A copy of each goes through
+     Anthropic's servers.
    - Cost: Small: one more rule for the chief.
 
-### If you do not answer
+### Default
 
 The build uses my pick.
 
-### Needed by
+### Due
 
 Before the page link build starts.
 
-### After you answer
+### Next
 
 I say in one line what I recorded.
 ```

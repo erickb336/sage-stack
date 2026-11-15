@@ -54,7 +54,7 @@ test("a message with a picture, and a long message, get a page and a Page block;
   assert.equal(long.text.split("\n\n").length, 5, "the chat holds the head, the title, the main point, the Page block and the Ref line");
   assert.match(long.text, /^REPORT\n\nThe clean-up change is merged; the full\ndescription is on its page\n\nMain point: /);
   assert.match(long.page.html, /<main class="long">/);
-  assert.match(long.page.html, /Why this change/, "the page holds the rest");
+  assert.match(long.page.html, /### Why\n/, "the page holds the rest");
 });
 
 test("the catch-up frame: boxes inside boxes, each state word from core's state words, the current task in a double box", () => {
@@ -112,7 +112,7 @@ test("the checks catch the designer's negative cases: width, tree marks, an imag
   const wide = out.text.replace("│ Done: milestones 1 to 4                    │", "│ Done: milestones 1 to 4                     │");
   assert.match(textProblems(wide).join("\n"), /line 21 is 47 columns: a picture has at most 46/);
   assert.deepEqual(textProblems(wide, { width: 66 }).filter((p) => /columns/.test(p)), [], "66 on a long page");
-  assert.match(textProblems(out.text.replace("What changed\n", "What changed\n├─ one\n")).join("\n"), /tree marks/);
+  assert.match(textProblems(out.text.replace("Changes\n", "Changes\n├─ one\n")).join("\n"), /tree marks/);
   const stale = html.replace(/(<svg class="pic"[\s\S]*?)In progress/, "$1Done");
   assert.match(pageProblems(stale).join("\n"), /1 of the page's 1 images are not drawn from a picture of its text form/);
   for (const [what, page] of [["an image", html.replace("<main>", '<main><img src="https://example.com/x.png">')],
@@ -169,16 +169,23 @@ test("T1005: messageMiss gives the note of a hand-written message that misses it
   const out = render(fixture("02-question.json")).text;
   assert.equal(messageMiss(out), undefined, "a message that fits");
   assert.equal(messageMiss("Done: T10 merged.\n├─ next"), undefined, "a message with no kind");
-  const hand = out.replace(/\n\n### Needed by\n\n[\s\S]*?(?=\n\n)/, "").replace(/\(my\s+pick\)/, "").replace("### Where this is\n\n", "### Where this is\n\nT4242, and\n├─ a tree.\n");
+  const hand = out.replace(/\n\n### Due\n\n[\s\S]*?(?=\n\n)/, "").replace(/\(my\s+pick\)/, "").replace("### Where\n\n", "### Where\n\nT4242, and\n├─ a tree.\n");
   const miss = messageMiss(hand);
   assert.equal(miss.kind, "question");
-  assert.deepEqual(miss.names, ["tree marks", "raw ids", "missing: Needed by", "no pick"]);
+  assert.deepEqual(miss.names, ["tree marks", "raw ids", "missing: Due", "no pick"]);
   assert.deepEqual(miss.note.split("\n").slice(1, -1), textProblems(hand).map((p) => `- ${p}`), "the note lists each problem of the text check");
   assert.match(miss.note, /^sage: your last message names the kind "question"/);
-  const needed = /\n\n### Needed by\n\n[\s\S]*?(?=\n\n)/.exec(out)[0];
-  assert.deepEqual(messageMiss(out.replace(needed, "").replace("\n\n### If you do not answer", `${needed}\n\n### If you do not answer`)).names, ["out of order: Needed by"]);
+  const needed = /\n\n### Due\n\n[\s\S]*?(?=\n\n)/.exec(out)[0];
+  assert.deepEqual(messageMiss(out.replace(needed, "").replace("\n\n### Default", `${needed}\n\n### Default`)).names, ["out of order: Due"]);
   const chart = render(fixture("09-state-chart.json")).text.replace(/```[\s\S]*?```/g, "");
   assert.deepEqual(messageMiss(chart).names, ["missing picture"]);
+});
+
+test("T1093: a message with the labels from before T1093 gets a note that names the short labels it misses", () => {
+  const OLD = { Where: "Where this is", Approve: "What you approve", Choice: "The one real choice in it", Default: "If you do not answer", Due: "Needed by", "Weak points": "The bad side of my pick", Next: "After you answer" };
+  const old = Object.entries(OLD).reduce((text, [now, before]) => text.replace(`### ${now}\n`, `### ${before}\n`), render(fixture("02-question.json")).text).replaceAll("   - Next: ", "   - What happens next: ");
+  assert.match(old, /### Where this is\n[\s\S]*- What happens next: [\s\S]*### After you answer\n/);
+  assert.deepEqual(messageMiss(old).names, ["missing: Where", "missing: Approve", "missing: Choice", "missing: Default", "missing: Due", "missing: Next"]);
 });
 
 test("F-T984-11: on the message command's path, a word in code and a product name are not ids, and the state tool's ids are", () => {
@@ -211,14 +218,14 @@ test("a picture drawn by hand: each box that does not close is named, and its ma
 
 test("the shape of each kind holds in code: a missing part, a part out of order, an unknown part, the pick, the status", () => {
   const problems = (change) => { const msg = structuredClone(fixture("02-question.json")); change(msg); return render(msg).problems?.join("\n") ?? ""; };
-  assert.match(problems((m) => { m.blocks = m.blocks.filter((b) => b.label !== "What you approve"); }), /a question needs "What you approve" before "The one real choice in it"/);
+  assert.match(problems((m) => { m.blocks = m.blocks.filter((b) => b.label !== "Approve"); }), /a question needs "Approve" before "Choice"/);
   assert.match(problems((m) => { m.blocks.reverse(); }), /out of order in a question/);
   assert.match(problems((m) => { m.blocks.splice(1, 0, { t: "field", label: "Mood", text: "fine" }); }), /"Mood" is not a part of a question/);
   assert.match(problems((m) => { delete m.blocks.find((b) => b.t === "table").pick; }), /marks your pick/);
   assert.match(problems((m) => { m.title = "Stop sending pages."; }), /ends with \?/);
-  assert.match(problems((m) => { m.blocks.find((b) => b.t === "table").head = ["A", "B", "C"]; }), /the columns: Answer, What happens next, Cost/);
+  assert.match(problems((m) => { m.blocks.find((b) => b.t === "table").head = ["A", "B", "C"]; }), /the columns: Answer, Next, Cost/);
   assert.match(problems((m) => { m.kind = "memo"; }), /kind is one of: progress, question/);
-  assert.match(problems((m) => { m.blocks[0] = { t: "field", label: "Where this is" }; }), /blocks\[0\] is not a block/);
+  assert.match(problems((m) => { m.blocks[0] = { t: "field", label: "Where" }; }), /blocks\[0\] is not a block/);
   const incident = structuredClone(fixture("06-incident.json"));
   incident.status = "Fixed";
   assert.match(render(incident).problems.join("\n"), /status is one of: Investigating, Identified, Monitoring, Resolved/);
@@ -228,8 +235,8 @@ test("the shape of each kind holds in code: a missing part, a part out of order,
   design.blocks.splice(4, 0, { t: "changes", rows: [{ where: "The status lines", today: "“0 of 8 merged”", after: "“0 of 8 done”", why: "A study that ended counts too." }] });
   const changed = render(design);
   assert.equal(changed.problems, undefined, changed.problems);
-  assert.match(changed.text, /\n1\. The status lines\n {3}- Today: “0 of 8 merged”\n {3}- After this change: “0 of 8 done”\n {3}- Why: A study that ended counts too\./);
-  assert.match(textProblems(render(fixture("02-question.json")).text.replace(/\n\n### Needed by\n\n[\s\S]*?(?=\n\n)/, "")).join("\n"), /a question needs "Needed by"/);
+  assert.match(changed.text, /\n1\. The status lines\n {3}- Today: “0 of 8 merged”\n {3}- After: “0 of 8 done”\n {3}- Why: A study that ended counts too\./);
+  assert.match(textProblems(render(fixture("02-question.json")).text.replace(/\n\n### Due\n\n[\s\S]*?(?=\n\n)/, "")).join("\n"), /a question needs "Due"/);
 });
 
 const refusal = (msg) => { const out = renderMessage(msg); assert.ok(out.problems, "refused"); return out.problems.join("\n"); };
@@ -275,7 +282,7 @@ test("F-T984-8: the estimate's total is a total line, not an item, and its title
 
 test("F-T984-9: the confirm example is sample data, and its text says so before its first part", () => {
   const text = render(fixture("13-confirm.json")).text, at = text.indexOf("SAMPLE CONTENT");
-  assert.ok(at > 0 && at < text.indexOf("What I will do"), text);
+  assert.ok(at > 0 && at < text.indexOf("Action"), text);
 });
 
 const frameWord = (node) => frameLines(node, 46).lines[1]?.slice(2).trim().replace(/ *│$/, "");
@@ -370,13 +377,13 @@ test("the page escapes every text, loads nothing, and allows only its own style 
 
 test("the text form: one blank line between parts, each part under a ### heading, pictures in fences, a table as numbered rows, and no bold marks", () => {
   const text = render(fixture("02-question.json")).text;
-  assert.match(text, /^QUESTION\n\nShould sage stop sending pages through the\nClaude app's file tool\?\n\n### Where this is\n\nRelease 1\.0 › /);
-  assert.match(text, /\n\n1\. Stop: use the link to your Mac only \(my\n {3}pick\)\n {3}- What happens next: Every page reaches you\n/);
-  assert.deepEqual(text.split("\n").filter((l) => l.startsWith("#")), ["Where this is", "What you approve", "The one real choice in it", "If you do not answer", "Needed by", "Judged by", "The bad side of my pick", "After you answer"].map((label) => `### ${label}`), "a heading for each part");
+  assert.match(text, /^QUESTION\n\nShould sage stop sending pages through the\nClaude app's file tool\?\n\n### Where\n\nRelease 1\.0 › /);
+  assert.match(text, /\n\n1\. Stop: use the link to your Mac only \(my\n {3}pick\)\n {3}- Next: Every page reaches you as the same\n/);
+  assert.deepEqual(text.split("\n").filter((l) => l.startsWith("#")), ["Where", "Approve", "Choice", "Default", "Due", "Judged by", "Weak points", "Next"].map((label) => `### ${label}`), "a heading for each part");
   assert.doesNotMatch(text, /\*\*/, "no bold label, and the bold of a cell is dropped");
   const report = render(fixture("03-report.json")).text;
-  assert.match(report, /\n {3}- You must act: Yes: update sage\n/);
-  assert.match(report, /^REPORT\n\n[^\n]+\n[^\n]+\n\n### Where this is\n\nRelease 1\.0 › /, "a kind that is not on the choice card has the same headings");
+  assert.match(report, /\n {3}- Needs you: Yes: update sage\n/);
+  assert.match(report, /^REPORT\n\n[^\n]+\n[^\n]+\n\n### Where\n\nRelease 1\.0 › /, "a kind that is not on the choice card has the same headings");
   assert.doesNotMatch(report, /\*\*/);
   const steps = render(fixture("12-steps-for-you.json")).text;
   assert.match(steps, /\n1\. In a terminal, update sage for Claude Code:\n\n {3}```\n {3}claude plugin update sage@sage\n {3}```\n\n {3}Then start a new Claude Code session\.\n/);
@@ -385,29 +392,29 @@ test("the text form: one blank line between parts, each part under a ### heading
 
 test("T1043: a question or confirm in its fallback text form gives each part under a ### heading and the answers as a list; the check notes a bold label, an inline label and a table", () => {
   const question = render(fixture("02-question.json")).text, confirm = render(fixture("13-confirm.json")).text;
-  assert.match(question, /\n\n### What you approve\n\nHow pages reach you in the Claude desktop app\.\n/, "the heading alone on its line, a blank line, the text under it");
-  assert.match(confirm, /\n\n### What I will do\n\nDelete these 3 folders/);
+  assert.match(question, /\n\n### Approve\n\nHow pages reach you in the Claude desktop app\.\n/, "the heading alone on its line, a blank line, the text under it");
+  assert.match(confirm, /\n\n### Action\n\nDelete these 3 folders/);
   assert.equal(question.split("\n").some((l) => l.trimStart().startsWith("|")), false, "the answers are a numbered list, not a table");
   assert.equal(messageMiss(question), undefined);
   assert.equal(messageMiss(confirm), undefined);
-  assert.deepEqual(messageMiss(question.replace("### Needed by\n\n", "Needed by: ")).names, ["inline label: Needed by"]);
-  assert.deepEqual(messageMiss(confirm.replace("### What stays\n\n", "What stays: ")).names, ["inline label: What stays"]);
-  const bold = messageMiss(question.replace("### Needed by\n\n", "**Needed by**\n"));
-  assert.deepEqual(bold.names, ["bold label: Needed by"]);
-  assert.match(bold.note, /"Needed by" is a bold line: use a ### heading/);
-  assert.deepEqual(messageMiss(confirm.replace("### What stays\n\n", "**What stays**\n\n")).names, ["bold label: What stays"]);
-  const table = question.replace(/\n\n1\. [\s\S]*?(?=\n\n### If you do not answer)/, "\n\n| Answer | What happens next | Cost |\n| --- | --- | --- |\n| Stop (my pick) | Pages go by link. | None. |\n| Keep | Some open in the chat. | Small. |");
+  assert.deepEqual(messageMiss(question.replace("### Due\n\n", "Due: ")).names, ["inline label: Due"]);
+  assert.deepEqual(messageMiss(confirm.replace("### Unchanged\n\n", "Unchanged: ")).names, ["inline label: Unchanged"]);
+  const bold = messageMiss(question.replace("### Due\n\n", "**Due**\n"));
+  assert.deepEqual(bold.names, ["bold label: Due"]);
+  assert.match(bold.note, /"Due" is a bold line: use a ### heading/);
+  assert.deepEqual(messageMiss(confirm.replace("### Unchanged\n\n", "**Unchanged**\n\n")).names, ["bold label: Unchanged"]);
+  const table = question.replace(/\n\n1\. [\s\S]*?(?=\n\n### Default)/, "\n\n| Answer | Next | Cost |\n| --- | --- | --- |\n| Stop (my pick) | Pages go by link. | None. |\n| Keep | Some open in the chat. | Small. |");
   assert.deepEqual(messageMiss(table).names, ["table"]);
-  assert.equal(messageMiss(confirm.replace("\n\n### What stays", "\n\n| Folder | Size |\n| --- | --- |\n| a | 12 MB |\n\n### What stays")), undefined);
+  assert.equal(messageMiss(confirm.replace("\n\n### Unchanged", "\n\n| Folder | Size |\n| --- | --- |\n| a | 12 MB |\n\n### Unchanged")), undefined);
   const page = messagePage(prepareMessage(resolved(fixture("02-question.json"))).msg, "");
-  assert.match(page, /<ol class="m-answers"><li class="pick"><p class="m-label"><strong>Stop: use the link to your Mac only<\/strong> <span class="pick-mark">\(my pick\)<\/span><\/p><p><span class="m-label">What happens next:<\/span> Every page/);
+  assert.match(page, /<ol class="m-answers"><li class="pick"><p class="m-label"><strong>Stop: use the link to your Mac only<\/strong> <span class="pick-mark">\(my pick\)<\/span><\/p><p><span class="m-label">Next:<\/span> Every page/);
   assert.doesNotMatch(page, /<table/);
   assert.match(messagePage(prepareMessage(fixture("13-confirm.json")).msg, ""), /<ol class="m-answers"><li><p class="m-label">~\/sage-worktrees\/old-board-shots<\/p><p><span class="m-label">What is in it:<\/span> 41 pictures/);
 });
 
 test("T1043: a section in a question or a confirm has the same ### heading, and the check passes it", () => {
   const asSection = (msg, label) => ({ ...msg, blocks: msg.blocks.filter((b) => b.t !== "page").map((b) => (b.label === label ? { t: "section", label, body: [{ t: "p", text: b.text }] } : b)) });
-  for (const [msg, label] of [[fixture("02-question.json"), "The one real choice in it"], [fixture("13-confirm.json"), "What stays"]]) {
+  for (const [msg, label] of [[fixture("02-question.json"), "Choice"], [fixture("13-confirm.json"), "Unchanged"]]) {
     const out = render(asSection(msg, label));
     assert.equal(out.problems, undefined, `${label}: ${out.problems}`);
     assert.match(out.text, new RegExp(`\\n\\n### ${label}\\n\\n\\S`), "the heading alone on its line, the text after one blank line");
@@ -417,10 +424,10 @@ test("T1043: a section in a question or a confirm has the same ### heading, and 
 
 test("T1043: a hand-written heading may keep a colon or have another level; a bold label with a colon is still a bold label", () => {
   const question = render(fixture("02-question.json")).text;
-  assert.equal(messageMiss(question.replace("### Needed by\n", "### Needed by:\n")), undefined, "the colon in the heading");
-  assert.equal(messageMiss(question.replace("### Needed by\n", "## Needed by\n")), undefined, "another heading level");
-  assert.deepEqual(messageMiss(question.replace("### Needed by\n\n", "**Needed by:**\n")).names, ["bold label: Needed by"], "the colon inside the bold");
-  assert.deepEqual(messageMiss(question.replace("### Needed by\n\n", "**Needed by**:\n")).names, ["bold label: Needed by"], "the colon after the bold");
+  assert.equal(messageMiss(question.replace("### Due\n", "### Due:\n")), undefined, "the colon in the heading");
+  assert.equal(messageMiss(question.replace("### Due\n", "## Due\n")), undefined, "another heading level");
+  assert.deepEqual(messageMiss(question.replace("### Due\n\n", "**Due:**\n")).names, ["bold label: Due"], "the colon inside the bold");
+  assert.deepEqual(messageMiss(question.replace("### Due\n\n", "**Due**:\n")).names, ["bold label: Due"], "the colon after the bold");
 });
 
 test("T1043: every kind gives each part a ### heading with a blank line before and after; a section inside a section gets ####", () => {
@@ -428,14 +435,14 @@ test("T1043: every kind gives each part a ### heading with a blank line before a
     const msg = resolved(fixture(name)), prepared = prepareMessage(msg);
     if (prepared.msg.long !== undefined) continue;
     const text = messageText(prepared.msg, { width: prepared.width }), lines = text.split("\n");
-    const labels = prepared.msg.blocks.flatMap((b) => (b.t === "field" || b.t === "section" ? [b.label] : b.t === "table" && msg.kind === "report" ? ["What changed"] : []));
+    const labels = prepared.msg.blocks.flatMap((b) => (b.t === "field" || b.t === "section" ? [b.label] : b.t === "table" && msg.kind === "report" ? ["Changes"] : []));
     assert.deepEqual(lines.filter((l) => /^#{3} /.test(l)), labels.map((l) => `### ${l}`), name);
     lines.forEach((l, i) => { if (/^#{3} /.test(l)) assert.ok(lines[i - 1] === "" && lines[i + 1] === "", `${name}: blank lines around ${l}`); });
     assert.equal(lines.some((l) => /^\*\*.+\*\*:?$/.test(l.trim())), false, `${name}: no bold line`);
   }
   const progress = fixture("01-progress-note.json");
-  const nested = render({ ...progress, blocks: progress.blocks.map((b) => (b.label === "What changed" ? { t: "section", label: "What changed", body: [{ t: "section", label: "Inner", body: [{ t: "p", text: "One more line." }] }] } : b)) });
-  assert.match(nested.text ?? nested.problems.join("\n"), /\n\n### What changed\n\n#### Inner\n\nOne more line\.\n\n### Next\n/);
+  const nested = render({ ...progress, blocks: progress.blocks.map((b) => (b.label === "Changes" ? { t: "section", label: "Changes", body: [{ t: "section", label: "Inner", body: [{ t: "p", text: "One more line." }] }] } : b)) });
+  assert.match(nested.text ?? nested.problems.join("\n"), /\n\n### Changes\n\n#### Inner\n\nOne more line\.\n\n### Next\n/);
 });
 
 test("F-T1043-1: a table column or a field in a section with the name of a part of the kind renders, and the check passes the text", () => {
@@ -457,18 +464,18 @@ test("F-T1043-1: a table column or a field in a section with the name of a part 
   assert.equal(basis.problems, undefined, basis.problems);
   assert.match(basis.text, /\n {3}- Basis: /);
   const progress = fixture("01-progress-note.json");
-  const fields = render({ ...progress, blocks: progress.blocks.map((b) => (b.label === "What changed" ? { t: "section", label: "What changed", body: [{ t: "field", label: "Next", text: "QA starts." }, { t: "field", label: "Cost so far", text: "1 M tokens." }] } : b)) });
+  const fields = render({ ...progress, blocks: progress.blocks.map((b) => (b.label === "Changes" ? { t: "section", label: "Changes", body: [{ t: "field", label: "Next", text: "QA starts." }, { t: "field", label: "Cost", text: "1 M tokens." }] } : b)) });
   assert.equal(fields.problems, undefined, fields.problems);
-  assert.match(fields.text, /\n\n### What changed\n\n- Next: QA starts\.\n- Cost so far: 1 M tokens\.\n\n### Next\n/);
+  assert.match(fields.text, /\n\n### Changes\n\n- Next: QA starts\.\n- Cost: 1 M tokens\.\n\n### Next\n/);
   assert.equal(messageMiss(fields.text), undefined);
 });
 
 test("F-T1043-2: text that starts with a part's name and a colon gets no note when the part's heading is there, and the note when it is not", () => {
-  const steps = "STEPS FOR YOU\n\nUpdate sage\n\n### When\n\nNow.\n\n### Why\n\nThe fix is in the new version.\n\n1. Run the update.\n   Why: the old hook stays until you do.\n\n### How you know it worked\n\nThe version shows 1.2.\n\n### Your time\n\n2 minutes.\n\n### If a step fails\n\nTell me the error.";
-  const progress = "PROGRESS\n\nReview is clean\n\n### Where this is\n\nRelease 1.0 › single task › step: review\n\n### What changed\n\n- The review is clean.\n- Next: QA starts.\n\n### Next\n\nQA.\n\n### What I need from you\n\nNothing.";
+  const steps = "STEPS FOR YOU\n\nUpdate sage\n\n### When\n\nNow.\n\n### Why\n\nThe fix is in the new version.\n\n1. Run the update.\n   Why: the old hook stays until you do.\n\n### Success\n\nThe version shows 1.2.\n\n### Your time\n\n2 minutes.\n\n### If stuck\n\nTell me the error.";
+  const progress = "PROGRESS\n\nReview is clean\n\n### Where\n\nRelease 1.0 › single task › step: review\n\n### Changes\n\n- The review is clean.\n- Next: QA starts.\n\n### Next\n\nQA.\n\n### Needs you\n\nNothing.";
   assert.equal(messageMiss(steps), undefined, "Why: under a step, with the Why heading");
   assert.equal(messageMiss(progress), undefined, "- Next: in a list, with the Next heading");
-  assert.equal(messageMiss(progress.replace("### What changed\n\n", "### What changed\n\nNext: QA starts soon.\n")), undefined, "Next: in the text of another part, with the Next heading");
+  assert.equal(messageMiss(progress.replace("### Changes\n\n", "### Changes\n\nNext: QA starts soon.\n")), undefined, "Next: in the text of another part, with the Next heading");
   assert.deepEqual(messageMiss(steps.replace("### Why\n\n", "Why: ")).names, ["inline label: Why"]);
   assert.deepEqual(messageMiss(progress.replace("### Next\n\nQA.", "Next: QA.")).names, ["inline label: Next"]);
   assert.deepEqual(messageMiss(progress.replace("### Next\n\nQA.", "**Next**\nQA.")).names, ["bold label: Next"]);
@@ -476,13 +483,13 @@ test("F-T1043-2: text that starts with a part's name and a colon gets no note wh
 
 test("F-T1043-3: a report gives the table of the pieces of work its own ### heading, after the part before it", () => {
   const report = render(fixture("03-report.json")).text;
-  assert.match(report, /\n\n### Where this is\n\nRelease 1\.0 › [^#]*?merged on 10 Nov\n\n### What changed\n\n1\. Leads wait for the automatic checks before\n/);
+  assert.match(report, /\n\n### Where\n\nRelease 1\.0 › [^#]*?merged on 10 Nov\n\n### Changes\n\n1\. Leads wait for the automatic checks before\n/);
   assert.equal(messageMiss(report), undefined);
-  assert.doesNotMatch(render(fixture("11-estimate.json")).text, /### What changed/, "only a report's table");
+  assert.doesNotMatch(render(fixture("11-estimate.json")).text, /### Changes/, "only a report's table");
 });
 
 test("F-T1043-4: a question, a confirm or a progress note with its parts as a list of bold labels gets a note for each part; a plain list item gets none", () => {
-  const progress = "PROGRESS\n\nReview is clean\n\n### Where this is\n\nRelease 1.0 › single task › step: review\n\n### What changed\n\n- The review is clean.\n\n### Next\n\nQA.\n\n### What I need from you\n\nNothing.";
+  const progress = "PROGRESS\n\nReview is clean\n\n### Where\n\nRelease 1.0 › single task › step: review\n\n### Changes\n\n- The review is clean.\n\n### Next\n\nQA.\n\n### Needs you\n\nNothing.";
   for (const text of [render(fixture("02-question.json")).text, render(fixture("13-confirm.json")).text, progress]) {
     const labels = [...text.matchAll(/^### (.+)$/gm)].map((m) => m[1]);
     assert.ok(labels.length >= 4, text.split("\n")[0]);
@@ -497,29 +504,29 @@ test("F-T1026-1: a question gives its pick as answer 1; a pick on another answer
   const second = question.replace(" (my\n   pick)", "").replace("2. Keep the file tool as an extra for some\n   pages", "2. Keep the file tool as an extra for some\n   pages (my pick)");
   assert.deepEqual(messageMiss(second).names, ["pick not first"]);
   assert.match(messageMiss(second).note, /answer 2 says "\(my pick\)", so make it answer 1/);
-  assert.equal(messageMiss(question.replace("### If you do not answer\n\nThe page link build uses my pick.", "### If you do not answer\n\nThe build uses answer 1 (my pick).")), undefined, "the pick named again in a later part");
+  assert.equal(messageMiss(question.replace("### Default\n\nThe page link build uses my pick.", "### Default\n\nThe build uses answer 1 (my pick).")), undefined, "the pick named again in a later part");
 });
 
 test("F-T1026-2 and F-T1026-3: a table of answers gets the note with the head Answer, Answers, Option, Options or Choice, also with no pick in the table", () => {
   const question = render(fixture("02-question.json")).text;
   for (const head of ["Answer", "Answers", "Option", "options", "**Choice**"]) {
-    const table = question.replace(/\n\n1\. [\s\S]*?(?=\n\n### If you do not answer)/, `\n\n| ${head} | Cost |\n| --- | --- |\n| Stop | None. |\n| Keep | Small. |\n\nMy pick is Stop (my pick).`);
+    const table = question.replace(/\n\n1\. [\s\S]*?(?=\n\n### Default)/, `\n\n| ${head} | Cost |\n| --- | --- |\n| Stop | None. |\n| Keep | Small. |\n\nMy pick is Stop (my pick).`);
     assert.deepEqual(messageMiss(table).names, ["table"], head);
   }
-  assert.equal(messageMiss(question.replace("\n\n### If you do not answer", "\n\n| Folder | Size |\n| --- | --- |\n| pages | 12 MB |\n\n### If you do not answer")), undefined, "a table of short data");
+  assert.equal(messageMiss(question.replace("\n\n### Default", "\n\n| Folder | Size |\n| --- | --- |\n| pages | 12 MB |\n\n### Default")), undefined, "a table of short data");
 });
 
 test("F-T1026-6: a field keeps its own letter case under its heading", () => {
   const confirm = fixture("13-confirm.json");
-  const out = render({ ...confirm, blocks: confirm.blocks.map((b) => (b.label === "What stays" ? { ...b, text: "iPhone pages and npm updates stay." } : b)) });
-  assert.match(out.text, /\n### What stays\n\niPhone pages and npm updates stay\.\n/);
+  const out = render({ ...confirm, blocks: confirm.blocks.map((b) => (b.label === "Unchanged" ? { ...b, text: "iPhone pages and npm updates stay." } : b)) });
+  assert.match(out.text, /\n### Unchanged\n\niPhone pages and npm updates stay\.\n/);
 });
 
 test("F-T1026-7: a bold label with its text in the same line gets the inline-label note, not a note that the part is missing", () => {
   const question = render(fixture("02-question.json")).text;
-  const inline = messageMiss(question.replace("### Needed by\n\n", "**Needed by** "));
-  assert.deepEqual(inline.names, ["inline label: Needed by"]);
-  assert.match(inline.note, /"Needed by" is in the line: use a ### heading on its own line/);
+  const inline = messageMiss(question.replace("### Due\n\n", "**Due** "));
+  assert.deepEqual(inline.names, ["inline label: Due"]);
+  assert.match(inline.note, /"Due" is in the line: use a ### heading on its own line/);
 });
 
 test("F-T1026-11 and F-T1026-13: a confirm page draws its items as a list, like its text form; a kind that is not on the choice card keeps its table", () => {
@@ -530,7 +537,7 @@ test("F-T1026-11 and F-T1026-13: a confirm page draws its items as a list, like 
 });
 
 test("F-T1026-12: a plain list item with bold text later in the line gets no inline-label note; a bold label at its start still does", () => {
-  const progress = "PROGRESS\n\nReview is clean\n\n### Where this is\n\nRelease 1.0 › single task › step: review\n\n### What changed\n\n- The review is clean.\n\n### Next\n\nQA.\n\n### What I need from you\n\nNothing.";
+  const progress = "PROGRESS\n\nReview is clean\n\n### Where\n\nRelease 1.0 › single task › step: review\n\n### Changes\n\n- The review is clean.\n\n### Next\n\nQA.\n\n### Needs you\n\nNothing.";
   assert.equal(messageMiss(progress.replace("### Next\n\nQA.", "- Next: QA, with a **big** test set.")), undefined);
   assert.deepEqual(messageMiss(progress.replace("### Next\n\nQA.", "- **Next:** QA, with a **big** test set.")).names, ["inline label: Next"]);
 });
@@ -550,9 +557,9 @@ test("T1043: a message after a --- rule keeps its kind, so the check still reads
 test("T1023: a hand-written question may hold a table of short data; a table of answers gets the note", () => {
   const question = render(fixture("02-question.json")).text;
   const data = "\n\n| Folder | Size |\n| --- | --- |\n| pages | 12 MB |";
-  assert.equal(messageMiss(question.replace("\n\n### If you do not answer", `${data}\n\n### If you do not answer`)), undefined, "a table of short data");
-  const answers = "\n\n| Answer | What happens next | Cost |\n| --- | --- | --- |\n| Keep | Some open in the chat. | Small. |";
-  assert.deepEqual(messageMiss(question.replace("\n\n### If you do not answer", `${answers}\n\n### If you do not answer`)).names, ["table"]);
+  assert.equal(messageMiss(question.replace("\n\n### Default", `${data}\n\n### Default`)), undefined, "a table of short data");
+  const answers = "\n\n| Answer | Next | Cost |\n| --- | --- | --- |\n| Keep | Some open in the chat. | Small. |";
+  assert.deepEqual(messageMiss(question.replace("\n\n### Default", `${answers}\n\n### Default`)).names, ["table"]);
 });
 
 test("T1023: the presentation skill's before and after example: the check notes the run-together question with a table, and passes the fallback", () => {
@@ -562,7 +569,7 @@ test("T1023: the presentation skill's before and after example: the check notes 
   assert.equal(questions.length, 2, "a before and an after");
   const [before, after] = questions;
   const names = messageMiss(before).names;
-  assert.ok(names.includes("table") && names.includes("missing: Where this is"), names.join(", "));
+  assert.ok(names.includes("table") && names.includes("missing: Where"), names.join(", "));
   assert.equal(messageMiss(after), undefined);
 });
 
@@ -645,9 +652,9 @@ test("the message command resolves a Page block in a task's pages folder, and re
   symlinkSync(join(folder, "real"), join(folder, "via"));
   for (const name of ["link.html", "hard.html", "via/in.html"])
     assert.match(sage("message", "T1", "--json", JSON.stringify({ ...local, blocks: local.blocks.map((b) => (b.t === "page" ? { ...b, file: name } : b)) })).out, /names .*, and the board serves only a regular file with one name that it can read, of at most 16 MiB, with no link in its path or in the pages folders/, name);
-  const bad = sage("message", "T1", "--json", JSON.stringify({ ...local, blocks: local.blocks.filter((b) => b.label !== "Needed by") }));
+  const bad = sage("message", "T1", "--json", JSON.stringify({ ...local, blocks: local.blocks.filter((b) => b.label !== "Due") }));
   assert.equal(bad.status, 1);
-  assert.match(bad.out, /^sage: the message is not in its kind's shape, so nothing reaches the owner in another shape\. Nothing written\.\n- a question needs "Needed by" before "Judged by"/);
+  assert.match(bad.out, /^sage: the message is not in its kind's shape, so nothing reaches the owner in another shape\. Nothing written\.\n- a question needs "Due" before "Judged by"/);
   assert.match(sage("message", "T1", "--json", "{not json").out, /the message is not JSON/);
   assert.match(sage("message", "T2", "--json", "{}").out, /no task T2/);
   assert.match(sage("message", "T1").out, /message takes <task> and one of --file/);
@@ -700,7 +707,7 @@ test("F-T1046-1: the JSON help and the refusal say that the message puts the pic
 test("F-T1046-2: a batch of 2 questions renders each under its own ### Question heading with its own answers, pick first; the check reads each question", () => {
   const out = render(batch([0, 2]));
   assert.equal(out.problems, undefined);
-  assert.match(out.text, /\n### The one real choice in it\n[\s\S]*\n\n### Question 1: Page links\n\nShould pages reach you only by a link\?\n\n1\. Stop: use the link to your Mac only \(my\n {3}pick\)\n[\s\S]*\n\n### Question 2: Old pages\n\nShould the board list old pages\?\n\n1\. Delete them \(my pick\)\n[\s\S]*\n2\. Fold them\n[\s\S]*\n3\. List them all\n[\s\S]*\n\n### If you do not answer\n/);
+  assert.match(out.text, /\n### Choice\n[\s\S]*\n\n### Question 1: Page links\n\nShould pages reach you only by a link\?\n\n1\. Stop: use the link to your Mac only \(my\n {3}pick\)\n[\s\S]*\n\n### Question 2: Old pages\n\nShould the board list old pages\?\n\n1\. Delete them \(my pick\)\n[\s\S]*\n2\. Fold them\n[\s\S]*\n3\. List them all\n[\s\S]*\n\n### Default\n/);
   assert.equal(messageMiss(out.text), undefined);
   const late = out.text.replace("1. Delete them (my pick)", "1. Delete them").replace("3. List them all", "3. List them all (my pick)");
   assert.deepEqual(messageMiss(late).names, ["pick not first"]);

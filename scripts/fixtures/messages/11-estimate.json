@@ -4,7 +4,7 @@
   "blocks": [
     {
       "t": "field",
-      "label": "What it covers",
+      "label": "Covers",
       "text": "The three pull requests for the new words. Each one builds, gets its reviews and QA, and is ready to merge."
     },
     {
@@ -68,12 +68,12 @@
     },
     {
       "t": "field",
-      "label": "What would change it",
+      "label": "What if",
       "text": "Each repair round adds a new review cycle: about 0.7 M tokens for one round of a small task (measured, the clean-up of leftover folders), more for a large one."
     },
     {
       "t": "field",
-      "label": "So far",
+      "label": "Cost",
       "text": "Part 1 has used 1.0 M tokens (measured; the lead's own tokens come at its end)."
     },
     {
@@ -83,7 +83,7 @@
     },
     {
       "t": "field",
-      "label": "What I need from you",
+      "label": "Needs you",
       "text": "Nothing. If the cost is too high, tell me: parts 2 and 3 have not started."
     }
   ],

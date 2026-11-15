@@ -4,7 +4,7 @@
   "blocks": [
     {
       "t": "field",
-      "label": "Where this is",
+      "label": "Where",
       "text": "Release 1.0 › single task: the new words, part 1 of 3 › step: design"
     },
     {
@@ -20,7 +20,7 @@
     },
     {
       "t": "field",
-      "label": "How you will use it",
+      "label": "In use",
       "text": "You ask for the board. Above the columns, a “Where we are” frame shows the release, the milestone and the task that runs now. Each task card has one of six words: not started, waiting, needs you, in progress, done, stopped."
     },
     {
@@ -136,7 +136,7 @@
     },
     {
       "t": "section",
-      "label": "Why each change matters",
+      "label": "Why",
       "body": [
         {
           "t": "list",
@@ -168,7 +168,7 @@
     },
     {
       "t": "section",
-      "label": "The choices, and the options I dropped",
+      "label": "Decisions",
       "body": [
         {
           "t": "list",
@@ -184,13 +184,18 @@
     },
     {
       "t": "field",
-      "label": "Why we might not do this",
+      "label": "Weak points",
       "text": "It costs 10.5 to 21 M tokens and 13 to 26 h of agent time, and every logbook moves once to the new words."
     },
     {
       "t": "field",
-      "label": "Safety and cost",
-      "text": "The move of the logbook is a one-time migration, so the route adds the security review. Cost as above (estimate, from the engineer's check)."
+      "label": "Safety",
+      "text": "The move of the logbook is a one-time migration, so the route adds the security review."
+    },
+    {
+      "t": "field",
+      "label": "Cost",
+      "text": "As above (estimate, from the engineer's check)."
     },
     {
       "t": "field",
@@ -199,7 +204,7 @@
     },
     {
       "t": "field",
-      "label": "What you approve",
+      "label": "Approve",
       "text": "The levels, the six words, the board frame, the chat board, the status lines, the approval question and the command words."
     }
   ]

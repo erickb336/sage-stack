@@ -34,22 +34,22 @@
     },
     {
       "t": "field",
-      "label": "The lesson",
+      "label": "Lesson",
       "text": "A picture shows what you will see, in your words: names, not ids, and a state word for each part."
     },
     {
       "t": "field",
-      "label": "Has it happened before",
+      "label": "Seen before",
       "text": "Yes. The same kind of mistake came twice before: on 10 Nov, messages too compressed to read after time away; on 11 Nov, a catch-up of labels with no meaning. Three times: this lesson goes into code."
     },
     {
       "t": "table",
       "head": [
-        "Where the lesson lives now",
-        "What it holds",
+        "Kept in",
+        "Holds",
         "State"
       ],
-      "caption": "Where the lesson lives now",
+      "caption": "Kept in",
       "rows": [
         [
           "The logbook",
@@ -75,12 +75,12 @@
     },
     {
       "t": "field",
-      "label": "What changes for you",
+      "label": "For you",
       "text": "Pictures in my messages use names and state words. If you see an id in a picture, tell me: it is a bug."
     },
     {
       "t": "field",
-      "label": "What I need from you",
+      "label": "Needs you",
       "text": "Nothing."
     }
   ],

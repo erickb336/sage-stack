@@ -5,7 +5,7 @@
   "blocks": [
     {
       "t": "field",
-      "label": "Where this is",
+      "label": "Where",
       "text": "Release 1.0 › single tasks: the new words, parts 1 to 3 › before the build"
     },
     {
@@ -15,7 +15,7 @@
     },
     {
       "t": "section",
-      "label": "What I told you, and what is true",
+      "label": "Correction",
       "body": [
         {
           "t": "field",
@@ -36,17 +36,17 @@
     },
     {
       "t": "field",
-      "label": "What it changed for you",
+      "label": "For you",
       "text": "Nothing to undo. The work costs more than I told you. Part 1 has used 1.0 M tokens so far."
     },
     {
       "t": "field",
-      "label": "What I did",
+      "label": "Action",
       "text": "Recorded the corrected range and its basis in the logbook, and used it in the estimate for the three pull requests."
     },
     {
       "t": "section",
-      "label": "Why it could happen",
+      "label": "Cause",
       "body": [
         {
           "t": "list",
@@ -60,12 +60,12 @@
     },
     {
       "t": "field",
-      "label": "Has it happened before",
+      "label": "Seen before",
       "text": "Not that the logbook shows. The logbook does not keep my estimates, so a repeat would not show either."
     },
     {
       "t": "section",
-      "label": "What stops it next time",
+      "label": "Lasting fix",
       "body": [
         {
           "t": "list",
@@ -79,7 +79,7 @@
     },
     {
       "t": "field",
-      "label": "What you need to do",
+      "label": "Needs you",
       "text": "Nothing. If 10.5 to 21 M tokens is too much for the new words, tell me: parts 2 and 3 can wait."
     },
     {
