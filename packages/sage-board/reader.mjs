@@ -36,10 +36,10 @@ const criteriaOf = text => String(text ?? "").split(/\r?\n/).reduce((lines, line
   if (item) lines.push(item[1].trim()); else if (line.trim()) lines.length && /^\s/.test(line) ? lines[lines.length - 1] += ` ${line.trim()}` : lines.push(line.trim());
   return lines;
 }, []);
-const NUMBER = String.raw`(\d+(?:[.,]\d+)?)`;
+const NUMBER = String.raw`(\d{1,3}(?:,\d{3})+(?!\d)|\d+(?:[.,]\d+)?)`;
 export function budgetOf(text) {
   const hours = new RegExp(`${NUMBER}\\s*(hours?|h|minutes?|min)\\b`, "i").exec(text ?? ""), tokens = new RegExp(`${NUMBER}\\s*([kKmM])?\\s*tokens?\\b`).exec(text ?? "");
-  const n = value => Number(value.replace(",", "."));
+  const n = value => Number(/^\d{1,3}(?:,\d{3})+$/.test(value) ? value.replaceAll(",", "") : value.replace(",", "."));
   return { ms: hours ? n(hours[1]) * (/^m/i.test(hours[2]) ? 60_000 : 3_600_000) : null, tokens: tokens ? n(tokens[1]) * ({ k: 1e3, m: 1e6 }[tokens[2]?.toLowerCase()] ?? 1) : null };
 }
 
@@ -64,7 +64,9 @@ function keptChecks(dir, taskId, runs) {
   return runs.filter(run => CHECKERS.includes(run.role) && RUN.test(run.id)).flatMap(run => {
     const data = readJson(join(dir, "kept", `${run.id}.json`));
     if (data?.task !== taskId || data.run !== run.id || typeof data.text !== "string") return [];
-    return ["PASS", "CLEAN"].includes(readReport(data.text).result) ? [{ run: run.id, text: plain(data.text) }] : [];
+    if (!["PASS", "CLEAN"].includes(readReport(data.text).result)) return [];
+    const said = fieldsOf(data.text, REPORT_FIELDS).filter(field => ["RESULT", "EVIDENCE"].includes(field.name)).flatMap(field => [field.rest, ...field.lines]);
+    return [{ run: run.id, text: plain(said.join("\n")) }];
   });
 }
 

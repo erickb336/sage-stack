@@ -12,6 +12,7 @@ import { boardOverview, taskPanel } from "../packages/sage-core/board-overview.m
 import { renderTaskText } from "../packages/sage-core/board-render.mjs";
 import { readBoardSources } from "../packages/sage-core/board-reader.mjs";
 import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
+import { budgetOf } from "../packages/sage-board/reader.mjs";
 import { ABOUT, appTables, writeTasksLogbook } from "./fixtures/board-app.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -308,4 +309,18 @@ test("T1083: a failing or unnamed report meets no line, and a brief that the boa
   const brief = await read();
   assert.deepEqual([brief.state, brief.run], ["unread", "R20"]);
   assert.match(brief.why, /^The board cannot read the brief of R20 now\. It is a folder, not a file\./);
+});
+
+test("T1083 (F-T1083-2): a passing report meets a line only in its RESULT or EVIDENCE, never under NOT VERIFIED or QUESTIONS", async t => {
+  const w = world(t, { agents: true, about: true }), kept = text => writeFileSync(join(w.logbook, "kept", "R45.json"), JSON.stringify({ task: "T2", run: "R45", role: "qa", sha: "", at: NOW, text }));
+  const base = await serve(t, w.sources), read = async () => (await (await fetch(`${base}/app/task/${b64(KEY("T2"))}`)).json()).brief.criteria.map(line => line.by);
+  kept(`STATUS done\nRESULT CLEAN\nEVIDENCE none\nFINDINGS none\nQUESTIONS ${ABOUT.criteria[1]}?\nNOT VERIFIED ${ABOUT.criteria[0]}: no browser was available.\nBRANCH none`);
+  assert.deepEqual(await read(), [null, null, null], "lines named only under NOT VERIFIED or QUESTIONS are not checked yet");
+  kept(`STATUS done\nRESULT CLEAN\nEVIDENCE checked:\n  ${ABOUT.criteria[1]}\nFINDINGS none\nQUESTIONS none\nNOT VERIFIED none\nBRANCH none`);
+  assert.deepEqual(await read(), [null, "R45", null], "a line under EVIDENCE is met");
+});
+
+test("T1083 (F-T1083-4): a budget reads thousands separators and k or M before tokens", () => {
+  for (const [text, tokens] of [["About 1 hour and 1,000,000 tokens.", 1_000_000], ["7 M tokens", 7_000_000], ["400 k tokens", 400_000], ["1.5 M tokens", 1_500_000], ["12,000 tokens", 12_000]]) assert.equal(budgetOf(text).tokens, tokens, text);
+  assert.equal(budgetOf("About 1 hour and 1,000,000 tokens.").ms, 3_600_000);
 });
