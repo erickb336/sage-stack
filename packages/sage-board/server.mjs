@@ -335,7 +335,8 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     if (!["GET", "HEAD"].includes(request.method)) { response.setHeader("Allow", "GET, HEAD"); return fail(405, "This method is not permitted."); }
     if (request.url === "/app" || request.url.startsWith("/app/")) return serveApp(request, response, fail);
     if (request.url.startsWith("/read/")) return serveReader(request, response, fail);
-    if (request.url === "/") { response.writeHead(302, { Location: "/app/" }); return response.end(); }
+    // A browser opens / with GET and goes to the app. The board command's probe, also in older plugins, sends HEAD / and reads 200 text/html as this board.
+    if (request.url === "/") { response.writeHead(...request.method === "HEAD" ? [200, { "Content-Type": "text/html; charset=utf-8" }] : [302, { Location: "/app/" }]); return response.end(); }
     fail(404, "This board page does not exist.");
   });
   async function serveApi(request, response, fail) {

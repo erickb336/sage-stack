@@ -100,8 +100,7 @@ const probe = ({ port }) => new Promise(done => {
     const { "content-type": type = "", "content-security-policy": policy = "", "cross-origin-resource-policy": resource, "x-sage-board": named = "" } = response.headers;
     const boardHeaders = policy.startsWith("default-src 'none'") && resource === "same-origin";
     const own = /^id=([a-f0-9]{16,64}); pid=([1-9]\d{0,9}); started=(\d{1,16})$/.exec(named);
-    const page = response.statusCode === 302 && response.headers.location === "/app/" || response.statusCode === 200 && type.startsWith("text/html");
-    if (boardHeaders && page) done(own ? { kind: "board", id: own[1], pid: Number(own[2]), started: Number(own[3]) } : { kind: "older" });
+    if (boardHeaders && response.statusCode === 200 && type.startsWith("text/html")) done(own ? { kind: "board", id: own[1], pid: Number(own[2]), started: Number(own[3]) } : { kind: "older" });
     else done({ kind: "other" });
   });
   req.once("timeout", () => req.destroy(Object.assign(new Error("timeout"), { code: "TIMEOUT" })));

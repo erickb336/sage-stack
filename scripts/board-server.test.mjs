@@ -110,11 +110,36 @@ function events(f, path = "/app/events") {
   };
 }
 
+// The probe of the board command up to T770 (packages/sage-board/cli.mjs before PR 581), copied here: a Claude or a Codex plugin of that
+// version shares one board config with a newer one, so its --ensure must still read the newer board as "board", not "another program".
+const olderProbe = ({ port }) => new Promise(done => {
+  const req = request({ host: "127.0.0.1", port, path: "/", method: "HEAD", agent: false, timeout: 2000, headers: { Host: `127.0.0.1:${port}` } }, response => {
+    response.resume();
+    const { "content-type": type = "", "content-security-policy": policy = "", "cross-origin-resource-policy": resource, "x-sage-board": named = "" } = response.headers;
+    const boardHeaders = policy.startsWith("default-src 'none'") && resource === "same-origin";
+    const own = /^id=([a-f0-9]{16,64}); pid=([1-9]\d{0,9}); started=(\d{1,16})$/.exec(named);
+    if (boardHeaders && response.statusCode === 200 && type.startsWith("text/html")) done(own ? { kind: "board", id: own[1], pid: Number(own[2]), started: Number(own[3]) } : { kind: "older" });
+    else done({ kind: "other" });
+  });
+  req.once("error", error => done({ kind: error.code }));
+  req.end();
+});
+
+test("T770: the board command's probe of an older plugin reads the new board as its own board, not as another program", async t => {
+  const f = await fixture(t, { id: "0123456789abcdef" });
+  const found = await olderProbe(f);
+  assert.deepEqual([found.kind, found.id, found.pid], ["board", "0123456789abcdef", process.pid]);
+  const head = await read(f, "/", { method: "HEAD" });
+  assert.deepEqual([head.status, head.headers["content-type"], head.headers.location, head.body], [200, "text/html; charset=utf-8", undefined, ""]);
+  assert.equal(head.headers["content-security-policy"], BOARD_POLICY);
+  assert.equal((await read(f, "/", { method: "HEAD", rawHeaders: ["Host", "evil.example"] })).status, 403, "the Host check still comes first");
+});
+
 test("T770: the board's address sends the browser to the app, the old board's pages are gone, and nothing writes the logbook", async t => {
   const f = await fixture(t), file = join(f.project, "tasks.tsv"), before = readFileSync(file);
-  for (const method of ["GET", "HEAD"]) {
+  for (const [method, status, location] of [["GET", 302, "/app/"], ["HEAD", 200, undefined]]) {
     const page = await read(f, "/", { method });
-    assert.deepEqual([page.status, page.headers.location, page.body], [302, "/app/", ""], method);
+    assert.deepEqual([page.status, page.headers.location, page.body], [status, location, ""], method);
     assert.equal(page.headers["content-security-policy"], BOARD_POLICY); assert.equal(page.headers["cache-control"], "no-store");
     assert.equal(page.headers["x-content-type-options"], "nosniff"); assert.equal(page.headers["referrer-policy"], "no-referrer"); assert.equal(page.headers["access-control-allow-origin"], undefined);
   }
