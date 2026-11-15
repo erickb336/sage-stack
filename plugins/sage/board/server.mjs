@@ -50,6 +50,7 @@ function securityHeaders(response) {
   response.setHeader("Cross-Origin-Resource-Policy", "same-origin");
 }
 
+const ANSWER_TO_THE_BOARD_PROBE_OF_ANY_PLUGIN = [200, { "Content-Type": "text/html; charset=utf-8" }], SEND_THE_BROWSER_TO_THE_APP = [302, { Location: "/app/" }];
 const APP_DIR = fileURLToPath(new URL("./app/", import.meta.url));
 const APP_FILE = /^(?:app|vendor|graph)-[A-Z0-9]{8}\.(?:js|css)$/;
 const APP_TYPES = { js: "text/javascript; charset=utf-8", css: "text/css; charset=utf-8" };
@@ -335,8 +336,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     if (!["GET", "HEAD"].includes(request.method)) { response.setHeader("Allow", "GET, HEAD"); return fail(405, "This method is not permitted."); }
     if (request.url === "/app" || request.url.startsWith("/app/")) return serveApp(request, response, fail);
     if (request.url.startsWith("/read/")) return serveReader(request, response, fail);
-    // A browser opens / with GET and goes to the app. The board command's probe, also in older plugins, sends HEAD / and reads 200 text/html as this board.
-    if (request.url === "/") { response.writeHead(...request.method === "HEAD" ? [200, { "Content-Type": "text/html; charset=utf-8" }] : [302, { Location: "/app/" }]); return response.end(); }
+    if (request.url === "/") { response.writeHead(...request.method === "HEAD" ? ANSWER_TO_THE_BOARD_PROBE_OF_ANY_PLUGIN : SEND_THE_BROWSER_TO_THE_APP); return response.end(); }
     fail(404, "This board page does not exist.");
   });
   async function serveApi(request, response, fail) {

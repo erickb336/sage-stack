@@ -110,9 +110,7 @@ function events(f, path = "/app/events") {
   };
 }
 
-// The probe of the board command up to T770 (packages/sage-board/cli.mjs before PR 581), copied here: a Claude or a Codex plugin of that
-// version shares one board config with a newer one, so its --ensure must still read the newer board as "board", not "another program".
-const olderProbe = ({ port }) => new Promise(done => {
+const probeOfThePluginBeforeT770 = ({ port }) => new Promise(done => {
   const req = request({ host: "127.0.0.1", port, path: "/", method: "HEAD", agent: false, timeout: 2000, headers: { Host: `127.0.0.1:${port}` } }, response => {
     response.resume();
     const { "content-type": type = "", "content-security-policy": policy = "", "cross-origin-resource-policy": resource, "x-sage-board": named = "" } = response.headers;
@@ -127,7 +125,7 @@ const olderProbe = ({ port }) => new Promise(done => {
 
 test("T770: the board command's probe of an older plugin reads the new board as its own board, not as another program", async t => {
   const f = await fixture(t, { id: "0123456789abcdef" });
-  const found = await olderProbe(f);
+  const found = await probeOfThePluginBeforeT770(f);
   assert.deepEqual([found.kind, found.id, found.pid], ["board", "0123456789abcdef", process.pid]);
   const head = await read(f, "/", { method: "HEAD" });
   assert.deepEqual([head.status, head.headers["content-type"], head.headers.location, head.body], [200, "text/html; charset=utf-8", undefined, ""]);
