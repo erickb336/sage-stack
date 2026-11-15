@@ -30,11 +30,11 @@ async function freePort() {
 }
 
 const MESSAGE = { kind: "question", title: "Can a viewer copy a shared list into their own lists?", blocks: [
-  { t: "field", label: "Where this is", text: "The sample task sets what each person may do with a shared list." },
-  { t: "field", label: "What you approve", text: "The rule for viewers." },
-  { t: "field", label: "The one real choice in it", text: "Does a viewer get a copy action?" },
-  { t: "table", head: ["Answer", "What happens next", "Cost"], rows: [["yes", "The chief adds the copy action.", "About 1 to 2 h of agent time."], ["no", "The chief builds view only.", "No extra cost now."]], pick: 0 },
-  { t: "field", label: "If you do not answer", text: "The task waits." }, { t: "field", label: "Needed by", text: "Sample: 20:00 today." }, { t: "field", label: "After you answer", text: "The chief builds the task." }] };
+  { t: "field", label: "Where", text: "The sample task sets what each person may do with a shared list." },
+  { t: "field", label: "Approve", text: "The rule for viewers." },
+  { t: "field", label: "Choice", text: "Does a viewer get a copy action?" },
+  { t: "table", head: ["Answer", "Next", "Cost"], rows: [["yes", "The chief adds the copy action.", "About 1 to 2 h of agent time."], ["no", "The chief builds view only.", "No extra cost now."]], pick: 0 },
+  { t: "field", label: "Default", text: "The task waits." }, { t: "field", label: "Due", text: "Sample: 20:00 today." }, { t: "field", label: "Next", text: "The chief builds the task." }] };
 
 async function openBoard(t, { write } = {}) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-writes-browser-")));
@@ -113,7 +113,7 @@ test("T1059: the owner pairs once, then answers with full context, undoes, renam
   await page.getByRole("heading", { name: MESSAGE.title, level: 1 }).waitFor();
   assert.equal(clicks, 1, "J1: one click opens the question with its full context");
   const view = await page.locator(".question").textContent();
-  for (const part of ["Where this is", "The rule for viewers.", "If you do not answer", "The chief adds the copy action.", "About 1 to 2 h of agent time.", "C1's pick"]) assert.ok(view.includes(part), `the view shows ${part}`);
+  for (const part of ["Where", "The rule for viewers.", "Default", "The chief adds the copy action.", "About 1 to 2 h of agent time.", "C1's pick"]) assert.ok(view.includes(part), `the view shows ${part}`);
   const taskKey = `shared/${basename(w.dir)}/T1`;
   assert.equal(await page.getByRole("link", { name: "Read the full question" }).getAttribute("href"), `/read/${Buffer.from(taskKey).toString("base64url")}/question/G1`, "the link opens the reader's question page of the same gate");
   await w.shot("t1059-question");

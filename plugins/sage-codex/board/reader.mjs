@@ -6,6 +6,7 @@ import { BRIEF_FIELDS, LONG_WIDTH, chiefName, PAGE_MAX, REPORT_FIELDS, WIDTH, br
 const marksShown = text => String(text ?? "").replace(/\p{Cf}/gu, c => `[U+${c.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}]`);
 const TEXT_MAX = 1 << 20, MD_MAX = 2 << 20, VERSIONS_MAX = 30, SHOTS_MAX = 8;
 const RUN = /^R[1-9]\d*$/, GATE = /^G[1-9]\d*$/, NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
+const DEFAULT_LABELS = ["Default", "If you do not answer"];
 const PICTURE = /\.(?:png|jpe?g|gif|webp|svg)$/i;
 const MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(" ");
 const pad = n => String(n).padStart(2, "0");
@@ -147,10 +148,10 @@ details{border:1px solid var(--line);border-radius:12px;background:var(--card);m
 .decision{border-top:1px solid var(--line);padding:10px 0 0;margin-top:10px}.faint{color:var(--faint)}.muted{color:var(--muted)}.mono{font-family:var(--mono);font-size:12.5px}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin:0 0 24px}.card{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:16px}.card.base{border-color:var(--done)}.card h3{display:flex;justify-content:space-between;align-items:center;margin:0 0 10px}.score{font-size:20px;font-weight:600}
 table.scores{border-collapse:collapse;width:100%;margin:0 0 24px}.scores th,.scores td{border-bottom:1px solid var(--line);padding:8px 10px;text-align:left}.scores svg{width:60px;height:6px;margin-right:8px;vertical-align:middle}.scores .t{fill:var(--line-2)}.scores .v{fill:var(--accent)}
-h2.sec{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:22px 0 10px}.two{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:0 0 18px}.answer{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:14px 18px;margin:0 0 12px}.answer.pick{border-color:var(--accent)}.answer dl{display:grid;grid-template-columns:170px minmax(0,1fr);gap:4px 16px;margin:8px 0 0}.answer dt{color:var(--muted)}.answer dd{margin:0}h3.sub{font-size:15px;font-weight:600;margin:18px 0 10px}
+h2.sec{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:22px 0 10px}.answer{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:14px 18px;margin:0 0 12px}.answer.pick{border-color:var(--accent)}.answer dl{margin:8px 0 0}.answer dt{font-weight:600;margin:8px 0 2px}.answer dd{margin:0}h3.sub{font-size:15px;font-weight:600;margin:18px 0 10px}
 .skel{border:1px solid var(--line);border-radius:12px;padding:24px;display:grid;gap:18px}.skel i{display:block;height:28px;border-radius:8px;background:var(--line)}.skel i:nth-child(3n){height:120px}.skel:has(~ .ready){display:none}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}@media (prefers-reduced-motion:reduce){*{transition:none!important}}
-@media (max-width:720px){main{padding:16px 16px 48px}.top{height:auto;min-height:52px;flex-wrap:wrap;padding:8px 16px}.cols,.doc,.pair,.two,.answer dl{grid-template-columns:minmax(0,1fr)}summary{flex-wrap:wrap;gap:2px 12px}.fname{min-width:0}.body{padding:0 16px 14px}pre.md{overflow-x:auto}}`;
+@media (max-width:720px){main{padding:16px 16px 48px}.top{height:auto;min-height:52px;flex-wrap:wrap;padding:8px 16px}.cols,.doc,.pair{grid-template-columns:minmax(0,1fr)}summary{flex-wrap:wrap;gap:2px 12px}.fname{min-width:0}.body{padding:0 16px 14px}pre.md{overflow-x:auto}}`;
 const STYLE_HASH = `'sha256-${createHash("sha256").update(CSS).digest("base64")}'`;
 
 export function readerPolicy(origin, logbook, taskId) {
@@ -164,7 +165,7 @@ function frame(view, { project, title, crumb, back, file, state }) {
   const flip = { ...view, theme: view.theme === "light" ? "dark" : "light" };
   return `<!doctype html><html lang="en" data-theme="${view.theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>${esc(title)} · sage board</title><style>${CSS}</style></head><body>
 <header class="top"><a href="/app/">sage board</a><span aria-hidden="true">/</span><span>${esc(project)}</span><span aria-hidden="true">/</span><b>${esc(crumb)}</b><span class="grow"></span><span>${esc(state)}</span><a class="btn" href="${esc(readerUrl(view.key, view.kind, view.arg, flip))}">Switch to the ${flip.theme} theme</a></header>
-<main><nav class="where" aria-label="Where this is"><a class="back" href="${esc(back.href)}">&#8592; ${esc(back.text)}</a><span>${esc(back.where)}</span><span class="grow"></span>${file ?? ""}</nav>
+<main><nav class="where" aria-label="Where"><a class="back" href="${esc(back.href)}">&#8592; ${esc(back.text)}</a><span>${esc(back.where)}</span><span class="grow"></span>${file ?? ""}</nav>
 <div class="skel" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>`;
 }
 
@@ -322,9 +323,9 @@ ${decisions.length ? decisions.map(gate => `<div class="decision"><p><b>${esc(ga
         return `<section class="card ${kind}"><h3><span>${esc(version.candidate)} <span class="faint mono">${esc(version.run ?? "")}</span></span><span class="pill ${kind}">${word}</span></h3>${shot(version, `c${i}`)}<p><b>${esc(version.angle ?? version.title ?? version.name)}</b></p>${best ? `<p><span class="score">${total(version.candidate)}</span> of ${best}</p>` : ""}${version.strong ? `<p><span class="muted">Strong</span> ${esc(version.strong)}</p>` : ""}${version.weak ? `<p><span class="muted">Weak</span> ${esc(version.weak)}</p>` : ""}${version.prototype ? `<p><a href="${esc(`${pagesBase}designs/${version.name}/${version.prototype}`)}">Open its prototype</a></p>` : ""}</section>`;
       }).join("") || `<p class="muted">No candidate is recorded.</p>`}</div>`;
       const bar = (n, max) => `<svg aria-hidden="true" viewBox="0 0 60 6"><rect class="t" width="60" height="6" rx="3"/><rect class="v" width="${Math.max(0, Math.min(60, Math.round(60 * n / max)))}" height="6" rx="3"/></svg>`;
-      const scores = f?.rubric.length && candidates.length ? `<h2 class="sec">The judge's scores</h2><table class="scores"><thead><tr><th scope="col">Rubric</th>${candidates.map(version => `<th scope="col">${esc(version.candidate)} ${esc(version.run ?? "")}</th>`).join("")}</tr></thead><tbody>${f.rubric.map((line, row) => `<tr><th scope="row">${esc(line)}</th>${candidates.map(version => { const n = f.scores[version.candidate]?.[row]; return `<td>${Number.isFinite(n) ? `${bar(n, f.max)}${n} of ${f.max}` : "not scored"}</td>`; }).join("")}</tr>`).join("")}<tr><th scope="row">Total</th>${candidates.map(version => `<td><b>${total(version.candidate)}</b> of ${best}</td>`).join("")}</tr></tbody></table>` : "";
+      const scores = f?.rubric.length && candidates.length ? `<h2 class="sec">Scores</h2><table class="scores"><thead><tr><th scope="col">Rubric</th>${candidates.map(version => `<th scope="col">${esc(version.candidate)} ${esc(version.run ?? "")}</th>`).join("")}</tr></thead><tbody>${f.rubric.map((line, row) => `<tr><th scope="row">${esc(line)}</th>${candidates.map(version => { const n = f.scores[version.candidate]?.[row]; return `<td>${Number.isFinite(n) ? `${bar(n, f.max)}${n} of ${f.max}` : "not scored"}</td>`; }).join("")}</tr>`).join("")}<tr><th scope="row">Total</th>${candidates.map(version => `<td><b>${total(version.candidate)}</b> of ${best}</td>`).join("")}</tr></tbody></table>` : "";
       const gate = f?.gate && (task.gateRows ?? []).find(row => row.id === f.gate);
-      const judged = final ? `<h2 class="sec">The judge's final</h2><div class="version"><div class="pair"><div>${shot(final, "f")}</div><div>${f.base ? `<p><b>Base: candidate ${esc(f.base)}.</b> ${esc(f.why ?? "")}</p>` : ""}${f.grafts.length ? `<h2 class="sec">Grafted in</h2><ul>${f.grafts.map(item => `<li>${esc(item)}</li>`).join("")}</ul>` : ""}${f.unused.length ? `<h2 class="sec">Not used</h2><ul>${f.unused.map(item => `<li>${esc(item)}</li>`).join("")}</ul>` : ""}${gate ? note(gate.answer ? `You answered ${esc(gate.id)}: <b>${esc(gate.answer)}</b>, at ${esc(when(gate.at, model.at))}.` : `${esc(gate.id)} waits for your answer: ${esc(firstLine(gate.question))}`, gate.answer ? "" : "need") : ""}${final.prototype ? `<p><a href="${esc(`${pagesBase}designs/${final.name}/${final.prototype}`)}">Open the final prototype</a></p>` : ""}</div></div></div>` : note("The judge's final is not saved yet.");
+      const judged = final ? `<h2 class="sec">Final</h2><div class="version"><div class="pair"><div>${shot(final, "f")}</div><div>${f.base ? `<p><b>Base: candidate ${esc(f.base)}.</b> ${esc(f.why ?? "")}</p>` : ""}${f.grafts.length ? `<h2 class="sec">Grafted in</h2><ul>${f.grafts.map(item => `<li>${esc(item)}</li>`).join("")}</ul>` : ""}${f.unused.length ? `<h2 class="sec">Not used</h2><ul>${f.unused.map(item => `<li>${esc(item)}</li>`).join("")}</ul>` : ""}${gate ? note(gate.answer ? `You answered ${esc(gate.id)}: <b>${esc(gate.answer)}</b>, at ${esc(when(gate.at, model.at))}.` : `${esc(gate.id)} waits for your answer: ${esc(firstLine(gate.question))}`, gate.answer ? "" : "need") : ""}${final.prototype ? `<p><a href="${esc(`${pagesBase}designs/${final.name}/${final.prototype}`)}">Open the final prototype</a></p>` : ""}</div></div></div>` : note("The judge's final is not saved yet.");
       return { crumb: "Arena", title: `Arena of ${task.id}: ${candidates.length} ${candidates.length === 1 ? "candidate" : "candidates"}${final ? " and the final" : ""}`, head, body: `${cards}${scores}${judged}`, file: `<a class="btn" href="${esc(pagesBase)}">Open the pages index</a>` };
     },
     question() {
@@ -333,37 +334,37 @@ ${decisions.length ? decisions.map(gate => `<div class="decision"><p><b>${esc(ga
       const kept = dir ? readJson(join(dir, "gates", `${gate.id}.json`)) : undefined, message = kept?.message?.kind === "question" && Array.isArray(kept.message.blocks) ? kept.message : null;
       const options = String(gate.options ?? "").split("|").map(option => option.trim()).filter(Boolean), owner = panel.chief ? chiefName(panel.chief.id, panel.chief.provider) : "The chief";
       const ownerId = panel.chief?.id ?? "The chief";
-      const blocks = [], labelled = {}, pagesOf = [], answers = [];
-      const walk = (list, label = null) => (list ?? []).forEach(block => {
-        if (block?.t === "section" && Array.isArray(block.body)) { const at = blocks.push({ t: "heading", text: block.label }); walk(block.body, block.label); if (blocks.length === at) blocks.pop(); }
-        else if (block?.t === "table" && Array.isArray(block.head) && /^answer$/i.test(String(block.head[0]).trim())) answers.push({ table: block, label });
+      const blocks = [], pagesOf = [];
+      const walk = (list, batch = false) => (list ?? []).forEach(block => {
+        if (block?.t === "section" && Array.isArray(block.body)) { const at = blocks.push({ t: "heading", text: block.label }); walk(block.body, true); if (blocks.length === at) blocks.pop(); }
+        else if (block?.t === "table" && Array.isArray(block.head) && /^answer$/i.test(String(block.head[0]).trim())) blocks.push({ t: "answers", table: block, batch });
         else if (block?.t === "page") pagesOf.push(block);
-        else if (block?.t === "field" && ["Needed by", "If you do not answer"].includes(block.label)) labelled[block.label] = block.text;
         else if (block) blocks.push(block);
       });
       walk(message?.blocks);
+      if (!blocks.some(block => block.t === "answers")) blocks.push({ t: "answers", table: null, batch: false });
+      if (gate.default && !blocks.some(block => block.t === "field" && DEFAULT_LABELS.includes(block.label))) blocks.push({ t: "field", label: "Default", text: `The chief takes ${gate.default}.` });
       const text = value => esc(typeof value === "string" ? value : "");
       const width = message?.long !== undefined ? LONG_WIDTH : WIDTH, muted = value => text(value) && `<p class="muted">${text(value)}</p>`;
       const pre = (title, lines) => `${title ? `<p><b>${text(title)}</b></p>` : ""}<pre class="md">${esc(lines.join("\n"))}</pre>`;
       const grid = (head, rows, caption) => `<table class="scores">${caption ? `<caption>${text(caption)}</caption>` : ""}<thead><tr>${head.map(cell => `<th scope="col">${text(cell)}</th>`).join("")}</tr></thead><tbody>${rows.map(row => `<tr>${(Array.isArray(row) ? row : []).map(cell => `<td>${text(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
       const linesOf = block => { if (block.frame === undefined) return block.lines; const drawn = frameLines(block.frame, width); return drawn.problems.length ? null : drawn.lines; };
       const messagePage = /\b(question-[0-9a-f]{8}\.html)\b/.exec(typeof kept?.text === "string" ? kept.text : "")?.[1], shownPage = messagePage && folder && pageFile(folder, messagePage) ? pagesBase + messagePage : null;
-      const render = block => (block.t === "field" ? `<h2 class="sec">${text(block.label)}</h2><p>${text(block.text)}</p>` : block.t === "heading" ? `<h2 class="sec">${text(block.text)}</h2>` : block.t === "p" ? `<p>${text(block.text)}</p>`
+      const render = block => (block.t === "answers" ? answerCards(block) : block.t === "field" ? `<h2 class="sec">${text(block.label)}</h2><p>${text(block.text)}</p>` : block.t === "heading" ? `<h2 class="sec">${text(block.text)}</h2>` : block.t === "p" ? `<p>${text(block.text)}</p>`
         : block.t === "list" && Array.isArray(block.items) ? `<${block.ordered ? "ol" : "ul"}>${block.items.map(item => `<li>${text(item)}</li>`).join("")}</${block.ordered ? "ol" : "ul"}>`
         : block.t === "steps" && Array.isArray(block.items) ? `<ol>${block.items.map(item => `<li>${text(item?.text)}${Array.isArray(item?.cmd) ? `<pre class="md">${esc(item.cmd.join("\n"))}</pre>` : ""}${muted(item?.see)}</li>`).join("")}</ol>`
         : ["code", "picture"].includes(block.t) ? (lines => Array.isArray(lines) ? `${pre(block.title, lines)}${muted(block.key)}` : "")(linesOf(block))
-        : block.t === "toggle" && Array.isArray(block.after) && Array.isArray(block.today) ? [["After this change", block.after], ["Today", block.today]].map(([label, side]) => `<h3 class="sub">${label}</h3>${side.map(item => pre(item?.title, Array.isArray(item?.lines) ? item.lines : [])).join("")}`).join("")
-        : block.t === "changes" && Array.isArray(block.rows) ? grid(["Where you see it", "Today", "After this change", "Why"], block.rows.map(row => [row?.where, row?.today, row?.after, row?.why]))
+        : block.t === "toggle" && Array.isArray(block.after) && Array.isArray(block.today) ? [["After", block.after], ["Today", block.today]].map(([label, side]) => `<h3 class="sub">${label}</h3>${side.map(item => pre(item?.title, Array.isArray(item?.lines) ? item.lines : [])).join("")}`).join("")
+        : block.t === "changes" && Array.isArray(block.rows) ? grid(["Place", "Today", "After", "Why"], block.rows.map(row => [row?.where, row?.today, row?.after, row?.why]))
         : block.t === "table" && Array.isArray(block.head) && Array.isArray(block.rows) ? grid(block.head, block.rows, block.caption) : "")
         || note(`<b>Not shown here.</b> This page cannot show one part of the question (${text(block.t)}). ${shownPage ? `<a href="${esc(shownPage)}">Open the question's message page</a>` : "Read it in the chief's chat."}`, "need");
       const same = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase() || String(a).trim().toLowerCase().replace(/^[a-z0-9]\s*[·:.)-]\s*/, "") === String(b).trim().toLowerCase();
-      const groups = answers.length ? answers : [{ table: null, label: null }];
-      const answerCards = groups.map(({ table, label }) => {
+      const answerCards = ({ table, batch }) => {
         const rows = table ? table.rows.filter(Array.isArray) : options.map(option => [option]);
         const pickIndex = table && Number.isInteger(table.pick) && rows[table.pick] ? table.pick : rows.findIndex(row => gate.recommendation && same(row[0], gate.recommendation));
         const ordered = pickIndex >= 0 ? [rows[pickIndex], ...rows.filter((_, i) => i !== pickIndex)] : rows;
-        return `${groups.length > 1 && label ? `<h3 class="sub">${text(label)}</h3>` : ""}${muted(table?.caption)}${ordered.map((row, i) => `<section class="answer${i === 0 && pickIndex >= 0 ? " pick" : ""}"><h3>${text(String(row[0]))}${i === 0 && pickIndex >= 0 ? ` <span class="pill grafted">${esc(ownerId)}'s pick</span>` : ""}${gate.answer && same(row[0], gate.answer) ? ` <span class="pill done">Your answer</span>` : ""}</h3>${row.length > 1 ? `<dl>${row.slice(1).map((cell, k) => `<dt>${text(table.head[k + 1])}</dt><dd>${text(cell)}</dd>`).join("")}</dl>` : ""}</section>`).join("")}`;
-      }).join("");
+        return `${batch ? "" : `<h2 class="sec">Answers</h2>`}${muted(table?.caption)}${ordered.map((row, i) => `<section class="answer${i === 0 && pickIndex >= 0 ? " pick" : ""}"><h3>${text(String(row[0]))}${i === 0 && pickIndex >= 0 ? ` <span class="pill grafted">${esc(ownerId)}'s pick</span>` : ""}${gate.answer && same(row[0], gate.answer) ? ` <span class="pill done">Your answer</span>` : ""}</h3>${row.length > 1 ? `<dl>${row.slice(1).map((cell, k) => `<dt>${text(table.head[k + 1])}</dt><dd>${text(cell)}</dd>`).join("")}</dl>` : ""}</section>`).join("")}`;
+      };
       const readMore = [`<li>${taskA(`Task ${task.id}`)} · ${esc(task.title)}</li>`, ...pagesOf.filter(block => typeof block.file === "string").map(block => {
         const where = block.task === task.id && pageType(block.file) ? (block.file.endsWith(".md") ? link("page", block.file, { back: `q-${gate.id}` }) : pagesBase + block.file) : null;
         return `<li>${where ? `<a href="${esc(where)}">${text(block.title)}</a>` : `${text(block.title)} <span class="faint">(in ${text(block.task)}'s pages folder)</span>`}</li>`;
@@ -373,8 +374,7 @@ ${decisions.length ? decisions.map(gate => `<div class="decision"><p><b>${esc(ga
       const status = gate.answer ? note(`<b>Answered: ${esc(gate.answer)}.</b> The first answer wins; to change it, tell the chief in its chat.`) : "";
       const head = `<p class="muted">${esc(owner)} · <span class="mono">${esc(gate.id)}</span> · asked ${esc(when(gate.at, model.at) + ago(gate.at, model.at))} · ${taskLink} · ${esc(task.title)}</p>`;
       const body = `${status}${message ? "" : note(`<b>Not kept.</b> The logbook keeps no full message of ${esc(gate.id)} (sage keeps the full message only for newer questions that the chief asks with a message). The board shows its question and options only.`)}
-<div class="two"><div class="note"><h2 class="sec">Needed by</h2><p>${text(labelled["Needed by"] ?? "not recorded")}</p></div><div class="note"><h2 class="sec">If you do not answer</h2><p>${text(labelled["If you do not answer"] ?? (gate.default ? `The chief takes ${gate.default}.` : "not recorded"))}</p></div></div>
-${blocks.map(render).join("")}<h2 class="sec">The answers</h2>${answerCards}<h2 class="sec">Read more</h2><ul>${readMore.join("")}</ul>${gate.answer ? "" : note(`This page only reads. Answer in ${esc(ownerId)}'s chat.`)}`;
+${blocks.map(render).join("")}<h2 class="sec">Links</h2><ul>${readMore.join("")}</ul>${gate.answer ? "" : note(`This page only reads. Answer in ${esc(ownerId)}'s chat.`)}`;
       return { crumb: gate.id, title: message?.title ?? firstLine(gate.question), head, body, raw: true };
     },
   };

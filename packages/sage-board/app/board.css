@@ -267,8 +267,8 @@ input:not([type]), input[type="text"] { font: inherit; color: inherit; backgroun
 .answer { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 4px 10px; padding: 14px 16px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--card); cursor: pointer; }
 .answer.picked { border-color: var(--accent); background: var(--accent-fill); }
 .answer.chosen { border-color: var(--done); }
-.answer .more { grid-column: 2; display: grid; gap: 4px; font-size: 13px; }
-.answer .more .faint { display: inline-block; min-width: 140px; }
+.answer .more { grid-column: 2; display: grid; gap: 8px; font-size: 13px; }
+.answer .more .col { display: block; font-weight: 600; }
 .send { display: grid; gap: 8px; padding: 14px 16px; margin-top: 8px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--card); position: sticky; bottom: 12px; }
 .send > p { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 

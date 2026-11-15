@@ -54,7 +54,7 @@
     },
     {
       "t": "section",
-      "label": "Each box",
+      "label": "Boxes",
       "body": [
         {
           "t": "list",
@@ -77,7 +77,7 @@
     },
     {
       "t": "section",
-      "label": "What changed",
+      "label": "Changes",
       "body": [
         {
           "t": "list",
@@ -91,12 +91,12 @@
     },
     {
       "t": "field",
-      "label": "If this happens",
+      "label": "What if",
       "text": "If a review of part 1 finds a high finding, I start a repair round and do not ask you."
     },
     {
       "t": "field",
-      "label": "What I need from you",
+      "label": "Needs you",
       "text": "Nothing now. Next: look at the example pages and tell me what to change."
     }
   ],

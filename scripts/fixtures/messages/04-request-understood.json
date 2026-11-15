@@ -4,17 +4,17 @@
   "blocks": [
     {
       "t": "field",
-      "label": "Your words",
+      "label": "Request",
       "text": "“can we also have a consistent way to display visuals that works for whatever provider”"
     },
     {
       "t": "field",
-      "label": "What I understood",
+      "label": "Goal",
       "text": "You want sage's pages and pictures to reach you the same way in each app that you use, so that you never need to know which provider runs the work. This is a study first: compare the ways, then recommend one."
     },
     {
       "t": "section",
-      "label": "Read back (costly if wrong)",
+      "label": "Check these",
       "body": [
         {
           "t": "list",
@@ -38,12 +38,12 @@
     },
     {
       "t": "field",
-      "label": "Appetite",
+      "label": "Budget",
       "text": "About 0.5 M tokens and 1 h of agent time for the study and its evidence review (estimate, range 0.3 to 1 M). Past 1 M tokens, I stop and ask you."
     },
     {
       "t": "section",
-      "label": "Unsure, with my default",
+      "label": "Open questions",
       "body": [
         {
           "t": "list",
@@ -57,7 +57,7 @@
     },
     {
       "t": "field",
-      "label": "If you say nothing",
+      "label": "Default",
       "text": "I start in 15 minutes with the defaults. Reply “correct” to start now, or fix a line."
     }
   ],

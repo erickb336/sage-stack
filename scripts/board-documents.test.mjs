@@ -191,12 +191,13 @@ test("T1064: a design shows today's version or two versions side by side, each w
   assert.match(arena.text, /Base: candidate A\. It scored highest and fits the brief best\. Grafted in From B: the total in the tooltip\. Not used B's header total: it hides which list waits\. You answered G12: A/);
 });
 
-test("T1064: the full question view shows the kept message: Needed by and If you do not answer first, every part, the answers with the chief's pick first, and links to read more", t => {
+test("T1064, T1093: the full question view shows the kept message in one column, in the message's order: every part under its short label, the answers with the chief's pick first, and the links", t => {
   const w = world(t), page = read(w, "T10", "question", "G4");
-  const order = ["Needed by", "If you do not answer", "Where this is", "What you approve", "The one real choice in it", "After you answer", "The answers", "Read more"].map(name => page.html.indexOf(`<h2 class="sec">${name}</h2>`));
+  assert.doesNotMatch(page.html, /class="two"/, "no boxes side by side");
+  const order = ["Where", "Approve", "Choice", "Answers", "Default", "Due", "Next", "Links"].map(name => page.html.indexOf(`<h2 class="sec">${name}</h2>`));
   assert.ok(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1])), `the parts in order: ${order}`);
   assert.deepEqual([...page.html.matchAll(/<section class="answer[^"]*"><h3>([^<]+)/g)].map(match => match[1].trim()), ["A: yes, as a new private list", "B: no"], "the pick (row 1) comes first");
-  assert.match(page.html, /A: yes, as a new private list <span class="pill grafted">C1's pick<\/span><\/h3><dl><dt>What happens next<\/dt><dd>C1 adds &#34;Copy to my lists&#34; and builds after T3 merges\.<\/dd><dt>Cost<\/dt><dd>About 1 to 2 h more agent time/);
+  assert.match(page.html, /A: yes, as a new private list <span class="pill grafted">C1's pick<\/span><\/h3><dl><dt>Next<\/dt><dd>C1 adds &#34;Copy to my lists&#34; and builds after T3 merges\.<\/dd><dt>Cost<\/dt><dd>About 1 to 2 h more agent time/);
   assert.match(page.html, /href="\/read\/[\w-]+\/page\/designs\/v2\/notes\.md\?back=q-G4">Design notes of v2<\/a>/);
   assert.match(page.html, /<a class="back" href="\/app\/#">&#8592; Back to Needs you<\/a>/);
   assert.match(read(w, "T10", "page", "designs/v2/notes.md", { back: "q-G4" }).html, /<a class="back" href="\/read\/[\w-]+\/question\/G4">&#8592; Back to G4<\/a>/, "a page opened from the question returns to it");
@@ -205,18 +206,51 @@ test("T1064: the full question view shows the kept message: Needed by and If you
   assert.deepEqual([...old.html.matchAll(/<section class="answer[^"]*"><h3>([^<]+)/g)].map(match => match[1].trim()), ["A: ask each time", "B: send them"], "the gate's options, the recommendation first");
 });
 
-test("T1064: a batch question shows the answers of each question under its own heading, the chief's pick first in each", t => {
+const withDefault = (model, id, value) => {
+  const seen = new Set(), visit = node => {
+    if (!node || typeof node !== "object" || seen.has(node)) return;
+    seen.add(node);
+    for (const row of Array.isArray(node.gateRows) ? node.gateRows : []) if (row.id === id) row.default = value;
+    Object.values(node).forEach(visit);
+  };
+  visit(model);
+  return model;
+};
+
+test("T1093: a question kept before the short labels shows each part under its own old label, in its order, and its default part is not shown twice", t => {
   const w = world(t), file = join(w.logbook, "gates", "G4.json"), kept = JSON.parse(readFileSync(file, "utf8"));
-  const table = (rows, pick) => ({ t: "table", head: ["Answer", "What happens next", "Cost"], rows, pick });
+  const old = { Where: "Where this is", Approve: "What you approve", Choice: "The one real choice in it", Default: "If you do not answer", Due: "Needed by", Next: "After you answer" };
+  kept.message.blocks = kept.message.blocks.map(block => block.t === "field" ? { ...block, label: old[block.label] } : block.t === "table" ? { ...block, head: ["Answer", "What happens next", "Cost"] } : block);
+  writeFileSync(file, JSON.stringify(kept));
+  const page = read(w, "T10", "question", "G4", {}, withDefault(w.model(), "G4", "A: yes, as a new private list"));
+  const heads = [...page.html.matchAll(/<h2 class="sec">([^<]+)<\/h2>/g)].map(match => match[1]);
+  assert.deepEqual(heads, ["Where this is", "What you approve", "The one real choice in it", "Answers", "If you do not answer", "Needed by", "After you answer", "Links"]);
+  assert.match(page.html, /<dt>What happens next<\/dt><dd>C1 adds/, "the old column name of the kept answers");
+  assert.match(page.html, /<h2 class="sec">If you do not answer<\/h2><p>C1 takes A at 20:00 today\.<\/p>/);
+});
+
+test("T1093: a kept question with no default part shows the gate's default under Default, after the answers; a gate with no default shows none", t => {
+  const w = world(t), file = join(w.logbook, "gates", "G4.json"), kept = JSON.parse(readFileSync(file, "utf8"));
+  kept.message.blocks = kept.message.blocks.filter(block => block.label !== "Default");
+  writeFileSync(file, JSON.stringify(kept));
+  const page = read(w, "T10", "question", "G4", {}, withDefault(w.model(), "G4", "B: no"));
+  assert.deepEqual([...page.html.matchAll(/<h2 class="sec">([^<]+)<\/h2>/g)].map(match => match[1]), ["Where", "Approve", "Choice", "Answers", "Due", "Next", "Default", "Links"]);
+  assert.match(page.html, /<h2 class="sec">Default<\/h2><p>The chief takes B: no\.<\/p>/);
+  assert.doesNotMatch(read(w, "T10", "question", "G4").html, /<h2 class="sec">Default<\/h2>/, "no default in the gate, so no Default part");
+});
+
+test("T1064: a batch question shows the answers of each question under that question's heading, the chief's pick first in each", t => {
+  const w = world(t), file = join(w.logbook, "gates", "G4.json"), kept = JSON.parse(readFileSync(file, "utf8"));
+  const table = (rows, pick) => ({ t: "table", head: ["Answer", "Next", "Cost"], rows, pick });
   kept.message.blocks = [...kept.message.blocks.filter(block => block.t !== "table"),
     { t: "section", label: "Question 1: Colour", body: [table([["1A: blue", "Blue buttons.", "None"], ["1B: red", "Red buttons.", "None"]], 0)] },
     { t: "section", label: "Question 2: Size", body: [{ t: "p", text: "The size of the share sheet." }, table([["2A: small", "A small sheet.", "None"], ["2B: large", "A large sheet.", "About 1 h"]], 1)] }];
   writeFileSync(file, JSON.stringify(kept));
-  const page = read(w, "T10", "question", "G4"), answers = page.html.slice(page.html.indexOf(`<h2 class="sec">The answers</h2>`));
-  assert.deepEqual([...answers.matchAll(/<h3 class="sub">([^<]+)<\/h3>|<section class="answer( pick)?"><h3>([^<]+)/g)].map(match => match[1] ?? `${match[3].trim()}${match[2] ? " (pick)" : ""}`),
+  const page = read(w, "T10", "question", "G4");
+  assert.deepEqual([...page.html.matchAll(/<h2 class="sec">(Question [^<]+)<\/h2>|<section class="answer( pick)?"><h3>([^<]+)/g)].map(match => match[1] ?? `${match[3].trim()}${match[2] ? " (pick)" : ""}`),
     ["Question 1: Colour", "1A: blue (pick)", "1B: red", "Question 2: Size", "2B: large (pick)", "2A: small"]);
-  assert.match(page.html, /<h2 class="sec">Question 2: Size<\/h2><p>The size of the share sheet\.<\/p>/, "a section with other parts keeps its heading above them");
-  assert.doesNotMatch(page.html, /<h2 class="sec">Question 1: Colour<\/h2>/, "a section with only its answers has no empty heading");
+  assert.match(page.html, /<h2 class="sec">Question 2: Size<\/h2><p>The size of the share sheet\.<\/p><section class="answer pick">/, "each question's text, then its answers");
+  assert.doesNotMatch(page.html, /<h2 class="sec">Answers<\/h2>/, "each question's own heading names its answers");
 });
 
 test("T1064: the question view shows every part of the kept message: a frame and a picture with their keys, steps with commands and what you see, a toggle, a changes table, table captions; a part it cannot show gets a note", t => {
@@ -240,10 +274,10 @@ test("T1064: the question view shows every part of the kept message: a frame and
     "the frame's key": /<\/pre><p class="muted">The double box is the task that runs now\.<\/p>/,
     "the picture and its key": /<pre class="md">\+-+\+\n\| Copy \[new\] +\|\n\+-+\+<\/pre><p class="muted">\[new\] marks a new control\.<\/p>/,
     "each step with its command and what you see": /<ol><li>Open the board\.<pre class="md">sage board --open<\/pre><p class="muted">The Overview opens\.<\/p><\/li><li>Pick the list\.<\/li><\/ol>/,
-    "both sides of the toggle": /<h3 class="sub">After this change<\/h3><p><b>Sheet after<\/b><\/p><pre class="md">\[Copy to my lists\]<\/pre><h3 class="sub">Today<\/h3><p><b>Sheet today<\/b><\/p><pre class="md">\[View only\]<\/pre>/,
-    "the changes table": /<thead><tr><th scope="col">Where you see it<\/th><th scope="col">Today<\/th><th scope="col">After this change<\/th><th scope="col">Why<\/th><\/tr><\/thead><tbody><tr><td>Share sheet<\/td><td>View only<\/td><td>A Copy button<\/td><td>Viewers ask for it<\/td><\/tr>/,
+    "both sides of the toggle": /<h3 class="sub">After<\/h3><p><b>Sheet after<\/b><\/p><pre class="md">\[Copy to my lists\]<\/pre><h3 class="sub">Today<\/h3><p><b>Sheet today<\/b><\/p><pre class="md">\[View only\]<\/pre>/,
+    "the changes table": /<thead><tr><th scope="col">Place<\/th><th scope="col">Today<\/th><th scope="col">After<\/th><th scope="col">Why<\/th><\/tr><\/thead><tbody><tr><td>Share sheet<\/td><td>View only<\/td><td>A Copy button<\/td><td>Viewers ask for it<\/td><\/tr>/,
     "a table's caption": /<table class="scores"><caption>Who can copy<\/caption>/,
-    "the answers table's caption": /<h2 class="sec">The answers<\/h2><p class="muted">Pick one answer<\/p><section class="answer pick">/,
+    "the answers table's caption": /<h2 class="sec">Answers<\/h2><p class="muted">Pick one answer<\/p><section class="answer pick">/,
     "a note for a part that the view cannot show, with a link to the message page": /<b>Not shown here\.<\/b> This page cannot show one part of the question \(video\)\. <a href="\/pages\/sample-app-abc123\/T10\/question-0a1b2c3d\.html">Open the question's message page<\/a>/,
   };
   assert.deepEqual(Object.keys(parts).filter(name => !parts[name].test(html)), [], "each part of the kept message shows");

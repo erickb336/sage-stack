@@ -169,7 +169,7 @@ function Blocks({ blocks }) {
 
 const same = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
 function answerRows(message) {
-  const found = { head: ["Answer", "What happens next", "Cost"], rows: [] };
+  const found = { head: ["Answer", "Next", "Cost"], rows: [] };
   const walk = blocks => (blocks ?? []).forEach(block => { if (block.t === "section") walk(block.body); if (block.t === "table" && same(block.head[0], "Answer")) { found.head = block.head; found.rows.push(...block.rows); } });
   walk(message?.blocks);
   return found;
@@ -224,9 +224,9 @@ export function QuestionView({ needKey, model, theme }) {
       <p className="facts-line">{owner} · <span className="mono">{gate.id}</span> · asked {gate.at ? clock(gate.at) : "at a time not recorded"} · <a href={`#tasks?task=${encodeURIComponent(gate.task.key)}`}>{gate.task.id} · {gate.task.title}</a> · <a href={`/read/${encodeKey(gate.task.key)}/question/${gate.id}${theme === "light" ? "?theme=light" : ""}`}>Read the full question</a></p>
       <h1 id="question-h" tabIndex={-1}>{gate.message?.title ?? gate.text ?? gate.question}</h1>
       {gate.message ? <div className="context"><Blocks blocks={gate.message.blocks.filter(block => !(block.t === "table" && same(block.head[0], "Answer")))} /></div>
-        : <p className="hint">This question has no kept message, so the board shows its question and its options only.{gate.default && ` If you do not answer: ${gate.default}.`}</p>}
-      <h2 className="lbl">The answers</h2>
-      <div className="answers" role="radiogroup" aria-label="The answers">
+        : <p className="hint">This question has no kept message, so the board shows its question and its options only.{gate.default && ` Default: ${gate.default}.`}</p>}
+      <h2 className="lbl">Answers</h2>
+      <div className="answers" role="radiogroup" aria-label="Answers">
         {gate.options.map((option, i) => {
           const row = rows.rows.find(item => same(item[0], option) || same(item[0].replace(/^[A-Z]\s*[·:.)-]\s*/, ""), option));
           const chosen = gate.answer === option || gate.answered?.answer === option;
@@ -234,7 +234,7 @@ export function QuestionView({ needKey, model, theme }) {
             <label key={option} className={`answer${pick === i ? " picked" : ""}${chosen ? " chosen" : ""}`}>
               <input type="radio" name="answer" disabled={!open || writes !== "paired" || said?.ok} checked={pick === i} onChange={() => setPick(i)} />
               <span className="what"><b>{option}</b>{gate.recommendation === option && <span className="badge pick">{gate.owner ?? "The chief"}'s pick</span>}{chosen && <span className="badge done">The answer</span>}</span>
-              {row && <span className="more">{row.slice(1).map((cell, k) => <span key={k}><span className="faint">{rows.head[k + 1]}</span> {cell}</span>)}</span>}
+              {row && <span className="more">{row.slice(1).map((cell, k) => <span key={k}><span className="col">{rows.head[k + 1]}</span>{cell}</span>)}</span>}
             </label>
           );
         })}

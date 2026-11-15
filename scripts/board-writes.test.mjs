@@ -356,8 +356,8 @@ function holdLock(w) {
 
 test("F-T1076-7: a question whose message file cannot be read opens without the message, and the board stays up", async t => {
   const w = await board(t);
-  const fields = ["Where this is", "What you approve", "The one real choice in it", "If you do not answer", "Needed by", "After you answer"].map(label => ({ t: "field", label, text: `Sample: ${label}.` }));
-  const table = { t: "table", head: ["Answer", "What happens next", "Cost"], rows: [["yes", "The chief ships it.", "None."], ["no", "The chief waits.", "None."]], pick: 0 };
+  const fields = ["Where", "Approve", "Choice", "Default", "Due", "Next"].map(label => ({ t: "field", label, text: `Sample: ${label}.` }));
+  const table = { t: "table", head: ["Answer", "Next", "Cost"], rows: [["yes", "The chief ships it.", "None."], ["no", "The chief waits.", "None."]], pick: 0 };
   writeFileSync(join(w.base, "message.json"), JSON.stringify({ kind: "question", title: "Ship the share sheet?", blocks: [...fields.slice(0, 3), table, ...fields.slice(3)] }));
   w.as("gate", "add", "T1", "--question", "Ship the share sheet?", "--options", "yes|no", "--recommend", "yes", "--message", join(w.base, "message.json"));
   const url = `/app/gate/${Buffer.from(`${w.logbook}/G2`).toString("base64url")}`;
