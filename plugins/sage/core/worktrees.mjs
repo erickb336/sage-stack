@@ -88,6 +88,16 @@ function changed(git, root, w, ledger) {
   return { why: ahead ? `${ahead} unpushed commit${ahead === 1 ? "" : "s"}` : "", again };
 }
 
+export function survey({ git, root, tasks, runs, ledger, here }) {
+  const all = rows({ git, root, tasks, runs, main: commitOf(git, root, "refs/remotes/origin/main") });
+  const homes = here.map((p) => topOf(git, p)).filter(Boolean);
+  const check = (w) => {
+    const why = kept(w, homes, all);
+    return why ? { why, again: [] } : changed(git, root, w, ledger);
+  };
+  return { all, check };
+}
+
 export function worktrees({ git, root, tasks, runs, ledger, here, prune = false }) {
   const main = commitOf(git, root, "refs/remotes/origin/main");
   const head = main ? `origin/main is ${short(main)} (${git(["-C", root, "log", "-1", "--format=%cs", main]).trim()}), the local copy: this command does not fetch.` : "This repository has no origin/main, so no branch reads as merged.";
