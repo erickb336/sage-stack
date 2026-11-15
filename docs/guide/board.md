@@ -155,12 +155,31 @@ The new board has its own Agents page at `/app/#agents` (T1062), which only read
 
 A count turns amber at its limit, and a click on it opens the page. The page shows:
 
-- each chief, Claude and Codex alike, and a stopped chief as stopped, with the open tasks that it owns;
-- each running lead with its helpers: role, run, state, model and age, with the ended helpers collapsed;
-- the chief's own runs with no lead, and its queued runs with their place in the queue;
-- a timeline with one lane for each agent.
+- the seats: one square for each running agent, grouped by chief, then the free seats, the limit mark and the queued runs as dashed squares;
+- each chief under its C1 or C2 tile, Claude and Codex alike, and a stopped chief as stopped, with the open tasks that it owns;
+- each running lead as a card with its helpers. Each agent is a tile with its role's line glyph and its role word. The outline round the tile shows its state; only a running outline moves, and the system's reduced-motion setting stops it. Ended helpers fold under "Show n ended helpers";
+- an arena as one card: its candidates, then the judge;
+- the chief's own runs, one row for each task, and its queued runs with their place in the queue;
+- a timeline with one lane for each agent, with its glyph.
 
-A click on a row opens its task's side panel.
+A click on a card's title, on "About" or on an agent opens the task's page.
+
+## The task page
+
+Each task has one page, at `/app/#task?key=<task key>`. The Agents, Tasks, Pull requests and Overview pages open it. The browser's Back returns to the same place on the page that you came from, and a click with Cmd (Ctrl on Windows and Linux) opens it in a new tab. From the top, the page shows:
+
+- the title, the priority, size, step and chief, and the agents at work now;
+- "About this task": Milestone, Before and after ("Comes after" and "Needed by"), Goal, Why, Criteria, Status and Cost, then the links to the brief, the reports, the pull request and the milestone;
+- the tabs Artifacts, Log and Decisions.
+
+| Part | Where it comes from |
+| --- | --- |
+| Goal | The GOAL field of the lead's brief (or of the newest brief of the task). |
+| Why | Your request, which the chief records with `task <T> set request="..."`. |
+| Criteria | The ACCEPTANCE lines of the brief. A line shows "met" only when a passing review or QA report of the task names it; else "not checked yet". |
+| Cost | The agent time and tokens of the task's runs, against the BUDGET field of the brief. |
+
+A part with no data shows "unknown" and the reason, for example "The logbook keeps no brief of R25".
 
 The projects and the rows with a problem flag come first. Each row gives the provider, role, run, task (with a link to its task page), model, time running, last activity and a state. A run that ended shows "done", "stopped · failed" or "stopped · blocked", and a queued run shows its place, for example "waiting · 1st in the queue".
 

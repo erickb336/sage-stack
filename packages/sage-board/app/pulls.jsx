@@ -1,11 +1,11 @@
 import { Component, Suspense, lazy, useMemo, useState } from "react";
 import { GroupIcon } from "./icons.jsx";
 import { ago } from "./overview.jsx";
-import { ChiefDot, Panel, chiefName, controlsShown, ofChief, taskLink } from "./panel.jsx";
+import { ChiefDot, chiefName, controlsShown, ofChief, taskLink } from "./task.jsx";
 import { useNow } from "./use-model.js";
 import { UNKNOWN, prName } from "../../sage-core/state-words.mjs";
 
-const PAGE = "pull-requests", RECENT_DAYS = 7, DAY = 86_400_000, VIEW_KEY = "board-pr-view";
+const RECENT_DAYS = 7, DAY = 86_400_000, VIEW_KEY = "board-pr-view";
 const GROUPS = [
   ["need", "Needs you", "Your answer or your merge moves it on. Answer in the chief's chat."],
   ["review", "In review", "Checks, reviews and QA run on the current head."],
@@ -46,17 +46,17 @@ function cyclesText({ cycles }, group) {
 }
 const findingsText = ({ findings }) => findings.open ? `${findings.open} open · ${findings.worst}` : `0 open${findings.closed ? ` · ${findings.closed} closed` : ""}`;
 
-function Row({ task, group, now, prs, selected, many }) {
+function Row({ task, group, now, prs, many }) {
   const later = Date.parse(task.doneAt) - Date.parse(now) > 60_000;
   const age = group === "merged" ? task.doneAt && (later ? "merge time is in the future" : `merged ${ago(task.doneAt, now)}`) : task.lastActivity && ago(task.lastActivity, now);
   return (
-    <li className="prow" data-pr-task={task.key} aria-current={selected ? "true" : undefined}>
+    <li className="prow" data-pr-task={task.key}>
       <GroupIcon group={group} />
       <span className="num mono">{!task.pr ? <span className="faint">no PR</span> : task.prUrl
         ? <a href={task.prUrl} target="_blank" rel="noopener noreferrer" aria-label={`Pull request ${task.pr} on GitHub`}>{prName(task.pr)}</a>
         : prName(controlsShown(task.pr))}</span>
       <div className="what">
-        <a className="ttl" href={taskLink(task.key, PAGE)} data-task={task.key}>{controlsShown(task.title)}</a>
+        <a className="ttl" href={taskLink(task.key)} data-task={task.key}>{controlsShown(task.title)}</a>
         <p className="meta">
           <span className="chief">{task.chief && <ChiefDot stopped={task.chief.stopped} />}{chiefName(task.chief)}{task.chief?.stopped && " (stopped)"}</span>
           <span className="mono">{task.id}</span>
@@ -89,12 +89,12 @@ function graphData(groups, all, many) {
   const conflicts = [...shown.values()].flatMap(({ task }) => task.conflicts.filter(other => shown.has(other.key) && task.key < other.key).map(other => ({ from: task.key, to: other.key })));
   const linked = new Set([...waits, ...conflicts].flatMap(link => [link.from, link.to]));
   const nodes = [...shown.values()].filter(({ task }) => linked.has(task.key)).map(({ task, group }) => ({
-    key: task.key, group: group.key, state: group.title, nopr: !task.pr, href: taskLink(task.key, PAGE), title: controlsShown(task.title), head: head(task), chief: chief(task),
+    key: task.key, group: group.key, state: group.title, nopr: !task.pr, href: taskLink(task.key), title: controlsShown(task.title), head: head(task), chief: chief(task),
     sub: task.pr ? `${cyclesText(task, group.key)} · ${CI[task.ci] ?? `CI ${UNKNOWN}`}` : controlsShown(task.waits ?? ""),
   }));
   for (const [key, wait] of away) {
     const task = all.get(key);
-    nodes.push(task ? { key, group: "away", state: "Not on this page", nopr: !task.pr, href: taskLink(key, PAGE), title: controlsShown(task.title), head: head(task), chief: chief(task), sub: task.word ? `State: ${task.word}` : `State: ${UNKNOWN}` }
+    nodes.push(task ? { key, group: "away", state: "Not on this page", nopr: !task.pr, href: taskLink(key), title: controlsShown(task.title), head: head(task), chief: chief(task), sub: task.word ? `State: ${task.word}` : `State: ${UNKNOWN}` }
       : { key, group: "away", state: "Not in the logbook", nopr: true, href: null, title: "The logbook has no task with this id.", head: wait.id, chief: "", sub: "" });
   }
   return { nodes, waits, conflicts, alone: shown.size - nodes.filter(node => shown.has(node.key)).length };
@@ -105,9 +105,9 @@ function useView() {
   return [view, value => { setView(value); try { localStorage.setItem(VIEW_KEY, value); } catch {} }];
 }
 
-export function Pulls({ model, params, chief = null }) {
+export function Pulls({ model, chief = null }) {
   const [view, setView] = useView(), now = useNow();
-  const selected = params.get("task"), many = model.projects.length > 1;
+  const many = model.projects.length > 1;
   const all = useMemo(() => new Map(model.tasks.map(task => [task.key, task])), [model.tasks]);
   const prs = useMemo(() => new Map(model.tasks.filter(task => task.pr).map(task => [task.key, task.pr])), [model.tasks]);
   const groups = useMemo(() => {
@@ -146,11 +146,10 @@ export function Pulls({ model, params, chief = null }) {
                 <span className="grow" />
                 <span className="hint">{group.hint}</span>
               </div>
-              <ul className="rows">{group.tasks.map(task => <Row key={task.key} task={task} group={group.key} now={now} prs={prs} selected={task.key === selected} many={many} />)}</ul>
+              <ul className="rows">{group.tasks.map(task => <Row key={task.key} task={task} group={group.key} now={now} prs={prs} many={many} />)}</ul>
             </section>
           ))}
       {view === "list" && groups.length > 0 && <p className="none">Older merged PRs and abandoned tasks are on the <a href="#tasks">Tasks page</a>.</p>}
-      {selected && <Panel taskKey={selected} at={model.at} back={PAGE} />}
     </>
   );
 }

@@ -79,18 +79,19 @@ test("T1062: J4 is one click from the Overview: the top bar counts open the Agen
   await counts.first().click(); clicks++;
   await page.locator("main h1", { hasText: "Agents" }).waitFor();
   assert.equal(clicks, 1, "J4: one click from the Overview");
-  assert.deepEqual(await page.locator(".agents-kpis .kpi").allTextContents(), ["7 of 20agents running", "4 of 5leads", "3queued", "4! with a problem flag"], "2 failed runs, and the Codex runs R30 and R6 with no logbook write for 30 min");
+  assert.deepEqual(await page.locator(".agents-kpis .kpi").allTextContents(), ["agents running7 of 20", "leads4 of 5", "queued3", "! with a problem flag4"], "2 failed runs, and the Codex runs R30 and R6 with no logbook write for 30 min");
   assert.deepEqual(await page.locator("section.chief-box h2").allTextContents(), ["Claude · C1", "Codex · C2", "Claude · C3"], "every chief, Claude and Codex alike");
-  assert.deepEqual(await box(page, "C1").locator(".acard-h .lead-id b").allTextContents(), ["lead · R25", "lead · R20"], "the oldest lead first");
+  assert.deepEqual(await box(page, "C1").locator(".acard-h .sub .mono").allTextContents(), ["lead · R25", "lead · R20"], "the oldest lead first");
   const r20 = box(page, "C1").locator("section.acard", { has: page.locator('[data-run="R20"]') });
-  assert.deepEqual(await r20.locator(".arow .who").allTextContents(), ["code-reviewerR22", "security-reviewerR23"], "a lead's running helpers; the ended one is collapsed");
-  assert.match(await r20.locator(".acard-f").textContent(), /^2 helpers running · 1 queuedShow 1 ended helper$/);
-  assert.match(await r20.locator(".acard-h").textContent(), /^lead · R20 in progress1 h 1\d minT2 · Sample chief recordsopus$/);
+  assert.deepEqual(await r20.locator("a.ag .r1").allTextContents(), ["code-reviewerR22", "security-reviewerR23"], "a lead's running helpers; the ended one is collapsed");
+  assert.match(await r20.locator(".acard-f").textContent(), /^Lead's own work: 1 h 1\d min · – · opus2 running · 1 queued · 4 helpers$/);
+  assert.match(await r20.locator(".acard-h").textContent(), /^Sample chief recordslead · R20 in progress · Build1 h 1\d min210 k tok · with helpersAbout ›$/, "the tokens of the lead and its helpers: R21 has 210 k");
+  assert.equal(await r20.locator("button.more-ended").textContent(), "Show 1 ended helper");
   await r20.getByRole("button", { name: "Show 1 ended helper" }).click();
-  assert.match(await r20.locator(".arow.ended").textContent(), /^implementerR21donesonnet38 min210 k$/);
-  assert.deepEqual(await box(page, "C2").locator(".acard.own .arow .who").allTextContents(), ["designerR31"], "a chief's own run with no lead");
-  assert.deepEqual(await box(page, "C1").locator(".queue .arow").evaluateAll(rows => rows.map(row => row.dataset.run + " " + row.querySelector(".num:last-child").textContent)), ["R24 1st in line", "R33 3rd in line"]);
-  assert.match(await box(page, "C2").locator(".queue .arow").textContent(), /^leadR32waiting · 2nd in the queueT30 · Sample crash reportsqueued \d\d:\d\dwaits 1 min2nd in line$/);
+  assert.match(await r20.locator("a.ag.ended").textContent(), /^✓implementerR21done38 min · 210 ksonnet$/);
+  assert.deepEqual(await box(page, "C2").locator(".acard.own a.ag .r1").allTextContents(), ["designerR31"], "a chief's own run with no lead");
+  assert.deepEqual(await box(page, "C1").locator(".queue a.ag").evaluateAll(rows => rows.map(row => row.dataset.run + " " + row.querySelector(".mdl").textContent.split(" · ")[1])), ["R24 1st in line", "R33 3rd in line"]);
+  assert.match(await box(page, "C2").locator(".queue a.ag").textContent(), /^leadT30 · R32waiting · 2nd in the queuewaits 1 minT30 · Sample crash reportsqueued \d\d:\d\d · 2nd in line$/);
   assert.match(await box(page, "C3").textContent(), /stopped0 leads · 0 runningNo agent is running\. Last event \d\d:\d\d: the heartbeat stopped\. Nothing moves on its own\.It owns T70 · Sample stopped chief\./, "a stopped chief shows as stopped, with its tasks");
   assert.equal(await box(page, "C3").getByRole("button").count(), 0, "the page only reads: no write action");
   assert.equal(await page.locator(".timeline .lane-group").count(), 2, "a lane group for each chief with agents");
@@ -103,16 +104,14 @@ test("T1062: J4 is one click from the Overview: the top bar counts open the Agen
   assert.deepEqual(problems, [], "no script error and no CSP refusal");
 });
 
-test("T1062: a row opens its task's side panel on the Agents page, and Escape closes it back to the row", async t => {
+test("T1083: a click on an agent opens its task's page, and Back returns to the Agents page", async t => {
   const { page, problems } = await open(t, {}, { path: "/app/#agents" });
-  const row = page.locator('.arow[data-run="R31"]');
-  await row.click();
-  await page.locator(".panel h2", { hasText: "Sample sync build" }).waitFor();
-  assert.match(page.url(), /#agents\?task=shared%2Fsample-app-abc123%2FT11$/);
-  assert.equal(await page.locator("main h1").textContent(), "Agents", "the panel opens beside the Agents page");
-  await page.keyboard.press("Escape");
-  await page.locator(".panel").waitFor({ state: "detached" });
-  assert.equal(await page.evaluate(() => document.activeElement?.dataset.task), KEY("T11"), "the focus returns to the row's task");
+  await page.locator('a.ag[data-run="R31"]').click();
+  await page.locator("main h1", { hasText: "Sample sync build" }).waitFor();
+  assert.match(page.url(), /#task\?key=shared%2Fsample-app-abc123%2FT11$/);
+  await page.goBack();
+  await page.locator("main h1", { hasText: "Agents" }).waitFor();
+  await page.waitForFunction(() => document.activeElement?.dataset.run === "R31");
   assert.deepEqual(problems, []);
 });
 
@@ -123,14 +122,14 @@ test("T1062: at the limit the counts turn amber, and the chief filter hides othe
   await shoot(page, "agents-at-limit-dark.png");
   await page.locator('button.chip[data-chief="shared/sample-app-abc123/C2"]').click();
   assert.deepEqual(await page.locator("section.chief-box h2").allTextContents(), ["Codex · C2"]);
-  assert.equal(await page.locator(".agents-kpis .kpi").first().textContent(), "7 of 7agents running · at the limit", "the limit is shared, so the counts stay whole");
+  assert.equal(await page.locator(".agents-kpis .kpi").first().textContent(), "agents running · at the limit7 of 7", "the limit is shared, so the counts stay whole");
   assert.deepEqual(problems, []);
 });
 
 test("T1062: agent text from the logbook is text, never markup", async t => {
   const { page, problems } = await open(t, { hostile: true }, { path: "/app/#agents" });
-  const row = page.locator('.arow[data-run="R40"]');
-  assert.equal(await row.locator(".tline").textContent(), `T50 · ${HOSTILE_TEXT.title}`);
+  const row = page.locator('a.ag[data-run="R40"]');
+  assert.equal(await page.locator(`.own-h a.ttl[data-task="${KEY("T50")}"]`).textContent(), HOSTILE_TEXT.title);
   assert.equal(await row.locator(".mdl").textContent(), `<img src=x onerror="window.hacked=12">model`);
   assert.equal(await page.evaluate(() => window.hacked ?? null), null);
   assert.equal(await page.locator("main img").count(), 0);
@@ -167,9 +166,9 @@ test("T1062 F-T1062-13: 'need a look' equals the Overview's Stuck count, and a f
   assert.equal(await page.locator('.agents-kpis .kpi[data-count="look"] .n').textContent(), stuck, "one count on both pages");
   const r25 = box(page, "C1").locator("section.acard", { has: page.locator('[data-run="R25"]') });
   assert.equal(await r25.locator(".acard-h .badge.look").textContent(), "! 1 helper with a problem flag", "the lead card is marked");
-  assert.match(await r25.locator('.arow[data-run="R27"]').textContent(), /^ux-reviewerR27stopped · failed/, "the failed helper is a row, not hidden in the ended list, with the table's word and flag (F-T1096-1, F-T1096-7)");
+  assert.match(await r25.locator('a.ag[data-run="R27"]').textContent(), /^!ux-reviewerR27stopped · failed/, "the failed helper is a row, not hidden in the ended list, with the table's word and flag (F-T1096-1, F-T1096-7)");
   const failed = box(page, "C1").locator('section.acard.own[aria-label="Failed in the last 24 hours"]');
-  assert.deepEqual(await failed.locator(".arow .who").allTextContents(), ["implementerR1"], "a failed run with no running lead shows too");
+  assert.deepEqual(await failed.locator("a.ag .r1").allTextContents(), ["implementerR1"], "a failed run with no running lead shows too");
   assert.deepEqual(problems, []);
 });
 
@@ -178,17 +177,17 @@ test("T1062 F-T1062-8, F-T1062-14, F-T1062-17, F-T1062-18, F-T1062-19: every cou
     const { page, problems } = await open(t, { agentEdges: true }, { path: "/app/#agents", theme, width });
     await page.locator(".chief-box").first().waitFor();
     const r20 = box(page, "C1").locator("section.acard", { has: page.locator('[data-run="R20"]') });
-    assert.equal(await r20.locator('.arow[data-run="R36"]').count(), 1, "a running helper with no chief shows under its lead");
-    const rows = await page.locator("main .arow[data-run], main .acard-h[data-run]").evaluateAll(links => links.map(link => link.dataset.run));
-    const running = await page.locator("main [data-run]").evaluateAll(links => links.filter(link => /\b(running|look)\b/.test(link.querySelector(".badge").className)).map(link => link.dataset.run));
+    assert.equal(await r20.locator('a.ag[data-run="R36"]').count(), 1, "a running helper with no chief shows under its lead");
+    const rows = await page.locator("main [data-run]").evaluateAll(links => links.map(link => link.dataset.run));
+    const running = await page.locator("main [data-run]").evaluateAll(links => links.filter(link => /\b(running|look)\b/.test((link.closest(".acard-h") ?? link).querySelector(".badge").className)).map(link => link.dataset.run));
     assert.equal(new Set(running).size, Number((await page.locator('.agents-kpis .kpi[data-count="agents"] .n').textContent()).split(" ")[0]), "each running agent that the counts name is a row");
     assert.ok(["R34", "R35"].every(id => rows.includes(id)), "a pe run and a run of the lead's second show as the chief's own runs");
     assert.match(await r20.locator("button.more-ended").textContent(), /^Show the last 20 of 1,300 ended helpers$/);
-    assert.match(await page.locator('.arow[data-run="R38"]').textContent(), /^qaR38stopped · failedno agent started within 10 minutes of its admission/, "a failed run shows its reason");
+    assert.match(await page.locator('a.ag[data-run="R38"]').textContent(), /^!qaR38stopped · failed.*no agent started within 10 minutes of its admission/, "a failed run shows its reason");
     assert.match(await box(page, "C3").locator(".stopped-note").textContent(), /^No run of this chief shows activity, although the logbook lists the runs below\. Last event/, "a stopped chief with listed runs does not say it has none");
     const overlaps = await page.locator(".queue").evaluateAll(queues => queues.flatMap(queue => {
       const edge = queue.getBoundingClientRect();
-      return [...queue.querySelectorAll(".arow")].flatMap(row => {
+      return [...queue.querySelectorAll("a.ag")].flatMap(row => {
         const parts = [...row.children].map(part => { const text = document.createRange(); text.selectNodeContents(part); return text.getBoundingClientRect(); });
         return parts.flatMap((a, i) => [
           ...(a.left < edge.left || a.right > edge.right - 8 ? [`${row.dataset.run} part ${i} leaves the queue box`] : []),
@@ -197,7 +196,7 @@ test("T1062 F-T1062-8, F-T1062-14, F-T1062-17, F-T1062-18, F-T1062-19: every cou
       });
     }));
     assert.deepEqual(overlaps, [], `${theme} ${width}: queued rows keep their text apart and inside the queue`);
-    assert.match(await page.locator('.queue .arow[data-run="R37"]').textContent(), /waits 8 h 45 min/);
+    assert.match(await page.locator('.queue a.ag[data-run="R37"]').textContent(), /waits 8 h 45 min/);
     if (width === 1440) await shoot(page, `agents-round1-${theme}.png`);
     assert.deepEqual(problems, []);
   }
@@ -216,8 +215,8 @@ test("T1098 (R4165-1): two logbooks with one display name and the same chief ids
   const { page, problems } = await open(t, {}, { twin: true });
   const owns = chief => page.locator(`li[data-stopped="${chief}"] ul.owned > li`).evaluateAll(rows => rows.map(row => `${row.querySelector("a").textContent} ${row.querySelector("a").getAttribute("href")} [${row.querySelector("button")?.textContent}]`));
   await page.locator('li[data-stopped="shared/other-app-def456/C3"] ul.owned').waitFor();
-  assert.deepEqual(await owns(KEY("C3")), [`T70 · Sample stopped chief #tasks?task=${encodeURIComponent(KEY("T70"))} [Give to another chief]`], "C3 of the first logbook lists and offers only its own T70");
-  assert.deepEqual(await owns("shared/other-app-def456/C3"), [`T70 · Task of the other logbook #tasks?task=${encodeURIComponent("shared/other-app-def456/T70")} [Give to another chief]`], "C3 of the second logbook lists and offers only its own T70");
+  assert.deepEqual(await owns(KEY("C3")), [`T70 · Sample stopped chief #task?key=${encodeURIComponent(KEY("T70"))} [Give to another chief]`], "C3 of the first logbook lists and offers only its own T70");
+  assert.deepEqual(await owns("shared/other-app-def456/C3"), [`T70 · Task of the other logbook #task?key=${encodeURIComponent("shared/other-app-def456/T70")} [Give to another chief]`], "C3 of the second logbook lists and offers only its own T70");
   assert.deepEqual(problems, []);
 });
 
@@ -254,14 +253,14 @@ test("F-T1062-22, F-T1062-24, F-T1062-32: each chief's count is the same in the 
   assert.deepEqual(top, { C1: 7, C2: 3 });
   const r20 = box(page, "C1").locator("section.acard", { has: page.locator('[data-run="R20"]') });
   assert.equal(await r20.locator(".acard-h .badge.look").textContent(), "! 30 helpers with a problem flag", "the lead counts every failed helper");
-  assert.equal(await r20.locator(".arow.ended .badge.failed").count(), 20, "20 failed helpers are rows");
+  assert.equal(await r20.locator("a.ag.ended .badge.failed").count(), 20, "20 failed helpers are rows");
   assert.equal(await r20.locator("p.more-done").textContent(), "and 10 more failed");
-  const long = page.locator('.arow[data-run="R22"] .badge');
+  const long = page.locator('a.ag[data-run="R22"] .badge');
   assert.deepEqual([await long.textContent(), await long.getAttribute("class")], ["in progress · running long", "badge running"], "running long is calm: it does not need a look");
-  assert.equal(await page.locator('.arow[data-run="R22"] .why').getAttribute("class"), "why", "and so is its note");
+  assert.equal(await page.locator('a.ag[data-run="R22"] .awhy').getAttribute("class"), "awhy", "and so is its note");
   const looks = await page.locator('.agents-kpis .kpi[data-count="look"] .n').textContent();
   assert.equal(Number(looks), 4 + 1 + 30, "the base 4, R38 and the 30 failed helpers");
-  const marked = await page.locator("main [data-run]").evaluateAll(list => list.filter(mark => /\b(look|failed)\b/.test(mark.querySelector(".badge").className)).length);
+  const marked = await page.locator("main [data-run]").evaluateAll(list => list.filter(mark => /\b(look|failed)\b/.test((mark.closest(".acard-h") ?? mark).querySelector(".badge").className)).length);
   assert.equal(marked, Number(looks) - 10, "each counted row, and nothing else, has the look colour; 10 hide behind 'and 10 more failed'");
   await shoot(page, "agents-round2-dark.png");
   assert.deepEqual(problems, []);

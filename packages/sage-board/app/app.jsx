@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { TaskPage } from "./task.jsx";
 import { ChiefChips, QuestionView } from "./actions.jsx";
 import { Agents, LimitCounts } from "./agents.jsx";
 import { AgentsIcon, AlertIcon, LeafIcon, MoonIcon, OverviewIcon, PullsIcon, SunIcon, TasksIcon } from "./icons.jsx";
@@ -16,21 +17,40 @@ const PAGES = [
   { hash: "pull-requests", name: "Pull requests", Icon: PullsIcon },
 ];
 const QUESTION = { hash: "question", name: OBJECTS.question.label, hidden: true };
+const TASK = { hash: "task", name: OBJECTS.task.label, hidden: true };
 const FILTER_KEY = "board-chief";
 
 const clock = at => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 function pageOf(hash) {
   const [path, query = ""] = hash.replace(/^#\/?/, "").split("?");
-  return { ...([...PAGES, QUESTION].find(page => page.hash === path) ?? PAGES[0]), params: new URLSearchParams(query) };
+  return { ...([...PAGES, QUESTION, TASK].find(page => page.hash === path) ?? PAGES[0]), params: new URLSearchParams(query) };
 }
+let came = null;
+const same = href => [...document.querySelectorAll("a[href]")].filter(link => link.getAttribute("href") === href);
+const plainClick = event => !event.button && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 
-function useHashPage() {
+function useHashPage(ready) {
   const [page, setPage] = useState(() => pageOf(location.hash));
   useEffect(() => {
-    const changed = () => setPage(pageOf(location.hash));
-    addEventListener("hashchange", changed);
-    return () => removeEventListener("hashchange", changed);
+    history.scrollRestoration = "manual";
+    let last = location.hash;
+    const changed = () => {
+      const next = pageOf(location.hash);
+      if (next.hash === TASK.hash && pageOf(last).hash !== TASK.hash) came = last.replace(/^#\/?/, "");
+      last = location.hash; setPage(next);
+    };
+    const keep = event => {
+      const link = event.target.closest?.('a[href^="#task?"]');
+      if (link && plainClick(event)) history.replaceState({ ...history.state, scroll: scrollY, focus: link.getAttribute("href"), nth: same(link.getAttribute("href")).indexOf(link) }, "");
+    };
+    addEventListener("hashchange", changed); document.addEventListener("click", keep, true);
+    return () => { removeEventListener("hashchange", changed); document.removeEventListener("click", keep, true); };
   }, []);
+  useEffect(() => {
+    const kept = history.state;
+    if (page.hash === TASK.hash || !ready || typeof kept?.focus !== "string") return;
+    scrollTo(0, kept.scroll); same(kept.focus)[kept.nth]?.focus({ preventScroll: true });
+  }, [page, ready]);
   return page;
 }
 
@@ -91,7 +111,7 @@ function useChiefFilter() {
 
 export function App() {
   const { model, link, lostAt } = useModel("/app/events"), now = useNow();
-  const page = useHashPage();
+  const page = useHashPage(!!model);
   const [theme, flip] = useTheme();
   const [chosen, setFilter] = useChiefFilter();
   const filter = model?.chiefs.some(chief => chief.key === chosen) ? chosen : null;
@@ -103,9 +123,10 @@ export function App() {
   const prs = model ? model.tasks.filter(task => task.pr && !task.ended).length : 0;
   const running = model ? model.agents.reduce((n, book) => n + book.running, 0) : 0;
   const body = page.hash === "" ? <Overview model={model} shown={shown} /> : page.hash === "tasks" ? <Tasks model={model} params={page.params} chief={picked} />
-    : page.hash === "pull-requests" ? <Pulls model={model} params={page.params} chief={picked} />
-    : page.hash === "agents" ? <Agents model={model} params={page.params} chief={picked} />
-    : page.hash === "question" ? <QuestionView needKey={page.params.get("key") ?? ""} model={model} theme={theme} /> : null;
+    : page.hash === "pull-requests" ? <Pulls model={model} chief={picked} />
+    : page.hash === "agents" ? <Agents model={model} chief={picked} />
+    : page.hash === "question" ? <QuestionView needKey={page.params.get("key") ?? ""} model={model} theme={theme} />
+    : page.hash === TASK.hash ? <TaskPage key={page.params.get("key")} taskKey={page.params.get("key") ?? ""} tab={page.params.get("tab")} at={model?.at} from={came} /> : null;
   return (
     <div className="app">
       <aside className="side">

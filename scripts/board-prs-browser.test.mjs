@@ -166,23 +166,24 @@ test("T1059, T1063: the chief filter holds on the Pull requests page: it lists o
   assert.deepEqual(await shown(), ["T11", "T13", "T3", "T4", "T5", "T6", "T7", "T8", "T9"]);
 });
 
-test("T1063: each PR number links to GitHub, each title opens the task's side panel, and the panel closes back to the page", async t => {
+test("T1063, T1083: each PR number links to GitHub, each title opens the task's page, and Back returns to the page", async t => {
   const { page, requests, base } = await open(t, {}, "/app/#pull-requests");
   const pr = row(page, "T5").getByRole("link", { name: "Pull request 14 on GitHub" });
   assert.deepEqual([await pr.getAttribute("href"), await pr.getAttribute("target"), await pr.getAttribute("rel")], [`${REPOSITORY}/pull/14`, "_blank", "noopener noreferrer"]);
   assert.equal(await row(page, "T7").locator(".num a").count(), 0, "no repository known: the number is plain text");
   await row(page, "T5").getByRole("link", { name: "Sample retry backoff" }).click();
-  await page.locator("#panel-h", { hasText: "Sample retry backoff" }).waitFor();
-  assert.equal(await page.evaluate(() => location.hash), `#pull-requests?task=${encodeURIComponent(KEY("T5"))}`);
-  assert.equal(await row(page, "T5").getAttribute("aria-current"), "true");
-  await page.keyboard.press("Escape");
-  await page.locator(".panel").waitFor({ state: "detached" });
+  await page.locator(".taskpage h1", { hasText: "Sample retry backoff" }).waitFor();
+  assert.equal(await page.evaluate(() => location.hash), `#task?key=${encodeURIComponent(KEY("T5"))}`);
+  assert.equal(await page.locator(".taskpage .back").textContent(), "‹ Pull requests");
+  await page.goBack();
   assert.equal(await page.evaluate(() => location.hash), "#pull-requests");
   await page.waitForFunction(key => document.activeElement?.dataset.task === key, KEY("T5"));
   await page.getByRole("button", { name: "Graph" }).click();
   await page.locator(`.gnode[data-task="${KEY("T6")}"]`).click();
-  await page.locator("#panel-h", { hasText: "Sample sync log" }).waitFor();
-  assert.equal(await page.locator(".gnode").count(), 9, "the graph stays open under the panel");
+  await page.locator(".taskpage h1", { hasText: "Sample sync log" }).waitFor();
+  await page.goBack();
+  await page.locator(".gnode").first().waitFor();
+  assert.equal(await page.locator(".gnode").count(), 9, "Back returns to the graph");
   assert.deepEqual(requests.filter(url => !url.startsWith(`${base}/`)), []);
 });
 
@@ -194,8 +195,8 @@ test("T1063: the keyboard reaches each link of the list and the graph, and Enter
   assert.deepEqual(stops, ["Graph", "PR 17", "Sample search highlight", "PR 12"], "the view switch, then each row's number and title");
   await page.keyboard.press("Shift+Tab");
   await page.keyboard.press("Enter");
-  await page.locator("#panel-h", { hasText: "Sample search highlight" }).waitFor();
-  await page.keyboard.press("Escape");
+  await page.locator(".taskpage h1", { hasText: "Sample search highlight" }).waitFor();
+  await page.goBack();
   await page.waitForFunction(key => document.activeElement?.dataset.task === key, KEY("T8"));
   await page.getByRole("button", { name: "Graph" }).focus();
   await page.keyboard.press("Enter");
@@ -205,21 +206,21 @@ test("T1063: the keyboard reaches each link of the list and the graph, and Enter
   for (let i = 0; i < 6 && !reached; i++) { await page.keyboard.press("Tab"); reached = await page.evaluate(() => document.activeElement.closest(".gnode") && document.activeElement.dataset.task); }
   assert.equal(reached, KEY("T2"), "Tab reaches the first box of the graph");
   await page.keyboard.press("Enter");
-  await page.locator("#panel-h", { hasText: "Sample chief records" }).waitFor();
+  await page.locator(".taskpage h1", { hasText: "Sample chief records" }).waitFor();
 });
 
-test("T1063: markup in a title, a question, a branch name and a path shows as text on the page, in the graph and in the panel", async t => {
+test("T1063: markup in a title, a question, a branch name and a path shows as text on the page, in the graph and on the task page", async t => {
   const { page, problems } = await open(t, { hostile: true }, "/app/#pull-requests");
   const hostile = row(page, "T50");
   assert.equal(await hostile.locator(".ttl").textContent(), HOSTILE_TEXT.title);
   assert.equal(await hostile.locator(".why").textContent(), `<img src=x onerror="window.hacked=11">Merge <b>now</b>?`);
   assert.match(await hostile.locator(".meta").textContent(), /may conflict · T8 · PR 17/);
   await hostile.locator(".ttl").click();
-  const panel = page.locator(".panel");
-  await page.locator("#panel-h", { hasText: HOSTILE_TEXT.title }).waitFor();
+  const panel = page.locator(".taskpage");
+  await page.locator(".taskpage h1", { hasText: HOSTILE_TEXT.title }).waitFor();
   assert.match(await panel.textContent(), /sage\/t50-<b>bold<\/b>/, "the branch name is text");
   assert.ok((await panel.locator(".callout code").allTextContents()).includes("<script>window.hacked=3</script>\\nsrc/evil\\u202egnp\\u009b.js"), "a path shows its newline and invisible characters as escapes");
-  await page.keyboard.press("Escape");
+  await page.goBack();
   await page.getByRole("button", { name: "Graph" }).click();
   await page.locator(`.gnode[data-task="${KEY("T50")}"]`).waitFor();
   assert.equal(await page.locator(`.gnode[data-task="${KEY("T50")}"] .g-title`).textContent(), HOSTILE_TEXT.title);
@@ -303,23 +304,17 @@ const inCanvas = page => page.evaluate(() => {
   return [...document.querySelectorAll(".react-flow__node")].filter(node => { const r = node.getBoundingClientRect(); return r.left < canvas.left || r.right > canvas.right + 1 || r.top < canvas.top || r.bottom > canvas.bottom + 1; }).length;
 });
 
-test("F-T1081-5, -13, -18, -16, -10: the graph refits beside the panel, keeps its links, links nowhere outside, and fits a large graph; the list keeps its facts beside the panel", async t => {
+test("F-T1081-13, -18, -16, -10: the graph keeps its links, links nowhere outside, and fits a large graph; the list keeps its facts", async t => {
   const { page, base, requests } = await open(t, { crowd: 12 }, "/app/#pull-requests");
-  await row(page, "T5").getByRole("link", { name: "Sample retry backoff" }).click();
-  await page.locator("#panel-h").waitFor();
-  assert.match(await row(page, "T5").locator(".facts").innerText(), /1 of 1 clean cycles\s+CI passes\s+0 open\s+\d+ h ago/, "F-T1081-18: the facts stay in the row beside the panel");
+  assert.match(await row(page, "T5").locator(".facts").innerText(), /1 of 1 clean cycles\s+CI passes\s+0 open\s+\d+ h ago/, "F-T1081-18: the facts stay in the row");
   assert.ok(await row(page, "T5").locator(".age").isVisible());
-  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Graph" }).click();
   await page.locator(".react-flow__edge-path").first().waitFor({ state: "attached" });
   await page.waitForFunction(() => document.querySelector(".react-flow__viewport")?.style.transform);
   assert.equal(await inCanvas(page), 0, "F-T1081-10: the fit shows each of the 18 boxes");
   const edges = await page.locator(".react-flow__edge").count(), counts = [];
-  await page.locator(`.gnode[data-task="${KEY("T6")}"]`).click();
   for (let i = 0; i < 10; i++) { counts.push(await page.locator(".react-flow__edge").count()); await page.waitForTimeout(30); }
-  assert.deepEqual([...new Set(counts)], [edges], "F-T1081-13: no link goes away while the panel opens");
-  await page.waitForFunction(() => { const canvas = document.querySelector(".g-canvas").getBoundingClientRect(); return [...document.querySelectorAll(".react-flow__node")].every(node => node.getBoundingClientRect().right <= canvas.right + 1); });
-  assert.equal(await inCanvas(page), 0, "F-T1081-5: the graph refits in the narrower canvas beside the panel");
+  assert.deepEqual([...new Set(counts)], [edges], "F-T1081-13: no link goes away while the graph shows");
   assert.equal(await page.locator('main a[href*="reactflow"], .react-flow__attribution').count(), 0, "F-T1081-16: no link to React Flow's site");
   assert.match(await page.locator(".legend .credit").textContent(), /React Flow/);
   assert.deepEqual(requests.filter(url => !url.startsWith(`${base}/`)), []);

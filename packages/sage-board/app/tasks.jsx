@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ago } from "./overview.jsx";
-import { ChiefDot, Panel, chiefName, controlsShown, ofChief } from "./panel.jsx";
+import { ChiefDot, chiefName, controlsShown, ofChief, taskLink } from "./task.jsx";
 import { useNow } from "./use-model.js";
 import { OBJECTS, UNKNOWN, URGENCY as WORDS, prName } from "../../sage-core/state-words.mjs";
 
@@ -24,11 +24,11 @@ const FILTERS = [
   ["state", "State", task => task.word ?? NONE],
 ];
 
-function Row({ task, at, selected, many, link }) {
+function Row({ task, at, many }) {
   const age = task.lastActivity ? ago(task.lastActivity, at) : null, shown = task.conflicts.slice(0, SHOWN_CONFLICTS), more = task.conflicts.length - shown.length;
   return (
     <li>
-      <a className={`row${task.ended ? " ended" : ""}`} href={link(task.key)} data-task={task.key} aria-current={selected ? "true" : undefined}>
+      <a className={`row${task.ended ? " ended" : ""}`} href={taskLink(task.key)} data-task={task.key}>
         <span className={`badge prio ${(task.priority ?? "none").toLowerCase()}`}>{task.priority ?? NONE}</span>
         <span className="title">
           <span className="text">{controlsShown(task.title)}</span>
@@ -83,13 +83,13 @@ const hashOf = (params, changes) => {
 };
 
 export function Tasks({ model, params, chief = null }) {
-  const [opened, setOpened] = useState(() => new Set());
+  const [opened, setOpened] = useState(() => new Set(history.state?.opened ?? []));
+  useEffect(() => { history.replaceState({ ...history.state, opened: [...opened] }, ""); }, [opened]);
   const now = useNow();
-  const selected = params.get("task"), focus = params.get("milestone");
+  const focus = params.get("milestone");
   const group = focus || !Object.hasOwn(GROUPS, params.get("group")) ? "milestone" : params.get("group");
   const filters = Object.fromEntries(FILTERS.map(([key]) => [key, params.get(key) ?? ""]));
   const go = changes => { location.hash = hashOf(location.hash.split("?")[1] ?? "", changes); };
-  const link = key => hashOf(params, { task: key });
   useEffect(() => {
     if (focus) requestAnimationFrame(() => document.querySelector(`[data-group="${CSS.escape(focus)}"], .lost`)?.scrollIntoView({ block: "start" }));
   }, [focus]);
@@ -106,10 +106,6 @@ export function Tasks({ model, params, chief = null }) {
     for (const item of sorted) item.tasks.sort((a, b) => b.needsYou - a.needsYou || order(PRIORITIES, a.priority) - order(PRIORITIES, b.priority) || number(a.id) - number(b.id));
     return sorted.map((item, i) => ({ ...item, id: i }));
   }, [shown, group, model.milestones]);
-  useEffect(() => {
-    const task = tasks.find(item => item.key === selected), key = task?.ended && `${group}:${GROUPS[group].of(task) || "none"}`;
-    if (key) setOpened(previous => previous.has(key) ? previous : new Set(previous).add(key));
-  }, [selected, group, tasks]);
 
   const open = shown.filter(task => !task.ended).length;
   const filtered = FILTERS.some(([key]) => filters[key]);
@@ -118,12 +114,12 @@ export function Tasks({ model, params, chief = null }) {
   const milestones = new Map(model.milestones.map(milestone => [milestone.key, milestone]));
   const needsOf = key => model.needs.filter(need => need.milestone === key);
   const lost = focus && !groups.some(item => item.key === focus);
-  const row = task => <Row key={task.key} task={task} at={now} selected={task.key === selected} many={many} link={link} />;
+  const row = task => <Row key={task.key} task={task} at={now} many={many} />;
   return (
     <>
       <div className="page-h">
         <h1>Tasks</h1>
-        <p>Open a task to see where it is in its dev cycle, which chief owns it, and what its agents made.</p>
+        <p>Open a task to read its page: what it is for, where it is in its dev cycle, which chief owns it, and what its agents made.</p>
       </div>
       <div className="toolbar">
         <div className="seg" role="group" aria-label="Group by">
@@ -159,7 +155,6 @@ export function Tasks({ model, params, chief = null }) {
             open={opened.has(`${group}:${item.key}`)} shown={focused || ENDED_WORDS.includes(filters.state)} toggle={() => toggle(item.key)} row={row} />;
         })
         : <p className="empty card">{model.tasks.length ? "No task matches these filters." : "No tasks yet. A task starts when you ask the chief for a change."}</p>}
-      {selected && <Panel taskKey={selected} at={model.at} />}
     </>
   );
 }

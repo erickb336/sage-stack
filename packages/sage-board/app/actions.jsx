@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { when } from "./use-model.js";
 import { UNKNOWN, chiefName } from "../../sage-core/state-words.mjs";
-import { chiefState, chiefSub } from "./panel.jsx";
+import { chiefState, chiefSub } from "./task.jsx";
 
 const TOKEN_KEY = "board-token";
 const stored = { get: () => { try { return localStorage.getItem(TOKEN_KEY) ?? ""; } catch { return ""; } }, set: value => { try { value ? localStorage.setItem(TOKEN_KEY, value) : localStorage.removeItem(TOKEN_KEY); } catch {} } };
