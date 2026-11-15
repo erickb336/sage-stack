@@ -85,7 +85,7 @@ test("T1062: J4 is one click from the Overview: the top bar counts open the Agen
   assert.deepEqual(await box(page, "C1").locator(".acard-h .sub .mono").allTextContents(), ["lead · R25", "lead · R20"], "the oldest lead first");
   const r20 = box(page, "C1").locator("section.acard", { has: page.locator('[data-run="R20"]') });
   assert.deepEqual(await r20.locator("a.ag .r1").allTextContents(), ["code-reviewerR22", "security-reviewerR23"], "a lead's running helpers; the ended one is collapsed");
-  assert.match(await r20.locator(".acard-f").textContent(), /^Lead's own work: 1 h 1\d min · – · opus2 in progress · 1 waiting · 4 helpers$/);
+  assert.match(await r20.locator(".acard-f").textContent(), /^Lead's own work: 1 h 1\d min · opus2 in progress · 1 waiting · 4 helpers$/);
   assert.match(await r20.locator(".acard-h").textContent(), /^Sample chief recordslead · R20 in progress · Build1 h 1\d min210 k tok · with helpersAbout ›$/, "the tokens of the lead and its helpers: R21 has 210 k");
   assert.equal(await r20.locator("button.more-ended").textContent(), "Show 1 ended helper");
   await r20.getByRole("button", { name: "Show 1 ended helper" }).click();

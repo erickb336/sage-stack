@@ -13,6 +13,7 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const arenaRun = run => !!run.candidate || run.role === "arena-judge";
 const spent = (runs, now) => runs.reduce((sum, run) => sum + Math.max(0, (run.ended ? Date.parse(run.ended) : now) - Date.parse(run.started) || 0), 0);
 const tokensOf = runs => runs.some(run => run.tokens !== null) ? runs.reduce((sum, run) => sum + (run.tokens ?? 0), 0) : null;
+const tok = n => n === null ? tokens(n) : `${tokens(n)} tok`;
 
 function useNow(at) {
   const [now, setNow] = useState(() => Date.now());
@@ -67,14 +68,14 @@ function LeadCard({ lead, helpers, queued, more, now, step }) {
           <Title task={lead.task} run={lead} />
           <span className="sub"><span className="mono">lead · {lead.id}</span> <StateBadge run={lead} />{step && <span> · {step}</span>}{look > 0 && <span className="badge look">{MARKS.problem} {plural(look, "helper")} with a problem flag</span>}</span>
         </div>
-        <div className="tot"><b>{age(lead, now)}</b><span>{tokens(tokensOf(mine))} tok · with helpers</span></div>
+        <div className="tot"><b>{age(lead, now)}</b><span>{tok(tokensOf(mine))} · with helpers</span></div>
         <About task={lead.task} />
       </header>
       {shown.length > 0 && <div className="squad">{shown.map(run => <AgentTile key={run.id} run={run} now={now} />)}</div>}
       <More count={more} />
       <Fold runs={ended} total={lead.endedHelpers ?? ended.length} now={now} />
       <footer className="acard-f">
-        <span>Lead's own work: {age(lead, now)} · {tokens(lead.tokens)} · {lead.model ?? "model not recorded"}</span>
+        <span>Lead's own work: {age(lead, now)}{lead.tokens === null ? "" : ` · ${tokens(lead.tokens)}`} · {lead.model ?? "model not recorded"}</span>
         <span>{shown.filter(run => run.status === "running").length} {RUN}{queued > 0 && ` · ${queued} ${WAIT}`} · {plural(helpers.length + queued, "helper")}</span>
       </footer>
     </section>
@@ -90,7 +91,7 @@ function Arena({ runs, now }) {
       <header className="acard-h">
         <Ring ring={ended ? "done" : "run"}><Glyph role="arena-judge" /></Ring>
         <div className="lt"><Title task={task} /><span className="sub">Arena · {plural(candidates.length, "candidate")}, one brief, then a judge · <span className="mono">{task.id}</span></span></div>
-        <div className="tot"><b>{ended ? "ended" : `${done} of ${candidates.length} ended`}</b><span>{span(spent(runs, now))} · {tokens(tokensOf(runs))} tok</span></div>
+        <div className="tot"><b>{ended ? "ended" : `${done} of ${candidates.length} ended`}</b><span>{span(spent(runs, now))} · {tok(tokensOf(runs))}</span></div>
         <About task={task} />
       </header>
       <div className="squad ar-sq">
@@ -148,7 +149,7 @@ function ChiefBox({ chief, runs, failedMore, tasks, now }) {
   return (
     <section className={`card chief-box${stopped ? " stopped" : ""}`} data-chief={chief.key} aria-labelledby={`chief-${chief.key}`}>
       <div className="card-h chief-h">
-        <Ring ring={ring} label={`Chief ${chief.id ?? ""}, ${chiefState(stopped ? "stopped" : chief.waits ? "waits" : chief.stopped === false ? "live" : "unknown")}`}><span className="cm">{chief.id ?? "–"}</span></Ring>
+        <Ring ring={ring} label={`Chief ${chief.id ?? ""}, ${chiefState(stopped ? "stopped" : chief.waits ? "waits" : chief.stopped === false ? "live" : "unknown")}`}><span className="cm">{chief.id ?? MARKS.unknown}</span></Ring>
         {chief.waits && <span className="need-mark" aria-hidden="true">{MARKS["needs you"]}</span>}
         <h2 id={`chief-${chief.key}`}>{chiefTitle(chief)}</h2>
         {chief.id && <span className="faint">{chiefSub(chief)}</span>}

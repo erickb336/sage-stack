@@ -34,7 +34,7 @@ function Row({ task, at, many }) {
   return (
     <li>
       <a className={`row${task.ended ? " ended" : ""}`} href={taskLink(task.key)} data-task={task.key}>
-        <span className={`badge prio ${(task.priority ?? "none").toLowerCase()}`}>{task.priority ?? NONE}</span>
+        {task.priority ? <span className={`badge prio ${task.priority.toLowerCase()}`}>{task.priority}</span> : <span />}
         <span className="title">
           <span className="text">{controlsShown(task.title)}</span>
           {many && <span className="kind">{task.project}</span>}
@@ -45,9 +45,9 @@ function Row({ task, at, many }) {
         <span className="mono id">{task.id}</span>
         <span className={`badge word ${(task.word ?? UNKNOWN).replace(" ", "-")}`}>{task.word ?? UNKNOWN}</span>
         <span className="chief">{task.chief && !task.chief.old && <ChiefDot stopped={task.chief.stopped} />}{chiefName(task.chief)}{task.chief?.stopped && " (stopped)"}{task.chief?.waits && " (waits for you)"}</span>
-        <span className={`step ${task.step?.status ?? ""}`}>{task.step && <StepMark status={task.step.status} />}{task.step?.label ?? (task.ended ? "" : NONE)}</span>
-        <span className="mono pr">{task.pr ? prName(task.pr) : NONE}</span>
-        <span className="age">{age ?? NONE}</span>
+        <span className={`step ${task.step?.status ?? ""}`}>{task.step && <StepMark status={task.step.status} />}{task.step?.label}</span>
+        <span className="mono pr">{task.pr && prName(task.pr)}</span>
+        <span className="age">{age ?? `age ${UNKNOWN}`}</span>
       </a>
     </li>
   );

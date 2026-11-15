@@ -485,6 +485,20 @@ test("T1099 (F-T1099-56): a task in a logbook that records no chief names the lo
   assert.doesNotMatch(facts, /\(chief unknown\)/);
 });
 
+test("T1099 (F-T1099-47): no Tasks, Pull requests or Agents row shows a bare dash: an absent value is blank, an unknown one says unknown", async t => {
+  const { page, base } = await open(t, { agents: true, prs: true, chiefCases: true }, "/app/#tasks");
+  const dash = /(^|[\s·])[–—]([\s·]|$)/;
+  for (const [hash, cells] of [["tasks", "a.row > span"], ["pull-requests", ".facts > span, .meta > span"], ["agents", ".acard-f, .tot, a.ag .num, .chief-box .cm"]]) {
+    await page.goto(`${base}/app/#${hash}`);
+    await page.locator(cells).first().waitFor();
+    const texts = await page.locator(cells).allTextContents();
+    assert.ok(texts.length > 3, `${hash}: the page has rows`);
+    assert.deepEqual(texts.filter(text => dash.test(text.trim())), [], `${hash}: no bare dash`);
+  }
+  await page.goto(`${base}/app/#tasks`);
+  assert.equal(await row(page, "T72").locator(".pr").textContent(), "", "a task with no PR leaves the PR cell blank");
+});
+
 test("T1080 (F-T1080-3, F-T1080-22): the task page puts the question, the recommendation and the next step on their own lines; Back from an ended task puts the focus on its row", async t => {
   const { page } = await open(t, {}, taskPage("T30"));
   await taskTitle(page).filter({ hasText: "Sample crash reports" }).waitFor();

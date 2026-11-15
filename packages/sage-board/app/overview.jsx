@@ -32,7 +32,7 @@ function Counts({ model, previous, now }) {
       <div className="kpis">
         {items.map(([kind, count, label, hint]) => (
           <div className={`kpi ${kind}`} key={kind} data-count={kind}>
-            <div className="n">{count ?? "–"}</div>
+            <div className="n">{count ?? UNKNOWN}</div>
             <div className="l"><span className="dot" aria-hidden="true" />{label}</div>
             <div className="h">{hint}</div>
           </div>
