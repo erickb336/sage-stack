@@ -1,6 +1,6 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -29,7 +29,7 @@ async function freePort() {
   return port;
 }
 
-async function open(t, options = {}, { path = "/app/", theme = "dark", width = 1440, failed = [], seen } = {}) {
+async function open(t, options = {}, { path = "/app/", theme = "dark", width = 1440, failed = [], seen, twin = false } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-agents-page-")), port = await freePort(), saved = process.env.SAGE_WORKTREES, now = Date.now();
   process.env.SAGE_WORKTREES = join(dir, "worktrees");
   const logbook = writeTasksLogbook(join(dir, "logbooks"), join(dir, "worktrees"), new Date(now).toISOString(), { agents: true, chiefCases: true, ...options });
@@ -38,6 +38,12 @@ async function open(t, options = {}, { path = "/app/", theme = "dark", width = 1
     const row = { id, task, role, chief, round: "0", status: "failed", started: at(started), ended: at(ended) };
     return `${columns.map(column => row[column] ?? "").join("\t")}\n`;
   }).join(""));
+  if (twin) {
+    const other = join(dir, "logbooks", "other-app-def456");
+    cpSync(writeTasksLogbook(join(dir, "other"), join(dir, "worktrees2"), new Date(now).toISOString(), { agents: true, chiefCases: true }), other, { recursive: true });
+    writeFileSync(join(other, "tasks.tsv"), readFileSync(join(other, "tasks.tsv"), "utf8").replace("Sample stopped chief", "Task of the other logbook"));
+    for (const book of [logbook, other]) writeFileSync(join(book, "config.json"), JSON.stringify({ ...JSON.parse(readFileSync(join(book, "config.json"), "utf8")), name: "twin" }));
+  }
   const stateDir = seen === undefined ? null : join(dir, "state");
   if (stateDir) { mkdirSync(stateDir, { mode: 0o700 }); writeFileSync(join(stateDir, "seen.json"), JSON.stringify({ at: at(seen) }), { mode: 0o600 }); }
   const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port, app: APP, settleReads: [], stateDir });
@@ -194,6 +200,15 @@ test("T1062 F-T1062-8, F-T1062-14, F-T1062-17, F-T1062-18, F-T1062-19: every cou
     if (width === 1440) await shoot(page, `agents-round1-${theme}.png`);
     assert.deepEqual(problems, []);
   }
+});
+
+test("F-T1062-42: two logbooks with one display name and the same chief ids: a stopped chief lists only its own logbook's tasks", async t => {
+  const { page, problems } = await open(t, {}, { path: "/app/#agents", twin: true });
+  const owns = chief => page.locator(`section.chief-box.stopped[data-chief="${chief}"] .stopped-note a`).evaluateAll(links => links.map(link => `${link.textContent} ${link.dataset.task}`));
+  await page.locator('section.chief-box.stopped[data-chief="shared/other-app-def456/C3"]').waitFor();
+  assert.deepEqual(await owns(KEY("C3")), [`T70 · Sample stopped chief ${KEY("T70")}`], "C3 of the first logbook owns only its own T70");
+  assert.deepEqual(await owns("shared/other-app-def456/C3"), ["T70 · Task of the other logbook shared/other-app-def456/T70"], "C3 of the second logbook owns only its own T70");
+  assert.deepEqual(problems, []);
 });
 
 test("F-T1062-26, F-T1062-29: in a paired browser, the Overview's Stuck counts the Agents page's list, for a last look 10 min or 3 days ago", async t => {
