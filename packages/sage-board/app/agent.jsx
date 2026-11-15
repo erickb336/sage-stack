@@ -7,11 +7,11 @@ const ORDINAL = ["th", "st", "nd", "rd"];
 export const ordinal = n => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : ORDINAL[n % 10] ?? "th"}`;
 export const clock = at => Number.isFinite(Date.parse(at)) ? new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "a time not recorded";
 export function span(ms) {
-  if (!Number.isFinite(ms)) return "–";
+  if (!Number.isFinite(ms)) return "time not recorded";
   const m = Math.max(0, Math.floor(ms / MIN));
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
 }
-export const tokens = n => n === null || n === undefined ? "–" : n < 1000 ? `${n}` : n < 1e6 ? `${Math.round(n / 1000)} k` : `${(n / 1e6).toFixed(2).replace(/\.?0+$/, "")} M`;
+export const tokens = n => n === null || n === undefined ? "tokens not recorded" : n < 1000 ? `${n}` : n < 1e6 ? `${Math.round(n / 1000)} k` : `${(n / 1e6).toFixed(2).replace(/\.?0+$/, "")} M`;
 export const age = (run, now) => span((run.ended ? Date.parse(run.ended) : now) - Date.parse(run.started));
 const GLYPHS = {
   lead: <><circle cx="7" cy="5.5" r="2" /><circle cx="7" cy="18.5" r="2" /><circle cx="17" cy="7.5" r="2" /><path d="M7 7.5v9M17 9.5c0 4.2-4.6 4.6-8.6 7.4" /></>,
@@ -28,8 +28,8 @@ const GLYPHS = {
 };
 const OTHER = <><circle cx="12" cy="12" r="7.5" /><path d="M12 8.5v4M12 15.5v.1" /></>;
 export const Glyph = ({ role }) => <svg className="gl" viewBox="0 0 24 24" aria-hidden="true">{GLYPHS[role] ?? OTHER}</svg>;
-export const ringOf = run => run.status === "queued" ? "queue" : run.status === "running" ? run.look ? "fail" : run.state === "wait" ? "wait" : "run" : ["done", "question"].includes(run.status) ? "done" : "fail";
-const MARK = { fail: MARKS.problem, done: MARKS.done };
+export const ringOf = run => run.status === "queued" ? "queue" : run.status === "running" ? run.look ? "fail" : run.state === "wait" ? "wait" : "run" : run.status === "done" ? "done" : run.status === "question" ? "need" : "fail";
+const MARK = { fail: MARKS.problem, done: MARKS.done, need: MARKS["needs you"] };
 
 export function Ring({ ring, children, label, small = false }) {
   return (
@@ -42,7 +42,7 @@ export function Ring({ ring, children, label, small = false }) {
 }
 
 export const stateText = run => run.status === "queued" ? `${runWord("queued").text} · ${ordinal(run.place ?? 0)} in the queue` : run.status !== "running" ? runWord(run.status).text : STATE[run.state] ?? STATE.unk;
-const badgeOf = run => run.status === "queued" ? "queued" : run.status !== "running" ? run.status === "done" ? "done" : "failed" : run.look ? "look" : "running";
+const badgeOf = run => run.status === "queued" ? "queued" : run.status !== "running" ? run.status === "done" ? "done" : run.status === "question" ? "needs-you" : "failed" : run.look ? "look" : "running";
 export const StateBadge = ({ run }) => <span className={`badge ${badgeOf(run)}`} title={run.status === "running" ? run.why ?? undefined : undefined}>{stateText(run)}</span>;
 
 export const AgentRing = ({ run, now, small }) => <Ring ring={ringOf(run)} small={small} label={small ? undefined : `${run.role}, ${stateText(run)}${run.status === "queued" ? "" : `, ${age(run, now)}`}`}><Glyph role={run.role} /></Ring>;
@@ -53,7 +53,7 @@ export function AgentTile({ run, now, task = false }) {
       <AgentRing run={run} now={now} />
       <span className="ag-b">
         <span className="r1"><b className="rw">{run.role}</b><span className="mono faint rid">{task && `${run.task.id} · `}{run.id}</span></span>
-        <span className="r2"><StateBadge run={run} /><span className="num">{queued ? `waits ${age(run, now)}` : `${age(run, now)} · ${tokens(run.tokens)}`}</span></span>
+        <span className="r2"><StateBadge run={run} /><span className="num">{queued ? `waits ${age(run, now)}` : `${age(run, now)}${run.tokens === null || run.tokens === undefined ? "" : ` · ${tokens(run.tokens)}`}`}</span></span>
         {task && <span className="tline">{run.task.id} · {run.task.title}</span>}
         {queued ? <span className="mdl">queued {clock(run.started)} · {ordinal(run.place ?? 0)} in line</span> : <span className="mdl">{run.model ?? "model not recorded"}</span>}
         {note && <span className={`awhy${run.look ? " look" : ""}`}>{run.why}</span>}

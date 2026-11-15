@@ -71,10 +71,10 @@ function Row({ task, group, now, prs, many }) {
         {task.waits && <p className="waits">{controlsShown(task.waits)}</p>}
       </div>
       <div className="facts">
-        <span className="cyc">{task.pr ? cyclesText(task, group) : "–"}</span>
-        <span className={`ci ${task.ci ?? UNKNOWN}`}>{task.pr ? CI[task.ci] ?? `CI ${UNKNOWN}` : "–"}</span>
-        <span className={`find${task.findings.open ? " open" : ""}`}>{task.pr ? findingsText(task) : "–"}</span>
-        <span className="age">{age || "–"}</span>
+        <span className="cyc">{task.pr && cyclesText(task, group)}</span>
+        <span className={`ci ${task.ci ?? UNKNOWN}`}>{task.pr && (CI[task.ci] ?? `CI ${UNKNOWN}`)}</span>
+        <span className={`find${task.findings.open ? " open" : ""}`}>{task.pr && findingsText(task)}</span>
+        <span className="age">{age || `age ${UNKNOWN}`}</span>
       </div>
     </li>
   );

@@ -68,6 +68,11 @@ The same words and marks show the steps of a task and the agents, from one table
 - `!` is a problem: failed, blocked, may be stuck, running long or run still open. The problem shows after the word, for example "in progress · may be stuck".
 - `◌` is a state that the board does not know. It reads "unknown".
 
+Two marks are not states:
+
+- `⊘` is a wait that is never met: the task that it waits for stopped, so this task cannot start. For example "⊘ Waits for T20 (pilot, stopped): it cannot start".
+- 🔴 starts the chat board's top line, before the count of items that need you.
+
 Each kind tag (for example `◇ Design` or `⋈ Orchestration`) and the offer line (`⇄`) have marks of their own, which no state uses.
 
 - A wait names the word of the task that it waits for, for example "Waits for T12 (in progress)".

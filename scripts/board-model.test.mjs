@@ -7,6 +7,7 @@ import { buildBoardModel } from "../packages/sage-core/board-model.mjs";
 import { readBoardSources } from "../packages/sage-core/board-reader.mjs";
 import { NOW as MILESTONES_NOW, milestonesSource, milestonesTables } from "./fixtures/board-milestones.mjs";
 import { shownGraph, unmetWaits, waitGraph } from "../packages/sage-core/milestone-rules.mjs";
+import { taskWord } from "../packages/sage-core/state-words.mjs";
 const now = "2026-10-08T20:00:00.000Z";
 const head = "a".repeat(40), old = "b".repeat(40);
 const task = (id, state, extra = {}) => ({ id, title: "Sample", size: "small", risk: "", route: "build,code-review,qa", state, branch: "", pr: "", round: "0", keys: "", ...extra });
@@ -388,6 +389,18 @@ test("T305: the step line and the Now and Next lines follow the fixed rule of ea
   assert.deepEqual([line(merged), merged.loop.now.text, merged.loop.next], [["Plan: done", "Build: done", "Review 1 of 1: done", "Merge: done"], "Merged.", null]);
 });
 
+test("T1099 (F-T1099-52, F-T1099-50): a verified task that needs you shows its Merge step as needs you, and a refused merge keeps its reason on the Merge step while a question holds the task", () => {
+  const clean = { ledger: ["checks-pass", "review-clean", "qa-pass"].map(kind => ({ task: "T1", pr: "41", sha: head, kind, cycle: "1", at: now })) };
+  const noCheck = oneTask(task("T1", "verified", { pr: "41" }), clean, [observation("mode", { autopilot: true })], {}, null);
+  assert.equal(taskWord(noCheck).word, "needs you");
+  assert.equal(line(noCheck).at(-1), "Merge: need", "the step agrees with the task's word, not 'waiting'");
+  const gates = [{ id: "G1", task: "T1", question: "Sample: go on?", recommendation: "a", answer: "" }];
+  const held = oneTask(task("T1", "verified", { pr: "41" }), { ...clean, gates }, [observation("mode", { autopilot: true })], {}, () => ({ ok: false, reason: "T1 has open findings: F-T1-1. Fix them." }));
+  assert.equal(held.loop.steps.at(-1).detail, "The merge check refuses aaaaaaa. T1 has open findings: F-T1-1. Held at gate G1 (the question above).");
+  const auto = oneTask(task("T1", "verified", { pr: "41" }), clean, [observation("mode", { autopilot: true })]);
+  assert.equal(line(auto).at(-1), "Merge: idle", "with nothing for you, autopilot's merge is the chief's");
+});
+
 test("T280: a verified PR is ready to merge only when the merge check passes on its known head; else the board says why", () => {
   const clean = { ledger: ["checks-pass", "review-clean", "qa-pass"].map(kind => ({ task: "T1", pr: "41", sha: head, kind, cycle: "1", at: now })) };
   const mode = [observation("mode", { autopilot: false })];
@@ -452,7 +465,8 @@ test("R1073-1, R1073-2, R1076-5: Next after a gate names the step that waits for
   const answered = oneTask(task("T1", "held"), gate("yes"));
   assert.deepEqual([answered.loop.now, answered.loop.next, answered.reasons], [{ needs: false, stale: false, text: "Held by the chief. You answered gate G3, so the chief moves it on." }, "The build goes on, or the chief briefs it again.", []]);
   const rounds = oneTask(task("T1", "held", { hold: "round", round: "3" }));
-  assert.deepEqual([rounds.loop.now.text, rounds.loop.next, rounds.reasons], ["Held after 3 repair rounds that did not make it clean.", "The chief asks you how to go on.", []]);
+  assert.deepEqual([rounds.loop.now.text, rounds.loop.next, rounds.reasons], ["Held after 3 repair rounds that did not make it clean.", "The chief decides how it goes on. If it needs you, its question shows in Needs you.", []]);
+  assert.equal(taskWord(rounds).word, "in progress", "T1099 (F-T1099-61): a held task with no question is not the owner's, so its Next line does not say that the chief asks you");
   const replan = oneTask(task("T1", "replan", { round: "2" }));
   assert.deepEqual([replan.loop.now.needs, replan.loop.next], [false, "The chief briefs it again."]);
   const noHead = oneTask(task("T1", "reviewing", { pr: "12" }));
