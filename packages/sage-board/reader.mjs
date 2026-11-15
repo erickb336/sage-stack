@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { dirname, join, posix } from "node:path";
-import { BRIEF_FIELDS, LONG_WIDTH, PAGE_MAX, REPORT_FIELDS, WIDTH, briefSections, fieldsOf, frameLines, pageFile, pageTaskFolder, pageType, readReport, taskPanel } from "../sage-core/index.mjs";
+import { BRIEF_FIELDS, LONG_WIDTH, chiefName, PAGE_MAX, REPORT_FIELDS, WIDTH, briefSections, fieldsOf, frameLines, pageFile, pageTaskFolder, pageType, readReport, taskPanel } from "../sage-core/index.mjs";
 
 const marksShown = text => String(text ?? "").replace(/\p{Cf}/gu, c => `[U+${c.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}]`);
 const TEXT_MAX = 1 << 20, MD_MAX = 2 << 20, VERSIONS_MAX = 30, SHOTS_MAX = 8;
@@ -187,7 +187,7 @@ export function readerPage({ model, configured, url, origin, render }) {
   const staleNote = model.stale ? note(`<b>The board cannot read the logbook now.</b> This is the copy that it read at ${esc(when(model.at, model.at))}.`, "fail") : "";
   const state = model.stale ? `Not updated since ${when(model.at, model.at)}` : `Read ${when(model.at, model.at)} · reload to read again`;
   const run = RUN.test(view.arg ?? "") ? task.runs.find(item => item.id === view.arg) : null;
-  const chief = item => item?.chief ? `${esc(item.chief)}${item.provider ? ` · ${esc(item.provider)}` : ""}` : panel.chief ? esc([panel.chief.id, panel.chief.provider].filter(Boolean).join(" · ")) : "not recorded";
+  const chief = item => item?.chief ? esc(chiefName(item.chief, item.provider)) : panel.chief ? esc(chiefName(panel.chief.id, panel.chief.provider)) : "not recorded";
   const taskHref = `/app/${BACK[view.back] ?? BACK.tasks}${encodeURIComponent(view.key)}`, taskA = (label = task.id) => `<a href="${esc(taskHref)}">${esc(label)}</a>`, taskLink = taskA();
   const picture = (file, alt, n) => `<span class="zoom" id="p${n}"><a href="#p${n}" aria-label="Enlarge the picture ${esc(alt || file)}"><img src="${esc(pagesBase + file)}" alt="${esc(alt)}" loading="lazy"></a><a class="x" href="#_">Close the picture</a></span>`;
   let pictures = 0;
@@ -331,7 +331,7 @@ ${decisions.length ? decisions.map(gate => `<div class="decision"><p><b>${esc(ga
       const gate = (task.gateRows ?? []).find(row => row.id === view.arg);
       if (!gate) return { crumb: view.arg, title: view.arg, body: note(`The logbook has no question ${esc(view.arg)} on ${esc(task.id)}. It may have moved to another task.`, "fail") };
       const kept = dir ? readJson(join(dir, "gates", `${gate.id}.json`)) : undefined, message = kept?.message?.kind === "question" && Array.isArray(kept.message.blocks) ? kept.message : null;
-      const options = String(gate.options ?? "").split("|").map(option => option.trim()).filter(Boolean), owner = panel.chief ? [panel.chief.id, panel.chief.provider].filter(Boolean).join(" · ") : "The chief";
+      const options = String(gate.options ?? "").split("|").map(option => option.trim()).filter(Boolean), owner = panel.chief ? chiefName(panel.chief.id, panel.chief.provider) : "The chief";
       const ownerId = panel.chief?.id ?? "The chief";
       const blocks = [], labelled = {}, pagesOf = [], answers = [];
       const walk = (list, label = null) => (list ?? []).forEach(block => {

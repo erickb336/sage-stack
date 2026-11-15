@@ -1,9 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildBoardModel, milestoneWord, releaseWord, renderBoardHtml, renderBoardText, renderMilestonesHtml, renderTaskText, taskWord } from "../packages/sage-core/index.mjs";
+import { FLAGS, MARKS as MARKS_TABLE, OBJECTS, STEPS, URGENCY, WORDS, chiefName, prName, shown } from "../packages/sage-core/state-words.mjs";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { createRequire } from "node:module";
 import { NOW as MILESTONES_NOW, milestonesSource } from "./fixtures/board-milestones.mjs";
 
 const SIX = ["not started", "waiting", "needs you", "in progress", "done", "stopped"];
+const ROOT = join(import.meta.dirname, ".."), { buildSync } = createRequire(import.meta.url)("esbuild");
 const now = "2026-10-08T20:00:00.000Z", head = "a".repeat(40);
 const task = (id, state, extra = {}) => ({ id, title: "Sample", size: "small", risk: "", route: "build,code-review,qa", state, branch: "", pr: "", round: "0", keys: "", ...extra });
 const observation = (kind, data) => ({ id: "O1", task: "T1", kind, source: "sample recorder", basis: "observed", observedAt: now, recordedAt: now, data });
@@ -161,7 +166,7 @@ test("T1002 F6: a release's word, from the words of its items", () => {
 });
 
 const SHOWN = { T1: "not started", T2: "waiting", T3: "in progress", T4: "needs you", T5: "done", T6: "stopped" };
-const MARKS = { "not started": "○", waiting: "⧗", "needs you": "!", "in progress": "▶", done: "✓", stopped: "■" };
+const MARKS = { "not started": "○", waiting: "⧗", "needs you": "\\?", "in progress": "▶", done: "✓", stopped: "■" };
 const sixBoard = () => model({
   row: task("T1", "framed"),
   others: [task("T2", "framed", { waits: "T3" }), task("T3", "building"), task("T4", "framed"), task("T5", "merged", { pr: "41" }), task("T6", "abandoned"), task("T7", "framed", { waits: "T6" })],
@@ -185,7 +190,7 @@ test("T997: each web card shows its word with its mark, and a stopped task, whic
 
 test("T997: each chat board line shows its word after the title, and a wait names the word of the task that it waits for", () => {
   const board = sixBoard(), text = renderBoardText(board);
-  for (const [id, word] of Object.entries(SHOWN).filter(([id]) => id !== "T6")) assert.ok(text.includes(`**${id} Sample** · ${word} · one · `), `${id}: ${text}`);
+  for (const [id, word] of Object.entries(SHOWN).filter(([id]) => id !== "T6")) assert.ok(text.includes(`**Sample** ${id} · ${word} · one · `), `${id}: ${text}`);
   assert.ok(text.includes("**1 · T4 Sample** · needs you · one · "), "the Needs you item too");
   assert.ok(text.includes("⧗ Waits for T3 \\(in progress\\)\\.") && text.includes("⊘ Waits for T6 \\(stopped\\)\\: it cannot start\\."), text);
   assert.equal(renderTaskText(board.tasks.find(card => card.id === "T6")).split("\n")[1], "one · sample · stopped · small", "the chat lookup of one task");
@@ -194,8 +199,52 @@ test("T997: each chat board line shows its word after the title, and a wait name
 test("T997: a milestone's row and page show its word; each task row of the milestone shows its own", () => {
   const board = buildBoardModel([milestonesSource()], { now: MILESTONES_NOW }), key = id => `claude/sage-ff5ee2/${id}`;
   const list = renderMilestonesHtml(board);
-  assert.ok(list.includes('<span class="id">M2</span><span class="pstate stw-need"><span aria-hidden="true">!</span> needs you</span>'), "a stuck milestone needs you");
+  assert.ok(list.includes('<span class="id">M2</span><span class="pstate stw-need"><span aria-hidden="true">?</span> needs you</span>'), "a stuck milestone needs you");
   const page = renderMilestonesHtml(board, { milestoneKey: key("M5") });
   assert.ok(page.includes('<span class="pstate stw-done"><span aria-hidden="true">✓</span> done</span>'), page);
   for (const [id, word] of [["T50", "done"], ["T51", "done"], ["T52", "stopped"]]) assert.ok(page.includes(`<span class="id">${id}</span>`) && new RegExp(`<span class="id">${id}</span>.*?<span class="sw stw-[a-z]+"><span aria-hidden="true">${MARKS[word]}</span> ${word}</span>`).test(page), id);
+});
+
+test("T1096: each mark of the shared table has one meaning: '?' is needs you, '!' is a problem flag, and no two words share a mark", () => {
+  assert.deepEqual([MARKS_TABLE["needs you"], MARKS_TABLE.problem], ["?", "!"]);
+  const meanings = new Map();
+  for (const [meaning, mark] of Object.entries(MARKS_TABLE)) meanings.set(mark, [...meanings.get(mark) ?? [], meaning]);
+  assert.deepEqual([...meanings].filter(([, list]) => list.length > 1), []);
+  assert.deepEqual(WORDS.filter(word => !MARKS_TABLE[word]), [], "each of the six words has a mark");
+  assert.deepEqual([...WORDS].sort(), [...URGENCY].sort(), "the urgency order holds the same six words");
+});
+
+test("T1096: each primary object has its label, and each tool state and step gives one of the six words and at most one flag", () => {
+  assert.deepEqual(Object.keys(OBJECTS), ["project", "release", "milestone", "task", "agent", "question", "pull request", "chief"]);
+  assert.deepEqual(Object.values(OBJECTS).map(object => object.label), ["Project", "Release", "Milestone", "Task", "Agent", "Question", "Pull request", "Chief"]);
+  const pairs = [...Object.values(OBJECTS).flatMap(object => Object.entries(object.states)), ...Object.entries(STEPS)];
+  for (const [state, [word, flag, ...rest]] of pairs) assert.ok(WORDS.includes(word) && (flag === undefined || FLAGS.includes(flag)) && !rest.length, state);
+  assert.deepEqual(Object.entries(OBJECTS.task.states).filter(([state]) => taskWord({ state }).word !== OBJECTS.task.states[state][0]), [], "the task map agrees with taskWord");
+  assert.deepEqual([shown(OBJECTS.agent.states.stuck), shown(OBJECTS.agent.states.failed), shown([])],
+    [{ word: "in progress", flag: "may be stuck", mark: "!", text: "in progress · may be stuck" }, { word: "stopped", flag: "failed", mark: "!", text: "stopped · failed" }, { word: "unknown", flag: null, mark: "◌", text: "unknown" }]);
+  assert.deepEqual([prName(44), chiefName("C1", "claude"), chiefName("C2", null), chiefName(null, "codex")], ["PR 44", "Claude · C1", "C2", "Codex"]);
+});
+
+test("T1096: on the web board, each mark before a state word or a step names one meaning only; '!' only a problem", () => {
+  const board = sixBoard(), pages = [renderBoardHtml(board, { snapshot: true }), ...board.tasks.map(card => renderBoardHtml(board, { snapshot: false, taskKey: card.key }))].join("");
+  const seen = new Map(), add = (mark, text) => seen.set(mark, new Set([...seen.get(mark) ?? [], text.split(" · ")[mark === "!" ? 1 : 0]]));
+  for (const [, mark, word] of pages.matchAll(/<span aria-hidden="true">([^<]{1,2})<\/span> ([a-z ·]+)<\/span>/g)) add(mark, word);
+  for (const [, mark, step] of pages.matchAll(/<span aria-hidden="true">([^<]{1,2})<\/span>[^<]*<span class="vh">: ([^<]+)<\/span>/g)) add(mark, step);
+  const meanings = [...seen].map(([mark, words]) => [mark, [...words]]);
+  assert.ok(meanings.length >= 5, JSON.stringify(meanings));
+  for (const [mark, words] of meanings) assert.ok(words.length <= 1 && (mark === "!" ? FLAGS.includes(words[0]) : words.every(word => MARKS_TABLE[word] === mark)), `${mark}: ${words}`);
+});
+
+test("T1096: the guide's mark key and Agents page key show the table's marks and words", () => {
+  const guide = readFileSync(new URL("../docs/guide/board.md", import.meta.url), "utf8");
+  for (const word of WORDS) assert.ok(guide.includes(`| ${word} | ${MARKS_TABLE[word]} |`), word);
+  for (const state of ["work", "wait", "stuck", "long", "stop"]) { const { mark, text } = shown(OBJECTS.agent.states[state]); assert.ok(guide.includes(`| ${mark} ${text} |`), state); }
+  assert.ok(guide.includes(`\`${MARKS_TABLE.problem}\` is a problem: ${FLAGS.slice(0, -1).join(", ")} or ${FLAGS.at(-1)}.`) && guide.includes(`\`${MARKS_TABLE.unknown}\` is a state that the board does not know.`), "the two more marks");
+});
+
+test("T1096: the board app and the message command take their words from the table, and keep no copy of the six words", () => {
+  const app = buildSync({ absWorkingDir: ROOT, entryPoints: ["packages/sage-board/app/main.jsx"], bundle: true, write: false, metafile: true, format: "esm", jsx: "automatic", external: ["react", "react-dom", "react/*", "react-dom/*", "@xyflow/react"], loader: { ".css": "empty" }, logLevel: "silent" });
+  assert.ok(Object.keys(app.metafile.inputs).includes("packages/sage-core/state-words.mjs"), "the app bundles the table");
+  const readers = ["packages/sage-core/board-render.mjs", "packages/sage-core/message.mjs", ...readdirSync(join(ROOT, "packages/sage-board/app")).filter(name => name.endsWith(".jsx")).map(name => `packages/sage-board/app/${name}`)];
+  for (const file of readers) assert.doesNotMatch(readFileSync(join(ROOT, file), "utf8"), /"not started", "waiting", "needs you"|"needs you", "in progress", "waiting"|not known"|#\$\{[^}]*\.pr\}|[○⧗▶■◫◎◌]/, file);
 });

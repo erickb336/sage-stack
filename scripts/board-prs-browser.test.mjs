@@ -66,7 +66,7 @@ test("T1063: J5 is within two clicks of the Overview, and the graph's file loads
   await page.locator(".gnode").first().waitFor();
   assert.equal(clicks, 2, "J5: Pull requests, then Graph");
   assert.equal(requests.filter(graphFile).length, 1, "the graph's file loads once, when the graph opens");
-  assert.deepEqual(await page.locator(".gnode .g-head b").allTextContents(), ["#14 · T5", "#12 · T3", "#17 · T8", "#15 · T6", "T13 · no PR yet"]);
+  assert.deepEqual(await page.locator(".gnode .g-head b").allTextContents(), ["PR 14 · T5", "PR 12 · T3", "PR 17 · T8", "PR 15 · T6", "T13 · no PR yet"]);
   assert.equal(await page.locator(".react-flow__edge.waits").count(), 2, "T6 waits for T5, T13 waits for T6");
   assert.equal(await page.locator(".react-flow__edge.conflict").count(), 1, "T3 and T8 may conflict");
   assert.match(await page.locator(".legend").textContent(), /4 other items have no link: the list shows them\./);
@@ -141,13 +141,13 @@ test("T1063: the list groups each PR by its next action and shows its task, chie
   assert.deepEqual((await ids(page, "wait")).sort(), ["T11", "T13", "T4", "T6"]);
   assert.deepEqual(await ids(page, "merged"), ["T9"], "T12 merged 9 days ago, so it is not recent");
   const text = async id => (await row(page, id).innerText()).replace(/\s+/g, " ");
-  assert.match(await text("T8"), /^#17 Sample search highlight C1 · Claude T8 may conflict · T3 #12 Checks failed on the recorded PR head\. needs you 0 of 1 clean cycles CI fails/);
-  assert.match(await text("T3"), /^#12 Sample shared limits C2 · Codex T3 Milestone 1: Board redesign may conflict · T40 may conflict · T8 #17 in progress 0 of 1 clean cycles CI passes/);
-  assert.match(await text("T7"), /^#16 Sample offline banner C2 · Codex T7 .* in progress Clean cycles not known · 1 needed CI not known/);
-  assert.match(await text("T5"), /^#14 Sample retry backoff C1 · Claude T5 .* in progress 1 of 1 clean cycles CI passes/);
-  assert.match(await text("T6"), /^#15 Sample sync log .* Waits for T5 \(in progress\)\. in progress 0 of 1 clean cycles CI not known/);
+  assert.match(await text("T8"), /^PR 17 Sample search highlight Claude · C1 T8 may conflict · T3 · PR 12 Checks failed on the recorded PR head\. needs you 0 of 1 clean cycles CI fails/);
+  assert.match(await text("T3"), /^PR 12 Sample shared limits Codex · C2 T3 Milestone 1: Board redesign may conflict · T40 may conflict · T8 · PR 17 in progress 0 of 1 clean cycles CI passes/);
+  assert.match(await text("T7"), /^PR 16 Sample offline banner Codex · C2 T7 .* in progress Clean cycles unknown · 1 needed CI unknown/);
+  assert.match(await text("T5"), /^PR 14 Sample retry backoff Claude · C1 T5 .* in progress 1 of 1 clean cycles CI passes/);
+  assert.match(await text("T6"), /^PR 15 Sample sync log .* Waits for T5 \(in progress\)\. in progress 0 of 1 clean cycles CI unknown/);
   assert.match(await text("T13"), /^no PR Sample sync export .* Waits for T6 \(in progress\)\. waiting – – –$/);
-  assert.match(await text("T9"), /^#11 Sample conflict rule .* done 1 of 1 clean cycles CI passes merged 5 h ago$/);
+  assert.match(await text("T9"), /^PR 11 Sample conflict rule .* done 1 of 1 clean cycles CI passes merged 5 h ago$/);
   assert.equal(await page.getByRole("status").filter({ hasText: /open PRs?$/ }).textContent(), "5 open PRs");
   assert.equal(await page.locator(".nav a", { hasText: "Pull requests" }).locator(".count").textContent(), "5");
 });
@@ -189,7 +189,7 @@ test("T1063: the keyboard reaches each link of the list and the graph, and Enter
   await page.getByRole("button", { name: "List" }).focus();
   const stops = [];
   for (let i = 0; i < 4; i++) { await page.keyboard.press("Tab"); stops.push(await page.evaluate(() => document.activeElement.textContent)); }
-  assert.deepEqual(stops, ["Graph", "#17", "Sample search highlight", "#12"], "the view switch, then each row's number and title");
+  assert.deepEqual(stops, ["Graph", "PR 17", "Sample search highlight", "PR 12"], "the view switch, then each row's number and title");
   await page.keyboard.press("Shift+Tab");
   await page.keyboard.press("Enter");
   await page.locator("#panel-h", { hasText: "Sample search highlight" }).waitFor();
@@ -211,7 +211,7 @@ test("T1063: markup in a title, a question, a branch name and a path shows as te
   const hostile = row(page, "T50");
   assert.equal(await hostile.locator(".ttl").textContent(), HOSTILE_TEXT.title);
   assert.equal(await hostile.locator(".why").textContent(), `<img src=x onerror="window.hacked=11">Merge <b>now</b>?`);
-  assert.match(await hostile.locator(".meta").textContent(), /may conflict · T8 #17/);
+  assert.match(await hostile.locator(".meta").textContent(), /may conflict · T8 · PR 17/);
   await hostile.locator(".ttl").click();
   const panel = page.locator(".panel");
   await page.locator("#panel-h", { hasText: HOSTILE_TEXT.title }).waitFor();

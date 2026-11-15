@@ -98,14 +98,14 @@ test("T308: Codex agents come from the logbook only: running, no activity, no he
   assert.deepEqual(model.caps, [{ label: "Claude", total: { used: 1, cap: 20 }, projects: [{ name: "sample", used: 1, cap: 3 }] }]);
 });
 
-test("T308: unreadable hook notes show every Claude run from the logbook, with activity not known and no caps", () => {
+test("T308: unreadable hook notes show every Claude run from the logbook, with activity unknown and no caps", () => {
   const model = agents(claude([book("sample-abcdef", [run("R1", "qa", 5)])], [], { problem: "EACCES" }));
-  assert.deepEqual(rows(model).map(agent => [agent.state, agent.why]), [["unk", "no hook notes: activity not known"]]);
+  assert.deepEqual(rows(model).map(agent => [agent.state, agent.why]), [["unk", "no hook notes: activity unknown"]]);
   assert.deepEqual(model.problems, [{ source: "claude", message: "its folder has no read permission" }]);
   assert.deepEqual([model.caps, model.unmatched], [[], []]);
   const html = renderAgentsHtml(buildBoardModel([claude([book("sample-abcdef", [run("R1", "qa", 5)])], [], { problem: "EACCES" })], { now: NOW }));
   assert.match(html, /<b>The hook notes cannot be read<\/b> \(claude: its folder has no read permission\)/);
-  assert.match(html, /Caps: not known while the hook notes cannot be read\./);
+  assert.match(html, /Caps: unknown · the hook notes cannot be read\./);
 });
 
 test("T308: the caps are the hook's: cap.<project>, else max_agents, and cap_total, read as the state tool reads a count", () => {
@@ -149,8 +149,8 @@ test("T308: the page shows each state with a mark and a word, the tree, the caps
   ], { config: { "cap.sample": 2 } })], { now: NOW });
   const html = renderAgentsHtml(model, { live: true });
   assert.ok(!html.includes("<img src=x"), "a task title is text");
-  assert.match(html, /<span class="st st-wait"><span class="m" aria-hidden="true">◷<\/span>waiting for its helpers<\/span>/);
-  assert.match(html, /<span class="st st-stuck"><span class="m" aria-hidden="true">!<\/span>may be stuck<\/span>/);
+  assert.match(html, /<span class="st st-wait"><span class="m" aria-hidden="true">⧗<\/span>waiting<\/span>/);
+  assert.match(html, /<span class="st st-stuck"><span class="m" aria-hidden="true">!<\/span>in progress · may be stuck<\/span>/);
   assert.match(html, /<ul aria-label="Helpers of R3"><li><div class="arow child">.*<span class="role">qa<\/span><span class="id">R4<\/span><span class="faint">helper of R3<\/span>/);
   assert.match(html, new RegExp(`<a class="t" id="al-[\\w-]+" href="/task/${Buffer.from("claude/sample-abcdef/T1").toString("base64url")}"><span class="id">T1</span> &lt;img`));
   assert.match(html, /<span class="cap full">.*sample 2 of 2 · at cap<\/span>/);

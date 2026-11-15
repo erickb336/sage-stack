@@ -2,6 +2,7 @@ import { Suspense, lazy, useMemo, useState } from "react";
 import { ago } from "./overview.jsx";
 import { ChiefDot, Panel, chiefName, taskLink } from "./panel.jsx";
 import { ofChief } from "./tasks.jsx";
+import { UNKNOWN, prName } from "../../sage-core/state-words.mjs";
 
 const PAGE = "pull-requests", RECENT_DAYS = 7, DAY = 86_400_000;
 const GROUPS = [
@@ -31,7 +32,7 @@ function groupOf(task, at) {
 
 function cyclesText({ cycles }) {
   if (!cycles.reviews) return "No review step";
-  return cycles.clean === null ? `Clean cycles not known · ${cycles.required} needed` : `${cycles.clean} of ${cycles.required} clean cycles`;
+  return cycles.clean === null ? `Clean cycles ${UNKNOWN} · ${cycles.required} needed` : `${cycles.clean} of ${cycles.required} clean cycles`;
 }
 
 
@@ -41,21 +42,21 @@ function Row({ task, group, at, prs, selected }) {
   return (
     <li className="prow" data-pr-task={task.key} aria-current={selected ? "true" : undefined}>
       <span className="num mono">{!task.pr ? <span className="faint">no PR</span> : task.prUrl
-        ? <a href={task.prUrl} target="_blank" rel="noopener noreferrer" aria-label={`Pull request ${task.pr} on GitHub`}>#{task.pr}</a>
-        : <span title="The logbook names no GitHub repository for this PR">#{task.pr}</span>}</span>
+        ? <a href={task.prUrl} target="_blank" rel="noopener noreferrer" aria-label={`Pull request ${task.pr} on GitHub`}>{prName(task.pr)}</a>
+        : <span title="The logbook names no GitHub repository for this PR">{prName(task.pr)}</span>}</span>
       <div className="what">
         <a className="ttl" href={taskLink(task.key, PAGE)} data-task={task.key}>{task.title}</a>
         <p className="meta">
           <span className="chief">{task.chief && <ChiefDot stopped={task.chief.stopped} />}{chiefName(task.chief)}{task.chief?.stopped && " (stopped)"}</span>
           <span className="mono">{task.id}</span>
           {task.milestone && <span>{task.milestone.title}</span>}
-          {task.conflicts.map(other => <span className="badge warn" key={other.key}>may conflict · {other.id}{prs.get(other.key) ? ` #${prs.get(other.key)}` : ""}</span>)}
+          {task.conflicts.map(other => <span className="badge warn" key={other.key}>may conflict · {other.id}{prs.get(other.key) ? ` · ${prName(prs.get(other.key))}` : ""}</span>)}
         </p>
         {line && <p className={`why ${group}`}>{line}</p>}
       </div>
-      <span className={`badge word ${(task.word ?? "unknown").replace(" ", "-")}`}>{task.word ?? "unknown"}</span>
+      <span className={`badge word ${(task.word ?? UNKNOWN).replace(" ", "-")}`}>{task.word ?? UNKNOWN}</span>
       <span className="cyc">{task.pr ? cyclesText(task) : "–"}</span>
-      <span className={`ci ${task.ci ?? "unknown"}`}>{task.pr ? CI[task.ci] ?? "CI not known" : "–"}</span>
+      <span className={`ci ${task.ci ?? "unknown"}`}>{task.pr ? CI[task.ci] ?? `CI ${UNKNOWN}` : "–"}</span>
       <span className="age">{age || "–"}</span>
     </li>
   );
@@ -68,8 +69,8 @@ function graphData(groups) {
   const linked = new Set([...waits, ...conflicts].flatMap(link => [link.from, link.to]));
   const nodes = [...shown.values()].filter(({ task }) => linked.has(task.key)).map(({ task, group }) => ({
     key: task.key, group: group.key, state: group.title, nopr: !task.pr, href: taskLink(task.key, PAGE), title: task.title,
-    head: task.pr ? `#${task.pr} · ${task.id}` : `${task.id} · no PR yet`, chief: chiefName(task.chief),
-    sub: task.pr ? `${cyclesText(task)} · ${CI[task.ci] ?? "CI not known"}` : task.waits ?? "",
+    head: task.pr ? `${prName(task.pr)} · ${task.id}` : `${task.id} · no PR yet`, chief: chiefName(task.chief),
+    sub: task.pr ? `${cyclesText(task)} · ${CI[task.ci] ?? `CI ${UNKNOWN}`}` : task.waits ?? "",
   }));
   return { nodes, waits, conflicts, alone: shown.size - nodes.length };
 }

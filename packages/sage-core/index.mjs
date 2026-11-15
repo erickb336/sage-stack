@@ -22,7 +22,7 @@ export { PRIORITIES, PRIORITY_SCALE, startsInSageMode } from "./logbook-fields.m
 export { readBoardSources } from "./board-reader.mjs";
 export { buildBoardModel } from "./board-model.mjs";
 export { boardOverview, taskPanel } from "./board-overview.mjs";
-export { taskWord, milestoneWord, releaseWord } from "./state-words.mjs";
+export { chiefName, taskWord, milestoneWord, releaseWord } from "./state-words.mjs";
 export { renderBoardHtml, renderAgentsHtml, renderMilestonesHtml, renderReleasesHtml, renderBoardText, renderTaskText, renderBoardStatus } from "./board-render.mjs";
 export { boardView, landingRule } from "./board-view.mjs";
 export { BOARD_PORT, KINDS, LONG_WIDTH, PAGE_MAX, PAGE_TYPES, WIDTH, frameLines, pageBlock, pageType } from "./message.mjs";

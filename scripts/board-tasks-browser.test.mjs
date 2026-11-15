@@ -73,8 +73,8 @@ test("T1061, T1064, T1059: J2 and J3 are within two clicks of the Overview, and 
   await click(row(page, "T3"));
   await panelTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
   assert.equal(clicks, 2, "J3: a milestone, then its task");
-  assert.deepEqual(await page.locator(".steps .lbl").allTextContents(), ["Plandone", "Builddone", "Review 1 of 1running", "Merge"]);
-  assert.equal(await page.locator(".steps li[aria-current=step] .lbl").textContent(), "Review 1 of 1running", "the current step");
+  assert.deepEqual(await page.locator(".steps .lbl").allTextContents(), ["Plandone", "Builddone", "Review 1 of 1in progress", "Merge"]);
+  assert.equal(await page.locator(".steps li[aria-current=step] .lbl").textContent(), "Review 1 of 1in progress", "the current step");
   assert.equal(await page.locator(".sec-h .hint").textContent(), "Clean cycles: 0 of 1");
   assert.match(await page.locator(".last").textContent(), /R6 · qa started$/);
   const made = await page.locator("#tab-panel .files a").allTextContents();
@@ -121,14 +121,14 @@ test("T1061: the groups and filters work, and ended tasks stay collapsed until a
   await page.locator('[data-group="shared/sample-app-abc123/M1"] .more-ended').click();
   assert.equal(await row(page, "T1").count(), 1);
   assert.equal(await page.locator('[data-group="shared/sample-app-abc123/M1"] .more-ended').getAttribute("aria-expanded"), "true");
-  assert.match(await row(page, "T3").textContent(), /^P2T3Sample shared limitsprovidersmay conflict · T40in progressC2 · CodexReview 1 of 1#12/);
+  assert.match(await row(page, "T3").textContent(), /^P2Sample shared limitsprovidersmay conflict · T40T3in progressCodex · C2Review 1 of 1PR 12/);
   assert.match(await row(page, "T40").textContent(), /may conflict · T3/);
   assert.match(await row(page, "T3").textContent(), /may conflict · T40/);
 
   await page.getByRole("button", { name: "Chief", exact: true }).click();
-  await settles(() => groupTitles(page), ["C1 · Claude", "C2 · Codex"]);
+  await settles(() => groupTitles(page), ["Claude · C1", "Codex · C2"]);
   await filter(page, "provider").selectOption("Codex");
-  await settles(() => groupTitles(page), ["C2 · Codex"]);
+  await settles(() => groupTitles(page), ["Codex · C2"]);
   await filter(page, "kind").selectOption("ui");
   await settles(() => rowIds(page), ["T30"]);
   await filter(page, "kind").selectOption("");
@@ -139,7 +139,7 @@ test("T1061: the groups and filters work, and ended tasks stay collapsed until a
   await settles(() => rowIds(page), ["T10"]);
   await filter(page, "state").selectOption("");
   await filter(page, "priority").selectOption("");
-  await filter(page, "chief").selectOption("C1 · Claude");
+  await filter(page, "chief").selectOption("Claude · C1");
   await page.getByRole("button", { name: "State" }).click();
   await settles(() => groupTitles(page), ["needs you", "in progress", "waiting", "done"]);
 });
@@ -150,10 +150,10 @@ test("T1080 (F-T1080-2, F-T1080-14): the group and the filters are in the addres
   assert.equal(await page.getByRole("combobox", { name: "Chief", exact: true }).count(), 0, "the chief filter does not share the name of the Chief group button");
   await page.getByRole("button", { name: "Chief", exact: true }).click();
   await filter(page, "provider").selectOption("Codex");
-  await settles(() => groupTitles(page), ["C2 · Codex"]);
+  await settles(() => groupTitles(page), ["Codex · C2"]);
   assert.equal(await page.evaluate(() => location.hash), "#tasks?group=chief&provider=Codex");
   await page.reload();
-  await settles(() => groupTitles(page), ["C2 · Codex"], "the reload keeps the group and the filter");
+  await settles(() => groupTitles(page), ["Codex · C2"], "the reload keeps the group and the filter");
   assert.equal(await filter(page, "provider").inputValue(), "Codex");
   assert.equal(await page.getByRole("button", { name: "Chief", exact: true }).getAttribute("aria-pressed"), "true");
   await row(page, "T3").click();
@@ -162,7 +162,7 @@ test("T1080 (F-T1080-2, F-T1080-14): the group and the filters are in the addres
   await page.locator(".panel").waitFor({ state: "detached" });
   assert.equal(await page.evaluate(() => location.hash), "#tasks?group=chief&provider=Codex", "closing the panel goes back to the same view");
   await page.getByRole("button", { name: "Clear filters" }).click();
-  await settles(() => groupTitles(page), ["C1 · Claude", "C2 · Codex"]);
+  await settles(() => groupTitles(page), ["Claude · C1", "Codex · C2"]);
   assert.equal(await page.getByRole("button", { name: "Clear filters" }).count(), 0);
   await page.goto(`${base}/app/#tasks`);
   await settles(() => groupTitles(page), ["Milestone 2: Offline sync", "Milestone 1: Board redesign", "No milestone", "Milestone 3: Sign-in rework"], "an address with no view gives the default");
@@ -177,9 +177,9 @@ test("T1080 (F-T1080-13): the State filter done shows the ended tasks at once", 
 
 test("T1080 (F-T1080-1): with two projects, chief groups, chief filter values and rows name the project", async t => {
   const { page } = await open(t, { twin: true }, "/app/#tasks?group=chief");
-  await settles(() => groupTitles(page), ["C1 · Claude · other-app", "C1 · Claude · sample-app", "C2 · Codex · other-app", "C2 · Codex · sample-app"]);
-  assert.deepEqual((await filter(page, "chief").locator("option").allTextContents()).slice(1), ["C1 · Claude · other-app", "C1 · Claude · sample-app", "C2 · Codex · other-app", "C2 · Codex · sample-app"]);
-  assert.match(await row(page, "T3").textContent(), /^P2T3Sample shared limitssample-appproviders/, "the row names its project");
+  await settles(() => groupTitles(page), ["Claude · C1 · other-app", "Claude · C1 · sample-app", "Codex · C2 · other-app", "Codex · C2 · sample-app"]);
+  assert.deepEqual((await filter(page, "chief").locator("option").allTextContents()).slice(1), ["Claude · C1 · other-app", "Claude · C1 · sample-app", "Codex · C2 · other-app", "Codex · C2 · sample-app"]);
+  assert.match(await row(page, "T3").textContent(), /^P2Sample shared limitssample-appproviders/, "the row names its project");
 });
 
 test("T1061: the panel opens and closes from the keyboard, its tabs move with the arrow keys, and the focus returns to the row", async t => {
@@ -276,7 +276,7 @@ function insideItsCellAndLeftOfThePanel(element) {
 
 test("T1061 (F-T1061-7, F-T1061-10): the may-conflict flag and the chief tag show in full, with the panel closed and open, at 1440 and 1280 px", async t => {
   const { page, base } = await open(t, { edge: true }, "/app/#tasks");
-  const cells = [["T3", ".badge.warn", "may conflict · T40"], ["T40", ".badge.warn", "may conflict · T3"], ["T3", ".chief", "C2 · Codex"], ["T40", ".chief", "C1 · Claude (waits for you)"]];
+  const cells = [["T3", ".badge.warn", "may conflict · T40"], ["T40", ".badge.warn", "may conflict · T3"], ["T3", ".chief", "Codex · C2"], ["T40", ".chief", "Claude · C1 (waits for you)"]];
   for (const width of [1440, 1280]) {
     await page.setViewportSize({ width, height: 1000 });
     for (const panel of [false, true]) {
@@ -317,12 +317,12 @@ test("T1061 (F-T1061-3, F-T1061-11): an open panel says so when its task leaves 
   await page.locator(".stale").filter({ hasText: "The panel could not refresh. It shows what it read last, and tries again when the logbook changes." }).waitFor();
 });
 
-test("T1061 (F-T1061-13): a task with no route shows the route as not known and no steps", async t => {
+test("T1061 (F-T1061-13): a task with no route shows the route as unknown and no steps", async t => {
   const { page, logbook } = await open(t, {}, "/app/#tasks");
   editTasks(logbook, task => [task.id === "T40" ? { ...task, route: "" } : task]);
   await page.goto(`${page.url().split("#")[0]}#tasks?task=${encodeURIComponent(KEY("T40"))}`);
   await panelTitle(page).filter({ hasText: "Sample crash fix" }).waitFor();
-  await page.locator(".sec-h .hint").filter({ hasText: /^Route not known$/ }).waitFor();
+  await page.locator(".sec-h .hint").filter({ hasText: /^Route unknown$/ }).waitFor();
   assert.equal(await page.locator(".steps li").count(), 0);
   assert.equal(await page.locator(".now").textContent(), "The logbook records no route for this task, so the board shows no steps.");
 });
@@ -336,10 +336,10 @@ test("T1061 (F-T1061-33): a row's chief dot is green only for a live chief; a st
     const element = cell.querySelector(".dot"), style = element && getComputedStyle(element);
     return { text: cell.textContent, fill: style?.backgroundColor ?? null, ring: style ? style.boxShadow !== "none" || style.borderStyle !== "none" : null };
   });
-  const unknown = async id => assert.equal(await row(page, id).getByRole("img", { name: "Chief liveness not known" }).count(), 1, `${id}: the hollow dot has a text alternative`);
-  assert.deepEqual(await dot("T3"), { text: "C2 · Codex", fill: live, ring: false }, "a live chief (a run is running)");
-  assert.deepEqual(await dot("T70"), { text: "C3 · Claude (stopped)", fill: grey, ring: false }, "a stopped chief (no heartbeat for 2 h)");
-  assert.deepEqual(await dot("T40"), { text: "C1 · Claude", fill: "rgba(0, 0, 0, 0)", ring: true }, "a listed chief with no heartbeat: liveness not known");
+  const unknown = async id => assert.equal(await row(page, id).getByRole("img", { name: "Chief liveness unknown" }).count(), 1, `${id}: the hollow dot has a text alternative`);
+  assert.deepEqual(await dot("T3"), { text: "Codex · C2", fill: live, ring: false }, "a live chief (a run is running)");
+  assert.deepEqual(await dot("T70"), { text: "Claude · C3 (stopped)", fill: grey, ring: false }, "a stopped chief (no heartbeat for 2 h)");
+  assert.deepEqual(await dot("T40"), { text: "Claude · C1", fill: "rgba(0, 0, 0, 0)", ring: true }, "a listed chief with no heartbeat: liveness unknown");
   await unknown("T40");
   assert.deepEqual(await dot("T71"), { text: "C9", fill: "rgba(0, 0, 0, 0)", ring: true }, "a chief that chiefs.tsv does not list");
   await unknown("T71");
@@ -476,12 +476,12 @@ test("T1080 (F-T1080-15, F-T1080-20): a milestone link from Needs you lands on a
 test("T1080 (F-T1080-19): a live chief's dot has a name, and the panel's Chief row says the chief's liveness", async t => {
   const { page, base } = await open(t, { chiefCases: true }, "/app/#tasks");
   assert.equal(await row(page, "T3").getByRole("img", { name: "Chief live" }).count(), 1);
-  for (const [id, title, text] of [["T3", "Sample shared limits", "C2 · Codex · live"], ["T70", "Sample stopped chief", "C3 · Claude · stopped"], ["T40", "Sample crash fix", "C1 · Claude · liveness not known"]]) {
+  for (const [id, title, text] of [["T3", "Sample shared limits", "Codex · C2 · live"], ["T70", "Sample stopped chief", "Claude · C3 · stopped"], ["T40", "Sample crash fix", "Claude · C1 · liveness unknown"]]) {
     await page.goto(`${base}/app/#tasks?task=${encodeURIComponent(KEY(id))}`);
     await panelTitle(page).filter({ hasText: title }).waitFor();
     assert.equal(await page.locator(".facts dd.chief").textContent(), text);
   }
-  assert.equal(await page.locator(".facts dd.chief").getByRole("img", { name: "Chief liveness not known" }).count(), 1);
+  assert.equal(await page.locator(".facts dd.chief").getByRole("img", { name: "Chief liveness unknown" }).count(), 1);
 });
 
 test("T1080 (F-T1080-3, F-T1080-22): the panel puts the question, the recommendation and the next step on their own lines; closing an ended task's panel puts the focus on its row", async t => {

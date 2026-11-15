@@ -52,7 +52,7 @@ for (const width of [1024, 1440]) for (const theme of ["light", "dark"]) {
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), width, "no sideways scroll");
     await expectTheme(page, theme);
     assert.deepEqual(await page.locator(".group h2").allTextContents(), ["order-chaser", "sage", "Council Record (sample)", "recipes"], "the projects with a problem first");
-    assert.deepEqual([...new Set(await page.locator(".st").allTextContents())].sort(), ["!may be stuck", "●working", "○running", "■helper stopped, run still open", "▲running long", "◷waiting for its helpers"].sort());
+    assert.deepEqual([...new Set(await page.locator(".st").allTextContents())].sort(), ["!in progress · may be stuck", "▶in progress", "!stopped · run still open", "!in progress · running long", "⧗waiting"].sort());
     for (const word of await page.locator(".st").all()) assert.equal(await word.isVisible(), true);
     assert.equal(await page.locator(".boardtabs a[aria-current=page]").textContent(), "Agents (13)");
     const outside = await page.locator(".arow").evaluateAll((rows, w) => rows.filter(row => row.getBoundingClientRect().right > w).length, width);

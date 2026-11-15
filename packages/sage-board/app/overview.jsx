@@ -3,6 +3,7 @@ import { GiveBox, PairBox, UndoButton, chiefLabel, questionLink, useAccess, useS
 import { useNow, when } from "./use-model.js";
 import { StateIcon } from "./icons.jsx";
 import { milestoneLink, taskLink } from "./panel.jsx";
+import { OBJECTS, UNKNOWN } from "../../sage-core/state-words.mjs";
 
 const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
@@ -23,7 +24,7 @@ function Counts({ model, previous, now }) {
   const items = [
     ["merged", after(model.tasks.filter(task => task.state === "merged").map(task => task.doneAt), since), "Merged", "tasks merged into main"],
     ["stuck", after(model.failedAt, since) + model.counts.stuckNow, "Stuck", "runs that failed, or agents silent for 30 min"],
-    ["added", known ? after(model.tasks.map(task => task.addedAt), since) : null, "New tasks", !known ? "not known: no task in the logbook has a time when it was added" : unknown ? "tasks added to the logbook; older tasks have no time" : "tasks added to the logbook"],
+    ["added", known ? after(model.tasks.map(task => task.addedAt), since) : null, "New tasks", !known ? `${UNKNOWN} · no task in the logbook has a time when it was added` : unknown ? "tasks added to the logbook; older tasks have no time" : "tasks added to the logbook"],
   ];
   return (
     <section className="counts" aria-labelledby="counts-h">
@@ -102,8 +103,8 @@ function Stopped({ model, shown }) {
                   <li key={task.key}>
                     <a href={taskLink(task.key)}>{task.id} · {task.title}</a>
                     {giving === task.key ? <GiveBox task={task} logbook={chief.logbook} from={chief.id} chiefs={model.chiefs} close={() => setGiving(null)} />
-                      : need ? <a href={questionLink(need.key)} className="btn">{need.gate} open</a>
-                      : answered ? <a href={questionLink(answered.key)} className="btn">{answered.gateId} answered</a>
+                      : need ? <a href={questionLink(need.key)} className="btn">{OBJECTS.question.label} {need.gate} open</a>
+                      : answered ? <a href={questionLink(answered.key)} className="btn">{OBJECTS.question.label} {answered.gateId} answered</a>
                       : <button type="button" className="btn" onClick={() => setGiving(task.key)}>Give to another chief</button>}
                   </li>
                 );

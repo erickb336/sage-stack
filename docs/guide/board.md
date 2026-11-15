@@ -58,10 +58,15 @@ Each card, each task line of the chat board, each milestone and each task page s
 | --- | --- | --- |
 | not started | ○ | The task exists, and no agent works on it yet. |
 | waiting | ⧗ | It cannot start before another task, or before you approve its milestone. |
-| needs you | ! | It waits for your answer to a question, or for your merge. |
+| needs you | ? | It waits for your answer to a question, or for your merge. |
 | in progress | ▶ | Agents or the chief work on it. |
 | done | ✓ | It merged, or it was a study that ended. |
 | stopped | ■ | Its work stopped for good. |
+
+The same words and marks show the steps of a task and the agents, from one table in sage's code. Two more marks:
+
+- `!` is a problem: failed, blocked, may be stuck, running long or run still open. The problem shows after the word, for example "in progress · may be stuck".
+- `◌` is a state that the board does not know. It reads "unknown".
 
 - A wait names the word of the task that it waits for, for example "Waits for T12 (in progress)".
 - A milestone's word comes from its breakdown: "needs you" while the breakdown waits for you, or when its pilot stopped; "stopped" when you dropped it. Else it comes from its tasks.
@@ -146,12 +151,11 @@ The projects and the rows that need a look come first. Each row gives the provid
 
 | State | Shown when |
 | --- | --- |
-| ● working | The hook saw the agent in the last 30 min. |
-| ◷ waiting for its helpers | A lead has at least one helper that still runs. |
-| ! may be stuck | No hook activity for 30 min or more, and no running helper. Or the logbook says that the run runs, and no agent slot holds it (the hook frees a slot after 60 min with no activity). |
-| ▲ running long | The time running is more than 2 times the median of the same role's ended runs in this project. It needs 5 ended runs. |
-| ■ helper stopped, run still open | The hook saw the helper stop, but the logbook still says that the run runs. The chief must end the run. |
-| ○ running | A Codex run: the logbook says that it runs. Codex sends no activity notes yet, so the row has no last activity, no helpers and no cap. |
+| ▶ in progress | The hook saw the agent in the last 30 min. A Codex run also shows this word: the logbook says that it runs. Codex sends no activity notes yet, so the row has no last activity, no helpers and no cap. |
+| ⧗ waiting | A lead has at least one helper that still runs. |
+| ! in progress · may be stuck | No hook activity for 30 min or more, and no running helper. Or the logbook says that the run runs, and no agent slot holds it (the hook frees a slot after 60 min with no activity). |
+| ! in progress · running long | The time running is more than 2 times the median of the same role's ended runs in this project. It needs 5 ended runs. |
+| ! stopped · run still open | The hook saw the helper stop, but the logbook still says that the run runs. The chief must end the run. |
 
 The page reads files only: the logbooks, the hook's agent slots and helper notes (by name and time, not their content) and the caps in `config.json`. It runs no command and reads no process list.
 

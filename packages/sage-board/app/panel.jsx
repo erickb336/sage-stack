@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import { STEPS, UNKNOWN, chiefName as nameOf, prName, shown } from "../../sage-core/state-words.mjs";
 
 export const taskLink = (key, page = "tasks") => `#${page}?task=${encodeURIComponent(key)}`;
 export const milestoneLink = key => `#tasks?milestone=${encodeURIComponent(key)}`;
-export const chiefName = chief => chief ? chief.old ?? ([chief.id, chief.provider].filter(Boolean).join(" · ") || "Chief not known") : "No chief";
-const LIVENESS = { live: "live", stopped: "stopped", unknown: "liveness not known" };
+export const chiefName = chief => chief ? chief.old ?? (chief.id ? nameOf(chief.id, chief.provider) : `Chief ${UNKNOWN}`) : "No chief";
+const LIVENESS = { live: "live", stopped: "stopped", unknown: `liveness ${UNKNOWN}` };
 const liveness = stopped => stopped === false ? "live" : stopped ? "stopped" : "unknown";
 export function ChiefDot({ stopped }) {
   const state = liveness(stopped);
@@ -31,7 +32,7 @@ export function readLink(key, kind, arg, back = "tasks") {
   const query = new URLSearchParams({ ...(document.documentElement.dataset.theme === "light" && { theme: "light" }), ...(back !== "tasks" && { back }) }).toString();
   return `/read/${encodeKey(key)}/${kind}${arg ? `/${arg}` : ""}${query ? `?${query}` : ""}`;
 }
-const STATUS = { done: "done", run: "running", stale: "no news", need: "needs you", fail: "failed", idle: "no agent at work", wait: "", unknown: "not known" };
+const STATUS = { ...Object.fromEntries(Object.entries(STEPS).map(([key, pair]) => [key, shown(pair).text])), unknown: UNKNOWN };
 const TABS = ["Artifacts", "Log", "Decisions"];
 
 function usePanel(key, at) {
@@ -52,16 +53,16 @@ function Cycle({ task }) {
   return (
     <section aria-labelledby="cycle-h">
       <div className="sec-h"><h3 id="cycle-h">Dev cycle</h3>
-        <span className="hint">{!task.route.length ? "Route not known" : !reviews ? "This route has no review step." : clean === null ? `Clean cycles: not known · ${required} needed` : `Clean cycles: ${clean} of ${required}`}</span>
+        <span className="hint">{!task.route.length ? `Route ${UNKNOWN}` : !reviews ? "This route has no review step." : clean === null ? `Clean cycles: ${UNKNOWN} · ${required} needed` : `Clean cycles: ${clean} of ${required}`}</span>
       </div>
       <ol className="steps">
         {task.steps.map(step => (
           <li key={step.key} className={`st ${step.status}`} aria-current={!["done", "wait"].includes(step.status) ? "step" : undefined}>
             <span className="mark" aria-hidden="true" />
             <div>
-              <p className="lbl">{step.label}{STATUS[step.status] && <span className="sw">{STATUS[step.status]}</span>}</p>
+              <p className="lbl">{step.label}{step.status !== "wait" && <span className="sw">{STATUS[step.status] ?? UNKNOWN}</span>}</p>
               {step.detail && <p className="detail">{controlsShown(step.detail)}</p>}
-              {step.parts.length > 0 && <p className="parts">{step.parts.map(part => `${part.name}: ${STATUS[part.status] || "waits"}`).join(" · ")}</p>}
+              {step.parts.length > 0 && <p className="parts">{step.parts.map(part => `${part.name}: ${STATUS[part.status] ?? UNKNOWN}`).join(" · ")}</p>}
             </div>
           </li>
         ))}
@@ -181,8 +182,8 @@ export function Panel({ taskKey, at, back = "tasks" }) {
   return (
     <aside className="panel" role="dialog" aria-labelledby="panel-h">
       <div className="panel-top">
+        {task && <span className={`badge word ${(task.word ?? UNKNOWN).replace(" ", "-")}`}>{task.word ?? UNKNOWN}</span>}
         <span className="mono">{task?.id ?? ""}</span>
-        {task && <span className={`badge word ${(task.word ?? "unknown").replace(" ", "-")}`}>{task.word ?? "unknown"}</span>}
         <span className="grow" />
         <button type="button" className="close" onClick={close} aria-label="Close the task panel">×</button>
       </div>
@@ -203,8 +204,8 @@ export function Panel({ taskKey, at, back = "tasks" }) {
             <dt>Chief</dt><dd className="chief">{task.chief && !task.chief.old && <ChiefDot stopped={task.chief.stopped} />}{chiefName(task.chief)}{task.chief && !task.chief.old && ` · ${LIVENESS[liveness(task.chief.stopped)]}`}</dd>
             {task.chief?.old && <><dt>Logbook</dt><dd>An old logbook. The task stays there, read-only: the move did not take it to the shared logbook.</dd></>}
             <dt>Priority</dt><dd>{task.priority ?? "None"}{task.kind && ` · ${task.kind}`}</dd>
-            <dt>Size</dt><dd>{task.size ?? "not known"}{task.risk && ` · risk flag ${task.risk}`}</dd>
-            <dt>Pull request</dt><dd>{task.pr ? task.prUrl ? <a href={task.prUrl} target="_blank" rel="noopener noreferrer">#{task.pr}</a> : `#${task.pr}` : "None yet"}</dd>
+            <dt>Size</dt><dd>{task.size ?? UNKNOWN}{task.risk && ` · risk flag ${task.risk}`}</dd>
+            <dt>Pull request</dt><dd>{task.pr ? task.prUrl ? <a href={task.prUrl} target="_blank" rel="noopener noreferrer">{prName(task.pr)}</a> : prName(task.pr) : "None yet"}</dd>
             <dt>Branch</dt><dd>{task.branch ? <code>{controlsShown(task.branch)}</code> : "None yet"}</dd>
             <dt>Milestone</dt><dd>{controlsShown(task.milestone?.title ?? "None")}</dd>
             {task.waits && <><dt>Waits</dt><dd>{controlsShown(task.waits)}</dd></>}

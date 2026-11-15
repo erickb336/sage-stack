@@ -1,6 +1,6 @@
 import { LINE, PRIORITIES, TASK_KINDS, proposalOf } from "./logbook-fields.mjs";
 import { ENDED, lostClause, lostWhy, MILESTONE_ID, milestoneName } from "./milestone-rules.mjs";
-import { releaseWord, taskWord } from "./state-words.mjs";
+import { MARKS, OBJECTS, STEPS, URGENCY, prName, releaseWord, shown, taskWord } from "./state-words.mjs";
 import { box, columns } from "./picture.mjs";
 import { pagePath } from "./message.mjs";
 import { pageTaskFolder } from "./page-files.mjs";
@@ -26,10 +26,11 @@ const SEVERITIES = ["high", "medium", "low"], RUN_STATUSES = ["running", "queued
 function link(label, value) { const url = safeUrl(value); return url ? `<a href="${esc(url)}" rel="noopener noreferrer">${esc(label)}</a>` : esc(label); }
 
 const ICON = '<svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="currentColor" opacity=".18"/><rect x="7.2" y="3.6" width="1.6" height="5.6" rx=".8" fill="currentColor"/><circle cx="8" cy="11.6" r="1" fill="currentColor"/></svg>';
-const MARK = { done: "✓", run: "▶", fail: "✗", need: "!", wait: "○", idle: "▷", stale: "⧗", unknown: "?" };
-const WORD = { done: "done", run: "running now", fail: "failed", need: "needs you", wait: "not started", idle: "no agent at work", stale: "may have stopped", unknown: "not known yet" };
+const NEED_ICON = '<svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="currentColor" opacity=".18"/><path d="M5.9 6.1a2.1 2.1 0 1 1 2.9 1.9c-.5.3-.8.6-.8 1.2v.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11.6" r="1" fill="currentColor"/></svg>';
+const STEP = Object.fromEntries([...Object.entries(STEPS), ["unknown", []]].map(([key, pair]) => [key, shown(pair)]));
+const MARK = Object.fromEntries(Object.entries(STEP).map(([key, step]) => [key, step.mark])), WORD = Object.fromEntries(Object.entries(STEP).map(([key, step]) => [key, step.text]));
 const status = value => MARK[value] ? value : "unknown";
-const KIND = { design: ["◇", "Design"], ui: ["▢", "UI"], orchestration: ["⇄", "Orchestration"], optimization: ["↗", "Optimization"], "bug-fix": ["✱", "Bug fix"], logbook: ["≡", "Logbook"], docs: ["¶", "Docs"], security: ["▲", "Security"], providers: ["⊞", "Providers"], checks: ["✓", "Checks"] };
+const KIND = { design: ["◇", "Design"], ui: ["▢", "UI"], orchestration: ["⇄", "Orchestration"], optimization: ["↗", "Optimization"], "bug-fix": ["✱", "Bug fix"], logbook: ["≡", "Logbook"], docs: ["¶", "Docs"], security: ["▲", "Security"], providers: ["⊞", "Providers"], checks: ["⊨", "Checks"] };
 const COLUMN_NAME = { done: "Done, last 7 days" };
 const BACKLOG_SHOWN = 6, RUNS_SHOWN = 6;
 const foldText = n => `Show ${n} more task${n === 1 ? "" : "s"}`;
@@ -74,24 +75,24 @@ const dot = (ctx, key) => `<span class="dot ${ctx.slot.get(key) ?? "p0"}" aria-h
 const project = (ctx, task) => `<span class="proj" title="${esc(task.projectName)}">${dot(ctx, task.group ?? task.project)}<span class="pn">${esc(task.projectName)}</span></span>`;
 const kindTag = task => task.kind ? `<span class="tag kind"><span aria-hidden="true">${KIND[task.kind][0]}</span>${KIND[task.kind][1]}</span>` : "";
 const PRIORITY_WORD = { P0: "highest priority", P1: "second priority", P2: "third priority", P3: "lowest priority" };
-const milestoneTag = task => task.milestone ? `<span class="tag prog" title="Milestone ${esc(task.milestone.id)}${task.milestone.name ? `: ${esc(task.milestone.name)}` : ""}"><span class="pm" aria-hidden="true">◫</span>${esc(milestoneName(task.milestone))}</span>${task.milestone.pilot ? `<span class="tag pilot">pilot</span>` : ""}`
-  : task.release ? `<span class="tag rel"><span class="pm" aria-hidden="true">◎</span>Release ${esc(task.release)}</span>` : task.release === null ? `<span class="tag norel" title="In no release: ask the chief to put it in one">no release</span>` : "";
+const milestoneTag = task => task.milestone ? `<span class="tag prog" title="Milestone ${esc(task.milestone.id)}${task.milestone.name ? `: ${esc(task.milestone.name)}` : ""}"><span class="pm" aria-hidden="true">${MARKS.milestone}</span>${esc(milestoneName(task.milestone))}</span>${task.milestone.pilot ? `<span class="tag pilot">pilot</span>` : ""}`
+  : task.release ? `<span class="tag rel"><span class="pm" aria-hidden="true">${MARKS.release}</span>Release ${esc(task.release)}</span>` : task.release === null ? `<span class="tag norel" title="In no release: ask the chief to put it in one">no release</span>` : "";
 const tags = task => `${task.priority ? `<span class="tag prio" title="${task.priority}, ${PRIORITY_WORD[task.priority]}">${task.priority}<span class="vh">, ${PRIORITY_WORD[task.priority]}</span></span>` : ENDED.includes(task.state) ? "" : `<span class="tag noprio" title="No priority: ask the chief to set P0 to P3">no priority</span>`}${kindTag(task)}<span class="tag">${esc(task.size)}</span>${task.risk ? `<span class="tag risk">risk: ${esc(task.risk.replace(/,/g, ", "))}</span>` : ""}${milestoneTag(task)}`;
 const archivedCounts = book => `${book.tasks} task${book.tasks === 1 ? "" : "s"}${book.needsOwner ? ` · ${book.needsOwner} need${book.needsOwner === 1 ? "s" : ""} you` : ""}`;
 const archivedGroup = model => model.archived.length ? `<details class="archived" id="board-archived" data-key="archived"><summary id="sum-archived">Archived · ${model.archived.length} project${model.archived.length === 1 ? "" : "s"}</summary><ul>${model.archived.map(book => `<li>${esc(book.name)} · ${archivedCounts(book)}</li>`).join("")}</ul></details>` : "";
-const agentPill = (ctx, task, agent, focus) => agent.stale ? `<span class="agent stale"><span aria-hidden="true">${MARK.stale}</span><span class="prov">${provider(agent.provider, task, focus)} ·</span> ${esc(agent.role)} · may have stopped</span>`
+const agentPill = (ctx, task, agent, focus) => agent.stale ? `<span class="agent stale"><span aria-hidden="true">${MARK.stale}</span><span class="prov">${provider(agent.provider, task, focus)} ·</span> ${esc(agent.role)} · ${STEP.stale.flag}</span>`
   : `<span class="agent${(task.shared ? ctx.names.indexOf(title(agent.provider)) : ctx.sources.indexOf(task.source)) % 2 === 1 ? " alt" : ""}"><span class="live" aria-hidden="true"></span><span class="prov">${provider(agent.provider, task, focus)} ·</span> ${esc(agent.role)}</span>`;
 const agents = (ctx, task, extra = "", focus = true) => task.agents.length ? `<div class="agents${extra}">${task.agents.map(agent => agentPill(ctx, task, agent, focus)).join("")}</div>` : "";
 
 const stepLine = task => `<ol class="sline" aria-label="Steps">${task.loop.steps.map(step => `<li class="s s-${status(step.status)}"><span aria-hidden="true">${MARK[status(step.status)]}</span>${esc(step.label)}<span class="vh">: ${WORD[status(step.status)]}</span></li>`).join('<li class="sep" aria-hidden="true">›</li>')}</ol>`;
-const nowNext = (task, next = true) => `<div class="nowline${task.loop.now.needs ? " need" : task.loop.now.stale ? " stale" : ""}">${task.loop.now.needs ? ICON : task.loop.now.stale ? `<span aria-hidden="true">${MARK.stale}</span>` : ""}<span><b>${task.loop.now.needs ? "Needs you" : "Now"}:</b> ${String(task.loop.now.text).split(LINE).map(esc).join("<br>")}</span></div>${next && task.loop.next ? `<div class="nextline"><b>Next:</b> ${esc(task.loop.next)}</div>` : ""}`;
-const waitHtml = (task, now = false) => task.waitLine ? `<div class="waitline${task.waitLine.never ? " cant" : ""}"><span class="wm" aria-hidden="true">${task.waitLine.never ? "⊘" : "⧗"}</span><span>${now ? "<b>Now:</b> " : ""}${esc(task.waitLine.text)}</span></div>` : "";
+const nowNext = (task, next = true) => `<div class="nowline${task.loop.now.needs ? " need" : task.loop.now.stale ? " stale" : ""}">${task.loop.now.needs ? NEED_ICON : task.loop.now.stale ? `<span aria-hidden="true">${MARK.stale}</span>` : ""}<span><b>${task.loop.now.needs ? "Needs you" : "Now"}:</b> ${String(task.loop.now.text).split(LINE).map(esc).join("<br>")}</span></div>${next && task.loop.next ? `<div class="nextline"><b>Next:</b> ${esc(task.loop.next)}</div>` : ""}`;
+const waitHtml = (task, now = false) => task.waitLine ? `<div class="waitline${task.waitLine.never ? " cant" : ""}"><span class="wm" aria-hidden="true">${task.waitLine.never ? "⊘" : MARKS.waiting}</span><span>${now ? "<b>Now:</b> " : ""}${esc(task.waitLine.text)}</span></div>` : "";
 const pbar = milestone => {
   const { merged, total, abandoned } = milestone.progress, part = n => total ? (100 * n / total).toFixed(2) : "0";
   return `<div class="prow"><svg class="pbar" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true"><rect class="m" width="${part(merged)}" height="10"/><line class="a" x1="${part(merged)}" x2="${part(merged + abandoned.length)}" y1="5" y2="5"/></svg><b>${esc(milestone.progressText)}</b></div>`;
 };
-const STATE_WORD = { "not started": ["○", "stw-new"], waiting: ["⧗", "stw-wait"], "needs you": ["!", "stw-need"], "in progress": ["▶", "stw-run"], done: ["✓", "stw-done"], stopped: ["■", "stw-ab"] };
-const wordTag = (word, cls = "sw") => STATE_WORD[word] ? `<span class="${cls} ${STATE_WORD[word][1]}"><span aria-hidden="true">${STATE_WORD[word][0]}</span> ${esc(word)}</span>` : "";
+const STATE_WORD = { "not started": "stw-new", waiting: "stw-wait", "needs you": "stw-need", "in progress": "stw-run", done: "stw-done", stopped: "stw-ab" };
+const wordTag = (word, cls = "sw") => STATE_WORD[word] ? `<span class="${cls} ${STATE_WORD[word]}"><span aria-hidden="true">${MARKS[word]}</span> ${esc(word)}</span>` : "";
 const ANSWER = `<div class="answer"><b>Answer in the chat:</b> approve, change (say what to change) or drop the milestone.</div>`;
 const breakdownBody = reason => `${String(reason?.text ?? "").split(LINE).map(line => `<p class="q">${esc(line)}</p>`).join("")}${reason?.recommendation ? `<p class="q"><b>I recommend:</b> ${esc(reason.recommendation)}</p>` : ""}${ANSWER}`;
 const stepRows = task => `<ol class="vlist">${task.loop.steps.map(step => `<li class="v-${status(step.status)}"><span class="g" aria-hidden="true">${MARK[status(step.status)]}</span><b>${esc(step.label)}</b> <span class="faint">${WORD[status(step.status)]}</span>${step.detail ? `<div class="faint">${esc(step.detail)}</div>` : ""}${step.parts?.length ? `<div class="parts">${step.parts.map(([name, value]) => `<span class="part p-${status(value)}"><span aria-hidden="true">${MARK[status(value)]}</span> ${esc(name)}: ${WORD[status(value)]}</span>`).join("")}</div>` : ""}</li>`).join("")}</ol>`;
@@ -99,11 +100,11 @@ const stepRows = task => `<ol class="vlist">${task.loop.steps.map(step => `<li c
 function card(ctx, task, { archived = false, i = 0 } = {}) {
   const done = task.column === "done", approval = task.reasons.find(reason => reason.breakdown);
   const others = approval && task.reasons.filter(reason => reason !== approval);
-  const now = approval ? `<div class="nowline need">${ICON}<span><b>Needs you:</b> the breakdown of ${esc(milestoneName({ id: approval.breakdown.id }, true))}.${others.length ? ` ${others.map(reason => esc(`${String(reason.text).split(LINE).join(" ")}${reason.recommendation ? ` I recommend: ${reason.recommendation}` : ""}`)).join(" ")}` : ""}</span></div>${task.waitLine?.never ? waitHtml(task) : ""}${breakdownBody(approval)}`
+  const now = approval ? `<div class="nowline need">${NEED_ICON}<span><b>Needs you:</b> the breakdown of ${esc(milestoneName({ id: approval.breakdown.id }, true))}.${others.length ? ` ${others.map(reason => esc(`${String(reason.text).split(LINE).join(" ")}${reason.recommendation ? ` I recommend: ${reason.recommendation}` : ""}`)).join(" ")}` : ""}</span></div>${task.waitLine?.never ? waitHtml(task) : ""}${breakdownBody(approval)}`
     : task.waitLine && !task.loop.now.needs ? waitHtml(task) : (task.column !== "backlog" ? nowNext(task) : task.loop.now.needs ? nowNext(task, false) : "") + waitHtml(task);
   return `<a class="card${task.reasons.length ? " needs" : ""}${approval ? " approval" : ""}" id="card-${b64(task.key)}" href="${esc(taskHref(ctx, task))}" data-key="${esc(task.key)}" data-project="${esc(task.group ?? task.project)}" data-provider="${esc(who(task))}" data-priority="${esc(task.priority)}" data-kind="${esc(task.kind)}" data-needs="${!!task.reasons.length}" data-agents="${task.agents.filter(agent => !agent.stale).length}" data-inferred="${task.inferredWork ? 1 : 0}" data-review="${task.column === "review" ? 1 : 0}" data-i="${i}" data-milestone="${task.milestone ? b64(task.milestone.key) : ""}"${archived ? " data-archived hidden" : ""}>`
-    + (approval ? `<div class="band"><span aria-hidden="true">◫</span>Milestone approval<span class="bk">· ${esc(milestoneName(approval.breakdown))} · gate ${esc(approval.gateId)}</span></div>` : "")
-    + `<div class="top"><span class="id">${esc(task.id)}</span>·${project(ctx, task)}${holderTag(task)}${task.pr ? `<span class="pr">PR ${esc(task.pr)}</span>` : ""}${wordTag(task.word)}</div>`
+    + (approval ? `<div class="band"><span aria-hidden="true">${MARKS.milestone}</span>Milestone approval<span class="bk">· ${esc(milestoneName(approval.breakdown))} · gate ${esc(approval.gateId)}</span></div>` : "")
+    + `<div class="top"><span class="id">${esc(task.id)}</span>·${project(ctx, task)}${holderTag(task)}${task.pr ? `<span class="pr">${esc(prName(task.pr))}</span>` : ""}${wordTag(task.word)}</div>`
     + (task.was ? `<div class="nextline was">${esc(task.was)}</div>` : "")
     + `<div class="title" title="${esc(task.title)}">${esc(task.title)}</div>`
     + (done ? "" : stepLine(task) + now + offerLine(task)) + agents(ctx, task, "", false)
@@ -180,17 +181,17 @@ function waitItem(ctx, task, wait) {
   if (wait.odd) return `<li class="v-stale"><span class="g" aria-hidden="true">⊘</span>Text in the waits cell that is not a task id · <span class="stw-cant">never met</span>: the chief sets the waits again.</li>`;
   if (wait.breakdown) {
     const { id, gate } = wait.breakdown, why = breakdownWhy(wait.breakdown);
-    return `<li class="${wait.never ? "v-stale" : "v-wait"}"><span class="g" aria-hidden="true">${wait.never ? "⊘" : "⧗"}</span>The breakdown of ${esc(milestoneName({ id }, true))}${gate ? ` (gate ${esc(gate)})` : ""}: ${esc(why)} · <span class="${wait.never ? "stw-cant" : "faint"}">${wait.never ? "never met" : "not met"}</span></li>`;
+    return `<li class="${wait.never ? "v-stale" : "v-wait"}"><span class="g" aria-hidden="true">${wait.never ? "⊘" : MARKS.waiting}</span>The breakdown of ${esc(milestoneName({ id }, true))}${gate ? ` (gate ${esc(gate)})` : ""}: ${esc(why)} · <span class="${wait.never ? "stw-cant" : "faint"}">${wait.never ? "never met" : "not met"}</span></li>`;
   }
   const other = ctx.tasks.get(`${task.project}/${wait.id}`);
   const name = other ? `<a href="${esc(taskHref(ctx, other))}">${esc(wait.id)}</a> ${esc(other.title)}` : esc(wait.id);
-  return `<li class="${wait.met ? "v-done" : wait.never ? "v-stale" : "v-wait"}"><span class="g" aria-hidden="true">${wait.met ? "✓" : wait.never ? "⊘" : "⧗"}</span>${name}${wait.pilot ? " · pilot" : ""} · <span class="${wait.met ? "stw-done" : wait.never ? "stw-cant" : "faint"}">${esc(wait.word)}: ${wait.met ? "met" : wait.never ? "never met" : "not met"}</span>${wait.pilot ? ' <span class="faint">(every task of the milestone waits for its pilot)</span>' : ""}</li>`;
+  return `<li class="${wait.met ? "v-done" : wait.never ? "v-stale" : "v-wait"}"><span class="g" aria-hidden="true">${wait.met ? MARKS.done : wait.never ? "⊘" : MARKS.waiting}</span>${name}${wait.pilot ? " · pilot" : ""} · <span class="${wait.met ? "stw-done" : wait.never ? "stw-cant" : "faint"}">${esc(wait.word)}: ${wait.met ? "met" : wait.never ? "never met" : "not met"}</span>${wait.pilot ? ' <span class="faint">(every task of the milestone waits for its pilot)</span>' : ""}</li>`;
 }
 function milestoneSections(ctx, task) {
   const milestone = task.milestone && ctx.milestones.get(task.milestone.key);
   const box = !task.milestone ? `<div class="empty">In no milestone.</div>`
-    : milestone ? `<p><a href="${esc(milestoneHref(ctx, milestone.key))}"><span aria-hidden="true">◫</span> ${esc(milestoneName(milestone))}</a> · ${wordTag(milestone.word, "pstate")}${task.milestone.pilot ? ' · <span class="tag pilot">pilot</span>' : ""}</p>${milestone.progress.total ? pbar(milestone) : ""}`
-    : `<p><span aria-hidden="true">◫</span> ${esc(milestoneName({ id: task.milestone.id }))} · <span class="stw-cant">not in the logbook</span></p>`;
+    : milestone ? `<p><a href="${esc(milestoneHref(ctx, milestone.key))}"><span aria-hidden="true">${MARKS.milestone}</span> ${esc(milestoneName(milestone))}</a> · ${wordTag(milestone.word, "pstate")}${task.milestone.pilot ? ' · <span class="tag pilot">pilot</span>' : ""}</p>${milestone.progress.total ? pbar(milestone) : ""}`
+    : `<p><span aria-hidden="true">${MARKS.milestone}</span> ${esc(milestoneName({ id: task.milestone.id }))} · <span class="stw-cant">not in the logbook</span></p>`;
   const by = ctx.waitedBy.get(task.key) ?? [];
   return `<section><h3>Milestone</h3>${box}</section><section><h3>Waits for <span class="n">${task.waits.length}</span></h3>${task.waits.length ? `<ul class="vlist">${task.waits.map(wait => waitItem(ctx, task, wait)).join("")}</ul>` : `<div class="empty">Waits for no task.</div>`}`
     + `${by.length ? `<h4>Waited for by</h4><p>${by.map(other => `<a href="${esc(taskHref(ctx, other))}">${esc(other.id)}</a>`).join(", ")}</p>` : ""}</section>`;
@@ -209,7 +210,7 @@ function nowWaits(task) {
 const milestoneLink = (ctx, task) => {
   if (!task.milestone || !ctx.milestones.has(task.milestone.key)) return "";
   const name = task.milestone.name ?? task.milestone.id;
-  return `<a class="back plink" href="${esc(milestoneHref(ctx, task.milestone.key))}" title="${esc(name)}">◫ <span class="cn">${esc(name)}</span></a>`;
+  return `<a class="back plink" href="${esc(milestoneHref(ctx, task.milestone.key))}" title="${esc(name)}">${MARKS.milestone} <span class="cn">${esc(name)}</span></a>`;
 };
 
 function pagesLink(task) {
@@ -219,7 +220,7 @@ function pagesLink(task) {
 
 function page(ctx, task, { routed = false, mac = false } = {}) {
   const url = prUrl(task);
-  const pr = (task.pr ? ` · ${url ? link(`PR ${task.pr}`, url) : standIn(`PR ${task.pr}`, "No link: the project's GitHub remote is not known.")}` : "") + (mac ? pagesLink(task) : "");
+  const pr = (task.pr ? ` · ${url ? link(prName(task.pr), url) : standIn(prName(task.pr), "No link: the project's GitHub remote is not known.")}` : "") + (mac ? pagesLink(task) : "");
   const brief = task.brief ? `<p><b>Goal:</b> ${esc(task.briefFields.goal ?? "not recorded")}</p><p><b>Acceptance:</b></p><pre>${esc(task.briefFields.acceptance ?? "not recorded")}</pre><details class="fold" data-key="brief"><summary id="sum-brief">Full brief</summary><pre>${esc(task.brief)}</pre></details>` : `<div class="empty">No brief recorded for this task.</div>`;
   const decisions = task.decisions.length ? `<ol class="log">${[...task.decisions].reverse().map(row => `<li><span class="faint">${esc(day(row.at))}</span> ${esc(row.decision)}${row.why ? ` · ${esc(row.why)}` : ""}</li>`).join("")}</ol>` : `<div class="empty">No decisions recorded.</div>`;
   const holder = task.old ? `<span class="who oldtag">${esc(task.old.label)}</span>` : `<span class="faint">${esc(title(task.sourceLabel))} logbook</span>`;
@@ -628,7 +629,7 @@ function picker(ctx, model, paths, board = true) {
     : `<div class="nomatch"><b>No projects yet.</b><br>A project shows here when it has a logbook. Start sage in a project folder to make one.</div>`;
   const chips = projects.filter(book => book.needsOwner && !book.archived).map(book => `<button class="chip" type="button" id="need-${b64(book.key)}" data-pick="${esc(book.key)}" data-provider="${esc(book.providers.map(name => name.toLowerCase().replace(/[^a-z0-9-]/g, "-")).join(" "))}" title="${esc(book.name)} · ${esc(sub(book))}">${dot(ctx, book.key)}<span class="cn">${esc(book.name)}</span> <span class="badge"><span data-n>${book.needsOwner}</span><span class="vh"> need you</span></span></button>`).join("");
   const count = `<span class="count" id="needs-count">${model.counts.needsOwner}</span>`;
-  return `<div class="pick">${board ? `<button class="chip need" type="button" data-filter="needs" aria-pressed="false">${ICON}Needs you ${count}</button>` : `<a class="chip need" href="/#needs=1">${ICON}Needs you ${count}</a>`}`
+  return `<div class="pick">${board ? `<button class="chip need" type="button" data-filter="needs" aria-pressed="false">${NEED_ICON}Needs you ${count}</button>` : `<a class="chip need" href="/#needs=1">${NEED_ICON}Needs you ${count}</a>`}`
     + `<div class="pickwrap"><button class="trigger" type="button" id="pick-trig" aria-haspopup="listbox" aria-expanded="false" aria-controls="pick-pop"><span class="vh">Project: </span><span class="dot none" id="pick-dot" aria-hidden="true"></span><span class="tname" id="pick-name">All projects</span><span class="archtag" id="pick-arch" hidden>Archived</span><span class="chev" aria-hidden="true">▾</span></button>`
     + `<div class="pop" id="pick-pop" hidden><div class="search"><input id="pick-q" type="text" role="combobox" aria-expanded="true" aria-controls="pick-list" aria-autocomplete="list" aria-label="Find a project" placeholder="Find a project: name, repo or folder" autocomplete="off" spellcheck="false"><button type="button" class="closebtn" data-close aria-label="Close the project list"><span class="kbd">Esc</span></button></div>`
     + `<div class="list"><ul class="opts" role="listbox" id="pick-list" aria-label="Projects">${items}</ul>${after}</div><div class="vh" id="pick-say" role="status" aria-live="polite"></div><div class="foot"><span>↑ ↓ to move · Enter to choose</span><span>“/” opens</span></div></div></div>`
@@ -653,9 +654,9 @@ function needStrip(ctx, model) {
   if (!items.length) return "";
   const stuck = need => need.kind === "stuck" && ctx.milestones.get(need.key);
   const what = need => stuck(need) ? `${need.title}: ${need.text.charAt(0).toLowerCase()}${need.text.slice(1)}` : need.title;
-  const item = need => `<li data-need data-project="${esc(need.group)}" data-milestone="${need.milestone ? b64(need.key) : ""}"><span class="ic" aria-hidden="true">${need.milestone ? "◫" : "!"}</span><span class="what">${esc(what(need))} <span class="faint">· ${esc(need.projectName)} · ${esc(title(need.sourceLabel))} logbook</span></span>`
+  const item = need => `<li data-need data-project="${esc(need.group)}" data-milestone="${need.milestone ? b64(need.key) : ""}"><span class="ic" aria-hidden="true">${need.milestone ? MARKS.milestone : MARKS["needs you"]}</span><span class="what">${esc(what(need))} <span class="faint">· ${esc(need.projectName)} · ${esc(title(need.sourceLabel))} logbook</span></span>`
     + `<span class="act">${stuck(need) ? "Answer in the chat." : esc(need.text)}${need.milestone && ctx.milestones.has(need.key) ? ` <a href="${esc(milestoneHref(ctx, need.key))}">Open the milestone</a>` : ""}</span></li>`;
-  return `<section class="needstrip" id="needstrip" aria-labelledby="needstrip-h"><h2 id="needstrip-h">${ICON}Needs you, not on a card <span class="n" id="needstrip-n">${items.length}</span></h2><ul>${items.map(item).join("")}</ul></section>`;
+  return `<section class="needstrip" id="needstrip" aria-labelledby="needstrip-h"><h2 id="needstrip-h">${NEED_ICON}Needs you, not on a card <span class="n" id="needstrip-n">${items.length}</span></h2><ul>${items.map(item).join("")}</ul></section>`;
 }
 
 function filterBar(ctx, model) {
@@ -701,7 +702,7 @@ const pagesNav = (current, model, snapshot = false) => {
     : tab("/", "board", "Task board") + (releases ? tab("/releases", "releases", "Releases") : "") + tab("/milestones", "milestones", "Milestones") + tab("/agents", "agents", `Agents (${model.agents?.count ?? 0})`)}</nav>`;
 };
 
-const AGENT_STATE = { stuck: ["!", "may be stuck"], stop: ["■", "helper stopped, run still open"], long: ["▲", "running long"], wait: ["◷", "waiting for its helpers"], work: ["●", "working"], unk: ["○", "running"] };
+const AGENT_STATE = Object.fromEntries(["stuck", "stop", "long", "wait", "work", "unk"].map(key => [key, shown(OBJECTS.agent.states[key])]));
 const agentState = value => AGENT_STATE[value] ? value : "unk";
 const minutesText = ms => { const m = Math.max(0, Math.floor(ms / 60000)); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""}`; };
 const PROVIDER_TAGS = ["claude", "codex"];
@@ -709,14 +710,14 @@ const capBar = (used, cap) => `<span class="bar" aria-hidden="true">${Array.from
 const capText = (name, used, cap, bar = true) => `<span class="cap${used >= cap ? " full" : ""}">${bar ? capBar(used, cap) : ""}${esc(name)} ${used} of ${cap}${used >= cap ? " · at cap" : ""}</span>`;
 
 function agentRow(agent, live, child) {
-  const state = agentState(agent.state), [mark, word] = AGENT_STATE[state];
+  const state = agentState(agent.state), { mark, text: word } = AGENT_STATE[state];
   const flag = ["stuck", "stop"].includes(state) ? " flag" : state === "long" ? " flagw" : "";
   const prov = agent.provider.toLowerCase();
   const task = agent.task;
   const link = task?.key && live ? `<a class="t" id="al-${b64(agent.key)}" href="${route(task)}"><span class="id">${esc(task.id)}</span> ${esc(task.title)}</a>`
     : task ? `<span class="t"><span class="id">${esc(task.id)}</span> ${esc(task.title)}</span>` : `<span class="faint">${agent.runId ? `Run ${esc(agent.runId)} is not a running run in the logbook.` : "No run recorded: the agent's brief named no run."}</span>`;
   const prio = task?.priority ? `<span class="tag prio" title="${task.priority}, ${PRIORITY_WORD[task.priority]}">${task.priority}<span class="vh">, ${PRIORITY_WORD[task.priority]}</span></span>` : "";
-  const facts = [agent.model ? `model ${esc(agent.model)}` : "", agent.running === null ? "time running not known" : `running ${minutesText(agent.running)}`, `last activity ${agent.idle === null ? "not recorded" : agent.idle < 60000 ? "just now" : `${minutesText(agent.idle)} ago`}`].filter(Boolean);
+  const facts = [agent.model ? `model ${esc(agent.model)}` : "", agent.running === null ? "time running unknown" : `running ${minutesText(agent.running)}`, `last activity ${agent.idle === null ? "not recorded" : agent.idle < 60000 ? "just now" : `${minutesText(agent.idle)} ago`}`].filter(Boolean);
   return `<div class="arow${child ? " child" : ""}${flag}"><div class="amain"><div class="l1"><span class="ptag ptag-${known(PROVIDER_TAGS, prov)}">${esc(title(agent.provider))}</span><span class="role">${esc(agent.role)}</span>${agent.runId ? `<span class="id">${esc(agent.runId)}</span>` : ""}${child ? `<span class="faint">helper of ${esc(agent.lead)}</span>` : ""}</div>`
     + `<div class="l2">${link}${prio}${task ? kindTag(task) : ""}</div><div class="l3">${facts.map(fact => `<span>${fact}</span>`).join("")}</div></div>`
     + `<div class="rside"><span class="st st-${state}"><span class="m" aria-hidden="true">${mark}</span>${word}</span>${agent.why ? `<span class="awhy">${esc(agent.why)}</span>` : ""}</div></div>`;
@@ -727,7 +728,7 @@ export function renderAgentsHtml(model, { live = false, paths = false } = {}) {
   const agents = model.agents, at = hhmm(model.at);
   const pill = livePill(`Board · ${at}`), theme = THEME_SWITCH;
   const totals = `<div class="summary"><span><b>${agents.count}</b> agent${agents.count === 1 ? "" : "s"} running</span>${agents.providers.length ? `<span>${agents.providers.map(p => `<b>${p.count}</b> ${esc(p.name)}`).join(" · ")}</span>` : ""}${agents.look ? `<span><b class="needn">${agents.look}</b> need${agents.look === 1 ? "s" : ""} a look</span>` : ""}<span>built ${esc(day(model.at))} UTC</span></div>`;
-  const caps = agents.problems.length ? `<div class="caps">Caps: not known while the hook notes cannot be read.</div>`
+  const caps = agents.problems.length ? `<div class="caps">Caps: unknown · the hook notes cannot be read.</div>`
     : agents.caps.map(entry => `<div class="caps" aria-label="Agent caps, ${esc(entry.label)} agents"><span>Caps (${esc(entry.label)} agents):</span>${entry.projects.map(project => capText(project.name, project.used, project.cap)).join("")}${capText("total", entry.total.used, entry.total.cap, false)}</div>`).join("");
   const problems = agents.problems.length ? `<div class="banner warn">${ICON}<div><b>The hook notes cannot be read</b> (${agents.problems.map(p => `${esc(p.source)}: ${esc(p.message)}`).join("; ")}). The page shows runs from the logbooks only, with no last activity and no helpers. Caps are not known.</div></div>` : "";
   const unmatched = agents.unmatched.length ? `<div class="banner warn">${ICON}<div><b>${agents.unmatched.length} run${agents.unmatched.length === 1 ? " has" : "s have"} no hook record.</b> The logbook says ${agents.unmatched.map(item => `${esc(item.run)} (${esc(item.project)})`).join(", ")} ${agents.unmatched.length === 1 ? "runs" : "run"}, but no agent slot holds ${agents.unmatched.length === 1 ? "it" : "them"}. Each row stays, marked "may be stuck", until the chief ends the run.</div></div>` : "";
@@ -773,8 +774,8 @@ function milestoneNext(ctx, milestone) {
 function milestoneRow(ctx, milestone, where) {
   const approval = milestone.state === "proposed", needs = NEEDS_MILESTONE.includes(milestone.state);
   const meta = [`pilot ${milestone.pilot}`, plural(milestone.progress.total, "task"), title(milestone.sourceLabel), where(milestone)].filter(Boolean).join(" · ");
-  return `<li data-project="${esc(milestone.group)}"><a class="prog${approval ? " approval" : needs ? " needs" : ""}" href="${esc(milestoneHref(ctx, milestone.key))}">${approval ? `<div class="band"><span aria-hidden="true">◫</span>Milestone approval<span class="bk">· gate ${esc(milestone.gate)}</span></div>` : ""}`
-    + `<div class="ph"><h3><span aria-hidden="true">◫</span> ${esc(milestone.name)}</h3><span class="id">${esc(milestone.id)}</span>${wordTag(milestone.word, "pstate")}<span class="pmeta">${esc(meta)}</span></div>`
+  return `<li data-project="${esc(milestone.group)}"><a class="prog${approval ? " approval" : needs ? " needs" : ""}" href="${esc(milestoneHref(ctx, milestone.key))}">${approval ? `<div class="band"><span aria-hidden="true">${MARKS.milestone}</span>Milestone approval<span class="bk">· gate ${esc(milestone.gate)}</span></div>` : ""}`
+    + `<div class="ph"><h3><span aria-hidden="true">${MARKS.milestone}</span> ${esc(milestone.name)}</h3><span class="id">${esc(milestone.id)}</span>${wordTag(milestone.word, "pstate")}<span class="pmeta">${esc(meta)}</span></div>`
     + `${milestone.goal ? `<p class="goal">${esc(milestone.goal)}</p>` : ""}${milestone.progress.total ? pbar(milestone) : ""}<div class="nx${needs ? " need" : ""}">${milestoneNext(ctx, milestone)}</div></a></li>`;
 }
 function milestonesList(ctx, model, routed) {
@@ -797,8 +798,8 @@ function milestoneTask(ctx, task) {
   const milestone = ctx.milestones.get(task.milestone?.key), pilot = milestone && !task.milestone.pilot && ctx.tasks.get(`${milestone.project}/${milestone.pilot}`);
   const ownPilot = pilot && task.waits.find(wait => wait.id === pilot.id), viaPilot = !!pilot && !ownPilot?.never && task.waits.some(wait => wait.breakdown && !wait.never);
   const waits = task.waits.filter(wait => !(wait.breakdown && (!pilot || !wait.never && !viaPilot)) && !(wait.pilot && wait.met) && !(viaPilot && wait === ownPilot)).map(wait => wait.odd ? "⊘ its waits cell has text that is not a task id"
-    : wait.breakdown ? wait.never ? `⊘ waits for the breakdown of ${milestoneName({ id: wait.breakdown.id }, true)}: ${breakdownWhy(wait.breakdown)}` : `⧗ waits for ${pilot.id} (pilot, ${pilot.word})`
-    : wait.met ? `✓ waits for ${wait.id}, ${wait.word}` : `${wait.never ? "⊘" : "⧗"} waits for ${wait.id} (${wait.word})${wait.never ? ": it cannot start" : ""}`);
+    : wait.breakdown ? wait.never ? `⊘ waits for the breakdown of ${milestoneName({ id: wait.breakdown.id }, true)}: ${breakdownWhy(wait.breakdown)}` : `${MARKS.waiting} waits for ${pilot.id} (pilot, ${pilot.word})`
+    : wait.met ? `${MARKS.done} waits for ${wait.id}, ${wait.word}` : `${wait.never ? "⊘" : MARKS.waiting} waits for ${wait.id} (${wait.word})${wait.never ? ": it cannot start" : ""}`);
   const at = roles(task), sub = [task.milestone?.pilot ? "pilot" : "", ...waits, at.length ? `${at.join(", ")} at work` : "", task.pr ? `PR ${task.pr}` : "", task.priority, task.kind ? KIND[task.kind][1] : ""].filter(Boolean);
   return `<div class="trow${ab ? " ab" : ""}${cant ? " cant" : ""}${needs ? " needs" : ""}"><span class="id">${esc(task.id)}</span><a class="t" href="${esc(taskHref(ctx, task))}">${esc(task.title)}</a>${wordTag(task.word)}${sub.length ? `<span class="sub">${esc(sub.join(" · "))}</span>` : ""}</div>`;
 }
@@ -840,11 +841,11 @@ function milestonePage(ctx, milestone, routed) {
   const onBoard = milestone.archived ? "" : `<a class="back" href="${ctx.snapshot ? "" : "/"}#${esc(new URLSearchParams({ p: milestone.group, pg: b64(milestone.key) }))}">Its tasks on the board</a>`;
   const top = `<div class="pagebar"><a class="back" href="${ctx.snapshot ? "#milestones" : "/milestones"}">← Milestones</a>${onBoard}${ctx.snapshot ? `<span class="spacer"></span>${themeSwitch(`flip-${milestoneAnchor(milestone.key)}`, true)}` : ""}</div>`
     + `<div class="ptop"><span class="id">${esc(milestone.id)}</span> · ${project(ctx, milestone)} · ${wordTag(milestone.word, "pstate")} · <span class="faint">${esc(title(milestone.sourceLabel))} logbook</span></div>`
-    + `<${h} class="ptitle"><span aria-hidden="true">◫</span> ${esc(milestone.name)}</${h}>`;
+    + `<${h} class="ptitle"><span aria-hidden="true">${MARKS.milestone}</span> ${esc(milestone.name)}</${h}>`;
   let lead;
   if (milestone.state === "proposed") {
     const reason = pilot?.reasons.find(item => item.breakdown?.key === milestone.key);
-    lead = `<section class="wide card approval"><div class="band"><span aria-hidden="true">◫</span>Milestone approval<span class="bk">· gate ${esc(milestone.gate)} · the pilot ${esc(milestone.pilot)}</span></div>`
+    lead = `<section class="wide card approval"><div class="band"><span aria-hidden="true">${MARKS.milestone}</span>Milestone approval<span class="bk">· gate ${esc(milestone.gate)} · the pilot ${esc(milestone.pilot)}</span></div>`
       + `${breakdownBody(reason)}</section>`;
   } else {
     const pilotLine = `<p><b>Pilot:</b> ${pilot ? `<a href="${esc(taskHref(ctx, pilot))}">${esc(pilot.id)}</a> ${esc(pilot.title)} · ${wordTag(pilot.word, "pw")}${roles(pilot).length ? ` · the ${esc(roles(pilot).join(" and the "))} at work` : ""}` : `${esc(milestone.pilot)} · <span class="stw-cant">not in the logbook</span>`}</p>`;
@@ -859,8 +860,8 @@ function milestonePage(ctx, milestone, routed) {
       return [named.length && `it waits for ${named.join(" and ")}`, odd && "its waits cell has text that is not a task id"].filter(Boolean).join(", and "); };
     const cannot = own.filter(task => task.waitLine?.never && !ENDED_STATES.includes(task.state)).map(task => `<div class="waitline cant"><span class="wm" aria-hidden="true">⊘</span><span>${esc(task.id)} cannot start: ${esc(why(task))}. Ask the chief to ${task.waits.some(wait => wait.odd) ? "set its waits again" : "remove the wait"}, or to drop ${esc(task.id)}.</span></div>`).join("");
     const body = {
-      stuck: () => `<div class="nowline need">${ICON}<span><b>Needs you:</b> ${esc(milestone.need?.text ?? "")}</span></div><div class="answer"><b>Answer in the chat:</b> a new pilot (a task of the milestone), or drop the milestone.</div>`,
-      lost: () => `<div class="nowline need">${ICON}<span><b>Needs you:</b> ${esc(lostText(milestone))}</span></div>`,
+      stuck: () => `<div class="nowline need">${NEED_ICON}<span><b>Needs you:</b> ${esc(milestone.need?.text ?? "")}</span></div><div class="answer"><b>Answer in the chat:</b> a new pilot (a task of the milestone), or drop the milestone.</div>`,
+      lost: () => `<div class="nowline need">${NEED_ICON}<span><b>Needs you:</b> ${esc(lostText(milestone))}</span></div>`,
       changing: () => `<div class="nowline"><span><b>Now:</b> the chief revises the breakdown. No task builds before you approve the new one.</span></div>`,
       done: () => `<div class="nowline"><span>Nothing: every task that is not abandoned is merged or concluded.</span></div>`,
       dropped: () => milestone.open ? `<div class="nowline"><span>${esc(droppedNext(milestone))}</span></div>` : "",
@@ -883,7 +884,7 @@ function milestonePage(ctx, milestone, routed) {
   return `${top}<div class="detail">${lead}<div class="colL">${order}</div><div class="colR">${decisions}</div></div>`;
 }
 
-const ENDS = ["done", "stopped"], WORDS = ["needs you", "in progress", "waiting", "not started", "done", "stopped"], LISTED = 4;
+const ENDS = ["done", "stopped"], WORDS = URGENCY, LISTED = 4;
 const byWord = (a, b) => WORDS.indexOf(a.word) - WORDS.indexOf(b.word);
 const open = item => !!item && !!item.word && (!ENDS.includes(item.word) || item.open > 0);
 const doneText = (done, total, stopped) => `${done} of ${plural(total, "task")} done${stopped ? ` · ${stopped} stopped` : ""}`;
@@ -949,7 +950,7 @@ function frameText(node, w = FRAME_WIDTH) {
   const text = line => line ? [line] : [];
   return box({ w, title: fit(name, w - 6), style: node.here ? "double" : "round", lines: [...text(first), ...text(short ? "" : node.note), ...(node.kids ?? []).map(kid => frameText(kid, w - 4)), ...text(node.tail)] });
 }
-const whereText = model => { const ctx = context(model, false); return shownReleases(model).map(entry => `### ◫ Where we are · ${md(entry.projectName)}\n${"```"}\n${frameOf(ctx, entry).flatMap(node => frameText(node)).join("\n")}\n${"```"}`); };
+const whereText = model => { const ctx = context(model, false); return shownReleases(model).map(entry => `### ${MARKS.release} Where we are · ${md(entry.projectName)}\n${"```"}\n${frameOf(ctx, entry).flatMap(node => frameText(node)).join("\n")}\n${"```"}`); };
 
 const releaseRow = (name, href, word, text, id = "") => `<div class="rrow"><div class="rhead"><a href="${esc(href)}"><b>${esc(name)}</b></a>${idAfter(id)}${wordTag(word, "pstate")}</div>${text ? `<div class="rtext">${esc(text)}</div>` : ""}</div>`;
 const firstLine = text => String(text ?? "").split(LINE)[0];
@@ -959,14 +960,14 @@ function releaseItems(ctx, milestones, singles) {
 }
 function releaseCard(ctx, release) {
   const milestones = release.milestones.map(key => ctx.milestones.get(key)).filter(Boolean), singles = release.singles.map(key => ctx.tasks.get(key)).filter(Boolean);
-  return `<section class="rcard"><h3 class="rtitle"><span aria-hidden="true">◎</span> Release ${esc(release.name)} ${wordTag(release.word, "pstate")}</h3><div class="rtext">${esc(doneText(release.done, release.total, release.stopped))}</div>`
+  return `<section class="rcard"><h3 class="rtitle"><span aria-hidden="true">${MARKS.release}</span> Release ${esc(release.name)} ${wordTag(release.word, "pstate")}</h3><div class="rtext">${esc(doneText(release.done, release.total, release.stopped))}</div>`
     + `${release.goal ? `<p class="goal">${esc(release.goal)}</p>` : ""}${release.missing ? `<div class="rtext stw-need">This release is not in the logbook: a milestone or a task names it. Ask the chief to add it.</div>` : ""}${releaseItems(ctx, milestones, singles)}</section>`;
 }
 function releasesOfEntry(ctx, entry, named) {
   const live = entry.releases.filter(release => !ENDS.includes(release.word)), ended = entry.releases.filter(release => ENDS.includes(release.word));
   const milestones = entry.loose.milestones.map(key => ctx.milestones.get(key)).filter(open), singles = entry.loose.singles.map(key => ctx.tasks.get(key)).filter(open).sort(byWord);
   const loose = milestones.length || singles.length ? `<section class="rcard loose"><h3 class="rtitle">Not in a release</h3><div class="rtext">To put a milestone or a task in a release, ask the chief.</div>${releaseItems(ctx, milestones, singles)}</section>` : "";
-  const done = `<section class="rcard"><h3 class="rtitle">Done releases</h3>${ended.length ? ended.map(release => `<div class="rrow"><div class="rhead"><b><span aria-hidden="true">◎</span> Release ${esc(release.name)}</b>${wordTag(release.word, "pstate")}</div><div class="rtext">${esc(doneText(release.done, release.total, release.stopped))}</div></div>`).join("") : `<div class="rtext">No release is done yet.</div>`}</section>`;
+  const done = `<section class="rcard"><h3 class="rtitle">Done releases</h3>${ended.length ? ended.map(release => `<div class="rrow"><div class="rhead"><b><span aria-hidden="true">${MARKS.release}</span> Release ${esc(release.name)}</b>${wordTag(release.word, "pstate")}</div><div class="rtext">${esc(doneText(release.done, release.total, release.stopped))}</div></div>`).join("") : `<div class="rtext">No release is done yet.</div>`}</section>`;
   return `<div class="rproject" data-rproject="${esc(entry.group)}">${named ? `<h2 class="grp">${esc(entry.projectName)}</h2>` : ""}${live.map(release => releaseCard(ctx, release)).join("")}${loose}${done}</div>`;
 }
 function releasesList(ctx, model, routed) {
@@ -1016,7 +1017,7 @@ export function renderTaskText(task) {
   const where = row => row.movedTo ? ` · moved to ${md(row.movedTo)}` : row.movedFrom ? ` · from ${md(row.movedFrom)}` : "";
   const rows = task.loop.steps.map(step => `${MARK[status(step.status)]} ${md(step.label)}: ${WORD[status(step.status)]}${step.detail ? ` · ${md(step.detail)}` : ""}${step.parts?.length ? `\n  ${step.parts.map(([name, value]) => `${MARK[status(value)]} ${md(name)}: ${WORD[status(value)]}`).join(" · ")}` : ""}`).join("\n");
   const holder = `${task.shared ? `Owning chief: ${md(task.holder)}${task.owner?.unlisted ? `\n${md(`${task.owner.id} is not in chiefs.tsv, so the board does not know its provider.`)}` : ""}${task.offer ? `\n⇄ ${md(task.offer)}` : ""}\n` : ""}${task.old ? `${md(`${oldWhat(task, "of")}.${task.old.finished ? "" : " The move did not take it to the shared logbook."} It stays there, read-only, and its number belongs to that old logbook.`)}\n` : ""}`;
-  return `**${md(task.id)} ${md(task.title)}**${task.was ? ` · ${md(task.was)}` : ""}\n${md(task.holder ?? task.sourceLabel)} · ${md(task.projectName)}${wordText(task)} · ${md(task.size)}${tagText(task)}${task.risk ? ` · risk: ${md(task.risk)}` : ""}${task.pr ? ` · PR ${prUrl(task) ? `[${md(task.pr)}](${mdUrl(prUrl(task))})` : md(task.pr)}` : ""}\n${holder}\n**Loop**\n${stepText(task)}\n${nowText(task)}\n${rows}\nRecorded state: ${md(task.state)} · repair round ${md(task.round)} · last commit ${head}\n\n**Brief**\nGoal: ${mdBlock(task.briefFields.goal ?? "not recorded")}\nAcceptance: ${mdBlock(task.briefFields.acceptance ?? "not recorded")}\n\nFull brief:\n${mdBlock(task.brief ?? "No verified brief content is available.")}\n\n**Agent runs**\n${task.runs.map(r => `${md(r.id)} ${providerText(r.provider, task)} · ${md(r.role)}${r.checkoutName ? ` · checkout ${md(r.checkoutName)}${r.checkoutGone ? " (gone)" : r.checkoutGone === null ? " (not checked)" : ""}` : ""} · ${md(r.status)} · ${md(task.runClocks?.[r.id]?.text ?? runTime(r))} · tokens ${md(r.tokens || "unknown")}`).join("\n") || "No runs recorded."}${goneText(task)}\n\n**Evidence**\n${task.ledger.map(r => `${md(r.kind)} · cycle ${md(r.cycle)} · ${md(r.sha)} · ${md(r.run)} · ${md(r.at)}`).join("\n") || "No verdicts recorded."}${evidenceArtifacts(task).map(r => `\n\n${md(r.data.label)} · ${md(r.source)} · ${md(r.observedAt)} · ${md(r.data.run ?? "run unknown")} · digest verified\n${mdBlock(r.content.text)}`).join("")}\n\n**Findings**\n${task.findings.map(r => `${md(r.severity)} · ${md(r.summary)} · ${md(r.status)}${where(r)}${r.reason ? ` · ${md(r.reason)}` : ""}`).join("\n") || "No findings recorded."}\n\n**Artifacts**\n${task.artifacts.map(r => `${md(r.data.label)} · ${md(r.data.url ?? (r.content?.verified ? "local artifact; digest verified" : "local artifact; content not verified"))}`).join("\n") || "No artifacts recorded."}\n\n**Latest decisions**\n${task.decisions.map(r => `${md(r.at)} · ${md(r.decision)} · ${md(r.why)}`).join("\n") || "No decisions recorded."}`;
+  return `**${md(task.title)}** ${md(task.id)}${task.was ? ` · ${md(task.was)}` : ""}\n${md(task.holder ?? task.sourceLabel)} · ${md(task.projectName)}${wordText(task)} · ${md(task.size)}${tagText(task)}${task.risk ? ` · risk: ${md(task.risk)}` : ""}${task.pr ? ` · PR ${prUrl(task) ? `[${md(task.pr)}](${mdUrl(prUrl(task))})` : md(task.pr)}` : ""}\n${holder}\n**Loop**\n${stepText(task)}\n${nowText(task)}\n${rows}\nRecorded state: ${md(task.state)} · repair round ${md(task.round)} · last commit ${head}\n\n**Brief**\nGoal: ${mdBlock(task.briefFields.goal ?? "not recorded")}\nAcceptance: ${mdBlock(task.briefFields.acceptance ?? "not recorded")}\n\nFull brief:\n${mdBlock(task.brief ?? "No verified brief content is available.")}\n\n**Agent runs**\n${task.runs.map(r => `${md(r.id)} ${providerText(r.provider, task)} · ${md(r.role)}${r.checkoutName ? ` · checkout ${md(r.checkoutName)}${r.checkoutGone ? " (gone)" : r.checkoutGone === null ? " (not checked)" : ""}` : ""} · ${md(r.status)} · ${md(task.runClocks?.[r.id]?.text ?? runTime(r))} · tokens ${md(r.tokens || "unknown")}`).join("\n") || "No runs recorded."}${goneText(task)}\n\n**Evidence**\n${task.ledger.map(r => `${md(r.kind)} · cycle ${md(r.cycle)} · ${md(r.sha)} · ${md(r.run)} · ${md(r.at)}`).join("\n") || "No verdicts recorded."}${evidenceArtifacts(task).map(r => `\n\n${md(r.data.label)} · ${md(r.source)} · ${md(r.observedAt)} · ${md(r.data.run ?? "run unknown")} · digest verified\n${mdBlock(r.content.text)}`).join("")}\n\n**Findings**\n${task.findings.map(r => `${md(r.severity)} · ${md(r.summary)} · ${md(r.status)}${where(r)}${r.reason ? ` · ${md(r.reason)}` : ""}`).join("\n") || "No findings recorded."}\n\n**Artifacts**\n${task.artifacts.map(r => `${md(r.data.label)} · ${md(r.data.url ?? (r.content?.verified ? "local artifact; digest verified" : "local artifact; content not verified"))}`).join("\n") || "No artifacts recorded."}\n\n**Latest decisions**\n${task.decisions.map(r => `${md(r.at)} · ${md(r.decision)} · ${md(r.why)}`).join("\n") || "No decisions recorded."}`;
 }
 
 const BREAK = "\\\n";
@@ -1025,7 +1026,7 @@ const reasonLines = reason => {
   const [first, ...rest] = String(reason.text ?? "").split(LINE).map(line => md(line).replace(/^(\s*)([-=])/, "$1\\$2"));
   return [`${reason.gateId ? `${md(reason.key)} · ` : ""}${first}`, ...rest, ...(reason.options?.length ? [`Options: ${reason.options.map((option, i) => `${i + 1}: ${md(option)}`).join(" · ")}`] : []), ...(reason.recommendation ? [`Recommended: ${md(reason.recommendation)}`] : [])];
 };
-const WAIT_MARK = { never: "⊘", wait: "⧗" };
+const WAIT_MARK = { never: "⊘", wait: MARKS.waiting };
 const milestoneLine = milestone => {
   const head = `${md(milestoneName({ id: milestone.id, name: milestone.name && clamp(milestone.name) }))}${wordText(milestone)}${milestone.where ? ` · ${milestone.where}` : ""}`;
   const tasks = n => `${n} ${n === 1 ? "task" : "tasks"}`;
@@ -1044,9 +1045,9 @@ const milestoneLine = milestone => {
 export function renderBoardText(model) {
   const shown = model.columns.flatMap(column => column.tasks.slice(0, CHAT_SHOWN));
   const standIns = shown.some(task => task.agents.some(agent => !agent.provider));
-  const milestoneTag = task => task.milestone ? ` · ◫ ${md(milestoneName({ id: task.milestone.id, name: task.milestone.name && clamp(task.milestone.name) }))}${task.milestone.pilot ? " \\(pilot\\)" : ""}`
-    : task.release ? ` · ◎ Release ${md(clamp(task.release))}` : task.release === null ? " · no release" : "";
-  const line = task => block([`**${md(task.id)} ${md(clamp(task.title))}**${task.was ? ` · ${md(task.was)}` : ""}${wordText(task)} · ${md(task.holder ?? task.sourceLabel)} · ${md(task.projectName)}${task.pr ? ` · PR ${md(task.pr)}` : ""}${tagText(task)}${milestoneTag(task)}`,
+  const milestoneTag = task => task.milestone ? ` · ${MARKS.milestone} ${md(milestoneName({ id: task.milestone.id, name: task.milestone.name && clamp(task.milestone.name) }))}${task.milestone.pilot ? " \\(pilot\\)" : ""}`
+    : task.release ? ` · ${MARKS.release} Release ${md(clamp(task.release))}` : task.release === null ? " · no release" : "";
+  const line = task => block([`**${md(clamp(task.title))}** ${md(task.id)}${task.was ? ` · ${md(task.was)}` : ""}${wordText(task)} · ${md(task.holder ?? task.sourceLabel)} · ${md(task.projectName)}${task.pr ? ` · PR ${md(task.pr)}` : ""}${tagText(task)}${milestoneTag(task)}`,
     ...task.agents.map(agent => `${agent.provider ? md(agent.provider) : md(`${title(task.providerStandIn)}*`)} · ${md(agent.role)} at work`),
     task.inferredWork ? "Inferred from the open PR." : "",
     task.column === "done" ? "" : stepText(task),
@@ -1066,7 +1067,7 @@ export function renderBoardText(model) {
   const milestoneNeed = need => block([`**${++n} · ${md(clamp(need.title))}** · ${md(need.sourceLabel)} · ${md(need.projectName)}`], [md(need.text)]);
   const other = task => block([`**${++n} · ${md(task.id)} ${md(clamp(task.title))}**${wordText(task)} · ${md(task.holder ?? task.sourceLabel)} · ${md(task.projectName)}`], task.reasons.flatMap(reason => reasonLines(reason)));
   const needs = approvals.length
-    ? [`#### ◫ Milestone approval\n${approvals.map(approval).join("\n\n")}`, ...(others.length || milestoneNeeds.length ? [`#### Other\n${[...milestoneNeeds.map(milestoneNeed), ...others.map(other)].join("\n\n")}`] : [])].join("\n\n")
+    ? [`#### ${MARKS.milestone} Milestone approval\n${approvals.map(approval).join("\n\n")}`, ...(others.length || milestoneNeeds.length ? [`#### Other\n${[...milestoneNeeds.map(milestoneNeed), ...others.map(other)].join("\n\n")}`] : [])].join("\n\n")
     : [...milestoneNeeds.map(milestoneNeed), ...others.map(other)].join("\n\n") || "No recorded task needs you.";
   const counted = milestone => milestone.state === "done" || milestone.state === "dropped" && !milestone.open;
   const framed = new Set(shownReleases(model).map(entry => entry.key));
@@ -1076,8 +1077,8 @@ export function renderBoardText(model) {
   const books = group => new Set(milestones.filter(milestone => milestone.group === group).map(milestone => milestone.project)).size;
   const where = milestone => [groups.size > 1 ? md(milestone.projectName) : "", books(milestone.group) > 1 ? md(milestone.sourceLabel) : ""].filter(Boolean).join(" · ");
   const ended = ["done", "dropped"].map(state => [state, milestones.filter(milestone => counted(milestone) && milestone.state === state).length]).filter(([, count]) => count);
-  const milestoneText = milestones.length ? `### ◫ Milestones\n${[...milestones.filter(milestone => !counted(milestone)).map(milestone => `- ${milestoneLine({ ...milestone, where: where(milestone) })}`), ...(ended.length ? [`- ${ended.map(([state, count]) => `${count} ${state}`).join(" · ")}: open the board's Milestones tab`] : [])].join("\n")}` : "";
-  const changing = (model.changing ?? []).map(item => `⧗ The logbook is changing: ${md(item.project)} · read at ${md(hhmm(item.at))} UTC${item.dropped ? `, without what changed during it (${md(item.dropped.join("; "))})` : ""}. The board shows that read; ask for the board again for a read with no change.`);
+  const milestoneText = milestones.length ? `### ${MARKS.milestone} Milestones\n${[...milestones.filter(milestone => !counted(milestone)).map(milestone => `- ${milestoneLine({ ...milestone, where: where(milestone) })}`), ...(ended.length ? [`- ${ended.map(([state, count]) => `${count} ${state}`).join(" · ")}: open the board's Milestones tab`] : [])].join("\n")}` : "";
+  const changing = (model.changing ?? []).map(item => `${MARKS.waiting} The logbook is changing: ${md(item.project)} · read at ${md(hhmm(item.at))} UTC${item.dropped ? `, without what changed during it (${md(item.dropped.join("; "))})` : ""}. The board shows that read; ask for the board again for a read with no change.`);
   const moved = (model.moved ?? []).map(item => `⇢ ${md(`${item.project} moved to one shared logbook on ${day(item.at)} UTC. ${movedText(item)}`)}`);
   const top = block([`**sage board** · built ${md(day(model.at))} UTC`, ...changing, ...moved,`🔴 ${n} needs you · ${counts.recordedAgents} agents at work${counts.inferredWork ? ` · ${counts.inferredWork} inferred PRs` : ""} · 🔁 ${counts.inReview} in review · ${counts.tasks} tasks`, standIns ? `${md("*")} A stand-in: the run does not record its provider, so the board names the logbook's source.` : ""]);
   const end = block([model.archived.length ? `Archived: ${model.archived.map(book => `${md(book.name)} (${archivedCounts(book)})`).join(", ")}` : "",

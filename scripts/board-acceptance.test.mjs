@@ -108,8 +108,8 @@ test("T205 acceptance: current-head review evidence ignores old SHA and clears s
   const verdict = (kind, sha = HEAD) => ({ task: "T1", pr: "12", sha, kind, cycle: "1", at: AT });
   table(f.book, "ledger", [verdict("qa-pass", OLD_HEAD), verdict("qa-fail")]);
   const failed = f.view("task", { id: "T1" });
-  assert.ok(failed.includes("QA failed on the recorded PR head")); assert.ok(failed.includes("✗ QA: failed"));
-  assert.ok(failed.includes("▶ security review: running now")); assert.ok(failed.includes("sample-provider · security-reviewer"));
+  assert.ok(failed.includes("QA failed on the recorded PR head")); assert.ok(failed.includes("! QA: done · failed"));
+  assert.ok(failed.includes("▶ security review: in progress")); assert.ok(failed.includes("sample-provider · security-reviewer"));
   table(f.book, "ledger", [verdict("qa-pass", OLD_HEAD), verdict("qa-fail"), verdict("qa-pass")]);
   const fixed = f.view("task", { id: "T1" }); assert.ok(fixed.includes("✓ QA: done")); assert.ok(!fixed.includes("QA failed on the recorded PR head"));
   table(f.book, "ledger", [verdict("qa-pass"), verdict("qa-fail")]);
@@ -195,11 +195,11 @@ test("T205 acceptance: the task loop marks recorded PE work current without infe
   table(f.book, "tasks", [task("T1", "designing", { route: "design,pe,build,code-review,qa" })]);
   table(f.book, "runs", [{ id: "R1", task: "T1", role: "pe", status: "running", started: FRESH() }]);
   const text = f.view("task", { id: "T1" }), html = f.view("html");
-  assert.ok(text.includes("▶ PE check: running now")); assert.ok(text.includes("Now: The PE is at work on the design\\."));
-  assert.ok(html.includes('<span class="part p-run"><span aria-hidden="true">▶</span> PE check: running now</span>'));
+  assert.ok(text.includes("▶ PE check: in progress")); assert.ok(text.includes("Now: The PE is at work on the design\\."));
+  assert.ok(html.includes('<span class="part p-run"><span aria-hidden="true">▶</span> PE check: in progress</span>'));
   table(f.book, "runs", []);
   const unknown = f.view("task", { id: "T1" });
-  assert.ok(unknown.includes("▷ design: no agent at work")); assert.ok(!unknown.includes("▶")); assert.ok(!unknown.includes("at work on"), "no run: nothing says running now (R1077)");
+  assert.ok(unknown.includes("⧗ design: waiting")); assert.ok(!unknown.includes("▶")); assert.ok(!unknown.includes("at work on"), "no run: nothing says running now (R1077)");
 });
 
 test("T205 acceptance: existing Claude hook dispatches owner board/task/status phrases and rejects quoted agent text", t => {
@@ -243,12 +243,12 @@ test("T922: in a sandbox that blocks every write, as Codex's does, the note's ch
     return run.stdout;
   };
   const first = board();
-  assert.ok(first.includes("### 🏁 Done, last 7 days (1)\n**T1 First merge**"), first);
+  assert.ok(first.includes("### 🏁 Done, last 7 days (1)\n**First merge** T1"), first);
   table(f.book, "tasks", [task("T1", "merged", { title: "First merge" }), task("T2", "merged", { title: "Second merge" })]);
   records(f.book, [done("T1", hour), done("T2", new Date().toISOString())]);
   const second = board();
   const shown = second.slice(second.indexOf("### 🏁 Done, last 7 days (2)\n"));
-  assert.ok(shown.includes("**T2 Second merge**"), second);
-  assert.ok(shown.includes("**T1 First merge**"), "the list is the last 7 days, not since the last board");
+  assert.ok(shown.includes("**Second merge** T2"), second);
+  assert.ok(shown.includes("**First merge** T1"), "the list is the last 7 days, not since the last board");
   assert.equal(existsSync(join(f.root, "board.json")), false);
 });

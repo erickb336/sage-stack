@@ -160,7 +160,7 @@ test("T1059: the owner pairs once, then answers with full context, undoes, renam
   const stopped = page.locator(`[data-stopped$="/C3"]`);
   await click(stopped.getByRole("button", { name: "Give to another chief" }));
   assert.equal(await stopped.getByRole("radio", { checked: true }).getAttribute("name"), await stopped.getByRole("radio").first().getAttribute("name"));
-  assert.match(await stopped.locator(".pickable").first().textContent(), /^C1 · claude.*Recommended$/, "the live chief of C3's provider comes first");
+  assert.match(await stopped.locator(".pickable").first().textContent(), /^Claude · C1.*Recommended$/, "the live chief of C3's provider comes first");
   await click(stopped.getByRole("button", { name: "Open the takeover question" }));
   await stopped.getByText(/^G3 open · Hand T3 from C3 \(claude\) to C1 \(claude\)\?/).waitFor();
   assert.equal(clicks, 2, "give: Give to another chief, then Open the takeover question");
@@ -206,11 +206,11 @@ test("F-T1059-17: board --pair names the card, the field and the button that the
   assert.deepEqual(w.problems, []);
 });
 
-test("F-T1059-19: each chief's chip says its state in words: live, waits for you, stopped or liveness not known", async t => {
+test("F-T1059-19: each chief's chip says its state in words: live, waits for you, stopped or liveness unknown", async t => {
   const w = await openBoard(t), { page } = w;
   const chip = id => page.locator(`.chip[data-chief$="/${id}"] .state`);
   await chip("C4").waitFor();
-  assert.deepEqual(await Promise.all(["C1", "C2", "C3", "C4"].map(id => chip(id).textContent())), ["live · autopilot on", "live · autopilot off", "stopped", "liveness not known"]);
+  assert.deepEqual(await Promise.all(["C1", "C2", "C3", "C4"].map(id => chip(id).textContent())), ["live · autopilot on", "live · autopilot off", "stopped", "liveness unknown"]);
   await w.shot("t1059-chips");
 });
 

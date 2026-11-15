@@ -1,5 +1,5 @@
 import { box, columns, openBoxes, wrap } from "./picture.mjs";
-import { milestoneWord, releaseWord, taskWord } from "./state-words.mjs";
+import { OBJECTS, UNKNOWN, WORDS, milestoneWord, releaseWord, taskWord } from "./state-words.mjs";
 
 export const WIDTH = 46, LONG_WIDTH = 66;
 export const INCIDENT_STATUS = ["Investigating", "Identified", "Monitoring", "Resolved"];
@@ -68,7 +68,6 @@ const LEVELS = ["release", "milestone", "task", "group"];
 const MIN_BOX = 8;
 export const MAX_SECTIONS = 5;
 export const BATCH = /^Question [1-9]\d*: \S/;
-const WORDS = ["not started", "waiting", "needs you", "in progress", "done", "stopped"];
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export function frameLines(node, width) {
@@ -93,8 +92,8 @@ export function frameLines(node, width) {
       else word = "done";
     } else if (!words.length && items.length) problems.push(`${path} has only lines of text, so no box gives its word: give its word, one of: ${WORDS.join(", ")}, or its tasks as boxes`);
     else word = (n.box === "milestone" ? milestoneWord({ state: n.state ?? "active" }, words) : releaseWord(words)).word;
-    const first = `${word ? cap(word) : "State unknown"}${word === "waiting" && isText(n.waits) ? ` for ${n.waits}` : ""}${isText(n.note) ? ` · ${n.note}` : ""}`;
-    const title = isText(n.title) ? n.title : { release: `Release ${n.name}`, milestone: `Milestone ${n.name}`, task: `Task: ${n.name}`, group: `${n.name}` }[n.box];
+    const first = `${word ? cap(word) : `State ${UNKNOWN}`}${word === "waiting" && isText(n.waits) ? ` for ${n.waits}` : ""}${isText(n.note) ? ` · ${n.note}` : ""}`;
+    const title = isText(n.title) ? n.title : { release: `${OBJECTS.release.label} ${n.name}`, milestone: `${OBJECTS.milestone.label} ${n.name}`, task: `${OBJECTS.task.label}: ${n.name}`, group: `${n.name}` }[n.box];
     let rows = [];
     try {
       rows = box({ w, title, style: n.here ? "double" : "round", lines: [first, ...items.map((item, k) => (typeof item === "string" ? item : kids[k].rows))] });
