@@ -485,6 +485,16 @@ test("T1080 (F-T1080-19): a live chief's dot has a name, and the task page says 
   }
 });
 
+test("T770 (F-T770-9): the task page of a task with no chief says \"No chief\", not \"Run by No chief\"", async t => {
+  const { page, base } = await open(t, { chiefCases: true }, "/app/#tasks");
+  await page.goto(`${base}${taskPage("T72")}`);
+  const facts = page.locator(".facts-line").first();
+  await facts.waitFor();
+  const text = await facts.textContent();
+  assert.match(text, /· No chief(?: ·|$)/);
+  assert.doesNotMatch(text, /Run by/);
+});
+
 test("T1099 (F-T1099-56): a task in a logbook that records no chief names the logbook's provider and an unknown chief once, not \"Chief unknown (chief unknown)\"", async t => {
   const { page, base } = await open(t, { source: { id: "claude", label: "Claude", provider: "claude" } }, "/app/#tasks");
   await page.goto(`${base}/app/#task?key=${encodeURIComponent("claude/sample-app-abc123/T3")}`);

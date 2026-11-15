@@ -278,7 +278,7 @@ export function Agents({ model, chief = null }) {
       </div>
       {model.agents.length
         ? model.agents.map(book => <Book key={book.key} book={book} model={model} chief={chief} now={now} many={model.agents.length > 1} />)
-        : <p className="empty card">No project has a logbook that the board can read for agents.</p>}
+        : <p className="empty card">No project to show, so no agents.</p>}
     </>
   );
 }
