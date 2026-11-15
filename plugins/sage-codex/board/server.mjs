@@ -243,7 +243,8 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
       if (JSON.stringify(next) !== JSON.stringify(entry)) { activity.set(key, next); changes[key] = next; }
     };
     try {
-      if (folders) reconcileWatchers(true);
+      if (folders || hooks.length) reconcileWatchers(true);
+      let renewed = false;
       for (const id of hooks) {
         const notes = readHookNotes(configured.find(source => source.id === id).path), before = lastRead.find(source => source.id === id)?.hooks;
         if (!before || hookShape(notes) !== hookShape(before)) { schedule(); continue; }
@@ -252,8 +253,10 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
           if (was === undefined || was === slot.at) continue;
           if (was === null || at - was >= AGENT_QUIET_MS) schedule();
           if (key) update(key, { activity: slot.at });
+          Object.assign(row, { activity: slot.at, idle: Math.max(0, at - slot.at) }); renewed = true;
         }
       }
+      if (renewed) { revision++; for (const client of clients) if (client.agents) publish(client); }
       for (const book of books) {
         const source = configured.find(item => book.startsWith(`${item.id}/`)), dir = join(source.path, book.slice(source.id.length + 1));
         for (const key of activity.keys()) if (key.startsWith(`${book}/`) && /^R[1-9]\d*$/.test(key.slice(book.length + 1))) {
@@ -358,8 +361,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     activity = new Map();
     for (const row of agentRows(model)) if (row.logbook && row.runId) {
       const key = `${row.logbook}/${row.runId}`;
-      activity.set(key, { activity: row.activity, now: known.get(key)?.now ?? null });
-      if (!known.has(key)) lightSchedule({ book: row.logbook });
+      activity.set(key, { activity: row.activity, now: row.now });
     }
     revision++;
     for (const client of clients) publish(client);

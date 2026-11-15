@@ -136,7 +136,7 @@ function agentsOf(model, recent, agents, chiefs) {
       return {
         id: run.id, role: run.role, status: run.status, chief: chiefOf(item), lead: leadOf(item)?.id ?? null, model: run.model || null,
         task: { key: task.key, id: task.id, title: task.title }, started: iso(run.started), ended: iso(run.ended), tokens: count(run.tokens), place: run.place ?? null, look, state,
-        why: run.status === "failed" ? failReason(task, run) : agent?.why || (run.clock.stale ? run.clock.text : null),
+        why: run.status === "failed" ? failReason(task, run) : agent?.why || (run.clock.stale ? run.clock.text : null), now: agent?.now ?? null,
         ...(endedOf.has(run.id) && { endedHelpers: endedOf.get(run.id).length }),
       };
     }).sort((a, b) => (time(a.started) ?? 0) - (time(b.started) ?? 0) || number(a.id) - number(b.id));

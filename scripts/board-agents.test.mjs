@@ -183,3 +183,27 @@ test("T1062 F-T1062-1, F-T1062-2: a shared project shows its logbook's limit and
   assert.match(html, /Project cap 2 of 4/);
   assert.ok(!html.includes("of 9"), "no provider root value shows");
 });
+
+test("T1088: each agent row has now (the last action) and actions (null when not known, [] when its slot holds it and no action is written)", () => {
+  const line = (run, i) => ({ v: 1, at: iso(i), run, tool: "Read", kind: "file", target: `src/sample-${i}.mjs`, call: "0000000" + i, mark: "ok" });
+  const model = agents(claude([book("sample-abcdef", [run("R1", "implementer", 10), run("R2", "qa", 10), run("R3", "qa", 10)], { actions: { R1: [line("R1", 3), line("R1", 2)], R2: null, R3: null } })], [
+    slot("slot-1", ["project-sample", "role-sage_implementer", "run-R1"], 2),
+    slot("slot-2", ["project-sample", "role-sage_qa", "run-R2"], 2),
+  ]));
+  const byRun = Object.fromEntries(rows(model).map(agent => [agent.runId, agent]));
+  assert.deepEqual([byRun.R1.now, byRun.R1.actions.length], [line("R1", 2), 2]);
+  assert.deepEqual([byRun.R2.now, byRun.R2.actions], [null, []], "the hook holds R2 and wrote no action yet");
+  assert.deepEqual([byRun.R3.now, byRun.R3.actions], [null, null], "no slot and no file: not known");
+});
+
+test("T1088: the reader gives each running run's actions from its file, null with no file, and never an ended run's", t => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-actions-"))), dir = join(root, "sample-abcdef");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(dir, "actions"), { recursive: true });
+  writeFileSync(join(dir, "tasks.tsv"), "id\ttitle\tsize\trisk\troute\tstate\tbranch\tpr\tround\tkeys\nT1\tSample\tsmall\t\tbuild\tbuilding\t\t\t0\t\n");
+  writeFileSync(join(dir, "runs.tsv"), "id\ttask\trole\tround\tcandidate\tbranch\tstatus\ttokens\treport\tstarted\tended\nR1\tT1\tqa\t0\t\t\trunning\t\t\t\t\nR2\tT1\tqa\t0\t\t\trunning\t\t\t\t\nR3\tT1\tqa\t0\t\t\tdone\t\t\t\t\n");
+  const line = run => `${JSON.stringify({ v: 1, at: NOW, run, tool: "Read", kind: "file", target: "src/sample.mjs", call: "00000001", mark: "ok" })}\n`;
+  writeFileSync(join(dir, "actions", "R1.jsonl"), line("R1")); writeFileSync(join(dir, "actions", "R3.jsonl"), line("R3"));
+  const [source] = readBoardSources([{ id: "claude", path: root, provider: "claude" }]);
+  assert.deepEqual(source.projects[0].actions, { R1: [JSON.parse(line("R1"))], R2: null });
+});

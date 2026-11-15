@@ -5,7 +5,8 @@ import { syncBuiltinESMExports } from "node:module";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readActions, readBoardSources } from "../packages/sage-core/board-reader.mjs";
+import { readBoardSources } from "../packages/sage-core/board-reader.mjs";
+import { readActions } from "../packages/sage-core/actions.mjs";
 
 test("board reader preserves source-qualified duplicate tasks and never initializes missing tables", t => {
   const root = mkdtempSync(join(tmpdir(), "sage-board-reader-"));

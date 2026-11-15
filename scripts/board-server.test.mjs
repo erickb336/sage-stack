@@ -670,3 +670,31 @@ test("T1100: GET /api/actions/R<n> gives a known run's last 20 actions, and refu
   rmSync(join(f.project, "actions"), { recursive: true }); symlinkSync(outside, join(f.project, "actions"));
   const folder = await get(url("R1")); assert.equal(folder.status, 403, "a linked actions folder"); assert.doesNotMatch(folder.body, /sample-99/);
 });
+
+test("F-T1088-1: a slot renewal on the light path refreshes the last activity of the old Agents page, with no full read", async t => {
+  const f = await lightBoard(t, { lightEvery: 200 });
+  const earlier = new Date(Date.now() - 5 * 60_000);
+  utimesSync(f.slot, earlier, earlier);
+  const stream = events(f, "/agents?events=1"); t.after(() => stream.close());
+  await keepWriting(() => utimesSync(f.slot, earlier, earlier), stream.next(payload => payload.html.includes("last activity 5 min ago")));
+  await wait(500);
+  const reads = f.reads(), now = new Date();
+  utimesSync(f.slot, now, now);
+  const page = await stream.next(payload => payload.html.includes("last activity just now"));
+  assert.ok(page.html.includes("last activity just now"));
+  assert.equal(f.reads(), reads, "the light path read no table");
+});
+
+test("F-T1088-2: a .hooks folder made after the board starts is watched, so its first slot shows on the Agents page", async t => {
+  const f = await lightBoard(t, { lightEvery: 200 });
+  const agentsPage = async () => (await read(f, "/agents")).body;
+  rmSync(join(f.root, ".hooks"), { recursive: true });
+  let body;
+  for (let i = 0; i < 600 && !(body = await agentsPage()).includes("no hook notes: activity not known"); i++) await wait(50);
+  assert.ok(body.includes("no hook notes: activity not known"), "with no .hooks folder, R1's activity is not known");
+  mkdirSync(join(f.root, ".hooks"));
+  await wait(1000);
+  slot(f.root, "slot-1", ["project-project", "role-sage_qa", "run-R1"]);
+  for (let i = 0; i < 200 && (body = await agentsPage()).includes("no hook notes"); i++) await wait(50);
+  assert.ok(!body.includes("no hook notes") && body.includes("working"), "the slot made in the new .hooks folder holds R1");
+});

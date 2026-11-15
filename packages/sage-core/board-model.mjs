@@ -457,6 +457,8 @@ function slotOf(slot) {
     bound: hex(mark("bound-")), parent: hex(mark("parent-")), logbook: hex(mark("logbook-")), lead: helper?.[1] ?? null };
 }
 
+const actionsOf = (found, slot) => { const actions = found ?? (slot ? [] : null); return { now: actions?.at(-1) ?? null, actions }; };
+
 function agentsOf(sources, groups, groupOf, cards, at) {
   const rows = [], problems = [], caps = [];
   const bare = name => name.replace(/-[0-9a-f]{6}$/, "");
@@ -477,7 +479,7 @@ function agentsOf(sources, groups, groupOf, cards, at) {
       group: group?.key ?? `slot:${extra.slot?.project ?? "other"}`, groupName: group?.name ?? extra.slot?.project ?? "other",
       provider: String(item ? providerOf(item) : source.provider ?? standIn(source)), role: item?.run.role ?? extra.slot?.role ?? "agent", model: item?.run.model || null,
       task: card ? { key: card.key, id: card.id, title: card.title, kind: card.kind, priority: card.priority } : item ? { key: null, id: item.run.task, title: "", kind: "", priority: "" } : null,
-      lead: null, children: [], ...extra });
+      lead: null, children: [], ...actionsOf(item?.book.actions?.[item.run.id], extra.slot), ...extra });
   };
   for (const { source, hooks, provider, slots, known } of hooked) {
     if (hooks.problem) problems.push({ source: source.id, message: plainProblem(hooks.problem) });
