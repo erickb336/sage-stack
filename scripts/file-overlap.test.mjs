@@ -125,8 +125,8 @@ test("the board model flags may conflict for open tasks of different chiefs that
   const model = buildBoardModel([{ id: "one", label: "one", diagnostics: [], projects: [project("one/sample-abcdef", tasks, records), other] }], { now: NOW });
   const flags = Object.fromEntries(model.tasks.map((task) => [`${task.project}/${task.id}`, task.mayConflict.map(({ id, chief, paths }) => [id, chief, paths])]));
   assert.deepEqual(flags, {
-    "one/sample-abcdef/T1": [["T2", "Codex · C2", ["docs/b c.md"]]],
-    "one/sample-abcdef/T2": [["T1", "Claude · C1", ["docs/b c.md"]]],
+    "one/sample-abcdef/T1": [["T2", "C2 · Codex", ["docs/b c.md"]]],
+    "one/sample-abcdef/T2": [["T1", "C1 · Claude", ["docs/b c.md"]]],
     "one/sample-abcdef/T3": [],
     "one/sample-abcdef/T4": [],
     "one/sample-abcdef/T5": [],

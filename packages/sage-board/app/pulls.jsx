@@ -1,7 +1,7 @@
 import { Suspense, lazy, useMemo, useState } from "react";
 import { ago } from "./overview.jsx";
-import { Panel, chiefName, taskLink } from "./panel.jsx";
-import { ChiefDot, ofChief } from "./tasks.jsx";
+import { ChiefDot, Panel, chiefName, taskLink } from "./panel.jsx";
+import { ofChief } from "./tasks.jsx";
 
 const PAGE = "pull-requests", RECENT_DAYS = 7, DAY = 86_400_000;
 const GROUPS = [

@@ -1,6 +1,6 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
-import { appendFileSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -9,7 +9,7 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
 import { readerUrl } from "../packages/sage-board/reader.mjs";
-import { HOSTILE_TEXT, writeTasksLogbook } from "./fixtures/board-app.mjs";
+import { HOSTILE_TEXT, UNICODE_TEXT, writeTasksLogbook } from "./fixtures/board-app.mjs";
 import { measureContrast } from "./fixtures/contrast.mjs";
 
 const require = createRequire(import.meta.url);
@@ -31,11 +31,13 @@ async function freePort() {
 async function openBoard(t, options = {}, path = "/app/") {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-tasks-browser-")), port = await freePort(), saved = process.env.SAGE_WORKTREES;
   process.env.SAGE_WORKTREES = join(dir, "worktrees");
-  writeTasksLogbook(join(dir, "logbooks"), join(dir, "worktrees"), new Date().toISOString(), options);
+  const { twin, clock, ...fixture } = options, written = writeTasksLogbook(join(dir, "logbooks"), join(dir, "worktrees"), new Date().toISOString(), fixture);
+  if (twin) cpSync(written, join(dir, "logbooks", "other-app-def456"), { recursive: true });
   const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port, app: APP, settleReads: [] });
   await server.start();
   const base = `http://127.0.0.1:${port}`;
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, colorScheme: "dark" });
+  if (clock) await context.clock.install({ time: Date.now() });
   t.after(async () => { await context.close(); await server.close(); if (saved === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = saved; rmSync(dir, { recursive: true, force: true }); });
   const requests = [], problems = [];
   await context.route("**/*", route => { requests.push(route.request().url()); return route.request().url().startsWith(`${base}/`) ? route.continue() : route.abort(); });
@@ -51,6 +53,16 @@ const KEY = id => `shared/sample-app-abc123/${id}`;
 const row = (page, id) => page.locator(`a.row[data-task="${KEY(id)}"]`);
 const panelTitle = page => page.locator("#panel-h");
 const groupTitles = page => page.locator(".group h2").allTextContents();
+const rowIds = page => page.locator("a.row .id").allTextContents();
+async function settles(read, expected, message) {
+  let last;
+  for (const end = Date.now() + 5000; Date.now() < end; await new Promise(accept => setTimeout(accept, 25))) {
+    last = await read();
+    if (JSON.stringify(last) === JSON.stringify(expected)) return;
+  }
+  assert.deepEqual(last, expected, ...message ? [message] : []);
+}
+const filter = (page, name) => page.getByRole("combobox", { name: `Filter by ${name}`, exact: true });
 
 test("T1061, T1064, T1059: J2 and J3 are within two clicks of the Overview, and a Needs you row opens its question view in one and the full question in two", async t => {
   const { page, base, requests, problems } = await open(t);
@@ -77,7 +89,7 @@ test("T1061, T1064, T1059: J2 and J3 are within two clicks of the Overview, and 
   await click(page.getByRole("link", { name: /^Tasks/ }));
   await click(page.getByRole("button", { name: "Priority" }));
   assert.equal(clicks, 2, "J2: tasks by priority");
-  assert.deepEqual(await groupTitles(page), ["P0", "P1", "P2"]);
+  await settles(() => groupTitles(page), ["P0", "P1", "P2"]);
 
   clicks = 0;
   await page.goto(`${base}/app/`);
@@ -114,22 +126,60 @@ test("T1061: the groups and filters work, and ended tasks stay collapsed until a
   assert.match(await row(page, "T3").textContent(), /may conflict · T40/);
 
   await page.getByRole("button", { name: "Chief", exact: true }).click();
-  assert.deepEqual(await groupTitles(page), ["C1 · Claude", "C2 · Codex"]);
-  await page.getByRole("combobox", { name: "Provider", exact: true }).selectOption("Codex");
-  assert.deepEqual(await groupTitles(page), ["C2 · Codex"]);
-  await page.getByRole("combobox", { name: "Kind", exact: true }).selectOption("ui");
-  assert.deepEqual(await page.locator("a.row .id").allTextContents(), ["T30"]);
-  await page.getByRole("combobox", { name: "Kind", exact: true }).selectOption("");
-  await page.getByRole("combobox", { name: "State", exact: true }).selectOption("needs you");
-  assert.deepEqual(await page.locator("a.row .id").allTextContents(), ["T30"]);
-  await page.getByRole("combobox", { name: "Provider", exact: true }).selectOption("");
-  await page.getByRole("combobox", { name: "Priority", exact: true }).selectOption("P0");
-  assert.deepEqual(await page.locator("a.row .id").allTextContents(), ["T10"]);
-  await page.getByRole("combobox", { name: "State", exact: true }).selectOption("");
-  await page.getByRole("combobox", { name: "Priority", exact: true }).selectOption("");
-  await page.getByRole("combobox", { name: "Chief", exact: true }).selectOption("C1 · Claude");
+  await settles(() => groupTitles(page), ["C1 · Claude", "C2 · Codex"]);
+  await filter(page, "provider").selectOption("Codex");
+  await settles(() => groupTitles(page), ["C2 · Codex"]);
+  await filter(page, "kind").selectOption("ui");
+  await settles(() => rowIds(page), ["T30"]);
+  await filter(page, "kind").selectOption("");
+  await filter(page, "state").selectOption("needs you");
+  await settles(() => rowIds(page), ["T30"]);
+  await filter(page, "provider").selectOption("");
+  await filter(page, "priority").selectOption("P0");
+  await settles(() => rowIds(page), ["T10"]);
+  await filter(page, "state").selectOption("");
+  await filter(page, "priority").selectOption("");
+  await filter(page, "chief").selectOption("C1 · Claude");
   await page.getByRole("button", { name: "State" }).click();
-  assert.deepEqual(await groupTitles(page), ["needs you", "in progress", "waiting", "done"]);
+  await settles(() => groupTitles(page), ["needs you", "in progress", "waiting", "done"]);
+});
+
+test("T1080 (F-T1080-2, F-T1080-14): the group and the filters are in the address, so a reload or a closed panel keeps them, and one button clears the filters", async t => {
+  const { page, base } = await open(t, {}, "/app/#tasks");
+  assert.equal(await page.getByRole("button", { name: "Clear filters" }).count(), 0, "no clear button while no filter is on");
+  assert.equal(await page.getByRole("combobox", { name: "Chief", exact: true }).count(), 0, "the chief filter does not share the name of the Chief group button");
+  await page.getByRole("button", { name: "Chief", exact: true }).click();
+  await filter(page, "provider").selectOption("Codex");
+  await settles(() => groupTitles(page), ["C2 · Codex"]);
+  assert.equal(await page.evaluate(() => location.hash), "#tasks?group=chief&provider=Codex");
+  await page.reload();
+  await settles(() => groupTitles(page), ["C2 · Codex"], "the reload keeps the group and the filter");
+  assert.equal(await filter(page, "provider").inputValue(), "Codex");
+  assert.equal(await page.getByRole("button", { name: "Chief", exact: true }).getAttribute("aria-pressed"), "true");
+  await row(page, "T3").click();
+  await panelTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
+  await page.keyboard.press("Escape");
+  await page.locator(".panel").waitFor({ state: "detached" });
+  assert.equal(await page.evaluate(() => location.hash), "#tasks?group=chief&provider=Codex", "closing the panel goes back to the same view");
+  await page.getByRole("button", { name: "Clear filters" }).click();
+  await settles(() => groupTitles(page), ["C1 · Claude", "C2 · Codex"]);
+  assert.equal(await page.getByRole("button", { name: "Clear filters" }).count(), 0);
+  await page.goto(`${base}/app/#tasks`);
+  await settles(() => groupTitles(page), ["Milestone 2: Offline sync", "Milestone 1: Board redesign", "No milestone", "Milestone 3: Sign-in rework"], "an address with no view gives the default");
+});
+
+test("T1080 (F-T1080-13): the State filter done shows the ended tasks at once", async t => {
+  const { page } = await open(t, {}, "/app/#tasks");
+  await filter(page, "state").selectOption("done");
+  await settles(async () => (await rowIds(page)).sort(), ["T1", "T20", "T21"]);
+  assert.equal(await page.locator(".more-ended").count(), 0, "no Show button to click");
+});
+
+test("T1080 (F-T1080-1): with two projects, chief groups, chief filter values and rows name the project", async t => {
+  const { page } = await open(t, { twin: true }, "/app/#tasks?group=chief");
+  await settles(() => groupTitles(page), ["C1 · Claude · other-app", "C1 · Claude · sample-app", "C2 · Codex · other-app", "C2 · Codex · sample-app"]);
+  assert.deepEqual((await filter(page, "chief").locator("option").allTextContents()).slice(1), ["C1 · Claude · other-app", "C1 · Claude · sample-app", "C2 · Codex · other-app", "C2 · Codex · sample-app"]);
+  assert.match(await row(page, "T3").textContent(), /^P2T3Sample shared limitssample-appproviders/, "the row names its project");
 });
 
 test("T1061: the panel opens and closes from the keyboard, its tabs move with the arrow keys, and the focus returns to the row", async t => {
@@ -142,6 +192,11 @@ test("T1061: the panel opens and closes from the keyboard, its tabs move with th
   await page.keyboard.press("ArrowRight");
   assert.equal(await page.evaluate(() => document.activeElement.textContent), "Log 8");
   assert.equal(await page.getByRole("tab", { name: /Log/ }).getAttribute("aria-selected"), "true");
+  await page.keyboard.press("End");
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), "Decisions 1", "End goes to the last tab (F-T1080-21)");
+  await page.keyboard.press("Home");
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), "Artifacts 7", "Home goes to the first tab");
+  await page.keyboard.press("ArrowRight");
   assert.match(await page.locator("#tab-panel").textContent(), /qa started/);
   await page.keyboard.press("Escape");
   await page.locator(".panel").waitFor({ state: "detached" });
@@ -323,4 +378,127 @@ test("T1064 (F-T1064-64, F-T1064-65, F-T1064-66): at 390 px each reader page sho
     if (name === "compare") assert.ok(await page.evaluate(() => { const [a, b] = document.querySelectorAll(".pair .version"); return a.getBoundingClientRect().top === b.getBoundingClientRect().top; }), "the two versions stand side by side at 1280 px");
   }
   assert.deepEqual(problems, []);
+});
+
+const heights = page => page.locator("a.row").evaluateAll(rows => rows.map(row => Math.round(row.getBoundingClientRect().height)));
+
+test("T1080 (F-T1080-5): with many may-conflict partners, a row names one and counts the rest, and rows keep an even height at 1280 px with the panel open", async t => {
+  const { page, base } = await open(t, { crowd: 13 }, "/app/#tasks");
+  assert.equal(await row(page, "T80").locator(".badge.warn").textContent(), "may conflict · T81 +11");
+  assert.equal(await row(page, "T80").locator(".badge.warn").getAttribute("title"), `May conflict with ${Array.from({ length: 12 }, (_, i) => `T${81 + i}`).join(", ")}`);
+  for (const width of [1440, 1280]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto(`${base}/app/#tasks?task=${encodeURIComponent(KEY("T80"))}`);
+    await panelTitle(page).filter({ hasText: "Sample crowded change 1" }).waitFor();
+    const all = await heights(page), plain = Math.min(...all);
+    assert.ok(all.every(height => height <= plain * 1.6), `${width} px: no row is much taller than a one-line row (${plain} px), saw ${all}`);
+    assert.equal(await row(page, "T80").locator(".badge.warn").evaluate(insideItsCellAndLeftOfThePanel), true, `${width} px: T80's flag shows in full`);
+  }
+});
+
+test("T1080 (F-T1080-6): a very long title takes a few lines of the panel, scrolls inside its heading, and the facts start on the first screen", async t => {
+  const { page } = await open(t, { edge: true }, `/app/#tasks?task=${encodeURIComponent(KEY("T60"))}`);
+  const heading = panelTitle(page).filter({ hasText: "SampleSample" });
+  await heading.waitFor();
+  const box = await heading.evaluate(element => ({ height: element.getBoundingClientRect().height, scrolls: element.scrollHeight > element.clientHeight, line: parseFloat(getComputedStyle(element).lineHeight), facts: document.querySelector(".panel .facts").getBoundingClientRect().top }));
+  assert.ok(box.height <= box.line * 6, `the heading is at most about 5 lines, saw ${box.height} px`);
+  assert.equal(box.scrolls, true, "the rest of the title scrolls inside the heading");
+  assert.ok(box.facts < 1000, `the facts start on the first screen, at ${box.facts} px`);
+});
+
+test("T1080 (F-T1080-7, F-T1080-25): below 1280 px the open panel reaches the right edge and covers the whole list, so no row shows beside it", async t => {
+  const { page } = await open(t, {}, `/app/#tasks?task=${encodeURIComponent(KEY("T40"))}`);
+  for (const width of [1279, 1100, 900]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await panelTitle(page).filter({ hasText: "Sample crash fix" }).waitFor();
+    const seen = await page.locator("a.row").evaluateAll(rows => { const panel = document.querySelector(".panel").getBoundingClientRect(); return { right: Math.round(panel.right), beside: rows.map(row => row.getBoundingClientRect()).filter(box => box.left < panel.left - 0.5 || box.right > panel.right + 0.5).length }; });
+    assert.deepEqual(seen, { right: width, beside: 0 }, `${width} px: the panel ends at the right edge and no row shows beside it`);
+  }
+});
+
+test("T1080 (F-T1080-27): at 1280 px with the panel open, the filter row wraps left of the panel, so each control shows", async t => {
+  const { page } = await open(t, {}, `/app/#tasks?task=${encodeURIComponent(KEY("T40"))}`);
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await panelTitle(page).filter({ hasText: "Sample crash fix" }).waitFor();
+  const under = await page.locator(".toolbar :is(button, select)").evaluateAll(controls => { const panel = document.querySelector(".panel").getBoundingClientRect(); return controls.filter(control => control.getBoundingClientRect().right > panel.left).map(control => control.getAttribute("aria-label") ?? control.textContent); });
+  assert.deepEqual(under, [], "no filter or group control runs under the panel");
+});
+
+test("T1080 (F-T1080-23, F-T1080-26): a group name in the address that is a built-in object key gives the default view, and the other pages still show", async t => {
+  const { page, base, problems } = await open(t, {}, "/app/#tasks");
+  for (const name of ["constructor", "toString", "__proto__"]) {
+    await page.goto(`${base}/app/#tasks?group=${name}`);
+    await settles(() => groupTitles(page), ["Milestone 2: Offline sync", "Milestone 1: Board redesign", "No milestone", "Milestone 3: Sign-in rework"], `group=${name} gives the milestone groups`);
+    await page.evaluate(() => { location.hash = "#overview"; });
+    await page.locator("main h1").filter({ hasText: "Overview" }).waitFor();
+  }
+  assert.deepEqual(problems, []);
+});
+
+test("T1080 (F-T1080-8, F-T1080-9, F-T1080-12): invisible characters show as escapes in paths and in prose, while emoji, flags and joined words show whole", async t => {
+  const { page } = await open(t, { unicode: true }, `/app/#tasks?task=${encodeURIComponent(KEY("T40"))}`);
+  await panelTitle(page).filter({ hasText: "Sample \\u202eevil title" }).waitFor();
+  assert.equal(await row(page, "T40").locator(".text").textContent(), "Sample \\u202eevil title", "the row title shows the override as an escape");
+  assert.deepEqual(await page.locator(".callout code").allTextContents(), [
+    "src/a\\u034fb\\u115fc\\u3164d\\uffa0e\\u180bf\\u17b4g\\u200dh\\u200ci\\ufe0fj\\u{e0100}k.js",
+    UNICODE_TEXT.emoji,
+    UNICODE_TEXT.word,
+    "src/shared.js",
+  ]);
+  await page.getByRole("tab", { name: /Decisions/ }).click();
+  assert.match(await page.locator("#tab-panel").textContent(), /Ship \\u2066now\\u2069\?/);
+  await page.getByRole("tab", { name: /Log/ }).click();
+  assert.match(await page.locator("#tab-panel").textContent(), /state building \\u202eevil/);
+});
+
+test("T1080 (F-T1080-24): only a whole subdivision flag keeps its tag characters; any other tag character shows as an escape", async t => {
+  const tags = text => [...text].map(c => String.fromCodePoint(0xe0000 + c.codePointAt(0))).join("");
+  const escaped = text => [...text].map(c => /[\u{e0000}-\u{e007f}]/u.test(c) ? `\\u{${c.codePointAt(0).toString(16)}}` : c).join("");
+  const flag = "\u{1f3f4}", scotland = `docs/${flag}${tags("gbsct")}\u{e007f}.md`, long = `src/${flag}${tags("run rm -rf now")}\u{e007f}.js`, uncancelled = `src/${flag}${tags("gbsct")}.js`, bare = `src/a${tags("gb")}\u{e007f}.js`;
+  const { page } = await open(t, { unicode: [scotland, long, uncancelled, bare] }, `/app/#tasks?task=${encodeURIComponent(KEY("T40"))}`);
+  await panelTitle(page).filter({ hasText: "Sample \\u202eevil title" }).waitFor();
+  assert.deepEqual(await page.locator(".callout code").allTextContents(), [scotland, escaped(long), escaped(uncancelled), escaped(bare), "src/shared.js"]);
+});
+
+test("T1080 (F-T1080-15, F-T1080-20): a milestone link from Needs you lands on a group that says why it is stuck and shows its ended tasks, or on a note when no task is there", async t => {
+  const { page, base } = await open(t, { stuck: true }, `/app/#tasks?milestone=${encodeURIComponent(KEY("M3"))}`);
+  const group = page.locator(`.group.focus[data-group="${KEY("M3")}"]`);
+  await group.waitFor();
+  assert.equal(await group.locator(".why").textContent(), "Milestone 3: Sign-in rework is stuck. The pilot T20 was abandoned. Choose a new pilot, or drop the milestone.");
+  assert.deepEqual(await group.locator("a.row .id").allTextContents(), ["T22", "T20", "T21"], "the abandoned pilot shows without a click");
+  await page.goto(`${base}/app/#tasks?milestone=${encodeURIComponent(KEY("M10"))}`);
+  const lost = page.locator(".lost");
+  await lost.waitFor();
+  assert.equal(await lost.locator("h2").textContent(), "Milestone 10: Empty stuck");
+  assert.match(await lost.textContent(), /The breakdown gate G11 of M10 is not in the logbook\. Ask the chief to repair the logbook, or to propose M10 again\..*The logbook links no task to this milestone\./);
+});
+
+test("T1080 (F-T1080-19): a live chief's dot has a name, and the panel's Chief row says the chief's liveness", async t => {
+  const { page, base } = await open(t, { chiefCases: true }, "/app/#tasks");
+  assert.equal(await row(page, "T3").getByRole("img", { name: "Chief live" }).count(), 1);
+  for (const [id, title, text] of [["T3", "Sample shared limits", "C2 · Codex · live"], ["T70", "Sample stopped chief", "C3 · Claude · stopped"], ["T40", "Sample crash fix", "C1 · Claude · liveness not known"]]) {
+    await page.goto(`${base}/app/#tasks?task=${encodeURIComponent(KEY(id))}`);
+    await panelTitle(page).filter({ hasText: title }).waitFor();
+    assert.equal(await page.locator(".facts dd.chief").textContent(), text);
+  }
+  assert.equal(await page.locator(".facts dd.chief").getByRole("img", { name: "Chief liveness not known" }).count(), 1);
+});
+
+test("T1080 (F-T1080-3, F-T1080-22): the panel puts the question, the recommendation and the next step on their own lines; closing an ended task's panel puts the focus on its row", async t => {
+  const { page } = await open(t, {}, `/app/#tasks?task=${encodeURIComponent(KEY("T30"))}`);
+  await panelTitle(page).filter({ hasText: "Sample crash reports" }).waitFor();
+  assert.deepEqual(await page.locator(".panel .now").allTextContents(), ["Crash reports: send them on their own, or ask each time?", "I recommend: A: ask each time", "Next: The build is briefed after your answer."]);
+  await page.goto(page.url().replace(/T30$/, "T1"));
+  await panelTitle(page).filter({ hasText: "Sample pinned bundle" }).waitFor();
+  assert.equal(await page.locator(".panel .now").count(), 0, "a merged task says Merged once, in its step");
+  await page.keyboard.press("Escape");
+  await page.locator(".panel").waitFor({ state: "detached" });
+  await page.waitForFunction(key => document.activeElement?.dataset.task === key, KEY("T1"));
+});
+
+test("T1080: a row's age counts from now, so it grows while the logbook does not change", async t => {
+  const { page } = await open(t, { clock: true }, "/app/#tasks");
+  assert.equal(await row(page, "T3").locator(".age").textContent(), "30 min ago");
+  await page.clock.runFor(2 * 3_600_000);
+  await settles(() => row(page, "T3").locator(".age").textContent(), "3 h ago");
 });
