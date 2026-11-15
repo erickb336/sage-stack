@@ -108,7 +108,7 @@ function agentsOf(model, recent, agents, chiefs) {
     const leads = new Map(all.filter(({ run }) => run.role === "lead" && LIVE.includes(run.status)).map(item => [item.task.key, item.run]));
     const leadOf = ({ run, task }) => {
       const lead = TEAM.has(run.role) && leads.get(task.key);
-      return lead && time(run.started) !== null && time(run.started) > time(lead.started) ? lead : null;
+      return lead && time(run.started) !== null && time(lead.started) !== null && time(run.started) > time(lead.started) ? lead : null;
     };
     const known = new Set(chiefs.filter(chief => chief.logbook === book.key).map(chief => chief.id));
     const chiefOf = item => { const lead = leadOf(item), id = (lead?.status === "running" ? lead : item.run).chief; return known.has(id) ? id : null; };

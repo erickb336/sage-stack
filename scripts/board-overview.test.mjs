@@ -131,3 +131,19 @@ test("F-T1059-10: a chief that waits for the owner sets no refresh time, so the 
   const { next } = boardOverview({ at: NOW, tasks: [], needsOwner: [], milestones: [], projects: [{ name: "sample-app", chiefs }], agents: { projects: [] } });
   assert.equal(next, now - 60_000 + 30 * 60_000 + 1, "the next refresh is when C2 stops: 30 minutes after its last event");
 });
+
+test("F-T1062-38: a running lead with no valid start takes no helper by time; with a start, it takes only the helpers that started after it", () => {
+  const at = minutes => new Date(Date.parse(NOW) - minutes * 60_000).toISOString();
+  const sample = { id: "T1", title: "Sample task", size: "small", risk: "", route: "build,code-review,qa", state: "reviewing", branch: "", pr: "", round: "2", keys: "", hold: "", priority: "P2", kind: "" };
+  const row = (id, role, round, status, started, ended = "") => ({ id, task: "T1", role, round, status, started, ended, tokens: "1", chief: "" });
+  const runs = start => [
+    row("R1", "lead", "1", "done", at(3000), at(2000)), row("R2", "qa", "1", "done", at(2900), at(2800)),
+    row("R3", "implementer", "1", "running", at(2500)), row("R4", "lead", "2", "running", start), row("R5", "qa", "2", "running", at(10)),
+  ];
+  const book = start => overview({ tasks: [sample], runs: runs(start), decisions: [], gates: [], milestones: [], findings: [], ledger: [] }).agents[0];
+  const shown = start => book(start).runs.map(run => [run.id, run.lead, run.endedHelpers ?? null]);
+  assert.deepEqual(shown(at(30)), [["R3", null, null], ["R4", null, 0], ["R5", "R4", null]], "R5 started after the lead; R2 and R3 of round 1 did not");
+  for (const start of ["", "not a time"]) {
+    assert.deepEqual(shown(start), [["R4", null, 0], ["R3", null, null], ["R5", null, null]], `lead start ${JSON.stringify(start)}: unknown stays unknown, so no helper and no ended helper is the lead's`);
+  }
+});
