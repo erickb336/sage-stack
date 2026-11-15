@@ -203,8 +203,10 @@ function stepLine({ task, route, cycles, required, head, judged, reasons, merge,
   NEXT["pr-ready"] = NEXT.verified;
   const AFTER = { replan: "The chief briefs it again after your answer.", "awaiting-you": `${cap(NAME.build)} is briefed after your answer.` };
   const next = who === "done" ? null : gate ? AFTER[state] ?? `${cap(name)} ${started ? "goes on" : "starts"} after your answer.` : NEXT[state];
+  if (!route.length) return { steps: [], current: null, now: needs ? { needs: true, text: needs } : { needs: false, stale: false, text: NO_ROUTE }, next: null };
   return { steps, current: step, now: needs ? { needs: true, text: needs } : { needs: false, stale: status === "stale", text: nowText }, next };
 }
+const NO_ROUTE = "The logbook records no route for this task, so the board shows no steps.";
 
 
 const graphOf = project => shownGraph(waitGraph((project.tables.tasks ?? []).filter(task => /^T[1-9]\d*$/.test(task.id)), project.tables.milestones ?? [], project.tables.gates ?? [], project.tables.decisions ?? []), project.tables.gates ?? []);
@@ -326,6 +328,7 @@ function card(source, project, group, task, now, graph, landing) {
   return { key: `${project.key}/${task.id}`, source: source.id, sourceLabel: source.label, providerStandIn: standInOf(source, project), repository: githubRepository(pr?.data.repository) ?? githubRepository(project.repository), lastActivity, headBasis, project: project.key, group: group.key, projectName: group.name, archived: group.archived, milestone: task.milestone ? { key: `${project.key}/${task.milestone}`, id: task.milestone, name: milestone?.name ?? null, pilot: milestone?.pilot === task.id } : null, waits, waitLine: waitLine(task, waits, column), priority: PRIORITIES.includes(task.priority) ? task.priority : "", kind: TASK_KINDS.includes(task.kind) ? task.kind : "", ...Object.fromEntries(["id", "title", "size", "risk", "route", "state", "branch", "pr", "round", "keys", "hold"].map(field => [field, task[field] ?? ""])), column, prEvidence: pr, currentHead: head, modeEvidence: mode, completedAt, addedAt: rows(project, "decisions", task).find(row => row.decision === TASK_ADDED)?.at ?? null, boardAnswers, visible: column !== "done" || completedAt !== null && completedAt <= now && completedAt >= now - 7 * 86400000, agents, inferredWork: inferred, cycles, requiredCycles: required, reasons, runs, ledger, gates, findings, decisions: rows(project, "decisions", task).slice(-10), decisionRows: rows(project, "decisions", task), gateRows: allGates, brief, briefFields: briefFields(brief), projectCheck, mergeCheck: merge, loop: stepLine({ task, route, cycles, required: count, head, judged, reasons, merge, gates: allGates, runs, ledger, rounds: positive(source.config?.max_rounds) ?? 3, autopilot: mode?.data.autopilot === true }), changedFiles: files && { ...files.data, observedAt: files.observedAt }, mayConflict: [], runClocks: Object.fromEntries(runs.filter(run => run.status === "running").map(run => [run.id, run.clock])), goneRun: writer?.checkoutGone ? writer.id : null, artifacts: records.filter(record => record.kind === "artifact").map(record => ({ ...record, content: project.contents?.[record.id] ?? null })), diagnostics: [...project.diagnostics], ...holderOf(project, task, runs, label, gates),...(wasOf(project, task) && { was: wasOf(project, task) }) };
 }
 
+const chiefTag = owner => [owner.id, title(owner.provider)].filter(Boolean).join(" · ");
 function markConflicts(tasks) {
   const open = tasks.filter(task => task.owner && task.changedFiles && !ENDED.includes(task.state));
   for (const [i, a] of open.entries()) {
@@ -333,8 +336,8 @@ function markConflicts(tasks) {
     for (const b of open.slice(i + 1)) {
       const paths = a.project === b.project && a.owner.id !== b.owner.id ? b.changedFiles.paths.filter(path => mine.has(path)) : NONE;
       if (!paths.length) continue;
-      a.mayConflict.push({ key: b.key, id: b.id, chief: b.owner.label, paths });
-      b.mayConflict.push({ key: a.key, id: a.id, chief: a.owner.label, paths });
+      a.mayConflict.push({ key: b.key, id: b.id, chief: chiefTag(b.owner), paths });
+      b.mayConflict.push({ key: a.key, id: a.id, chief: chiefTag(a.owner), paths });
     }
   }
 }

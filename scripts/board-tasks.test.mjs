@@ -9,6 +9,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { buildBoardModel } from "../packages/sage-core/board-model.mjs";
 import { boardOverview, taskPanel } from "../packages/sage-core/board-overview.mjs";
+import { renderTaskText } from "../packages/sage-core/board-render.mjs";
 import { readBoardSources } from "../packages/sage-core/board-reader.mjs";
 import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
 import { appTables, writeTasksLogbook } from "./fixtures/board-app.mjs";
@@ -46,7 +47,7 @@ test("T1061: the stream lists every task with its state word, priority, kind, ch
   const row = id => tasks.find(task => task.id === id);
   assert.deepEqual(tasks.map(task => task.id).sort(), ["T1", "T10", "T11", "T2", "T20", "T21", "T3", "T30", "T4", "T40"], "every task, ended ones too");
   assert.deepEqual([row("T3").word, row("T3").priority, row("T3").kind, row("T3").chief, row("T3").pr, row("T3").ended], ["in progress", "P2", "providers", { id: "C2", provider: "Codex", stopped: false, waits: false }, "12", false]);
-  assert.deepEqual(row("T3").conflicts, [{ key: KEY("T40"), id: "T40", chief: "Claude · C1" }], "T3 (C2) and T40 (C1) change src/shared.js");
+  assert.deepEqual(row("T3").conflicts, [{ key: KEY("T40"), id: "T40", chief: "C1 · Claude" }], "T3 (C2) and T40 (C1) change src/shared.js; the chief reads as on its row (F-T1080-17)");
   assert.deepEqual(row("T40").conflicts.map(other => other.id), ["T3"]);
   assert.deepEqual(row("T2").conflicts, [], "a task with no files record has no flag");
   assert.deepEqual([row("T1").word, row("T1").ended], ["done", true]);
@@ -65,10 +66,10 @@ test("T1061: the panel gives the route's steps with the current step, the clean-
   assert.deepEqual(panel.cycles, { required: 1, clean: 0, reviews: true });
   assert.deepEqual(panel.lastEvent, { at: "2026-11-13T11:30:00.000Z", who: "R6", text: "qa started" });
   assert.deepEqual(panel.log.map(event => event.text), ["qa started", "review-clean · cycle 1 on bbbbbbb", "code-reviewer ended: done", "checks-pass · cycle 1 on bbbbbbb", "code-reviewer started", "implementer ended: done", "implementer started", "state reviewing · the PR is open"], "newest first");
-  assert.deepEqual(panel.decisions, [{ id: "G6", question: "Keep one limit for both providers?", answer: "A: yes", pending: null, recommendation: "A: yes", at: "2026-11-13T04:00:00.000Z" }]);
+  assert.deepEqual(panel.decisions, [{ id: "G6", question: "Keep one limit for both providers?", answer: "A: yes", pending: null, recommendation: "A: yes", waits: false, at: "2026-11-13T04:00:00.000Z" }]);
   assert.deepEqual(panel.artifacts.map(item => [item.label, item.run, item.url]), [["Limits design note", "R7", "https://github.com/sample-owner/sample-app/pull/12"]]);
   assert.equal(panel.prUrl, "https://github.com/sample-owner/sample-app/pull/12", "from the PR observation's repository");
-  assert.deepEqual(panel.conflicts, [{ key: KEY("T40"), id: "T40", chief: "Claude · C1", paths: ["src/shared.js"] }]);
+  assert.deepEqual(panel.conflicts, [{ key: KEY("T40"), id: "T40", chief: "C1 · Claude", paths: ["src/shared.js"] }]);
   assert.equal(taskPanel(modelOf(world(t).sources), KEY("T999")), null);
 });
 
@@ -88,7 +89,7 @@ test("T1061 (F-T1061-13): a task with no route has no steps in its row or its pa
   const source = { id: "claude", label: "claude", provider: null, config: {}, diagnostics: [], hooks: { present: false, slots: [], helpers: [], problem: null },
     projects: [{ key: "claude/sample-app-abc123", source: "claude", name: "sample-app-abc123", checkout: "/sample/app", diagnostics: [], warnings: [], tables, observations: { version: 1, records: [] } }] };
   const model = buildBoardModel([source], { now: NOW }), panel = taskPanel(model, "claude/sample-app-abc123/T2");
-  assert.deepEqual([panel.route, panel.steps, panel.now, panel.next], [[], [], "The logbook records no route for this task, so the board shows no steps.", null]);
+  assert.deepEqual([panel.route, panel.steps, panel.now, panel.next], [[], [], ["The logbook records no route for this task, so the board shows no steps."], null]);
   assert.equal(boardOverview(model).tasks.find(task => task.id === "T2").step, null);
   assert.equal(boardOverview(model).tasks.find(task => task.id === "T3").step.label, "Review 1 of 1", "a task with a route keeps its step");
 });
@@ -163,10 +164,10 @@ test("T1062 F-T1062-5, F-T1062-6: a queued run shows once in the task's log, as 
   const model = modelOf(sources), panel = taskPanel(model, KEY("T41"));
   assert.deepEqual(panel.log.filter(event => event.who === "R33").map(event => [event.at, event.text]), [[new Date(Date.parse(NOW) - 2 * 60_000).toISOString(), "implementer queued for an agent slot, place 3"]],
     "one line, when it was queued: no 'started' and no 'ended' for a run that has not started");
-  assert.equal(panel.now, "The implementer (run R33) waits for an agent slot: place 3 in the project's queue. It starts when a running agent ends.");
-  assert.equal(panel.steps.find(step => step.key === "build").detail, panel.now, "the build step says the same");
+  assert.equal(panel.steps.find(step => step.key === "build").detail, "The implementer (run R33) waits for an agent slot: place 3 in the project's queue. It starts when a running agent ends.");
+  assert.deepEqual(panel.now, [], "the build step says it, so the panel's now lines do not repeat it");
   assert.deepEqual(taskPanel(model, KEY("T2")).log.filter(event => event.who === "R24").map(event => event.text), ["qa queued for an agent slot, place 1"]);
-  assert.match(taskPanel(model, KEY("T2")).now, /at work/, "a running agent of the task still comes first");
+  assert.match(taskPanel(model, KEY("T2")).now.join(" "), /at work/, "a running agent of the task still comes first");
 });
 
 test("T1062: the stream's agents hold running and queued runs, recent failures, and the ended helpers of running leads only, with each chief's count against the logbook's limits", t => {
@@ -232,4 +233,49 @@ test("T1062 F-T1062-9, F-T1062-11, F-T1062-14, F-T1062-18, F-T1062-19: helpers, 
   const log = taskPanel(model, KEY("T40")).log;
   assert.deepEqual(log.filter(event => event.who === "R38").map(event => event.text), ["qa ended: failed", "qa admitted from the queue, but its agent did not start"], "a lapsed admission never says started");
   assert.deepEqual(log.filter(event => event.who === "R39").map(event => event.text), ["code-reviewer ended: done", "code-reviewer started after its place in the queue"]);
+});
+
+const claudeSource = (tables, more = []) => ({ id: "claude", label: "claude", provider: null, config: {}, diagnostics: [], hooks: { present: false, slots: [], helpers: [], problem: null },
+  projects: [{ key: "claude/sample-app-abc123", source: "claude", name: "sample-app-abc123", checkout: "/sample/app", diagnostics: [], warnings: [], tables, observations: { version: 1, records: [] } }, ...more] });
+
+test("T1080 (F-T1080-4): the model gives a task with no route no steps, so the chat board lists none either", () => {
+  const tables = appTables(NOW);
+  tables.tasks.find(task => task.id === "T2").route = "";
+  const model = buildBoardModel([claudeSource(tables)], { now: NOW }), task = model.tasks.find(item => item.id === "T2");
+  assert.deepEqual([task.loop.steps, task.loop.next], [[], null]);
+  assert.doesNotMatch(renderTaskText(task), /Plan|Build|Merge|Evidence review/, "no step names in the chat board's task text");
+  assert.match(renderTaskText(model.tasks.find(item => item.id === "T3")), /Plan/, "a task with a route keeps its steps");
+});
+
+test("T1080 (F-T1080-3): the panel gives the question, the recommendation and the next step as separate lines, and does not repeat a step's own line", t => {
+  const model = modelOf(world(t).sources), waiting = taskPanel(model, KEY("T30"));
+  assert.deepEqual(waiting.now, ["Crash reports: send them on their own, or ask each time?", "I recommend: A: ask each time"]);
+  assert.ok(waiting.next, "the next step is its own field");
+  const merged = taskPanel(model, KEY("T1"));
+  assert.equal(merged.steps.at(-1).detail, "Merged.");
+  assert.deepEqual(merged.now, [], "\"Merged.\" shows once, in the Merge step");
+});
+
+test("T1080 (F-T1080-11, F-T1080-16): a task of an old logbook is marked old and read-only, and its unanswered gate waits for no one", () => {
+  const old = appTables(NOW);
+  old.tasks = [{ ...old.tasks.find(task => task.id === "T1"), id: "T5", title: "Sample old finished task" }, { ...old.tasks.find(task => task.id === "T2"), id: "T6", title: "Sample old open task" }];
+  old.gates = [{ id: "G7", task: "T5", question: "Sample old question?", options: "A|B", recommendation: "A", default: "", answer: "", at: NOW }];
+  const model = buildBoardModel([claudeSource(appTables(NOW), [{ key: "claude/sample-app-old", source: "claude", name: "sample-app-old", old: { provider: "codex", of: "claude/sample-app-abc123" },
+    checkout: null, diagnostics: [], warnings: [], tables: old, observations: { version: 1, records: [] } }])], { now: NOW });
+  const rows = boardOverview(model).tasks, row = key => rows.find(task => task.key === key);
+  assert.deepEqual(row("claude/sample-app-old/T6").chief, { id: null, provider: "Codex", stopped: null, old: "Old · Codex · read-only" });
+  assert.equal(row("claude/sample-app-abc123/T2").chief.old, undefined, "a live task is not marked old");
+  assert.deepEqual(taskPanel(model, "claude/sample-app-old/T5").decisions.map(gate => [gate.id, gate.answer, gate.waits]), [["G7", null, false]], "the model counts no need for it, so the panel does not call it open");
+  assert.deepEqual(taskPanel(model, "claude/sample-app-abc123/T10").decisions.find(gate => gate.id === "G4").waits, true, "an open gate of a live task waits for the owner");
+});
+
+test("T1080 (F-T1080-10, F-T1080-18): the panel lists a kept report of nearly 1 MiB of text, and says how many brief and report files it leaves out", async t => {
+  const w = world(t), text = `STATUS        done\nRESULT        CLEAN. A long report.\nEVIDENCE      ${"\"quoted\" ".repeat(110_000)}\n`;
+  assert.ok(Buffer.byteLength(text) < 1 << 20, "the state tool keeps text of at most 1 MiB");
+  writeFileSync(join(w.logbook, "kept", "R6.json"), JSON.stringify({ task: "T3", run: "R6", role: "qa", sha: "", text, at: NOW }));
+  assert.ok(readFileSync(join(w.logbook, "kept", "R6.json")).length > 1 << 20, "its JSON file is over 1 MiB");
+  for (let i = 0; i < 103; i++) writeFileSync(join(w.logbook, "briefs", `sage_qa_t3_r6_${String(i).padStart(3, "0")}.json`), "{}");
+  const panel = await (await fetch(`${await serve(t, w.sources)}/app/task/${b64(KEY("T3"))}`)).json();
+  assert.deepEqual(panel.files.kept.map(item => [item.run, item.result]), [["R5", "CLEAN. The limits change is correct."], ["R6", "CLEAN. A long report."]]);
+  assert.deepEqual([panel.files.briefs.length, panel.files.unlisted], [100, { briefs: 4, reports: 0 }], "104 brief files: 100 listed, 4 counted");
 });

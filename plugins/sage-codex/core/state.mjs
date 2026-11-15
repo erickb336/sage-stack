@@ -9,7 +9,7 @@ import { homedir, hostname, platform, tmpdir, uptime } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { boardView, sessionRoots, sessionSources } from "./board-view.mjs";
 import { projectName as shownName } from "./board-model.mjs";
-import { ADMIT_LEASE_MS, LAPSED, agentCaps, capNames, projectLimits, queueOrder, slug } from "./logbook-fields.mjs";
+import { ADMIT_LEASE_MS, KEPT_FILE_MAX, KEPT_TEXT_MAX, LAPSED, agentCaps, capNames, projectLimits, queueOrder, slug } from "./logbook-fields.mjs";
 import { logbookIdentity } from "./board-reader.mjs";
 import { PR, pullRequestHead } from "./pull-request.mjs";
 import { REPORT_FIELDS } from "./report.mjs";
@@ -655,14 +655,13 @@ function enrichUsage(dir, id, opt) {
 }
 
 const BACKS = { "code-reviewer": ["review-clean", "findings"], "security-reviewer": ["security-clean", "findings"], "ux-reviewer": ["ux-clean", "findings"], qa: ["qa-pass", "qa-fail"] };
-const KEPT_MAX = 1 << 20;
 const keptFile = (dir, run) => join(dir, "kept", `${run}.json`);
 
 function keepReport(project, { task, run, role, sha = "", text } = {}, env = process.env) {
   const dir = storeDir(project, env);
   if (!existsSync(join(dir, "tasks.tsv"))) refuse(`no logbook for the project ${visible(project)}, so no report is kept.`);
   if (lstatSync(join(dir, "moved.json"), { throwIfNoEntry: false })) refuse(`this logbook moved to the shared root (${join(dir, "moved.json")}), so no report is kept.`);
-  if (!/^R[1-9]\d*$/.test(String(run)) || typeof text !== "string" || Buffer.byteLength(text) > KEPT_MAX || !/^(?:[0-9a-f]{40})?$/.test(String(sha))) {
+  if (!/^R[1-9]\d*$/.test(String(run)) || typeof text !== "string" || Buffer.byteLength(text) > KEPT_TEXT_MAX || !/^(?:[0-9a-f]{40})?$/.test(String(sha))) {
     refuse("a kept report needs its run id, its text (at most 1 MiB) and the full SHA of its commit or none. No report is kept.");
   }
   const row = read(dir, "runs").find((r) => r.id === run);
@@ -758,7 +757,7 @@ function keptUsage(dir, run) {
 }
 
 function keptOf(dir, run) {
-  const text = readRegular(keptFile(dir, run), { link: false, max: 6 * KEPT_MAX + 4096 });
+  const text = readRegular(keptFile(dir, run), { link: false, max: KEPT_FILE_MAX });
   if (text === undefined) return undefined;
   try {
     const kept = JSON.parse(text);
@@ -790,7 +789,7 @@ function compareRetainedReport(input, env = process.env) {
     if (!folderStat) return result("missing");
     if (!folderStat.isDirectory()) return result("damaged");
     let bytes;
-    try { bytes = readRegular(keptFile(dir, input.run), { link: false, max: 6 * KEPT_MAX + 4096, encoding: null }); }
+    try { bytes = readRegular(keptFile(dir, input.run), { link: false, max: KEPT_FILE_MAX, encoding: null }); }
     catch (error) {
       if (error instanceof Refusal || ["ELOOP", "ENOTDIR"].includes(error.code)) return result("damaged");
       throw error;
@@ -804,7 +803,7 @@ function compareRetainedReport(input, env = process.env) {
       || typeof kept.sha !== "string" || !/^(?:[0-9a-f]{40})?$/.test(kept.sha)
       || typeof kept.at !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(kept.at)
       || !Number.isFinite(Date.parse(kept.at)) || new Date(kept.at).toISOString() !== kept.at.replace("Z", ".000Z")
-      || typeof kept.text !== "string" || Buffer.byteLength(kept.text, "utf8") > KEPT_MAX
+      || typeof kept.text !== "string" || Buffer.byteLength(kept.text, "utf8") > KEPT_TEXT_MAX
       || Buffer.from(kept.text, "utf8").toString("utf8") !== kept.text) return result("damaged");
     const digest = createHash("sha256").update(kept.text, "utf8").digest("hex");
     return result(digest === input.sha256 ? "match" : "mismatch");
