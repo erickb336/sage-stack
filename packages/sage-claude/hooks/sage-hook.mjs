@@ -1325,6 +1325,14 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
       try { tip = readFileSync(join(dir, slot, "tip"), "utf8"); } catch {}
       return /^R[1-9]\d*$/.test(run ?? "") ? { run, tip: /^[0-9a-f]{40}$/.test(tip) ? tip : "", shared: slots.some((other) => other !== slot && mark(other, "run-") === run) } : undefined;
     },
+    actionPlace(agent) {
+      const slot = valid(agent) && !stopped(agent) && ofSession().find((slot) => has(slot, "ok") && ownsAgent(slot, agent)), run = slot && mark(slot, "run-");
+      if (!/^R[1-9]\d*$/.test(run ?? "")) return undefined;
+      const file = join(dir, slot, "actions");
+      let logbook;
+      try { logbook = readFileSync(file, "utf8"); } catch (error) { if (error.code !== "ENOENT") throw error; }
+      return { run, logbook: isAbsolute(logbook ?? "") ? logbook : undefined, keep: (path) => writeFileSync(file, path) };
+    },
     holds: (agent) => {
       const name = valid(agent) && agentName(agent);
       return Boolean(name) && ofSession().some((slot) => ownsAgent(slot, agent) || mark(slot, "folded-") === hash(name) || mark(slot, "agent-")?.toLowerCase() === id(name));
@@ -1362,6 +1370,25 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
 
 function liveLeadRun(folder, task, run) {
   try { return logbookOf(folder).leadRun(task)?.id === run; } catch { return false; }
+}
+
+const ACTION_EVENTS = ["PreToolUse", "PostToolUseFailure", "SubagentStop"];
+function actionPlace(input, slots) {
+  if (!ACTION_EVENTS.includes(input.hook_event_name) || !agentEvent(input) || core.error || stateTool.error) return undefined;
+  try { return slots.actionPlace(input.agent_id); } catch { return undefined; }
+}
+function act(place, input, output) {
+  const event = input.hook_event_name;
+  if (!place || (event === "SubagentStop" && output?.decision === "block")) return;
+  try {
+    if (!place.logbook) {
+      place.logbook = stateTool.storeDir(realpathSync.native(input.cwd));
+      try { place.keep(place.logbook); } catch {}
+    }
+    const mark = event === "SubagentStop" ? "end" : event === "PostToolUseFailure" ? "failed" : output?.hookSpecificOutput?.permissionDecision === "deny" ? "refused" : "ok";
+    const record = core.actionOf({ run: place.run, tool: input.tool_name, input: input.tool_input, call: input.tool_use_id, cwd: input.cwd, mark });
+    if (record) core.appendAction(place.logbook, record);
+  } catch {}
 }
 
 const BEATS = ["PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop"];
@@ -1408,12 +1435,14 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
       }
       renameSync(tmp, file);
     };
-    const before = JSON.stringify(state);
-    const output = handle(input, state, slotsFor(join(stateDir(), "slots"), session, Date.now(), input.session_id ?? null));
+    const before = JSON.stringify(state), slots = slotsFor(join(stateDir(), "slots"), session, Date.now(), input.session_id ?? null);
+    const place = actionPlace(input, slots);
+    const output = handle(input, state, slots);
     const handled = JSON.stringify(state);
     if (handled !== before) keep();
     if (output) process.stdout.write(JSON.stringify(output));
     beat(input, state);
+    act(place, input, output);
     if (JSON.stringify(state) !== handled) try { keep(); } catch {}
   } catch (e) {
     let commands;
