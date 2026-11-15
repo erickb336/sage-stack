@@ -44,7 +44,7 @@ test("T1064: a brief shows its ten fields in order, GOAL and ACCEPTANCE open, a 
   assert.deepEqual(fieldsOpen(page.html), ["GOAL open", "SCOPE", "CONTEXT", "DECISIONS", "ACCEPTANCE open", "VERIFY", "BUDGET", "FORBIDDEN", "REPORT", "STANDING"]);
   assert.match(page.html, /<span class="fname">SCOPE<\/span><span class="first">Task T3 only\. Branch sage\/t3-limits, in your own worktree\. <span class="faint">\(\+2\)<\/span>/, "a closed field shows its first line and how many lines follow");
   assert.match(page.html, /<ul>\n<li>Change the limit reader\.<\/li>\n<li>Keep the old keys readable\.<\/li>/, "the field's list renders as a list, without the column indent");
-  assert.match(page.text, /Run R7 Role implementer Task T3 Chief C2 · Codex Model sonnet Started/);
+  assert.match(page.text, /Run R7 Role implementer Task T3 Chief Codex · C2 Model sonnet Started/);
   assert.match(page.html, /href="\/read\/[\w-]+\/report\/R7">Report of R7<\/a>/, "a link to the run's report");
   assert.match(page.html, /<a class="back" href="\/app\/#tasks\?task=shared%2Fsample-app-abc123%2FT3">&#8592; Back to T3<\/a>/);
   assert.ok(fieldsOpen(read(w, "T3", "brief", "R7", { open: "all" }).html).every(name => name.endsWith(" open")));
@@ -64,7 +64,7 @@ test("T1064: a report shows the STATUS pill, RESULT first, each finding as a row
   assert.deepEqual(logbookRows(page.html), ["F-T3-1 medium revoked-limit-applies-10-min open", "F-T3-2 low limit-field-no-label follow-up"], "R5's own rows, not R4's row with the key F1");
   assert.match(page.html, /<h2 class="sec">In the logbook<\/h2><p class="muted">The logbook's own record of these findings, with their states:<\/p><table/);
   assert.deepEqual(fieldsOpen(page.html), ["FINDINGS open", "QUESTIONS", "EVIDENCE", "NOT VERIFIED open", "BRANCH open"], "QUESTIONS none stays closed");
-  assert.match(page.html, /<a href="https:\/\/github\.com\/sample-owner\/sample-app\/pull\/12">PR #12<\/a>/);
+  assert.match(page.html, /<a href="https:\/\/github\.com\/sample-owner\/sample-app\/pull\/12">PR 12<\/a>/);
   assert.match(page.html, /head b{40}, PR 12/);
 });
 

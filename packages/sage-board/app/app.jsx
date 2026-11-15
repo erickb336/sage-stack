@@ -6,6 +6,7 @@ import { Overview, ago } from "./overview.jsx";
 import { Pulls } from "./pulls.jsx";
 import { Tasks } from "./tasks.jsx";
 import { useModel, useNow, when } from "./use-model.js";
+import { OBJECTS } from "../../sage-core/state-words.mjs";
 
 const THEME_KEY = "board-theme";
 const PAGES = [
@@ -14,7 +15,7 @@ const PAGES = [
   { hash: "agents", name: "Agents", Icon: AgentsIcon },
   { hash: "pull-requests", name: "Pull requests", Icon: PullsIcon },
 ];
-const QUESTION = { hash: "question", name: "Question", hidden: true };
+const QUESTION = { hash: "question", name: OBJECTS.question.label, hidden: true };
 const FILTER_KEY = "board-chief";
 
 const clock = at => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
