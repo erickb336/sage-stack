@@ -1,6 +1,6 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
-import { appendFileSync, cpSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -33,6 +33,10 @@ async function openBoard(t, options = {}, path = "/app/") {
   process.env.SAGE_WORKTREES = join(dir, "worktrees");
   const { twin, clock, ...fixture } = options, written = writeTasksLogbook(join(dir, "logbooks"), join(dir, "worktrees"), new Date().toISOString(), fixture);
   if (twin) cpSync(written, join(dir, "logbooks", "other-app-def456"), { recursive: true });
+  if (twin === "one name") for (const book of [written, join(dir, "logbooks", "other-app-def456")]) {
+    const config = join(book, "config.json");
+    writeFileSync(config, JSON.stringify({ ...existsSync(config) && JSON.parse(readFileSync(config, "utf8")), name: "twin" }));
+  }
   const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port, app: APP, settleReads: [] });
   await server.start();
   const base = `http://127.0.0.1:${port}`;
@@ -180,6 +184,26 @@ test("T1080 (F-T1080-1): with two projects, chief groups, chief filter values an
   await settles(() => groupTitles(page), ["Claude · C1 · other-app", "Claude · C1 · sample-app", "Codex · C2 · other-app", "Codex · C2 · sample-app"]);
   assert.deepEqual((await filter(page, "chief").locator("option").allTextContents()).slice(1), ["Claude · C1 · other-app", "Claude · C1 · sample-app", "Codex · C2 · other-app", "Codex · C2 · sample-app"]);
   assert.match(await row(page, "T3").textContent(), /^P2Sample shared limitssample-appproviders/, "the row names its project");
+});
+
+test("T1098 (R4165-2): two logbooks with one display name and the same chief ids: the chief filter of Tasks and Pull requests shows only the chosen logbook's tasks", async t => {
+  const { page, problems } = await open(t, { twin: "one name" }, "/app/#tasks");
+  const books = async selector => [...new Set((await page.locator(selector).evaluateAll(rows => rows.map(row => row.dataset.task ?? row.dataset.prTask))).map(key => key.slice(0, key.lastIndexOf("/"))))].sort();
+  const ids = selector => page.locator(selector).evaluateAll(rows => rows.map(row => (row.dataset.task ?? row.dataset.prTask).split("/").pop()).sort());
+  const seen = {};
+  for (const book of ["shared/sample-app-abc123", "shared/other-app-def456"]) {
+    await page.locator(`button.chip[data-chief="${book}/C1"]`).click();
+    await page.goto(`${page.url().split("#")[0]}#tasks`);
+    await settles(() => books("a.row[data-task]"), [book], `Tasks lists only ${book}'s tasks of C1`);
+    await page.goto(`${page.url().split("#")[0]}#pull-requests`);
+    await settles(() => books("li.prow[data-pr-task]"), [book], `Pull requests lists only ${book}'s tasks of C1`);
+    seen[book] = { pulls: await ids("li.prow[data-pr-task]") };
+    await page.goto(`${page.url().split("#")[0]}#tasks`);
+    seen[book].tasks = await ids("a.row[data-task]");
+  }
+  assert.ok(seen["shared/sample-app-abc123"].tasks.length > 0 && seen["shared/sample-app-abc123"].pulls.length > 0, "C1 owns tasks and pull requests");
+  assert.deepEqual(seen["shared/other-app-def456"], seen["shared/sample-app-abc123"], "the twin logbook is a copy, so each C1 shows the same task ids once");
+  assert.deepEqual(problems, []);
 });
 
 test("T1061: the panel opens and closes from the keyboard, its tabs move with the arrow keys, and the focus returns to the row", async t => {

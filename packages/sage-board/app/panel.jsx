@@ -3,6 +3,7 @@ import { STEPS, UNKNOWN, chiefName as nameOf, prName, shown } from "../../sage-c
 
 export const taskLink = (key, page = "tasks") => `#${page}?task=${encodeURIComponent(key)}`;
 export const milestoneLink = key => `#tasks?milestone=${encodeURIComponent(key)}`;
+export const ofChief = (task, chief) => !chief || task.chief?.id === chief.id && task.key === `${chief.logbook}/${task.id}`;
 export const chiefName = chief => chief ? chief.old ?? (chief.id ? nameOf(chief.id, chief.provider) : `Chief ${UNKNOWN}`) : "No chief";
 const LIVENESS = { live: "live", stopped: "stopped", unknown: `liveness ${UNKNOWN}` };
 const liveness = stopped => stopped === false ? "live" : stopped ? "stopped" : "unknown";

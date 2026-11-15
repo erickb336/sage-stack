@@ -1,8 +1,7 @@
 import { Component, Suspense, lazy, useMemo, useState } from "react";
 import { GroupIcon } from "./icons.jsx";
 import { ago } from "./overview.jsx";
-import { ChiefDot, Panel, chiefName, controlsShown, taskLink } from "./panel.jsx";
-import { ofChief } from "./tasks.jsx";
+import { ChiefDot, Panel, chiefName, controlsShown, ofChief, taskLink } from "./panel.jsx";
 import { useNow } from "./use-model.js";
 import { UNKNOWN, prName } from "../../sage-core/state-words.mjs";
 
