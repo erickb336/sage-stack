@@ -553,11 +553,12 @@ const call = i => i.toString(16).padStart(8, "0");
 const action = (i, run = "R1") => `${JSON.stringify({ v: 1, at: new Date(Date.UTC(2026, 10, 14, 12, 0, i)).toISOString(), run, tool: "Read", kind: "file", target: `src/sample-${i}.mjs`, call: call(i), mark: "ok" })}\n`;
 const R1 = "sample/project-abcdef/R1";
 
-async function lightBoard(t, { lightEvery, quiet = false, slotOnly = false, hooks = true } = {}) {
+async function lightBoard(t, { lightEvery, quiet = false, slotOnly = false, hooks = true, slotAge = 0 } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-light-")), root = join(dir, "source"), project = populate(root), port = await freePort();
   writeFileSync(join(project, "runs.tsv"), `${HEADERS.runs.replaceAll(" ", "\t")}\nR1\tT1\tqa\t0\t\t\trunning\t\t\t${new Date(Date.now() - 60 * 60_000).toISOString()}\t\nR2\tT1\timplementer\t0\t\t\tdone\t\t\t2026-11-14T10:00:00Z\t2026-11-14T11:00:00Z\n`);
   if (hooks) slot(root, "slot-1", ["project-project", "role-sage_qa", "run-R1"]);
   if (slotOnly) slot(root, "slot-2", ["project-project", "role-sage_explore"]);
+  if (slotAge) { const then = new Date(Date.now() - slotAge * 60_000); utimesSync(join(root, ".hooks", "slots", "slot-1"), then, then); }
   if (quiet) { const long = new Date(Date.now() - 40 * 60_000); for (const name of slotOnly ? ["slot-2", "slot-1"] : ["slot-1"]) utimesSync(join(root, ".hooks", "slots", name), long, long); }
   mkdirSync(join(project, "actions"));
   let reads = 0;
@@ -649,6 +650,14 @@ test("T1099 (F-T1088-2): a board that starts before the hook's folder exists see
   let seen = false;
   for (let i = 0; i < 100 && !(seen = await slotted()); i++) await wait(50);
   assert.ok(seen, "the slot made after the hook folder joins its run, without a logbook write");
+});
+
+test("T1099 (F-T1088-1): the old Agents page's last activity follows a slot renewal of an agent that is not quiet", async t => {
+  const f = await lightBoard(t, { lightEvery: 50, slotAge: 10 }), stream = events(f, "/agents?events=1"); t.after(() => stream.close());
+  assert.match((await stream.next()).html, /last activity 10 min ago/);
+  const now = new Date(); utimesSync(f.slot, now, now);
+  const renewed = await stream.next(payload => /last activity just now/.test(payload.html));
+  assert.doesNotMatch(renewed.html, /last activity 10 min ago/);
 });
 
 test("T1100: GET /api/actions/R<n> gives a known run's last 20 actions, and refuses path tricks, unknown runs and links", async t => {
