@@ -95,18 +95,32 @@ export function logbookSettings(config) {
   return { name: config.name === undefined || why ? null : config.name, archived: config.archived === true, sageModeStart: config.start === START_SAGE_MODE, limits: Object.fromEntries(["max_agents", "max_leads"].filter(key => Object.hasOwn(config, key)).map(key => [key, config[key]])), warnings };
 }
 
-export function startsInSageMode(logbook) {
+function logbookConfigFile(logbook) {
   let fd;
   try {
     fd = openSync(join(logbook, "config.json"), constants.O_RDONLY | constants.O_NONBLOCK);
     const info = fstatSync(fd);
-    if (!info.isFile() || info.size > 64 * 1024) return false;
+    if (!info.isFile() || info.size > 64 * 1024) return undefined;
     const bytes = Buffer.alloc(info.size);
     const read = readSync(fd, bytes, 0, info.size, 0);
-    return logbookSettings(JSON.parse(bytes.toString("utf8", 0, read))).sageModeStart;
+    return JSON.parse(bytes.toString("utf8", 0, read));
   } catch {
-    return false;
+    return undefined;
   } finally {
     if (fd !== undefined) closeSync(fd);
   }
+}
+
+export function startsInSageMode(logbook) {
+  const config = logbookConfigFile(logbook);
+  return config !== undefined && logbookSettings(config).sageModeStart;
+}
+
+export const COMMIT_EMAIL = /^[^\s<>"'`$\\@]+@[^\s<>"'`$\\@]+$/;
+export const COMMIT_NAME = /^[^\p{Cc}\p{Cf}'<>]{1,100}$/u;
+export function commitIdentity(logbook) {
+  const config = logbookConfigFile(logbook);
+  const email = config?.commit_email, name = config?.commit_name;
+  if (typeof email !== "string" || !COMMIT_EMAIL.test(email)) return undefined;
+  return { email, name: typeof name === "string" && COMMIT_NAME.test(name.trim()) ? name.trim() : undefined };
 }

@@ -16,7 +16,7 @@ import { REPORT_FIELDS } from "./report.mjs";
 import { cleanReport, fieldsOf, proofResults, readReport } from "./report-reader.mjs";
 import { ROLES } from "./roles.mjs";
 import { TEAM } from "./role-policy.mjs";
-import { AGENT_CAPS, BREAKS, FINDING_CLASSES, HIDDEN, LINE, NAME_MAX, PRIORITIES, PRIORITY_SCALE, START_SAGE_MODE, TABLES as PLAIN_TABLES, TASK_ADDED, TASK_KINDS, boardAnswer, breakdownLine, countOf, gateDigest, nameProblem, proposalOf } from "./logbook-fields.mjs";
+import { AGENT_CAPS, BREAKS, COMMIT_EMAIL, COMMIT_NAME, FINDING_CLASSES, HIDDEN, LINE, NAME_MAX, PRIORITIES, PRIORITY_SCALE, START_SAGE_MODE, TABLES as PLAIN_TABLES, TASK_ADDED, TASK_KINDS, boardAnswer, breakdownLine, countOf, gateDigest, nameProblem, proposalOf } from "./logbook-fields.mjs";
 import { BREAKDOWN, ENDED, GATE_ID, MET, MILESTONE_ID, TASK_ID, breakdownGate, renameRows, renamedIds, byIds, dead, droppedBy, gateLines, lostClause, milestoneState, milestoneWordOf, progressOf, progressText, releaseKey, releaseNameProblem, releasesOf, shownGraph, shownMilestoneState, shownWaits, unmetWaits, waitGraph, waitWords, waitsOf, waitsWithState } from "./milestone-rules.mjs";
 import { FILES_MAX, FILE_PATH_MAX_BYTES, OBSERVATIONS_MAX_BYTES, OBSERVATION_DATA_MAX_BYTES, validateObservation, validateObservations } from "./observations.mjs";
 import { pushedBranches } from "./push-policy.mjs";
@@ -2423,7 +2423,7 @@ function fileOrNone(file) {
   const st = lstatSync(file, { throwIfNoEntry: false });
   if (st && !st.isFile()) refuse(`${file} is ${st.isSymbolicLink() ? "a link" : st.isDirectory() ? "a folder" : st.isFIFO() ? "a named pipe" : st.isSocket() ? "a socket" : "a device"}, not a regular file, so config writes nothing. Replace it with a regular file.`);
 }
-const ownKey = (kv) => /^(name|archived|start|lint_offer)(=|$)/.test(kv);
+const ownKey = (kv) => /^(name|archived|start|lint_offer|commit_email|commit_name)(=|$)/.test(kv);
 
 function jsonObject(file) {
   try {
@@ -2443,20 +2443,22 @@ function logbookConfig(dir, pairs) {
   const set = {};
   for (const kv of pairs) {
     const at = kv.indexOf("="), k = at < 0 ? kv : kv.slice(0, at), v = at < 0 ? undefined : kv.slice(at + 1);
-    if (!ownKey(kv)) refuse(`"${visible(k)}" is a key for all projects, and name=, archived=, start= and lint_offer= are keys of one logbook: set them in a config command of their own.`);
+    if (!ownKey(kv)) refuse(`"${visible(k)}" is a key for all projects, and name=, archived=, start=, lint_offer=, commit_email= and commit_name= are keys of one logbook: set them in a config command of their own.`);
     if (v === undefined) refuse(`${k} needs a value: write ${k}=<value>`);
     if (k === "name") {
       const name = v.normalize("NFC"), why = name && nameProblem(name);
       if (why) refuse(`the name "${visible(name)}" ${why}. Nothing changed.`);
       set.name = name || undefined;
     } else if (k === "lint_offer") set.lint_offer = v === "never" ? v : v === "ask" ? undefined : refuse(`lint_offer is never or ask, not "${visible(v)}". Nothing changed.`);
+    else if (k === "commit_email") set.commit_email = !v ? undefined : COMMIT_EMAIL.test(v) ? v : refuse(`commit_email is one email address with no space, quote or $, such as 12345+name@users.noreply.github.com, not "${visible(v)}". Nothing changed.`);
+    else if (k === "commit_name") set.commit_name = !v.trim() ? undefined : COMMIT_NAME.test(v.trim()) ? v.trim() : refuse(`commit_name is 1 to 100 characters with no control character, single quote, < or >, not "${visible(v)}". Nothing changed.`);
     else if (k === "start") set.start = v === START_SAGE_MODE ? v : v === "normal" ? undefined : refuse(`start is ${START_SAGE_MODE} or normal, not "${visible(v)}". Nothing changed.`);
     else set.archived = v === "yes" ? true : v === "no" ? undefined : refuse(`archived is yes or no, not "${visible(v)}". Nothing changed.`);
   }
   const next = { ...logbookJson(dir), ...set };
   for (const k of Object.keys(set)) if (set[k] === undefined) delete next[k];
   swap(join(dir, "config.json"), JSON.stringify(next, null, 2) + "\n");
-  return `name=${visible(typeof next.name === "string" ? next.name : "")} archived=${next.archived === true ? "yes" : "no"} start=${next.start === START_SAGE_MODE ? START_SAGE_MODE : "normal"}${next.lint_offer === "never" ? " lint_offer=never" : ""}`;
+  return `name=${visible(typeof next.name === "string" ? next.name : "")} archived=${next.archived === true ? "yes" : "no"} start=${next.start === START_SAGE_MODE ? START_SAGE_MODE : "normal"}${next.lint_offer === "never" ? " lint_offer=never" : ""}${next.commit_email ? ` commit_email=${visible(next.commit_email)}` : ""}${next.commit_name ? ` commit_name=${visible(next.commit_name)}` : ""}`;
 }
 
 
