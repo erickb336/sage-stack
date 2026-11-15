@@ -100,7 +100,7 @@ header.top { position: sticky; top: 0; z-index: 20; height: 52px; display: flex;
 
 .ms { list-style: none; margin: 0; padding: 6px 0; }
 .ms > li { display: grid; grid-template-columns: 18px minmax(0, 1fr) minmax(80px, 150px) auto; gap: 14px; align-items: center; padding: 12px 18px; }
-.ms .name { font-weight: 500; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.ms .name { font-weight: 500; display: flex; align-items: baseline; gap: 4px 8px; }
 .ms .name a { min-width: 0; overflow-wrap: break-word; }
 .needs, .ms, .banner { overflow-wrap: anywhere; }
 .ms .goal { font-size: 12.5px; color: var(--muted); margin-top: 1px; }
@@ -500,6 +500,7 @@ input:not([type]), input[type="text"] { font: inherit; color: inherit; backgroun
 @media (max-width: 760px) {
   .ms > li { grid-template-columns: 18px minmax(0, 1fr) auto; row-gap: 6px; }
   .ms .bar { grid-column: 2; }
+  .ms .name { flex-wrap: wrap; }
   .row { grid-template-columns: 34px minmax(0, 1fr) 52px 92px; row-gap: 4px; }
   .row .chief { grid-column: 2; }
   .row .step { grid-column: 3 / -1; white-space: normal; }

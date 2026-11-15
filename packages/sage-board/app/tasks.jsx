@@ -24,7 +24,6 @@ const FILTERS = [
   ["state", "State", task => task.word ?? NONE],
 ];
 
-// A step that needs you or has a problem carries its mark, so it reads without colour; its word is for screen readers.
 function StepMark({ status }) {
   const step = shown(STEPS[status]);
   return step.word === "needs you" || step.flag ? <><span aria-hidden="true">{step.mark} </span><span className="sr">{step.text}: </span></> : null;

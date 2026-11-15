@@ -43,8 +43,6 @@ async function board(t, { question = false } = {}) {
   return `http://127.0.0.1:${port}`;
 }
 
-// Wide, a title may end in an ellipsis that keeps room for its first words; narrow, it wraps.
-// Each app page, the element that is ready when its rows show, and the elements that carry a task's title.
 const PAGES = [
   ["overview", "/app/#", ".needs .q", ".needs .q, .ms .name a"],
   ["tasks", "/app/#tasks", ".row", ".row .text"],
@@ -67,7 +65,6 @@ test("T1099 F-T1099-46, F-T1099-36, F-T1099-44, F-T1099-65, F-T1099-69: every ap
       await page.locator(ready).first().waitFor();
       const seen = await page.evaluate(titles => {
         const view = document.documentElement.clientWidth;
-        // An element that ends past the window's right edge is cut, also when an ancestor hides the overflow.
         const cut = [...document.querySelectorAll("body *")].filter(element => {
           const box = element.getBoundingClientRect();
           return box.width > 0 && box.height > 0 && box.right > view + 0.5 && getComputedStyle(element).position !== "fixed";
@@ -80,7 +77,6 @@ test("T1099 F-T1099-46, F-T1099-36, F-T1099-44, F-T1099-65, F-T1099-69: every ap
         return { wide: document.documentElement.scrollWidth - view, cut: [...new Set(cut)].slice(0, 8), shown };
       }, titles);
       const where = `${name} at ${width} px`, room = Math.min(120, width / 4);
-      // Below 760 px a title wraps instead of ending in an ellipsis; a wrapped title keeps room for whole words.
       const narrow = seen.shown.filter(title => title.width < 1 || (title.cut && (width <= 760 || title.width < room)) || (title.lines > 1 && title.width < room));
       if (seen.wide > 0) wrong.push(`${where}: scrolls sideways by ${seen.wide} px`);
       if (seen.cut.length) wrong.push(`${where}: cut at the right edge: ${seen.cut.join(", ")}`);

@@ -250,7 +250,6 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
         for (const slot of notes.slots) for (const row of rows.filter(row => row.source === id && row.slot?.name === slot.name)) {
           const key = row.logbook && row.runId ? `${row.logbook}/${row.runId}` : null, was = key ? activity.get(key)?.activity : row.activity;
           if (was === undefined || was === slot.at) continue;
-          // A quiet agent wakes; the old Agents page shows "last activity" only from a full read.
           if (was === null || at - was >= AGENT_QUIET_MS || oldAgentsOpen) schedule();
           if (key) update(key, { activity: slot.at });
         }
