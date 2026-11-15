@@ -249,8 +249,8 @@ test("T1096: the board app and the message command take their words from the tab
   for (const file of readers) assert.doesNotMatch(readFileSync(join(ROOT, file), "utf8"), /"not started", "waiting", "needs you"|"needs you", "in progress", "waiting"|not known"|#\$\{[^}]*\.pr\}|[○⧗▶■◫◎◌]/, file);
 });
 
-test("F-T1096-1, F-T1096-12: the task page and the chat lookup show each run's word and flag from the table, never the tool's status", () => {
-  const STATUSES = { failed: "stopped · failed", blocked: "stopped · blocked", done: "done", question: "done", queued: "waiting", running: "in progress" };
+test("F-T1096-1, F-T1096-12, F-T1099-49: the task page and the chat lookup show each run's word and flag from the table, never the tool's status; a run that ended on a question needs you", () => {
+  const STATUSES = { failed: "stopped · failed", blocked: "stopped · blocked", done: "done", question: "needs you", queued: "waiting", running: "in progress" };
   const runs = Object.keys(STATUSES).map((status, i) => ({ id: `R${i + 1}`, task: "T1", role: "qa", round: "0", status, started: now, ended: status === "running" || status === "queued" ? "" : now, tokens: "1" }));
   const board = buildBoardModel([{ id: "one", label: "one", diagnostics: [], config: {}, projects: [{ key: "one/sample-abcdef", name: "sample-abcdef", diagnostics: [], tables: { tasks: [task("T1", "reviewing", { pr: "41" })], runs }, observations: { version: 1, records: [] } }] }], { now });
   const card = board.tasks[0], page = renderBoardHtml(board, { snapshot: false, taskKey: card.key }), chat = renderTaskText(card);

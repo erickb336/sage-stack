@@ -333,6 +333,7 @@ input:not([type]), input[type="text"] { font: inherit; color: inherit; backgroun
 .lbar { position: absolute; top: 9px; height: 8px; border-radius: 4px; background: var(--run); }
 .lbar.done { background: var(--done); }
 .lbar.failed, .lbar.look { background: var(--fail); }
+.lbar.question { background: var(--need); }
 .lbar.queued { background: none; border: 1.5px dashed var(--need); }
 .legend .lbar { position: static; display: inline-block; width: 18px; }
 .none { font-size: 12.5px; color: var(--faint); }
@@ -364,6 +365,7 @@ input:not([type]), input[type="text"] { font: inherit; color: inherit; backgroun
 .bd { position: absolute; top: -5px; right: -5px; min-width: 15px; height: 15px; border-radius: 8px; font-size: 10px; font-weight: 700; display: grid; place-items: center; color: var(--card); }
 .s-fail .bd { background: var(--fail); }
 .s-done .bd { background: var(--done); }
+.s-need .bd { background: var(--need); }
 .cm { font-family: var(--mono); font-size: 12px; font-weight: 700; }
 .chief-h .tile { background: var(--text); border-color: var(--text); color: var(--card); }
 .chief-h .s-stop .tile { background: none; border-color: var(--muted); color: var(--muted); }

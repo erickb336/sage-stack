@@ -28,8 +28,8 @@ const GLYPHS = {
 };
 const OTHER = <><circle cx="12" cy="12" r="7.5" /><path d="M12 8.5v4M12 15.5v.1" /></>;
 export const Glyph = ({ role }) => <svg className="gl" viewBox="0 0 24 24" aria-hidden="true">{GLYPHS[role] ?? OTHER}</svg>;
-export const ringOf = run => run.status === "queued" ? "queue" : run.status === "running" ? run.look ? "fail" : run.state === "wait" ? "wait" : "run" : ["done", "question"].includes(run.status) ? "done" : "fail";
-const MARK = { fail: MARKS.problem, done: MARKS.done };
+export const ringOf = run => run.status === "queued" ? "queue" : run.status === "running" ? run.look ? "fail" : run.state === "wait" ? "wait" : "run" : run.status === "done" ? "done" : run.status === "question" ? "need" : "fail";
+const MARK = { fail: MARKS.problem, done: MARKS.done, need: MARKS["needs you"] };
 
 export function Ring({ ring, children, label, small = false }) {
   return (
@@ -42,7 +42,7 @@ export function Ring({ ring, children, label, small = false }) {
 }
 
 export const stateText = run => run.status === "queued" ? `${runWord("queued").text} · ${ordinal(run.place ?? 0)} in the queue` : run.status !== "running" ? runWord(run.status).text : STATE[run.state] ?? STATE.unk;
-const badgeOf = run => run.status === "queued" ? "queued" : run.status !== "running" ? run.status === "done" ? "done" : "failed" : run.look ? "look" : "running";
+const badgeOf = run => run.status === "queued" ? "queued" : run.status !== "running" ? run.status === "done" ? "done" : run.status === "question" ? "needs-you" : "failed" : run.look ? "look" : "running";
 export const StateBadge = ({ run }) => <span className={`badge ${badgeOf(run)}`} title={run.status === "running" ? run.why ?? undefined : undefined}>{stateText(run)}</span>;
 
 export const AgentRing = ({ run, now, small }) => <Ring ring={ringOf(run)} small={small} label={small ? undefined : `${run.role}, ${stateText(run)}${run.status === "queued" ? "" : `, ${age(run, now)}`}`}><Glyph role={run.role} /></Ring>;

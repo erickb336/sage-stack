@@ -4,7 +4,7 @@ import { chiefState, chiefSub, ofChief, readLink, taskLink } from "./task.jsx";
 import { MARKS, OBJECTS, chiefName, runWord, shown } from "../../sage-core/state-words.mjs";
 
 const MIN = 60_000, SEATS_MAX = 30;
-const LEGEND = [["running", "running"], ["done", "done"], ["failed", "failed"], ["look", "stuck"], ["queued", "queued"]].map(([bar, state]) => [bar, shown(OBJECTS.agent.states[state]).text]);
+const LEGEND = [["running", "running"], ["done", "done"], ["question", "question"], ["failed", "failed"], ["look", "stuck"], ["queued", "queued"]].map(([bar, state]) => [bar, shown(OBJECTS.agent.states[state]).text]);
 const chiefKey = id => id ?? "none";
 const chiefTitle = chief => chief.id ? chiefName(chief.id, chief.provider) : chief.name;
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -212,7 +212,7 @@ function Timeline({ groups, now }) {
             <p className="lane-h">{group.title}</p>
             {group.lanes.map(({ run, indent }) => {
               const from = Date.parse(run.started), to = run.ended ? Date.parse(run.ended) : now;
-              const bar = run.status === "queued" ? "queued" : run.status === "running" ? run.look ? "look" : "running" : run.status === "done" ? "done" : "failed";
+              const bar = run.status === "queued" ? "queued" : run.status === "running" ? run.look ? "look" : "running" : ["done", "question"].includes(run.status) ? run.status : "failed";
               return (
                 <div className="lane" key={run.id}>
                   <span className={`lane-l${indent ? " in" : ""}`}><AgentRing run={run} now={now} small /><span>{run.role} <span className="mono faint">{run.id}</span></span></span>

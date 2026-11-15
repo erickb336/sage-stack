@@ -98,7 +98,7 @@ test("T1062: J4 is one click from the Overview: the top bar counts open the Agen
   assert.deepEqual(await page.locator(".timeline .lane-group").first().locator(".lane-l").evaluateAll(lanes => lanes.map(lane => lane.textContent)),
     ["lead R25", "implementer R26", "ux-reviewer R27", "lead R20", "implementer R21", "code-reviewer R22", "security-reviewer R23", "qa R24", "implementer R33"]);
   assert.equal(await page.locator(".timeline .lbar.queued").count() - 1, 3, "a dashed bar for each queued run, and one in the legend");
-  assert.deepEqual(await page.locator(".timeline .legend li").allTextContents(), ["in progress", "done", "stopped · failed", "in progress · may be stuck", "waiting"], "F-T1096-7: the legend uses the table's words");
+  assert.deepEqual(await page.locator(".timeline .legend li").allTextContents(), ["in progress", "done", "needs you", "stopped · failed", "in progress · may be stuck", "waiting"], "F-T1096-7: the legend uses the table's words");
   await shoot(page, "agents-dark.png");
   assert.deepEqual(requests.filter(url => !url.startsWith(`${base}/`)), [], "no request outside 127.0.0.1");
   assert.deepEqual(problems, [], "no script error and no CSP refusal");
