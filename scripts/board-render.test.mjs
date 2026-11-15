@@ -180,6 +180,19 @@ test("T218: a severity or run status outside the closed list gets the neutral cl
   assert.ok(page.includes('<span class="sev other">x needs</span>'));
 });
 
+test("T1099 (F-T1099-59, F-T1099-60): the chat task lookup says unknown for a severity outside the list and for a blank evidence field, never a raw word or an empty field", () => {
+  const data = sample([row("T1", "reviewing", { pr: "9" })], {
+    findings: [{ task: "T1", key: "F-T1-1", severity: "weird", summary: "Sample odd", status: "open" }, { task: "T1", key: "F-T1-2", severity: "low", summary: "Sample low", status: "open" }],
+    ledger: [{ task: "T1", pr: "9", sha: "c".repeat(40), kind: "checks-pass", cycle: "1", run: "", at }],
+  });
+  const text = renderTaskText(data.tasks[0]);
+  assert.match(text, /^severity unknown · Sample odd · open$/m);
+  assert.match(text, /^low · Sample low · open$/m);
+  assert.doesNotMatch(text, /weird/);
+  assert.match(text, new RegExp(`^checks-pass · cycle 1 · ${"c".repeat(40)} · run unknown · `, "m"));
+  assert.doesNotMatch(text, / · {2}· /, "no blank field between two dots");
+});
+
 test("T218: the chat board shows 5 cards a column in the page's order, with the card's cycle, clamped titles and the page's words", () => {
   const long = "Sample long title ".repeat(8);
   const tasks = [
