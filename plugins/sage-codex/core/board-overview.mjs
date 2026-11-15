@@ -59,9 +59,9 @@ const milestoneNeed = need => ({
 });
 
 const chiefTag = (task, chiefs, chief = task.owner && chiefs.find(item => item.key === `${task.project}/${task.owner.id}`)) => task.owner ? { id: task.owner.id, provider: title(task.owner.provider) || null, stopped: chief?.stopped ?? null, waits: !!chief?.waitsForOwner }
-  : task.old ? { id: null, provider: title(task.old.provider), stopped: null } : task.shared ? null : { id: null, provider: title(task.providerStandIn), stopped: null };
+  : task.old ? { id: null, provider: title(task.old.provider), stopped: null, old: task.old.label } : task.shared ? null : { id: null, provider: title(task.providerStandIn), stopped: null };
 const QUIET = ["done", "wait"];
-const stepOf = task => task.loop?.steps.find(step => !QUIET.includes(step.status)) ?? null;
+const stepOf = task => task.loop.steps.find(step => !QUIET.includes(step.status)) ?? null;
 const CI = { done: "pass", failed: "fail" };
 
 function cyclesOf(task) {
@@ -77,7 +77,7 @@ function findingsOf(task) {
 }
 
 function taskRow(task, chiefs) {
-  const step = task.route ? stepOf(task) : null;
+  const step = stepOf(task);
   return {
     key: task.key, id: task.id, title: task.title, project: task.projectName, state: task.state, word: task.word ?? null, ended: ENDED.includes(task.state),
     priority: task.priority || null, kind: task.kind || null, size: task.size || null, pr: task.pr || null,
@@ -157,7 +157,8 @@ export function boardOverview(model) {
 }
 
 const LOG_MAX = 200;
-const firstLine = text => String(text ?? "").split(LINE)[0].trim();
+const lines = text => String(text ?? "").split(LINE).map(line => line.trim()).filter(Boolean);
+const firstLine = text => lines(text)[0] ?? "";
 
 function logOf(task) {
   const events = [
@@ -175,18 +176,21 @@ export function taskPanel(model, key) {
   const task = model.tasks.find(item => item.key === key);
   if (!task) return null;
   const chiefs = (model.projects ?? []).flatMap(project => (project.chiefs ?? []).map(chief => ({ ...chief, project: project.name })));
-  const log = logOf(task);
+  const log = logOf(task), waiting = new Set(task.reasons.map(reason => reason.gateId));
+  const steps = task.loop.steps.map(step => ({ key: step.key, label: step.label, status: step.status, detail: step.detail, parts: (step.parts ?? []).map(([name, status]) => ({ name, status })) }));
   return {
     ...taskRow(task, chiefs),
     at: model.at,
     route: task.route ? task.route.split(",") : [], risk: task.risk || null, branch: task.branch || null,
     logbook: task.project.slice(task.project.indexOf("/") + 1),
     conflicts: task.mayConflict.map(other => ({ key: other.key, id: other.id, chief: other.chief, paths: other.paths })),
-    steps: task.route ? task.loop.steps.map(step => ({ key: step.key, label: step.label, status: step.status, detail: step.detail, parts: (step.parts ?? []).map(([name, status]) => ({ name, status })) })) : [],
-    now: task.route ? task.loop.now.text : "The logbook records no route for this task, so the board shows no steps.", next: task.route ? task.loop.next : null,
+    steps,
+    now: (task.loop.now.needs ? task.reasons.flatMap(reason => [...lines(reason.text), ...(reason.recommendation ? [`I recommend: ${reason.recommendation}`] : [])]) : lines(task.loop.now.text))
+      .filter(line => !steps.some(step => step.detail === line)),
+    next: task.loop.next,
     lastEvent: log[0] ?? null,
     log: log.slice(0, LOG_MAX), logMore: Math.max(0, log.length - LOG_MAX),
-    decisions: [...(task.gateRows ?? [])].reverse().map(gate => ({ id: gate.id, question: firstLine(gate.question), answer: gate.answer || null, pending: boardAnswer(gate)?.answer ?? null, recommendation: gate.recommendation || null, at: iso(gate.at) })),
+    decisions: [...(task.gateRows ?? [])].reverse().map(gate => ({ id: gate.id, question: firstLine(gate.question), answer: gate.answer || null, pending: boardAnswer(gate)?.answer ?? null, recommendation: gate.recommendation || null, waits: waiting.has(gate.id), at: iso(gate.at) })),
     artifacts: task.artifacts.map(record => ({ id: record.id, type: record.data.type, label: record.data.label, run: record.data.run ?? null, at: iso(record.observedAt),
       url: /^https:\/\//.test(record.data.url ?? "") ? record.data.url : null, path: record.data.path ?? null, verified: !!record.content?.verified })),
     runs: task.runs.map(run => ({ id: run.id, role: run.role })),
