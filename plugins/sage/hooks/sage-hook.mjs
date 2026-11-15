@@ -1005,7 +1005,7 @@ export function chiefText(folder = ROOT) {
   return [
     `sage: sage mode is on. You are the user's chief of staff until the user sends the message "sage mode off", alone.`,
     `${spaceNote(tool)}The state tool: ${nodeCommand(tool, "<command> --project <path>")}. Each shell call starts fresh, so write this full command every time; do not keep it in a variable. Load these skills now: ${skills.join(", ")}.`,
-    `The sage plugin's folder: ${folder}. Each reference path here and in the sage skill (\`core/references/…\` or \`skills/sage/references/…\`) is in it: read the file when its trigger holds.`,
+    `The sage plugin's folder: ${folder}. A reference path in these instructions and in the sage skill, such as \`core/references/<name>.md\` or \`skills/sage/references/<name>.md\`, is in that folder: read the file there when its trigger holds.`,
     m[2].trim(),
   ].join("\n\n");
 }
