@@ -279,3 +279,45 @@ test("T931: the stash, process and board rules give the same plain reason in bot
   writeFileSync(join(fakes, "ps"), "#!/bin/sh\necho fake ps\n", { mode: 0o755 });
   for (const role of AGENT) assert.equal(ROLES[role](`${fakes}/ps -p 1`), undefined, role);
 });
+
+test("T1103: with the logbook setting commit_email, both hooks refuse an agent's commit without that identity on the command", () => {
+  const EMAIL = "12345+someone@users.noreply.github.com", ID = `-c user.name='Some One' -c user.email=${EMAIL}`;
+  const FORM = (sub) => `git -c user.name='Some One' -c user.email=${EMAIL} ${sub} <its arguments>`;
+  const scratchHome = join(BASE, "agent-scratch-home");
+  for (const role of AGENT) assert.equal(ROLES[role](`HOME=${scratchHome} git -C ${T} commit -m x`), undefined, `${role}: no setting, no guard`);
+  assert.throws(() => claude.sage(["config", "commit_email=$EMAIL", "--project", PROJECT, "--chief", C1], env), /commit_email is one email address/);
+  assert.match(claude.sage(["config", `commit_email=${EMAIL}`, "commit_name=Some One", "--project", PROJECT, "--chief", C1], env), new RegExp(` commit_email=${EMAIL.replace(/[.+]/g, "\\$&")} commit_name=Some One$`));
+  try {
+    assert.equal(codex.storeDir(PROJECT, env), LOGBOOK);
+    const REFUSED_COMMITS = [
+      [`HOME=${scratchHome} git -C ${T} commit -m x`, "commit", /the command sets no email/],
+      [`git -C ${T} commit -m x`, "commit", /the command sets no email/],
+      [`git -C ${T} -c user.email=someone@build-host.local commit -m x`, "commit", /the author email would be "someone@build-host\.local", and the committer email would be "someone@build-host\.local"/],
+      [`git -C ${T} commit -c user.email=${EMAIL} -m x`, "commit", /the command sets no email/],
+      [`git -C ${T} ${ID} commit --author 'Other <other@build-host.local>' -m x`, "commit", /the author email would be "other@build-host\.local"\./],
+      [`GIT_COMMITTER_EMAIL=other@build-host.local git -C ${T} ${ID} commit -m x`, "commit", /the committer email would be "other@build-host\.local"\./],
+      [`env GIT_AUTHOR_EMAIL=other@build-host.local git -C ${T} ${ID} merge origin/main`, "merge", /the author email would be/],
+      [`git -C ${T} add -A && git -C ${T} commit -m x`, "commit", /sets no email/],
+      ...["merge origin/main", "cherry-pick HEAD", "revert HEAD", "am x.patch", "rebase main", "pull origin main", "commit-tree HEAD^{tree} -m x"].map((args) => [`git -C ${T} ${args}`, args.split(" ")[0], /sets no email/]),
+    ];
+    for (const [command, sub, why] of REFUSED_COMMITS) {
+      const claudeWhy = ROLES["claude agent"](command);
+      assert.match(claudeWhy ?? "passed", new RegExp(`^sage: an agent commits only with the project's no-reply identity \\(the logbook setting commit_email\\), so this git ${sub} is refused: `), command);
+      assert.match(claudeWhy, why, command);
+      assert.ok(claudeWhy.endsWith(`before the subcommand: ${FORM(sub)}.`), `${command}: ${claudeWhy}`);
+      assert.equal(ROLES["codex agent"](command), claudeWhy.replace(/\.$/, ""), command);
+    }
+    const open = `git -C ${T} commit -m "$(date`, openWhy = ROLES["claude agent"](open);
+    assert.match(openWhy ?? "passed", /^sage: the hook cannot read this command .*Its text names a git command that can write a commit\. Run it plainly, with the identity on the command: git -c user\.name='Some One' -c user\.email=12345\+someone@users\.noreply\.github\.com commit <its arguments>\.$/);
+    assert.equal(ROLES["codex agent"](open), openWhy.replace(/\.$/, ""));
+    for (const command of [`git -C ${T} ${ID} commit -m x`, `git ${ID} -C ${T} commit --allow-empty -m 'x'`, `git -C ${T} -c user.email=${EMAIL.toUpperCase()} merge origin/main`,
+      `GIT_AUTHOR_EMAIL=${EMAIL} GIT_COMMITTER_EMAIL=${EMAIL} git -C ${T} commit -m x`, `git -C ${T} ${ID} commit --author 'Some One <${EMAIL}>' -m x`,
+      `git -C ${T} rebase --abort`, `git -C ${T} merge-tree main sage/t1-a`, `git -C ${T} log -1`, `git -C ${T} status`]) {
+      for (const role of AGENT) assert.equal(ROLES[role](command), undefined, `${role} · ${command}`);
+    }
+    for (const role of CHIEFS) assert.doesNotMatch(ROLES[role](`git -C ${T} commit -m x`) ?? "passed", /no-reply identity/, role);
+  } finally {
+    claude.sage(["config", "commit_email=", "commit_name=", "--project", PROJECT, "--chief", C1], env);
+  }
+  for (const role of AGENT) assert.equal(ROLES[role](`git -C ${T} commit -m x`), undefined, `${role}: the setting is gone`);
+});

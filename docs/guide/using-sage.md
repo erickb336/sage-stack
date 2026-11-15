@@ -298,6 +298,18 @@ In Claude Code only, the older way still works: put this in the folder's `.claud
 
 It starts each session in that folder as the chief, and `sage mode off` holds there too. Prefer the setting: it works in both providers. To stop, remove the line.
 
+## The commit identity of agents
+
+To keep a personal or machine-name email out of a public repository, ask the chief to set the project's commit identity, for example:
+
+```sh
+sage config commit_email=12345+name@users.noreply.github.com commit_name="Your Name"
+```
+
+- In Claude and Codex, the hook then refuses an agent's `git commit`, `merge`, `pull`, `cherry-pick`, `revert`, `am`, `rebase` or `commit-tree` without that identity before the subcommand: `git -c user.name='Your Name' -c user.email=12345+name@users.noreply.github.com commit ...`. The refusal prints this form with the project's values.
+- Without the setting, the hook checks no commit identity. `commit_email=` alone removes it.
+- The chief's own commits, a git alias and an identity from an exported variable are not checked.
+
 ## To update sage
 
 Run this command in a terminal:

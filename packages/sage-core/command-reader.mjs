@@ -160,10 +160,12 @@ const pathAssignment = (word, path) => word.slice(5).replace(/\$\{?PATH\}?(?!\w)
 function wrapperArguments(words, next, wrapper, path, dir) {
   if (NPM_WRAPPERS.has(wrapper)) return { ...npmArguments(words, next, wrapper), path, dir };
   let chdir;
+  const vars = [];
   while (next < words.length) {
     const word = words[next];
     if (wrapper === "sudo" && !word.startsWith("-") && word[0] !== "/" && word[0] !== "=" && word.includes("=")) {
       if (/^PATH=/.test(word)) path = pathAssignment(word, path);
+      vars.push(word);
       next++;
       continue;
     }
@@ -202,9 +204,10 @@ function wrapperArguments(words, next, wrapper, path, dir) {
     while (words[next]?.includes("=")) {
       const word = words[next++];
       if (/^PATH=/.test(word)) path = pathAssignment(word, path);
+      vars.push(word);
     }
   }
-  return { next, path, dir: chdir === undefined ? dir : resolve(dir, chdir), absoluteDir: chdir?.startsWith("/") };
+  return { next, path, vars, dir: chdir === undefined ? dir : resolve(dir, chdir), absoluteDir: chdir?.startsWith("/") };
 }
 
 function readPrograms(command, dir, path, depth, found, uncertainDirectory = false) {
@@ -224,6 +227,7 @@ function readPrograms(command, dir, path, depth, found, uncertainDirectory = fal
     const words = [...c.words];
     let launched = false;
     let here = path;
+    const vars = [];
     let at = dir;
     let viaExec = false;
     let argv = false;
@@ -234,6 +238,7 @@ function readPrograms(command, dir, path, depth, found, uncertainDirectory = fal
       const assignment = !argv && syntax[k]?.assignment;
       const keyword = !argv && !syntax[k]?.quoted;
       if (assignment && /^PATH=/.test(w)) here = pathAssignment(w, here);
+      if (assignment) vars.push(w);
       if (keyword && w === "!") negate = !negate;
       if (assignment || (keyword && KEYWORD.test(w))) continue;
       if (keyword && LIST.test(w)) break;
@@ -265,6 +270,7 @@ function readPrograms(command, dir, path, depth, found, uncertainDirectory = fal
         if (wrapper === "command" && words.slice(k + 1, wrapped.next).some((o) => /^-[pvV]*[vV]/.test(o))) break;
         k = wrapped.next - 1;
         here = wrapped.path;
+        vars.push(...(wrapped.vars ?? []));
         if (wrapped.dir !== at && wrapped.absoluteDir) uncertain = false;
         at = wrapped.dir;
         if (wrapped.call) {
@@ -285,7 +291,7 @@ function readPrograms(command, dir, path, depth, found, uncertainDirectory = fal
       }
       const pipes = commands.filter((p) => p.pipeTo === c);
       const stdin = [...bodies, ...pipes.map((p) => p.words.join(" "))];
-      emit({ word: w, file: w === "kill" && !viaExec ? undefined : file, args, dir: at, path: here, stdin, piped: pipes.length > 0 }, false, uncertain);
+      emit({ word: w, file: w === "kill" && !viaExec ? undefined : file, args, dir: at, path: here, vars, stdin, piped: pipes.length > 0 }, false, uncertain);
       const texts = name === "eval" && (viaExec || w !== "eval") ? [] : commandText(name, args, bodies);
       for (const text of texts) inner(text, at, here, uncertain);
       const exec = [name, file && programName(file)].includes("find") ? args.findIndex((a) => /^-(?:exec|execdir|ok|okdir)$/.test(a)) : -1;
