@@ -2,7 +2,7 @@ import { realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { programsRun } from "./command-reader.mjs";
-import { gitSubcommand, programName, unreadable } from "./command-policy.mjs";
+import { GIT_VALUE, gitSubcommand, programName, unreadable } from "./command-policy.mjs";
 import { canonical } from "./protected-paths.mjs";
 import { commandWrites, gitDestroysWork } from "./shell-write-policy.mjs";
 import { worktreeRoot } from "./worktrees.mjs";
@@ -37,19 +37,62 @@ export const READ_ONLY_SHELL_WAY = "To keep output or a probe, redirect it into 
 const inTemp = (file) => !!file && TEMP.some((t) => file.startsWith(`${t}/`));
 const PROCESS_TEXT = new RegExp(`(?:^|[\\s;&|(\`'"/<>])(?:${UNIX_PROCESS}|${POWERSHELL_PROCESS})(?:\\.exe)?(?=$|[\\s;&|)\`'"<>])`, "im");
 
-export function agentCommandProblem(command, cwd, path = process.env.PATH ?? "") {
+const COMMIT_WORDS = "commit|commit-tree|merge|pull|cherry-pick|revert|am|rebase";
+const COMMITS = new RegExp(`^(?:${COMMIT_WORDS})$`);
+const STOPS = /^--(?:abort|quit)$/;
+const sh = (text) => /^[\w.@+-]+$/.test(text) ? text : `'${text.replace(/'/g, "'\\''")}'`;
+const IDENTITY_FORM = ({ email, name }, sub = "commit") => `git ${name ? `-c user.name=${sh(name)} ` : ""}-c user.email=${sh(email)} ${sub} <its arguments>`;
+const NO_IDENTITY = (identity, sub, used) => `an agent commits only with the project's no-reply identity (the logbook setting commit_email), so this git ${sub} is refused: ${used}. With HOME in a scratch folder, git cannot read the global config and falls back to a machine-name email. Pass the identity on the command, before the subcommand: ${IDENTITY_FORM(identity, sub)}.`;
+function commitEmails(args, vars) {
+  const config = {}, env = {};
+  let k = 0;
+  for (; args[k]?.startsWith("-"); k += GIT_VALUE.test(args[k]) ? 2 : 1) {
+    if (args[k] !== "-c") continue;
+    const at = String(args[k + 1] ?? "").indexOf("=");
+    if (at > 0) config[args[k + 1].slice(0, at).toLowerCase()] = args[k + 1].slice(at + 1);
+  }
+  for (const word of vars) env[word.slice(0, word.indexOf("="))] = word.slice(word.indexOf("=") + 1);
+  let author;
+  for (let j = k + 1; j < args.length && args[j] !== "--"; j++) {
+    if (args[j] === "--author") author = args[++j] ?? "";
+    else if (args[j].startsWith("--author=")) author = args[j].slice(9);
+  }
+  return {
+    sub: args[k] ?? "",
+    rest: args.slice(k + 1),
+    author: author !== undefined ? (/<([^<>]*)>\s*$/.exec(author)?.[1] ?? author) : env.GIT_AUTHOR_EMAIL ?? config["author.email"] ?? config["user.email"],
+    committer: env.GIT_COMMITTER_EMAIL ?? config["committer.email"] ?? config["user.email"],
+  };
+}
+function identityProblem(args, vars, identity) {
+  const { sub, rest, author, committer } = commitEmails(args, vars);
+  if (!COMMITS.test(sub) || rest.some((a) => STOPS.test(a))) return undefined;
+  const wanted = identity();
+  if (!wanted) return undefined;
+  const same = (email) => typeof email === "string" && email.toLowerCase() === wanted.email.toLowerCase();
+  if (same(author) && same(committer)) return undefined;
+  const used = author === undefined && committer === undefined ? "the command sets no email, so git would take it from a config file or the machine's name"
+    : [["author", author], ["committer", committer]].filter(([, email]) => !same(email)).map(([who, email]) => email === undefined ? `it sets no ${who} email` : `the ${who} email would be ${quoted(email)}`).join(", and ");
+  return NO_IDENTITY(wanted, sub, used);
+}
+
+export function agentCommandProblem(command, cwd, path = process.env.PATH ?? "", { identity = () => undefined } = {}) {
   let runs;
   try {
     runs = programsRun(command, cwd, path);
   } catch (e) {
     const text = bare(command), program = PROCESS_TEXT.exec(text)?.[0].replace(/^\W/, "");
-    const [what, why] = gitThen(text, "stash") ? ["git stash", NO_STASH] : program ? [`a process program (${quoted(program)})`, NO_PROCESS(program)] : [];
+    const commits = COMMIT_WORDS.split("|").some((word) => gitThen(text, word)) && identity();
+    const [what, why] = gitThen(text, "stash") ? ["git stash", NO_STASH] : program ? [`a process program (${quoted(program)})`, NO_PROCESS(program)]
+      : commits ? ["a git command that can write a commit", `run it plainly, with the identity on the command: ${IDENTITY_FORM(commits)}.`] : [];
     return why && `${unreadable(e, what)} ${why[0].toUpperCase()}${why.slice(1)}`;
   }
-  for (const { word, file, args } of runs) {
+  for (const { word, file, args, vars = [] } of runs) {
     const name = programName(word);
     if (name === "git" && /^stash$/i.test(gitSubcommand(args, 0))) return NO_STASH;
     if ((isProcess(name) || isProcess(file ?? "")) && !inTemp(file)) return NO_PROCESS(word);
+    const commit = name === "git" ? identityProblem(args, vars, identity) : undefined;
+    if (commit) return commit;
   }
   return undefined;
 }
