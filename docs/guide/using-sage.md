@@ -32,7 +32,7 @@ These words work inside a request. They switch nothing:
 | --- | --- |
 | `arena` or `arena <n>`, for example `arena 4` | The chief runs an [arena](how-it-works.md#the-arena) for the design: 3 candidates by default, or the number that you give, and a judge that combines them. A large task of kind ui or design gets an arena by default. |
 | `no arena` | For a large task of kind ui or design: the chief frames it with one designer and no arena, and the state tool keeps your reason. |
-| Archive this project, or restore it | The chief sets `config archived=yes` (or `no`) for the chat's own project, and the logbook records the date. An archived project keeps its whole logbook and lets running agents finish, but it takes no new task or run, ends its queued runs as failed, and merges nothing. When you ask for new work there, the chief restores it first and tells you in one line. |
+| Archive this project, or restore it | The chief sets `config archived=yes` (or `no`) for the chat's own project, and the logbook records the date. An archived project keeps its whole logbook and lets running agents finish, but it takes no new task or run, ends its queued runs as failed, and merges nothing. When you ask for new work there, the chief restores it first and tells you in one line; the [board](board.md#archive-a-project) archives and restores any project. |
 
 <a href="../assets/tip-start-light.svg">
 <picture>
