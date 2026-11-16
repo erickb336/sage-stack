@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stop band-aid fixes inside the task flow: design</title>
+<style>
+:root{
+  --bg:#fafafa;--card:#fff;--card-2:#f7f7f8;--line:#e4e4e7;--line-2:#d4d4d8;
+  --text:#18181b;--muted:#52525b;--faint:#63636d;--accent:#4f46e5;--accent-fill:#eef0ff;
+  --done:#136c34;--done-fill:#e8f5ec;--need:#8f5106;--need-fill:#fdf3e1;--fail:#b91c1c;--fail-fill:#fdecec;--run:#1d4ed8;
+  --font:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text)}
+body{font:16px/1.55 var(--font);-webkit-font-smoothing:antialiased;font-feature-settings:"tnum" 1}
+main{max-width:1160px;margin:0 auto;padding:40px 24px 64px}
+.prose{max-width:720px}
+h1{font-size:32px;line-height:1.2;margin:0 0 10px;letter-spacing:-.015em}
+h2{font-size:22px;margin:0 0 6px;letter-spacing:-.01em}
+h3{font-size:15px;margin:0 0 8px}
+p{margin:0 0 10px}
+section.part{margin-top:56px;padding-top:28px;border-top:1px solid var(--line)}
+.num{display:inline-block;min-width:28px;margin-right:6px;color:var(--faint);font-weight:500}
+.lead{font-size:19px;color:var(--muted);max-width:760px}
+.lbl{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin:0 0 2px}
+.tag{display:inline-block;font-size:11.5px;font-weight:600;padding:1px 8px;border-radius:999px;vertical-align:2px;margin-left:6px;letter-spacing:.02em}
+.tag.real{background:var(--done-fill);color:var(--done)}
+.tag.sample{background:var(--need-fill);color:var(--need)}
+.small{font-size:13.5px;color:var(--muted)}
+
+.tl{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin:18px 0 10px;align-items:start}
+.ev{display:flex;flex-direction:column;min-width:0}
+.ev .barwrap{height:170px;display:flex;align-items:flex-end;border-bottom:2px solid var(--line-2)}
+.ev .bar{width:100%;height:calc(var(--v)*170px);border-radius:6px 6px 0 0;background:#c7c9d1;position:relative}
+.ev.patch .bar{background:#e9a23b}
+.ev.cause .bar{background:#3fa66a}
+.ev.ghost .bar{background:repeating-linear-gradient(135deg,#f3dcb5 0 6px,#fbf0dc 6px 12px);border:1px dashed #d8a45a}
+.ev .bar b{position:absolute;top:6px;left:0;right:0;text-align:center;font-size:13px;color:#18181b}
+.ev .when{font-size:12.5px;color:var(--faint)}
+.ev .what{font-weight:600;font-size:14.5px;margin-bottom:6px}
+.ev .sub{font-size:13px;color:var(--muted);margin-top:8px}
+.guard{margin-top:8px;border-left:3px solid var(--accent);background:var(--accent-fill);padding:6px 9px;border-radius:0 8px 8px 0;font-size:13px}
+.guard b{display:block;font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--accent)}
+.costbox{display:flex;flex-wrap:wrap;gap:10px;margin:8px 0 6px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:150px}
+.stat .n{font-size:24px;font-weight:650;line-height:1.1}
+.stat .t{font-size:13px;color:var(--muted)}
+
+.flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:30px;margin:20px 0 0;position:relative}
+.box{background:var(--card);border:1.5px solid var(--line-2);border-radius:12px;padding:14px 16px;position:relative}
+.box .step{font-size:12px;color:var(--faint);font-weight:600;letter-spacing:.05em;text-transform:uppercase}
+.box .nm{font-size:17px;font-weight:650;margin:2px 0 6px}
+.box p{font-size:14px;color:var(--muted);margin:0}
+.box.stop{border-color:var(--fail)}
+.flow .box:not(:last-child)::after{content:"";position:absolute;right:-24px;top:50%;width:18px;height:2px;background:var(--faint)}
+.flow .box:not(:last-child)::before{content:"";position:absolute;right:-25px;top:calc(50% - 5px);border:6px solid transparent;border-left:7px solid var(--faint);border-right:0}
+.side{margin:22px 0 0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:16px;align-items:center}
+.box.scan{border-style:dashed}
+.based{font-size:13.5px;color:var(--muted);margin-top:14px}
+
+.surface{margin-top:30px}
+.states{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-top:10px}
+.state{display:flex;flex-direction:column}.state>.cap{font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+.bd{--bg:#09090b;--card:#111114;--card-2:#17171b;--line:#222228;--line-2:#2e2e36;--text:#ededf0;--muted:#a3a3ad;--faint:#8e8e98;--need:#fbbf24;--need-fill:#241d0b;--done:#4ade80;--fail:#fb7f7f;--run:#6aa8ff;
+  background:var(--bg);color:var(--text);border-radius:12px;border:1px solid #2e2e36;overflow:hidden;font-size:13.5px;line-height:1.5;flex:1}
+.bd .top{display:flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
+.bd .top i{width:14px;height:14px;border-radius:4px;background:#9aa2ff;flex:none}
+.bd .top b{color:var(--text);font-weight:500}
+.bd .card{margin:10px;background:var(--card);border:1px solid var(--line);border-radius:10px}
+.bd .card-h{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line);font-weight:600;font-size:13px}
+.bd .badge{font-size:11.5px;padding:0 7px;border-radius:999px;border:1px solid var(--line-2);color:var(--muted);font-weight:500}
+.bd .badge.need{color:var(--need);background:var(--need-fill);border-color:var(--need)}
+.bd .s{padding:10px 12px}
+.bd .s h4{margin:0 0 4px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.bd .s p{margin:0 0 4px}
+.bd .ok{color:var(--done)} .bd .warn{color:var(--need)} .bd .grey{color:var(--faint)} .bd .bad{color:var(--fail)}
+.bd .why{margin:6px 0 0;padding:6px 9px;border-left:3px solid var(--need);color:var(--muted);font-size:12.5px}
+.bd .why.g{border-color:var(--line-2)}
+.bd .row{display:grid;grid-template-columns:8px minmax(0,1fr);gap:10px;padding:10px 12px}
+.bd .bullet{width:8px;height:8px;border-radius:50%;background:var(--need);margin-top:6px}
+.bd .q{font-weight:500}
+.bd .meta{font-size:12px;color:var(--muted);margin-top:4px}
+.bd .pick{font-size:12.5px;color:var(--muted);margin-top:4px}
+.bd .pick b{color:var(--text);font-weight:500}
+.bd .btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.bd .btn{font-size:12px;padding:3px 10px;border-radius:7px;border:1px solid var(--line-2);background:var(--card-2)}
+.bd .btn.p{background:var(--text);color:var(--bg);border-color:var(--text)}
+.bd .empty{padding:16px 12px;color:var(--muted)}
+.ch{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;font-size:13.5px;flex:1}
+.ch .who{font-size:11.5px;font-weight:600;color:var(--faint);letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px}
+.ch .me{background:#f1f1f3;border-radius:10px;padding:7px 10px;margin:0 0 10px auto;width:fit-content;max-width:90%}
+.ch .msg p{margin:0 0 6px}
+.ch .msg ol,.ch .msg ul{margin:0 0 6px;padding-left:18px}
+.ch .msg li{margin-bottom:2px}
+
+.agents{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 28px;margin-top:12px}
+.agents div{border-left:3px solid var(--line-2);padding-left:12px}
+.rules{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 28px;margin-top:12px}
+.rules div{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+.rules p{margin:0;font-size:15px}
+
+.qq{margin-top:26px}
+.opts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:8px}
+.opts.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.opt{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:14.5px}
+.opt.rec{border:2px solid var(--accent);background:#fbfbff}
+.opt .h{font-weight:650;margin-bottom:4px}
+.opt .rmark{display:inline-block;font-size:11.5px;font-weight:700;color:#fff;background:var(--accent);padding:1px 8px;border-radius:999px;margin-bottom:6px}
+.opt p{margin:0 0 6px}
+.opt .k{font-size:11.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);margin-top:8px}
+
+.plan{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px 30px;margin-top:14px;align-items:stretch}
+.pr{background:var(--card);border:1.5px solid var(--line-2);border-radius:12px;padding:12px 14px;position:relative;font-size:14px}
+.pr .nm{font-weight:650;font-size:15.5px}
+.pr .c{color:var(--muted);font-size:13px;margin-top:4px}
+.pr .w{font-size:12.5px;color:var(--need);margin-top:6px}
+.pr.gate{border-color:var(--need)}
+.wait{display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;border:1.5px dashed var(--need);border-radius:12px;padding:10px;color:var(--need);font-size:13.5px;background:var(--need-fill)}
+.plan .ar{position:relative}.plan .ar::after{content:"";position:absolute;right:-24px;top:50%;width:18px;height:2px;background:var(--faint)}.plan .ar::before{content:"";position:absolute;right:-25px;top:calc(50% - 5px);border:6px solid transparent;border-left:7px solid var(--faint);border-right:0}
+.tot{display:flex;flex-wrap:wrap;gap:12px;margin-top:18px}
+.under{font-size:14.5px;color:var(--muted)}
+.ref{font-size:12px;color:var(--faint);margin-top:28px}
+
+@media (max-width:900px){
+  main{padding:24px 16px 48px}
+  h1{font-size:26px}
+  .lead{font-size:17px}
+  .tl{grid-template-columns:1fr;gap:12px}
+  .ev{display:grid;grid-template-columns:minmax(0,1fr);}
+  .ev .barwrap{height:auto;border-bottom:0;border-left:2px solid var(--line-2);order:3}
+  .ev .bar{height:26px;width:calc(var(--v)*100%);border-radius:0 6px 6px 0}
+  .ev .bar b{top:3px;text-align:right;padding-right:8px}
+  .ev .when{margin-top:0;order:1}
+  .ev .what{order:2}
+  .ev .sub{order:4;margin-top:4px}
+  .ev .guard{order:5}
+  .flow{grid-template-columns:1fr;gap:26px}
+  .flow .box:not(:last-child)::after{right:auto;left:50%;top:auto;bottom:-20px;width:2px;height:14px}
+  .flow .box:not(:last-child)::before{right:auto;left:calc(50% - 5px);top:auto;bottom:-25px;border:6px solid transparent;border-top:7px solid var(--faint);border-bottom:0}
+  .side{grid-template-columns:1fr}
+  .states,.agents,.rules,.opts,.opts.two{grid-template-columns:1fr}
+  .plan{grid-template-columns:1fr;gap:12px}
+  .plan .ar::after,.plan .ar::before{display:none}
+}
+@media (min-width:901px) and (max-width:1200px){.states{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+<main>
+
+<header class="prose" style="max-width:820px">
+  <p class="lbl">Design for your review</p>
+  <h1>Stop band-aid fixes inside the task flow</h1>
+  <p class="lead">What changes for you: sage catches the second patch of one problem before it lands, and you see one reason line on the board when code gets worse, never a pile of patches.</p>
+  <p class="small">Read in one scroll; nothing needs a click. <span class="tag real">real</span> marks numbers from sage's own history. <span class="tag sample">sample</span> marks invented data that shows a screen.</p>
+</header>
+
+<section class="part" id="problem">
+  <div class="prose">
+    <h2><span class="num">2</span>The problem <span class="tag real">real</span></h2>
+    <p>Sage's hook refused some safe commands. Four pull requests each added one more special case. The file grew, and the refusals came back. Then one large task fixed the cause.</p>
+  </div>
+  <p class="lbl" style="margin-top:14px">Hook file size, in lines, after each pull request</p>
+  <div class="tl" aria-label="Timeline of the hook patches">
+    <div class="ev"><div class="when">Before Oct 24</div><div class="what">Start</div><div class="barwrap"><div class="bar" style="--v:.812"><b>2,518</b></div></div></div>
+    <div class="ev patch"><div class="when">Oct 24</div><div class="what">Patch 1</div><div class="barwrap"><div class="bar" style="--v:.813"><b>2,520</b></div></div><div class="sub">Read the command, not its description.</div></div>
+    <div class="ev patch"><div class="when">Nov 2</div><div class="what">Patch 2</div><div class="barwrap"><div class="bar" style="--v:.958"><b>2,969</b></div></div><div class="sub">"Fewer false refusals": +739 lines changed.</div></div>
+    <div class="ev patch"><div class="when">Nov 7</div><div class="what">Patch 3</div><div class="barwrap"><div class="bar" style="--v:.958"><b>2,970</b></div></div><div class="sub">A path with "board" in it passes. Only 26 lines.</div></div>
+    <div class="ev patch"><div class="when">Nov 7</div><div class="what">Patch 4</div><div class="barwrap"><div class="bar" style="--v:.962"><b>2,981</b></div></div><div class="sub">Four more special cases. Other changes then took the file to 3,023 lines.</div></div>
+    <div class="ev cause"><div class="when">Nov 8</div><div class="what">Cause fix</div><div class="barwrap"><div class="bar" style="--v:.7"><b>2,170</b></div></div><div class="sub">Judge the programs that run, not the shell text.</div></div>
+  </div>
+  <p class="lbl" style="margin-top:20px">What the cause fix cost</p>
+  <div class="costbox">
+    <div class="stat"><div class="n">36</div><div class="t">agent runs</div></div>
+    <div class="stat"><div class="n">4</div><div class="t">repair rounds</div></div>
+    <div class="stat"><div class="n">71</div><div class="t">findings (1 high, 7 medium, 63 low)</div></div>
+    <div class="stat"><div class="n">2,518 → 3,023</div><div class="t">hook lines, before the cause fix</div></div>
+  </div>
+  <p class="small">Four patches in two weeks, and no step asked "is this the same cause again?"</p>
+</section>
+
+<section class="part" id="after">
+  <div class="prose">
+    <h2><span class="num">3</span>After <span class="tag sample">sample</span></h2>
+    <p>The same story with the guards. Each blue note shows where a guard steps in. This replay on paper cannot prove how much earlier the cause fix comes.</p>
+  </div>
+  <div class="tl" aria-label="The same timeline with the guards">
+    <div class="ev"><div class="when">Before Oct 24</div><div class="what">Start</div><div class="barwrap"><div class="bar" style="--v:.812"><b>2,518</b></div></div></div>
+    <div class="ev patch"><div class="when">Oct 24</div><div class="what">Patch 1</div><div class="barwrap"><div class="bar" style="--v:.813"><b>2,520</b></div></div><div class="sub">A first fix. No guard needs to act.</div></div>
+    <div class="ev patch"><div class="when">Nov 2</div><div class="what">Patch 2</div><div class="barwrap"><div class="bar" style="--v:.958"><b>2,969</b></div></div><div class="guard"><b>Decay check</b>A big file grows by 449 lines. The reason names only a symptom, so the reviewer asks for the cause.</div></div>
+    <div class="ev ghost"><div class="when">Nov 7</div><div class="what">Patch 3</div><div class="barwrap"><div class="bar" style="--v:.958"></div></div><div class="guard"><b>Brief</b>The brief lists two earlier fixes with the same symptom. The chief adds a cause step.</div></div>
+    <div class="ev ghost"><div class="when">Nov 7</div><div class="what">Patch 4</div><div class="barwrap"><div class="bar" style="--v:.962"></div></div><div class="guard"><b>Patch signal</b>New branches sit in lines that two recent fixes changed: a band-aid finding.</div></div>
+    <div class="ev cause"><div class="when">Earlier</div><div class="what">Cause fix</div><div class="barwrap"><div class="bar" style="--v:.7"><b>smaller</b></div></div><div class="sub">Fewer patches to undo.</div></div>
+  </div>
+  <p class="small">Striped bars: patches that a guard stops before they land.</p>
+</section>
+
+<section class="part" id="how">
+  <div class="prose">
+    <h2><span class="num">4</span>How it works</h2>
+    <p>A task passes four guards in its normal flow. Only the merge check can refuse.</p>
+  </div>
+  <div class="flow">
+    <div class="box"><div class="step">Before the build</div><div class="nm">Brief</div><p>The brief lists recent fixes of the same files, and the chief adds a find-the-cause step when they share a symptom.</p></div>
+    <div class="box"><div class="step">In the review</div><div class="nm">Patch signal</div><p>When new code gets more complex in lines that a recent fix changed, the reviewer decides if it is one more special case.</p></div>
+    <div class="box"><div class="step">On each new commit</div><div class="nm">Decay check</div><p>Sage compares the changed files before and after for size, complexity and copied code; worse needs a one-line reason.</p></div>
+    <div class="box stop"><div class="step">Before the merge</div><div class="nm">Merge check</div><p>The merge check reads the recorded result and refuses only worse code with no reason.</p></div>
+  </div>
+  <div class="side">
+    <div class="box scan"><div class="step">On the side, when you ask</div><div class="nm">Scan</div><p>Sage ranks the files that decay most and drafts up to 5 cause tasks for you to pick.</p></div>
+    <p class="small">The scan finds old decay. The four guards stop new decay.</p>
+  </div>
+  <p class="based">Follows: SonarQube's "clean as you code" (judge new code only), Google's Tricorder (a person judges a noisy signal), CodeScene's hotspots (the scan). Unlike Betterer, it adds no file to your project.</p>
+</section>
+
+<section class="part" id="see">
+  <div class="prose">
+    <h2><span class="num">5</span>What you will see <span class="tag sample">sample</span></h2>
+    <p>Three places, four states each. Most days you see nothing new.</p>
+  </div>
+
+  <div class="surface">
+    <h3>Board: the task page, Status part</h3>
+    <div class="states">
+      <div class="state"><div class="cap">Normal</div>
+        <div class="bd"><div class="top"><i></i>Tasks / <b>Hook: accept quoted remotes</b></div><div class="card"><div class="s"><h4>Status</h4><p><b>In review:</b> 1 of 2 review cycles passed.</p><p class="ok">Decay check: nothing worse.</p></div></div></div></div>
+      <div class="state"><div class="cap">Asking</div>
+        <div class="bd"><div class="top"><i></i>Tasks / <b>Hook: accept quoted remotes</b></div><div class="card"><div class="s"><h4>Status</h4><p><b>Waits:</b> a reason for worse code.</p><p class="warn">Decay check: 2 measures worse.</p><p class="why">The command reader got more complex (14 to 19, limit 15). The implementer makes it smaller or writes a reason.</p></div></div></div></div>
+      <div class="state"><div class="cap">Reason given</div>
+        <div class="bd"><div class="top"><i></i>Tasks / <b>Hook: accept quoted remotes</b></div><div class="card"><div class="s"><h4>Status</h4><p><b>Verified:</b> 2 of 2 review cycles passed.</p><p class="ok">Decay check: worse, with a reason.</p><p class="why g">"A quoted remote is a new input form, not a patch. A cause task splits the reader."</p></div></div></div></div>
+      <div class="state"><div class="cap">Tool not available</div>
+        <div class="bd"><div class="top"><i></i>Tasks / <b>Hook: accept quoted remotes</b></div><div class="card"><div class="s"><h4>Status</h4><p><b>In review:</b> 1 of 2 review cycles passed.</p><p class="grey">Decay check: complexity not measured.</p><p class="why g">The complexity tool is not on this Mac. Size and copies were measured: nothing worse. This never blocks.</p></div></div></div></div>
+    </div>
+    <p class="small" style="margin-top:8px">In the first 14 days, the Asking state reads "would ask a reason (day 9 of 14)", and nothing waits.</p>
+  </div>
+
+  <div class="surface">
+    <h3>Board: Needs you</h3>
+    <div class="states">
+      <div class="state"><div class="cap">Normal: after a scan</div>
+        <div class="bd"><div class="card"><div class="card-h">Needs you <span class="badge need">1</span></div><div class="row"><span class="bullet"></span><div><div class="q">Which cause tasks should start?</div><div class="pick"><b>Start 2 of 3</b> (recommended): split the state file; one reader for report lines.</div><div class="meta">sage · from the scan · 2 min ago</div><div class="btns"><span class="btn p">Start 2</span><span class="btn">Not now</span></div></div></div></div></div></div>
+      <div class="state"><div class="cap">Asking: end of the 14 days</div>
+        <div class="bd"><div class="card"><div class="card-h">Needs you <span class="badge need">1</span></div><div class="row"><span class="bullet"></span><div><div class="q">Turn on refusals for worse code?</div><div class="pick"><b>Turn on</b> (recommended): reason asked on 7% of pull requests; 1 in 12 signals not used.</div><div class="meta">sage · after 14 days · 170 pull requests</div><div class="btns"><span class="btn p">Turn on</span><span class="btn">7 more days</span></div></div></div></div></div></div>
+      <div class="state"><div class="cap">Nothing to show</div>
+        <div class="bd"><div class="card"><div class="card-h">Needs you</div><div class="empty">Nothing needs you now.</div></div></div></div>
+      <div class="state"><div class="cap">Tool not available</div>
+        <div class="bd"><div class="card"><div class="card-h">Needs you <span class="badge need">1</span></div><div class="row"><span class="bullet"></span><div><div class="q">Install the two measuring tools on this Mac?</div><div class="pick"><b>Install</b> (recommended): one download, about 45 MB. Until then, complexity and copies show "not measured".</div><div class="meta">sage · once per machine</div><div class="btns"><span class="btn p">Install</span><span class="btn">Not now</span></div></div></div></div></div></div>
+    </div>
+  </div>
+
+  <div class="surface">
+    <h3>Chat: after you ask for a scan</h3>
+    <div class="states">
+      <div class="state"><div class="cap">Normal</div>
+        <div class="ch"><div class="me">which files decay most?</div><div class="who">sage</div><div class="msg"><p>Three files collect most repair rounds in 30 days:</p><ol><li>State file: 3,819 lines, 26 tasks with a repair round.</li><li>Hook file: 15 tasks with a repair round.</li><li>Board model: 19 of 25 tasks needed a repair round.</li></ol><p>I drafted 3 cause tasks. Pick on the board.</p></div></div></div>
+      <div class="state"><div class="cap">Nothing to show</div>
+        <div class="ch"><div class="me">which files decay most?</div><div class="who">sage</div><div class="msg"><p>No file had repeat fixes of one symptom, and no big file grew. Nothing to frame.</p><p>The biggest file is the server file, at 640 lines.</p></div></div></div>
+      <div class="state"><div class="cap">Partial history</div>
+        <div class="ch"><div class="me">which files decay most?</div><div class="who">sage</div><div class="msg"><p>This copy of the project has only its last commit, so I ranked by size and findings only.</p><p>To get the full history, I can fetch it. Say "fetch it".</p></div></div></div>
+      <div class="state"><div class="cap">Tool not available</div>
+        <div class="ch"><div class="me">which files decay most?</div><div class="who">sage</div><div class="msg"><p>I ranked by size and repair rounds. Complexity is not measured: the tool is not on this Mac.</p><p>I put one install question on the board.</p></div></div></div>
+    </div>
+  </div>
+  <p class="small" style="margin-top:14px">You get a question only for the install, the switch-on and the cause tasks. A worse pull request never waits for you.</p>
+</section>
+
+<section class="part" id="agents">
+  <div class="prose"><h2><span class="num">6</span>What the agents do</h2></div>
+  <div class="agents">
+    <div><p class="lbl">Chief</p><p>Lists recent fixes in each brief, and adds a cause step when they share a symptom.</p></div>
+    <div><p class="lbl">Implementer</p><p>Names the shared cause first, or writes one reason line for worse code.</p></div>
+    <div><p class="lbl">Lead</p><p>Runs the decay check on each new commit, and records the reason.</p></div>
+    <div><p class="lbl">Code reviewer</p><p>Judges each patch signal and reason; one more special case gets a band-aid finding.</p></div>
+    <div><p class="lbl">Merge check</p><p>Reads the recorded result. It runs no tool.</p></div>
+    <div><p class="lbl">Scan</p><p>The chief runs it when you ask and offers it at each release.</p></div>
+  </div>
+</section>
+
+<section class="part" id="rules">
+  <div class="prose"><h2><span class="num">7</span>Rules</h2></div>
+  <div class="rules">
+    <div><p class="lbl">Never blocks</p><p>A tool failure never blocks. The board shows "not measured" in grey.</p></div>
+    <div><p class="lbl">Shadow first</p><p>For 14 days nothing refuses. Refusals start only after your yes.</p></div>
+    <div><p class="lbl">One refusal</p><p>The merge check refuses only worse code with no reason.</p></div>
+    <div><p class="lbl">Better passes</p><p>A change that is better overall needs no reason, so a cause fix never waits.</p></div>
+    <div><p class="lbl">Worse means</p><p>Complexity over 15, a file over 1,000 lines that grows by more than 50, or 50 tokens of copied code.</p></div>
+    <div><p class="lbl">New code only</p><p>Only changed lines count. Old decay never stops a new pull request.</p></div>
+    <div><p class="lbl">Narrow signal</p><p>The patch signal reads the changed lines plus 3 lines around them, not whole functions.</p></div>
+    <div><p class="lbl">No new cycle</p><p>A reason changes no code, so it starts no new review cycle.</p></div>
+    <div><p class="lbl">Isolated</p><p>The tools only read the project: no project code runs, and no network.</p></div>
+    <div><p class="lbl">Noise limit</p><p>A measure that asks on over 10% of pull requests for 30 days turns off, and you hear why.</p></div>
+    <div><p class="lbl">Skipped</p><p>Design, docs-only and investigation tasks get no check.</p></div>
+    <div><p class="lbl">Any project</p><p>Same in Claude and Codex, for any language; size and copies still count where complexity cannot.</p></div>
+  </div>
+</section>
+
+<section class="part" id="choices">
+  <div class="prose">
+    <h2><span class="num">8</span>Your choices</h2>
+    <p>Four questions. The recommended option is first and marked.</p>
+  </div>
+  <div class="qq"><h3>1. Approve the design and the plan?</h3>
+    <div class="opts">
+      <div class="opt rec"><span class="rmark">Recommended</span><div class="h">Yes, with 14 days of shadow</div><p class="k">Next</p><p>Two pull requests start. Refusals wait for your yes.</p><p class="k">Cost</p><p>11 to 22.5 h agent time; 8 min of yours.</p></div>
+      <div class="opt"><div class="h">Yes, refusals at once</div><p class="k">Next</p><p>The same build, with no noise data.</p><p class="k">Cost</p><p>More false asks in the first weeks.</p></div>
+      <div class="opt"><div class="h">Not now (default)</div><p class="k">Next</p><p>Patches keep landing unasked.</p><p class="k">Cost</p><p>None now; cause fixes stay large.</p></div>
+    </div>
+  </div>
+  <div class="qq"><h3>2. How do the measuring tools reach a machine?</h3>
+    <div class="opts">
+      <div class="opt rec"><span class="rmark">Recommended</span><div class="h">One yes per machine</div><p class="k">Next</p><p>Sage installs both tools in its tools folder.</p><p class="k">Cost</p><p>1 min per Mac. Needs the package sites at install only.</p></div>
+      <div class="opt"><div class="h">Ship one inside sage</div><p class="k">Next</p><p>Complexity works at once; copies still need an install.</p><p class="k">Cost</p><p>Sage's releases follow the tool's releases.</p></div>
+      <div class="opt"><div class="h">No outside tools</div><p class="k">Next</p><p>Size and line history only.</p><p class="k">Cost</p><p>No complexity or copy checks.</p></div>
+    </div>
+    <p class="small" style="margin-top:6px">Until you answer: "not measured" for complexity and copies.</p>
+  </div>
+  <div class="qq"><h3>3. How serious is a band-aid finding?</h3>
+    <div class="opts">
+      <div class="opt rec"><span class="rmark">Recommended · default</span><div class="h">Medium</div><p class="k">Next</p><p>A repair round: fix the cause, or name a cause task.</p><p class="k">Cost</p><p>One round when it fires, which is rare.</p></div>
+      <div class="opt"><div class="h">Low, closed before merge</div><p class="k">Next</p><p>The lead closes it with a note.</p><p class="k">Cost</p><p>Less agent time; a weaker push.</p></div>
+      <div class="opt"><div class="h">Low note only</div><p class="k">Next</p><p>The patch lands.</p><p class="k">Cost</p><p>Band-aids can still pile up.</p></div>
+    </div>
+  </div>
+  <div class="qq"><h3>4. Who accepts worse code?</h3>
+    <div class="opts two">
+      <div class="opt rec"><span class="rmark">Recommended · default</span><div class="h">A reason, judged by the reviewer</div><p class="k">Next</p><p>No question reaches you; you read every reason on the board.</p><p class="k">Cost</p><p>1 to 3 min of agent time, on about 8% of pull requests.</p></div>
+      <div class="opt"><div class="h">You, per pull request</div><p class="k">Next</p><p>About 8% of pull requests wait for you.</p><p class="k">Cost</p><p>About 1 min each, and waits while you are away.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="part" id="plan">
+  <div class="prose">
+    <h2><span class="num">9</span>Cost and plan</h2>
+    <p>Five pull requests, in order; each card says what it waits for. Refusals ship last, after 14 days of shadow data and your yes. Hours and tokens are agent time.</p>
+  </div>
+  <div class="plan">
+    <div class="pr gate ar"><div class="nm">A · Decay check, shadow</div><div class="c">Large. 4 to 8 h, 4 to 8 M tokens.</div><div class="w">Waits for question 2.</div></div>
+    <div class="pr ar"><div class="nm">C · Patch signal</div><div class="c">Large. 3 to 6 h, 2.5 to 5 M tokens.</div><div class="w">After A.</div></div>
+    <div class="wait ar">14 days of shadow data,<br>then your yes</div>
+    <div class="pr"><div class="nm">D · Merge refusal</div><div class="c">Small. 1 to 2 h, 0.6 to 1.5 M tokens.</div><div class="w">After the 14 days.</div></div>
+    <div class="pr"><div class="nm">B · Recent fixes in the brief</div><div class="c">Small. 1 to 2.5 h, 0.7 to 2 M tokens.</div><div class="w">Starts with A.</div></div>
+    <div class="pr"><div class="nm">E · Scan</div><div class="c">Medium. 2 to 4 h, 1.5 to 3 M tokens.</div><div class="w">After C.</div></div>
+  </div>
+  <div class="tot">
+    <div class="stat"><div class="n">11 to 22.5 h</div><div class="t">agent time, 9 to 19.5 M tokens</div></div>
+    <div class="stat"><div class="n">about 8 min</div><div class="t">your time, in all</div></div>
+    <div class="stat"><div class="n">2 to 20 s</div><div class="t">machine time per commit, 0 tokens</div></div>
+  </div>
+  <p class="small" style="margin-top:10px">Basis: sage's lint command, the same shape, took 33 runs, 4.9 M tokens and 5.3 h. The patch signal and the scan have no close basis.</p>
+</section>
+
+<section class="part" id="hood">
+  <div class="prose">
+    <h2><span class="num">10</span>Under the hood</h2>
+    <p class="under">For engineers. The decay check copies sage's lint command: pinned tools in sage's tools folder, changed files only, base against head, a ledger verdict, and a merge check that only reads it. The engineering check added twelve changes, mainly the hunk-level patch signal, isolated tool runs, and reasons recorded through the state tool. Detail: <a href="rationale.md">design rationale</a>, <a href="engineering-check.md">engineering check</a>.</p>
+    <p class="ref">Ref: T1127 · page R4518 · judge R4490 · engineering check R4494 · patches T386, T621, T632, T670 · cause fix T815 · cleanups T909, T910 · cost basis T1019, T1020.</p>
+  </div>
+</section>
+
+</main>
+</body>
+</html>

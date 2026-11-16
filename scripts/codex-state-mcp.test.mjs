@@ -711,11 +711,33 @@ test("T984: the message tool gives the chief the same text and page as the CLI's
   assert.match((await s.call("message", { task: "T1", message: { kind: "question", title: "Why?", blocks: [] } })).error, /^sage: the message is not in its kind's shape/);
 });
 
+test("T1143: the Codex chief adds and reads the prior-art index through prior_art, in the folder that Claude's state tool reads; a role agent and a lead are refused", async (t) => {
+  const w = await leadWorld(t);
+  const row = "| pstack | Principles as skills | The principle format | We add a hook | https://github.com/example/pstack | 2026-11-16 |";
+  const folder = join(w.env.SAGE_SHARED_HOME, "prior-art"), file = join(folder, "reviews.md");
+  assert.equal(await w.call("prior_art", { topic: "reviews", rows: row }), `prior-art reviews: added 1 row · ${file}`);
+  assert.equal(await w.call("prior_art", { topic: "reviews", rows: row }), `prior-art reviews: added 0 rows; kept out 1, whose link is in the topic already (https://github.com/example/pstack) · ${file}`);
+  assert.equal(await w.call("prior_art", { topic: "reviews" }), readFileSync(file, "utf8").trimEnd());
+  assert.equal(await w.call("prior_art", {}), `the prior-art index: ${folder}\nreviews · 1 row`);
+  assert.match((await w.call("prior_art", { rows: row })).error, /^sage: prior-art takes no words/, "rows need a topic");
+  const proposed = join(w.dir, "prior-art-boards.md");
+  writeFileSync(proposed, `${row}\n`);
+  assert.equal(await w.call("prior_art", { topic: "boards", file: proposed }), `prior-art boards: added 1 row · ${join(folder, "boards.md")}`, "the file that a report names");
+  assert.equal(await w.call("prior_art", {}), `the prior-art index: ${folder}\nboards · 1 row\nreviews · 1 row`);
+  const claude = spawnSync(process.execPath, [join(ROOT, "plugins/sage/skills/sage/sage.mjs"), "prior-art", "reviews", "--project", w.project], { cwd: w.dir, env: w.env, encoding: "utf8" });
+  assert.equal(claude.stdout, readFileSync(file, "utf8"), claude.stderr);
+  const before = readFileSync(file, "utf8"), other = row.replace("example/pstack", "example/other");
+  assert.equal((await w.call("prior_art", { topic: "reviews", rows: other }, { agent: "/root/sage_designer_t1_r9" })).denied, "sage: role agents report; only the chief records the logbook. Put this in your report");
+  assert.equal((await w.call("prior_art", { topic: "reviews" }, { agent: "/root/sage_pe_t1_r9" })).denied, "sage: role agents report; only the chief records the logbook. Put this in your report", "a role agent gets the rows in its brief");
+  assert.equal((await w.lead("prior_art", { topic: "reviews", rows: other })).denied, OFF_LIST("prior_art"));
+  assert.equal(readFileSync(file, "utf8"), before, "nothing changed");
+});
+
 test("the state server lists one tool for each state-tool command, and marks only the reads read-only", async (t) => {
   const s = await connect(t);
   const tools = await s.tools();
   assert.deepEqual(tools.map((tool) => tool.name).sort(), ["accept", "brief", "cancel", "chief_name", "claim", "config", "finding_add", "finding_close", "finding_move", "finding_triage", "gate_add", "gate_answer", "gate_give", "gate_replace", "gate_undo",
-    "init", "link", "lint", "log", "merge_check", "message", "milestone_propose", "milestone_set", "move", "offer", "pages", "release_add", "report_compare", "round", "run_add", "run_done", "standing", "standing_add", "status", "task_add", "task_adopt", "task_set", "unclaim", "verdict", "worktrees"]);
+    "init", "link", "lint", "log", "merge_check", "message", "milestone_propose", "milestone_set", "move", "offer", "pages", "prior_art", "release_add", "report_compare", "round", "run_add", "run_done", "standing", "standing_add", "status", "task_add", "task_adopt", "task_set", "unclaim", "verdict", "worktrees"]);
   assert.deepEqual(tools.filter((tool) => tool.annotations.readOnlyHint).map((tool) => tool.name).sort(), ["merge_check", "report_compare", "standing", "status"]);
   assert.ok(tools.every((tool) => tool.inputSchema.required.includes("project") && tool.inputSchema.additionalProperties === false));
   const add = tools.find((tool) => tool.name === "task_add").inputSchema;

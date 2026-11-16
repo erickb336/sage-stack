@@ -122,7 +122,7 @@ Every design that the agents make for you is one page in the same format, in Cla
 1. The title, and one sentence: what changes for you.
 2. The problem: the real story as a picture, with real numbers only.
 3. After: the same story with the design in place, labelled sample.
-4. How it works: one diagram of at most 6 boxes, and the prior art.
+4. How it works: one diagram of at most 6 boxes, and the prior art, with a link to each source that the agents read.
 5. What you will see: each screen or surface that you meet, with its states side by side, in sample data.
 6. What the agents do: one plain line for each role.
 7. Rules: the rules and the edge cases.
@@ -134,9 +134,27 @@ Each design also has the diagrams that fit it: a state chart for how a thing mov
 
 A design check reads the page before you get it:
 
-- It names each missing part, and it fails on a page with no diagram, tabs or hidden parts, code above "Under the hood", or invented data that is not labelled sample.
+- It names each missing part, and it fails on a page with no diagram, tabs or hidden parts, code above "Under the hood", invented data that is not labelled sample, or fewer than 2 web links (`http` or `https`) to the prior art in "How it works".
 - The designer and the arena judge run it, and the chief runs it again before it sends you the design.
 - The format and the check are in `core/references/design-format.md` and `core/design-page.mjs` in the plugin's folder.
+
+### Prior art
+
+Each design, engineering check (PE), arena and investigation names its prior art: the existing stacks and tools that do the same job, and what sage takes from them. The agents follow one rule, in Claude and in Codex (`core/references/prior-art.md` in the plugin's folder):
+
+1. Write the problem and its limits in one line, and search by that line.
+2. Check sage's own history first: the prior-art index, the logbook and earlier research pages.
+3. Scan 10 to 20 candidates: other agent stacks first, then your trusted list (it starts with pstack), then mature tools, then classic practice.
+4. Read the best 2 or 3 from pages that the agent fetches, never from memory, with one failure and one opposite example.
+5. Report them in one table: what they do, what we take, where we differ and why, the link and the date read.
+
+The prior-art index keeps those tables, one file for each topic, in `~/.sage/prior-art/` on your Mac. Claude and Codex use the same folder. Agents do not write it: they save the rows that they propose in a file and name it in their report, and the chief adds the rows from that file.
+
+| Command | Who runs it | What happens |
+| --- | --- | --- |
+| `sage prior-art` | The chief. | Prints the index folder and each topic with its row count. |
+| `sage prior-art <topic>` | The chief, before a design, PE or investigate brief. | Prints the topic's table, which the chief puts in the brief's CONTEXT. |
+| `sage prior-art <topic> add --file '<path>'` | The chief, after a report names a file of proposed rows. In Codex, the `prior_art` tool does all three. | Adds the rows to the topic's file. A bad row refuses the whole add and names its line; a row whose link is in the topic already stays out. |
 
 ### Each question takes one answer
 
