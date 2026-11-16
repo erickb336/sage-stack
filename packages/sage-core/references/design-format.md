@@ -20,7 +20,7 @@ The page's `<h1>` is part 1. Each other part starts with an `<h2>` heading that 
 1. **Title**, and one sentence: what changes for the owner.
 2. **The problem**: the real story as a picture (a timeline, a chart). Only real, checked numbers.
 3. **After**: the same story with the design in place, as a second picture. Mark where the design steps in. Label it sample.
-4. **How it works**: one diagram, at most 6 boxes, with one plain sentence under each box. No code. Name the prior art in one line under it.
+4. **How it works**: one diagram, at most 6 boxes, with one plain sentence under each box. No code. Under it, the prior art in one line: each source that the design follows or differs from, with a link (`<a href>`) to the page that you read. Link at least 2 different pages of other products or tools. The check counts only `http` and `https` links, so a link to a local file or to an anchor does not count. The full prior-art table goes in the rationale (see the prior-art rule, `core/references/prior-art.md`).
 5. **What you will see**: realistic mockups in the product's real style.
    - A design with screens: the screens, each with its states side by side (normal, asking, empty, failure, success).
    - A process design: only the surfaces the owner meets (for example a board page, a "Needs you" row, a chat message), each with its states side by side.
@@ -66,6 +66,7 @@ It reads only the HTML, so it works for a design of any project and any language
 - a tab, a `<details>` block, a `<template>`, a `<dialog>` with no `open`, a `hidden` element, or an inline `style` with `display: none` or `visibility: hidden` is above "Under the hood";
 - `<pre>`, `<code>` or `<samp>` is above "Under the hood" (a text picture with `role="img"` and a name is a diagram, not code; a name alone does not make it one);
 - "After" or "What you will see" does not say "sample" (or "samples").
+- "How it works" has fewer than 2 different `http` or `https` links in `<a href>`: the prior art (part 4 is the text from its heading to the next part's heading).
 
 The check does not read style rules, because they also hide decoration (for example an arrow on a small screen). So a style rule that hides a part, or that shows it on hover or on a link to its anchor (`:hover`, `:target`), passes the check, and so does `aria-hidden`. You and the owner catch these, and you judge the words, the pictures and the 1440 px and 390 px widths.
 
