@@ -67,8 +67,8 @@ async function openBoard(t, { write, copy = false } = {}) {
   const stateDir = join(base, "home", ".config", "sage-board", "state");
   let server, cli = null;
   if (copy) {
-    cli = join(base, "sage plugin", "board", "cli.mjs");
-    for (const part of ["board", "core"]) cpSync(new URL(`../plugins/sage/${part}/`, import.meta.url), join(base, "sage plugin", part), { recursive: true });
+    cli = join(base, copy, "board", "cli.mjs");
+    for (const part of ["board", "core"]) cpSync(new URL(`../plugins/sage/${part}/`, import.meta.url), join(base, copy, part), { recursive: true });
     server = await (await import(pathToFileURL(cli).href)).runBoardCli(["board", "--serve", "--config", config], { output: () => {}, env });
   } else {
     server = createBoardServer({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair", ...(write && { write }) });
@@ -203,19 +203,44 @@ test("T1059: a question answered first in the chief's chat shows who answered fi
   assert.equal(w.gate("G2").answer, "send them");
 });
 
-test("T1119: a board started from a copy in a folder whose name has a space shows its own pairing command, with the quoted path and a copy button, on the Overview and in the question view", async t => {
-  const w = await openBoard(t, { copy: true }), { page } = w;
-  const command = `node "${w.cli}" board --pair`;
+test("T1119: a board started from a copy in a folder whose name has shell characters shows its own pairing command, quoted for an interactive shell, with a copy button, on the Overview and in the question view", async t => {
+  const w = await openBoard(t, { copy: "sage plugin's $HOME `x` \"q\" !! copy" }), { page } = w;
+  const command = `node '${w.cli.replace("plugin's", "plugin'\\''s")}' board --pair`;
   const card = page.locator("form.pair");
   await card.waitFor();
   assert.equal(await card.locator("code").textContent(), command);
   await card.getByRole("button", { name: "Copy", exact: true }).click();
   await card.getByRole("button", { name: "Copied", exact: true }).waitFor();
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), command);
-  await w.shot("t1119-pair-card");
   await page.getByRole("link", { name: MESSAGE.title }).click();
   await page.getByRole("heading", { name: MESSAGE.title, level: 1 }).waitFor();
   assert.equal(await page.locator("form.pair code").textContent(), command);
+  assert.deepEqual(w.problems, []);
+});
+
+test("F-T1119-3: the pairing card holds its whole command and the Copy button at 1440 px and 390 px, on the Overview and in the question view, and the page does not scroll sideways", async t => {
+  const w = await openBoard(t, { copy: "sage plugin" }), { page } = w;
+  await page.locator("form.pair code").waitFor();
+  const fits = async where => {
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await w.settled();
+      const box = await page.evaluate(() => {
+        const card = document.querySelector("form.pair").getBoundingClientRect(), code = document.querySelector("form.pair code"), button = document.querySelector("form.pair .pair-cmd button").getBoundingClientRect();
+        return { page: document.documentElement.scrollWidth, view: innerWidth, card: [card.left, card.right], button: [button.left, button.right], hidden: code.scrollWidth - code.clientWidth };
+      });
+      const at = `${where} at ${width} px: ${JSON.stringify(box)}`;
+      assert.ok(box.page <= box.view, `the page does not scroll sideways, ${at}`);
+      assert.ok(box.button[0] >= box.card[0] && box.button[1] <= box.card[1] && box.card[1] <= box.view, `the Copy button is inside the card and the screen, ${at}`);
+      assert.ok(box.hidden <= 0, `the card shows the whole command, ${at}`);
+      await w.shot(`f-t1119-3-${where}-${width}`);
+    }
+  };
+  await fits("overview");
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole("link", { name: MESSAGE.title }).click();
+  await page.getByRole("heading", { name: MESSAGE.title, level: 1 }).waitFor();
+  await fits("question");
   assert.deepEqual(w.problems, []);
 });
 

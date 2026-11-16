@@ -1,12 +1,13 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { createServer } from "node:net";
 import { hostname, tmpdir, uptime } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { pathToFileURL } from "node:url";
 import * as claude from "../plugins/sage/skills/sage/sage.mjs";
 import { runBoardCli } from "../plugins/sage/board/cli.mjs";
 import { createBoardServer, loadBoardApp, withoutPaths } from "../plugins/sage/board/server.mjs";
@@ -141,6 +142,18 @@ test("board --pair refuses input that is not a terminal, prints a one-time code 
   await runBoardCli(["board", "--pair", "--config", w.config], { output: () => {}, env: w.env, input: { isTTY: true } });
   for (let i = 0; i < 5; i++) await call(w.port, "/api/pair", { headers: w.own, body: { code: "AAAA-AAAA" } });
   assert.equal(existsSync(join(w.stateDir, "pair-code.json")) ? JSON.parse(readFileSync(join(w.stateDir, "pair-code.json"), "utf8")).tries : 5, 5, "five wrong tries spend a code");
+});
+
+test("F-T1119-1, F-T1119-2: the pairing command on the page quotes a path with !, quotes, $, a backtick, a backslash and a space for an interactive shell, and names a config that is not the default with --config", async t => {
+  const w = await board(t), odd = "it's $HOME `x` \"q\" !! copy";
+  for (const part of ["board", "core"]) cpSync(new URL(`../plugins/sage/${part}/`, import.meta.url), join(w.base, odd, part), { recursive: true });
+  const config = join(w.base, "config \\ folder", "board.json"), port = await freePort();
+  await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify([{ id: "shared", path: w.env.SAGE_SHARED_HOME }])], { output: () => {}, env: w.env });
+  const server = await (await import(pathToFileURL(join(w.base, odd, "board", "cli.mjs")).href)).runBoardCli(["board", "--serve", "--config", config], { output: () => {}, env: w.env });
+  t.after(() => server.close());
+  const shell = await call(port, "/app/", { method: "GET" });
+  const shown = /<meta name="sage-pair" content="([^"]*)">/.exec(shell.text)[1].replace(/&#(\d+);/g, (_, code) => String.fromCharCode(code));
+  assert.equal(shown, `node '${w.base}/it'\\''s $HOME \`x\` "q" !! copy/board/cli.mjs' board --pair --config '${w.base}/config \\ folder/board.json'`);
 });
 
 test("F-T1059-13: the pairing cookie alone writes nothing: a server on another port that got it reads /app/ and forges the headers from node http", async t => {

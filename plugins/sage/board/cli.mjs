@@ -90,7 +90,7 @@ export const defaultConfigPath = (env = process.env) => join(boardFolder(env), "
 
 export const configId = configPath => createHash("sha256").update(`sage-board-config:${realpathSync(configPath)}`).digest("hex").slice(0, 16);
 function boardCommand(option, configPath, env, explicit = false) {
-  const quote = text => /[^\w@%+=:,./-]/.test(text) ? `"${text.replace(/(["\\$`])/g, "\\$1")}"` : text;
+  const quote = text => /[^\w@%+=:,./-]/.test(text) ? `'${text.replaceAll("'", "'\\''")}'` : text;
   return ["node", quote(fileURLToPath(import.meta.url)), "board", option, ...(!explicit && configPath === defaultConfigPath(env) ? [] : ["--config", quote(configPath)])].join(" ");
 }
 
