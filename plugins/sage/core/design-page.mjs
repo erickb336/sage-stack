@@ -5,12 +5,11 @@ export const DESIGN_PARTS = Object.freeze(["Title", "The problem", "After", "How
 const SAMPLE_PARTS = Object.freeze(["After", "What you will see"]);
 const TABS = new Set(["tab", "tablist", "tabpanel"]);
 const CODE = new Set(["pre", "code", "samp"]);
-const PICTURES = new Set(["svg", "img", "canvas", "figure"]);
-const CONTROLS = new Set(["a", "button", "input", "select", "textarea", "label", "option", "summary"]);
 const SWITCHES = new Set(["button", "input", "select", "textarea"]);
 const SWITCH_ROLES = new Set(["button", "switch", "radio", "checkbox"]);
 const SWITCH_ATTRIBUTES = ["aria-pressed", "aria-expanded", "aria-controls", "aria-selected"];
-const ATTRIBUTES = `((?:[^>"']|"[^"]*"|'[^']*')*)`;
+const URL_ATTRIBUTES = ["href", "src", "action", "formaction", "xlink:href", "data"];
+const ATTRIBUTES = `((?:=\\s*"[^"]*"|=\\s*'[^']*'|=(?!\\s*["'])|[^>=])*)`;
 const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", middot: "·", rarr: "→" };
 
 const character = (point) => point <= 0x10ffff ? String.fromCodePoint(point) : "\ufffd";
@@ -64,41 +63,73 @@ function partText(list, places, index) {
   return list.slice(places[index], end).map((token) => token.text ?? " ").join("");
 }
 
-function switchOf({ name, attributes }) {
+const rolesOf = ({ attributes }) => (attributes.role ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+
+function switchOf({ name, attributes }, roles) {
+  if (name === "input" && attributes.type?.toLowerCase() === "hidden") return undefined;
   if (SWITCHES.has(name)) return name === "input" ? `<input type="${attributes.type || "text"}">` : `<${name}>`;
-  const role = attributes.role?.toLowerCase();
-  if (SWITCH_ROLES.has(role)) return `role="${role}"`;
-  return SWITCH_ATTRIBUTES.find((attribute) => attribute in attributes);
+  if (name === "label" && "for" in attributes) return "<label for>";
+  const role = roles.find((word) => SWITCH_ROLES.has(word));
+  return role ? `role="${role}"` : SWITCH_ATTRIBUTES.find((attribute) => attribute in attributes);
 }
 
-const isPicture = ({ name, attributes }) => PICTURES.has(name) || attributes.role === "img" || attributes.role === "figure"
-  || (Boolean(attributes["aria-label"]?.trim()) && !CONTROLS.has(name));
+function scriptOf({ name, attributes = {} }) {
+  if (name === "script") return "<script>";
+  const handler = Object.keys(attributes).find((attribute) => attribute.startsWith("on"));
+  if (handler) return handler;
+  if (URL_ATTRIBUTES.some((attribute) => /^javascript:/i.test((attributes[attribute] ?? "").replace(/[\s\0-\x1f]/g, "")))) return "a javascript: URL";
+}
+
+function contentOf(list, at) {
+  const { name } = list[at];
+  let depth = 0, elements = 0, text = "", end = at + 1;
+  for (; end < list.length; end++) {
+    const token = list[end];
+    if (token.text !== undefined) { text += token.text; continue; }
+    if (token.name === name && token.closing && depth-- === 0) break;
+    if (token.name === name && !token.closing) depth++;
+    if (!token.closing) elements++;
+  }
+  return { end, elements, text: text.trim() };
+}
+
+function isPicture(list, at, roles) {
+  const { name, attributes } = list[at], labelled = Boolean(attributes["aria-label"]?.trim());
+  if (roles.includes("img")) return labelled;
+  if (name === "img") return Boolean(attributes.alt?.trim());
+  if (name === "svg") return contentOf(list, at).elements > 0;
+  if (name === "figure") { const { elements, text } = contentOf(list, at); return elements > 0 || text !== ""; }
+  return name === "div" && !roles.length && labelled && contentOf(list, at).elements > 0;
+}
 
 export function designPageProblems(html) {
   const list = tokens(html), problems = [];
   const places = partPlaces(list, problems);
   const hood = places.at(-1) ?? list.length;
   const above = new Set(), say = (key, text) => { if (!above.has(key)) { above.add(key); problems.push(text); } };
-  if (list.some((token) => token.name === "script")) problems.push(`the page has a <script>: show every part and every state in plain HTML, with no script`);
-  let diagrams = 0, inPicture = 0;
-  for (const token of list.slice(0, hood)) {
-    if (token.text !== undefined) continue;
-    const { name, closing, attributes } = token;
-    if (name === "pre" && inPicture) { inPicture += closing ? -1 : 1; continue; }
-    if (closing) continue;
-    if (isPicture(token)) { diagrams++; if (name === "pre") { inPicture = 1; continue; } }
-    if (inPicture) continue;
-    const role = attributes.role?.toLowerCase(), control = switchOf(token);
-    if (TABS.has(role)) say("tab", `a tab (role="${role}") is above "Under the hood": show every part on one scrolling page, with no tabs`);
+  const script = list.map(scriptOf).find(Boolean);
+  if (script) problems.push(`the page has a script (${script}): show every part and every state in plain HTML, with no script`);
+  let diagrams = 0;
+  for (let at = 0; at < hood; at++) {
+    const token = list[at];
+    if (token.text !== undefined || token.closing) continue;
+    const { name, attributes } = token, roles = rolesOf(token);
+    if (isPicture(list, at, roles)) {
+      diagrams++;
+      if (CODE.has(name)) { at = contentOf(list, at).end; continue; }
+    }
+    const tab = roles.find((role) => TABS.has(role)), control = switchOf(token, roles);
+    if (tab) say("tab", `a tab (role="${tab}") is above "Under the hood": show every part on one scrolling page, with no tabs`);
     else if (control) say("switch", `a switch (${control}) is above "Under the hood": show each state side by side, with no button and no switch`);
     if (name === "details") say("details", `a <details> block is above "Under the hood": show its content open, with no click`);
-    if ("hidden" in attributes || /display\s*:\s*none|visibility\s*:\s*hidden/i.test(attributes.style ?? "")) say("hidden", `a hidden element is above "Under the hood": show every part with no click and no switch`);
+    if (name === "template" || (name === "dialog" && !("open" in attributes)) || "hidden" in attributes
+      || /display\s*:\s*none|visibility\s*:\s*hidden/i.test(attributes.style ?? "")) say("hidden", `a hidden element is above "Under the hood": show every part with no click and no switch`);
     if (CODE.has(name)) say(`code-${name}`, `<${name}> is above "Under the hood": move code and command output to part 10, "Under the hood"`);
   }
-  if (!diagrams) problems.push(`no diagram: draw at least one state chart, architecture diagram or flow chart, as <svg>, <img> or <figure>, or as an element with role="img" and an aria-label`);
+  if (!diagrams) problems.push(`no diagram: draw at least one state chart, architecture diagram or flow chart, as an <svg>, an <img> with alt text, a <figure>, an element with role="img" and an aria-label, or a <div> of boxes with an aria-label`);
   for (const part of SAMPLE_PARTS) {
     const index = DESIGN_PARTS.indexOf(part);
-    if (places[index] !== undefined && !/\bsample\b/i.test(partText(list, places, index))) problems.push(`${label(index)} does not say "sample": label its invented data as sample`);
+    if (places[index] !== undefined && !/\bsamples?\b/i.test(partText(list, places, index))) problems.push(`${label(index)} does not say "sample": label its invented data as sample`);
   }
   return problems;
 }

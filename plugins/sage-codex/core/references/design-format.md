@@ -39,7 +39,15 @@ Each design has the diagrams that fit it, before the text that explains them:
 - **An architecture diagram** for the parts and the links between them.
 - **A flow chart** for the steps and the decisions, with a label on each branch.
 
-Draw each one in the picture rules of the presentation skill: a title and a key, at most 6 boxes at one zoom, and one-way arrows that each have a label. Each diagram reads with no click, no hover and no switch. Mark it for readers and for the check: an `<svg>`, an `<img>` with alt text or a `<figure>`, or an element with `role="img"` and an `aria-label` that names the picture.
+Draw each one in the picture rules of the presentation skill: a title and a key, at most 6 boxes at one zoom, and one-way arrows that each have a label. Each diagram reads with no click, no hover and no switch. Mark it for readers and for the check in one of these forms:
+
+- an `<svg>` with shapes in it;
+- an `<img>` with alt text;
+- a `<figure>` with content;
+- an element with `role="img"` and an `aria-label` that names the picture;
+- a `<div>` with no role, an `aria-label` that names the picture, and the boxes of the picture in it.
+
+An `aria-label` on another element does not make a diagram: for example a `<section>`, a `<nav>`, a heading, a paragraph or a `<pre>`.
 
 ## The check
 
@@ -52,12 +60,12 @@ node <the sage plugin's folder>/core/design-page.mjs <page.html>
 It reads only the HTML, so it works for a design of any project and any language. It fails when:
 
 - a part is missing or out of order (it names the part);
-- the page has no diagram;
-- the page has a `<script>`, in any part;
-- a switch is above "Under the hood": a `<button>`, `<input>`, `<select>` or `<textarea>`, an element with `role="button"`, `"switch"`, `"radio"` or `"checkbox"`, or an element with `aria-pressed`, `aria-expanded`, `aria-controls` or `aria-selected`;
-- a tab, a `<details>` block, a `hidden` element, or an inline `style` with `display: none` or `visibility: hidden` is above "Under the hood";
-- `<pre>`, `<code>` or `<samp>` is above "Under the hood" (a text picture with `role="img"` and an `aria-label` is a diagram, not code);
-- "After" or "What you will see" does not say "sample".
+- the page has no diagram in one of the forms above;
+- the page has a script, in any part: a `<script>`, an event attribute such as `onclick`, or a `javascript:` URL;
+- a switch is above "Under the hood": a `<button>`, `<input>` (not `type="hidden"`), `<select>` or `<textarea>`, a `<label for>`, an element with `role="button"`, `"switch"`, `"radio"` or `"checkbox"` (each word of `role` counts), or an element with `aria-pressed`, `aria-expanded`, `aria-controls` or `aria-selected`;
+- a tab, a `<details>` block, a `<template>`, a `<dialog>` with no `open`, a `hidden` element, or an inline `style` with `display: none` or `visibility: hidden` is above "Under the hood";
+- `<pre>`, `<code>` or `<samp>` is above "Under the hood" (a text picture with `role="img"` and an `aria-label` is a diagram, not code; an `aria-label` alone does not make it one);
+- "After" or "What you will see" does not say "sample" (or "samples").
 
 The check does not read style rules, because they also hide decoration (for example an arrow on a small screen). So a style rule that hides a part, or that shows it on hover or on a link to its anchor (`:hover`, `:target`), passes the check, and so does `aria-hidden`. You and the owner catch these, and you judge the words, the pictures and the 1440 px and 390 px widths.
 
