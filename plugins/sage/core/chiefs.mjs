@@ -27,7 +27,7 @@ export function writerClass(cmd, [sub, id] = []) {
     case "logbook": return sub === "repair" ? OWNER : READ;
     case "projects": return OWNER;
     case "move": return OWNER;
-    case "config": return sub === undefined ? READ : ANY;
+    case "config": return sub === undefined ? READ : id === undefined && sub.startsWith("archived=") ? OWNER : ANY;
     case "init": return ANY;
     case "chief": return sub === "name" ? OWNER : READ;
     case "storage": return sub === "clean" ? ANY : READ;

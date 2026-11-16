@@ -6,6 +6,95 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readActions, readBoardSources } from "../packages/sage-core/board-reader.mjs";
+import { buildBoardModel } from "../packages/sage-core/board-model.mjs";
+import { readerPage, readerUrl } from "../packages/sage-board/reader.mjs";
+import { renderMarkdown } from "../packages/sage-board/markdown.mjs";
+import { ARENA_KEY, ARENA_NOW, writeArenaFixture } from "./fixtures/board-arena.mjs";
+
+function arena(t) {
+  const root = mkdtempSync(join(tmpdir(), "sage-arena-reader-")), before = process.env.SAGE_WORKTREES;
+  const fixture = writeArenaFixture(root);
+  process.env.SAGE_WORKTREES = fixture.worktrees;
+  t.after(() => { if (before === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = before; rmSync(root, { recursive: true, force: true }); });
+  const read = () => {
+    const model = buildBoardModel(readBoardSources(fixture.sources, { now: Date.parse(ARENA_NOW) }), { now: ARENA_NOW });
+    const result = readerPage({ model, configured: fixture.sources, url: readerUrl(ARENA_KEY, "arena"), origin: "http://127.0.0.1:5000", render: renderMarkdown });
+    const html = result.top + result.rest;
+    return { html, cards: [...html.matchAll(/<section class="card[^"]*">([\s\S]*?)<\/section>/g)].map(match => match[1]), text: html.replace(/<style>[\s\S]*?<\/style>/, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ") };
+  };
+  const change = (name, mutate) => { const file = join(fixture.pages, "designs", name, "version.json"), data = JSON.parse(readFileSync(file, "utf8")); mutate(data); writeFileSync(file, JSON.stringify(data)); };
+  return { ...fixture, read, change };
+}
+
+test("arena keeps failed and blocked candidate runs without saved artifacts", t => {
+  const w = arena(t);
+  for (const status of ["failed", "blocked"]) {
+    const file = join(w.logbook, "runs.tsv");
+    writeFileSync(file, readFileSync(file, "utf8").replace(/\t(?:failed|blocked)\t/, `\t${status}\t`));
+    const page = w.read();
+    assert.equal(page.cards.length, 3);
+    assert.match(page.cards[2], /C .*R3/);
+    assert.match(page.cards[2], new RegExp(`State: [^<]*${status}`));
+    assert.match(page.cards[2], /Not assessed/);
+    assert.doesNotMatch(page.cards[2], /class="score"|>Base<|>Grafted<|>Not used</);
+    assert.match(page.text, /Base: candidate A/);
+    assert.match(page.text, /From B: clear search/);
+    assert.match(page.text, /C: no artifact/);
+  }
+});
+
+test("arena never totals or selects a candidate with incomplete scores", t => {
+  const w = arena(t);
+  for (const scores of [[4, null, 4], [4, 3], [4, 3, 4, 4], [4, 5, 4]]) {
+    w.change("final", data => { data.final.scores.candidates.A = scores; });
+    const page = w.read();
+    assert.match(page.cards[0], /Not assessed/);
+    assert.doesNotMatch(page.cards[0], /class="score"|>Base</);
+    assert.doesNotMatch(page.text, /Base: candidate A/);
+    assert.match(page.cards[1], /class="score">10</);
+  }
+});
+
+test("arena attaches versions only to explicit candidate run identities", t => {
+  const w = arena(t);
+  for (const run of [undefined, "R99", "R2"]) {
+    w.change("A", data => { data.run = run; });
+    const page = w.read();
+    assert.equal(page.cards.length, 3);
+    assert.match(page.cards[0], /A .*R1/);
+    assert.match(page.cards[0], /Not assessed/);
+    assert.doesNotMatch(page.cards[0], /list first|class="score"|>Base<|Open its prototype/);
+    assert.doesNotMatch(page.text, /Base: candidate A/);
+  }
+});
+
+test("arena preserves runs before a judge saves a final and refuses ambiguous evidence", t => {
+  const w = arena(t), finalFile = join(w.pages, "designs", "final", "version.json"), final = readFileSync(finalFile);
+  rmSync(finalFile);
+  assert.equal(w.read().cards.length, 3);
+  assert.ok(w.read().cards.every(card => card.includes("Not assessed")));
+  writeFileSync(finalFile, final);
+  const copy = join(w.pages, "designs", "copy"); mkdirSync(copy);
+  writeFileSync(join(copy, "version.json"), readFileSync(join(w.pages, "designs", "A", "version.json")));
+  assert.match(w.read().cards[0], /Not assessed/);
+  assert.doesNotMatch(w.read().cards[0], /class="score"|>Base</);
+  rmSync(copy, { recursive: true });
+  const runs = join(w.logbook, "runs.tsv");
+  writeFileSync(runs, readFileSync(runs, "utf8").replace("R3\tT1\tdesigner\t0\tC", "R3\tT1\tdesigner\t0\tA"));
+  assert.ok(w.read().cards.filter(card => /R[13]</.test(card)).every(card => card.includes("Not assessed")));
+});
+
+test("arena leaves artifact-free saved versions and unmatched judge evidence not assessed", t => {
+  const w = arena(t);
+  w.change("final", data => { data.run = "R99"; });
+  assert.ok(w.read().cards.every(card => card.includes("Not assessed") && !card.includes('class="score"')));
+  w.change("final", data => { data.run = "R4"; });
+  rmSync(join(w.pages, "designs", "A", "index.html"));
+  const page = w.read();
+  assert.match(page.cards[0], /Not assessed/);
+  assert.doesNotMatch(page.cards[0], /class="score"|>Base<|Open its prototype/);
+  assert.doesNotMatch(page.text, /Base: candidate A/);
+});
 
 test("board reader preserves source-qualified duplicate tasks and never initializes missing tables", t => {
   const root = mkdtempSync(join(tmpdir(), "sage-board-reader-"));

@@ -1261,8 +1261,13 @@ test("T1003: release_add, milestone_set and task_set release= give the Claude st
 test("T930: config sets the board name, the archive, the cycle counts and max_leads through the Codex server, with the Claude state tool's lines", async (t) => {
   const s = await milestoneWorld(t), { both } = s;
   assert.equal(await both("config", { settings: { name: "Council Record" } }, ["config", "name=Council Record"]), "name=Council Record archived=no start=normal");
-  assert.equal(await both("config", { settings: { archived: "yes" } }, ["config", "archived=yes"]), "name=Council Record archived=yes start=normal");
-  assert.equal(await both("config", { settings: { name: "", archived: "no" } }, ["config", "name=", "archived=no"]), "name= archived=no start=normal");
+  assert.equal(await both("config", { settings: { archived: "yes" } }, ["config", "archived=yes"]), "name=Council Record archived=yes start=normal\nArchived: the project starts no agent and merges nothing; agents that run now finish, and their reports, findings and verdicts still record. To restore it: sage config archived=no.");
+  const restore = /^sage: this project is archived, so it takes no new (task|run): an archived project starts no agent and merges nothing\. If the owner asked for new work here, restore it first with sage config archived=no, tell the owner in one line that you restored it, then add the \1 again\. A lead does not restore a project: report blocked to your chief\. Nothing changed\.$/;
+  assert.match((await both("task_add", { title: "later", size: "small", priority: "P2" }, ["task", "add", "--title", "later", "--size", "small", "--priority", "P2"])).error, restore, "T1136 G201: Codex and Claude refuse new work in an archived project, and name the restore");
+  assert.match((await both("run_add", { task: "T1", role: "qa" }, ["run", "add", "T1", "--role", "qa"])).error, restore);
+  assert.equal(await both("config", { settings: { name: "", archived: "no" } }, ["config", "name=", "archived=no"]), "name= archived=no start=normal\nRestored: the project takes new tasks and runs, and the merge check judges its commits again.");
+  assert.equal(await both("config", { settings: { archived: "no" } }, ["config", "archived=no"]), "name= archived=no start=normal\nThe project is not archived, so archived=no changes nothing.", "T1136: a restore of a project that is not archived says so");
+  assert.match(await both("task_add", { title: "later", size: "small", priority: "P2" }, ["task", "add", "--title", "later", "--size", "small", "--priority", "P2"]), /^T4 framed/, "a restored project takes new work");
   assert.match((await both("config", { settings: { name: "x", max_leads: "4" } }, ["config", "name=x", "max_leads=4"])).error, /^sage: "max_leads" is a key for all projects/);
   assert.match((await both("config", { settings: { "cycles.large": "1" } }, ["config", "cycles.large=1"])).error, /^sage: cycles\.large must be a whole number of 2 or more: 1 is below the floor of 2/);
   const counts = (text) => text.replace(/ arena_models=\S+/, "").replace(/ model\..*$/, "");
