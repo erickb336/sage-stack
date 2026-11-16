@@ -283,6 +283,22 @@ test("T1064: the question view shows every part of the kept message: a frame and
   assert.deepEqual(Object.keys(parts).filter(name => !parts[name].test(html)), [], "each part of the kept message shows");
 });
 
+test("T1116: a Markdown page shows its pictures from the task's pages folder and its data: pictures; a picture from another host, outside the folder, too deep or of another type shows its alt text", t => {
+  const w = world(t), folder = join(w.pages, "T3"), PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  mkdirSync(join(folder, "shots", "a", "b", "c"), { recursive: true });
+  for (const file of ["shots/screen.png", "shots/a/b/deep.png", "shots/a/b/c/too-deep.png"]) writeFileSync(join(folder, file), "PNG SAMPLE");
+  writeFileSync(join(folder, "walk.md"), ["# Walk", "", "![The first screen](shots/screen.png)", "", "![Three folders down](shots/a/b/deep.png)", "", `![A dot](${PNG})`, "",
+    "![From another host](https://example.com/screen.png) ![Out of the folder](../T10/designs/v2/first.svg) ![From the root](/shots/screen.png)", "",
+    "![Too deep](shots/a/b/c/too-deep.png) ![Not a picture](walk.md) ![A data drawing](data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=) ![A data page](data:text/html;base64,PGI+eDwvYj4=)", "",
+    `[a data link](${PNG})`, ""].join("\n"));
+  const page = read(w, "T3", "page", "walk.md");
+  assert.deepEqual([...page.html.matchAll(/<img src="([^"]+)" alt="([^"]*)"/g)].map(match => [match[1], match[2]]), [
+    ["/pages/sample-app-abc123/T3/shots/screen.png", "The first screen"], ["/pages/sample-app-abc123/T3/shots/a/b/deep.png", "Three folders down"], [PNG, "A dot"]]);
+  for (const alt of ["From another host", "Out of the folder", "From the root", "Too deep", "Not a picture", "A data drawing", "A data page"]) assert.match(page.text, new RegExp(`Picture not shown: ${alt}\\.`), alt);
+  assert.doesNotMatch(page.html, /href="data:/, "a data: link is no link");
+  assert.match(read(w, "T3", "page", "retry-design.md").html, /<img src="\/pages\/sample-app-abc123\/T3\/retry\.svg" alt="The retry screen"/, "an older page still shows its picture");
+});
+
 test("T1064 security: hostile Markdown and hostile logbook text render harmless: no raw HTML, no script or javascript: link, no outside or traversal picture, no bidi override", t => {
   const w = world(t, { hostile: true });
   const pages = [["T3", "page", "hostile.md"], ["T3", "brief", "R7"], ["T3", "report", "R5"], ["T10", "question", "G4"], ["T50", "question", "G9"], ["T10", "design"], ["T10", "arena"]].map(([task, kind, arg]) => read(w, task, kind, arg ?? null));
@@ -358,7 +374,7 @@ test("T1064: the server serves the reader script-free under the sandbox policy, 
   const page = await get(base, readerUrl(KEY("T3"), "page", "hostile.md"));
   assert.equal(page.status, 200);
   const policy = page.headers["content-security-policy"];
-  assert.match(policy, /^sandbox allow-same-origin; default-src 'none'; script-src 'none'; style-src 'sha256-[\w+/=]+'; img-src http:\/\/127\.0\.0\.1:\d+\/pages\/sample-app-abc123\/T3\/; base-uri 'none'; form-action 'none'; frame-ancestors 'none'$/);
+  assert.match(policy, /^sandbox allow-same-origin; default-src 'none'; script-src 'none'; style-src 'sha256-[\w+/=]+'; img-src http:\/\/127\.0\.0\.1:\d+\/pages\/sample-app-abc123\/T3\/ data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'$/);
   assert.doesNotMatch(policy, /allow-scripts|allow-forms|allow-popups|allow-top-navigation|unsafe/);
   assert.equal(page.headers["x-content-type-options"], "nosniff");
   assert.match(page.body, /<div class="skel" aria-hidden="true">.*<div class="ready">/s, "the outline comes first, and the document after it hides it");

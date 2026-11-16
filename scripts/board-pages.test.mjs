@@ -152,7 +152,8 @@ test("the pages route serves each page type with its own type and the sandbox po
   pageHeaders(index, /^script-src 'none'; default-src 'none';/);
   assert.equal(index.headers["cross-origin-opener-policy"], "same-origin");
   const listed = [...index.body.matchAll(/<a href="\/pages\/project-abcdef\/T1\/([^"?]+)">/g)].map((m) => m[1]).sort();
-  assert.deepEqual(listed, ["anim.gif", "brief.pdf", "chart.svg", "handler.html", "message.html", "notes.md", "notes.txt", "photo.jpg", "pic.webp", "prose.html", "research.html", "scripted.html", "shot.png", "sub/deep/deeper/four.txt", "sub/deep/deepest.txt", "sub/inner.html"]);
+  assert.deepEqual(listed, ["anim.gif", "brief.pdf", "chart.svg", "handler.html", "message.html", "notes.txt", "photo.jpg", "pic.webp", "prose.html", "research.html", "scripted.html", "shot.png", "sub/deep/deeper/four.txt", "sub/deep/deepest.txt", "sub/inner.html"]);
+  assert.match(index.body, /<a href="\/read\/[\w-]+\/page\/notes\.md">notes\.md<\/a>/, "a Markdown page opens in the reader");
   assert.match(index.body, /a page may link to sites outside this Mac/);
   assert.doesNotMatch(index.body, /\?scripts|with its scripts/);
   assert.equal((await get(f, `/pages/${LOGBOOK}/T1`)).body, index.body, "the index also without the last slash");
@@ -358,6 +359,25 @@ test("the pages route answers only on the Mac, only GET and HEAD, and only to th
     assert.equal(r.status, 405, method);
     assert.equal(r.headers.allow, "GET, HEAD");
   }
+});
+
+test("T1116: a person's click on a Markdown page's link opens the page in the reader, with its pictures; the reader's own link, another site's link and a script still get the file", async (t) => {
+  const f = await fixture(t), page = `/pages/${LOGBOOK}/T1/notes.md`, reader = `/read/${Buffer.from(`sample/${LOGBOOK}/T1`).toString("base64url")}/page/notes.md`;
+  writeFileSync(join(f.t1, "notes.md"), "# SAMPLE notes\n\n![The shot](shot.png)\n");
+  const r = await get(f, page, { headers: DOCUMENT });
+  assert.deepEqual([r.status, r.headers.location, r.body], [303, reader, ""]);
+  pageHeaders(r);
+  const opened = await get(f, reader, { headers: DOCUMENT });
+  assert.equal(opened.status, 200);
+  assert.match(opened.body, /<img src="\/pages\/project-abcdef\/T1\/shot\.png" alt="The shot"/, "the reader shows the page's picture");
+  for (const headers of [{}, { ...DOCUMENT, "Sec-Fetch-Site": "same-origin" }, { ...DOCUMENT, "Sec-Fetch-Site": "cross-site" }, FRAME]) {
+    const r = await get(f, page, { headers });
+    assert.deepEqual([r.status, r.headers["content-type"], r.body], [200, "text/plain; charset=utf-8", readFileSync(join(f.t1, "notes.md"), "latin1")], JSON.stringify(headers));
+  }
+  writeFileSync(join(f.t1, "..", "T2", "off-board.md"), "SAMPLE");
+  assert.equal((await get(f, `/pages/${LOGBOOK}/T2/off-board.md`, { headers: DOCUMENT })).status, 200, "a task that is not on the board has no reader page, so its file opens as it is");
+  assert.equal((await get(f, `/pages/${LOGBOOK}/T1/notes.txt`, { headers: DOCUMENT })).headers["content-type"], "text/plain; charset=utf-8", "only Markdown opens in the reader");
+  assert.match((await get(f, `/pages/${LOGBOOK}/T1/`)).body, new RegExp(`<a href="${reader}">notes\\.md</a>`), "the index links a Markdown page to the reader");
 });
 
 test("a message's Page block prints the board's link, and the link opens the page on the board", async (t) => {

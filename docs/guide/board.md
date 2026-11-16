@@ -210,7 +210,7 @@ The report of the run that asked shows "This became G4." at its top, with a link
 
 <img alt="The reader with a question of the sample data, with SAMPLE DATA: Where, Approve and Choice, each under its short label, then the answers." src="../assets/board-reader.png" width="100%">
 
-The reader (`/read/...`) shows what the agents made as plain pages of the board, each with a back link to where you came from: a brief, a report, a Markdown page with its contents list, a design (one version, or two side by side), an arena (the candidates, the scores and the judge's final), and a question. It runs no script. Its question page says "Answer on the board or in the chat", with a link to the question view.
+The reader (`/read/...`) shows what the agents made as plain pages of the board, each with a back link to where you came from: a brief, a report, a Markdown page with its contents list and its pictures, a design (one version, or two side by side), an arena (the candidates, the scores and the judge's final), and a question. It runs no script. Its question page says "Answer on the board or in the chat", with a link to the question view.
 
 A page says "not written yet" while its run runs, "not kept" for a run older than the kept briefs, and "gone" for a recorded page that is no longer in the pages folder. The [board service guide](../../packages/sage-board/README.md#the-reader-for-agent-documents-t1064) gives its routes and its safety rules.
 
@@ -351,9 +351,16 @@ Agents save each task's pages (research, designs, the pages of the chief's messa
 
 The task page's Artifacts tab lists the pages of the task, and a Markdown page opens in the reader.
 
+A Markdown page always opens in the [reader](#the-question-view-and-the-reader) when you click its link in a chief's message, in the index or on the task page, or when you type its address. The reader shows the page's pictures:
+
+- a picture of the task's own pages folder, with a relative link such as `![The first screen](shots/home.png)`, at most 4 parts deep;
+- a `data:` picture (PNG, JPEG, GIF or WebP).
+
+Each picture fits the width of the page, and a click enlarges it. A picture from another site, from another task, from outside the folder or deeper than 4 parts does not load: the reader shows "Picture not shown" and the picture's alt text. To see the Markdown text as it is, click "Open the file" in the reader.
+
 The Page block of a message gives this link between its title and its file path ([sage's messages](using-sage.md#sages-messages)). So one link opens the page in the same way in each app: in the Browser pane of the Claude desktop app, in the built-in browser of the Codex app, and in your default browser from a terminal.
 
-The board shows web pages, PDFs, pictures (PNG, JPEG, GIF, WebP and SVG), and Markdown and text files as plain text. It shows no other file: no logbook file, JSON, log, hidden file or link.
+The board shows web pages, PDFs, pictures (PNG, JPEG, GIF, WebP and SVG), Markdown pages in the reader, and text files as plain text. It shows no other file: no logbook file, JSON, log, hidden file or link.
 
 A page can be at most 4 parts deep in the task's folder (for example `designs/final/shots/home.png`) and at most 16 MiB. The index lists at most 200 pages.
 

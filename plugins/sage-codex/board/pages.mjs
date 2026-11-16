@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { KEPT_FILE_MAX, PAGE_POLICY, PAGE_TYPES, REPORT_FIELDS, SWITCH_SCRIPT, fieldsOf, pageFile, pageTaskFolder, pageType } from "../core/index.mjs";
+import { readerUrl } from "./reader.mjs";
 
 const SCAN = 2000, LIST = 200;
 const SWITCH = `'sha256-${createHash("sha256").update(SWITCH_SCRIPT).digest("base64")}'`;
@@ -70,10 +71,10 @@ export function listPages(folder) {
 
 const sizeText = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`;
 
-function indexHtml(logbook, task, folder) {
+function indexHtml(logbook, task, folder, read) {
   const { pages, more } = listPages(folder);
   const base = `/pages/${logbook}/${task}/`;
-  const rows = pages.map((page) => `<li><a href="${base}${page.name}">${page.name}</a> <span class="m">${sizeText(page.size)}</span></li>`).join("");
+  const rows = pages.map((page) => `<li><a href="${read(page.name) ?? base + page.name}">${page.name}</a> <span class="m">${sizeText(page.size)}</span></li>`).join("");
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Pages of ${task}</title>
 <style>:root{color-scheme:light dark}body{margin:0;font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}main{max-width:860px;margin:0 auto;padding:22px 20px 48px}h1{font-size:22px;margin:4px 0 8px}.m{color:#595959;font-size:13px}@media (prefers-color-scheme:dark){.m{color:#b3b3b3}}li{margin:4px 0;overflow-wrap:anywhere}.w{border-left:3px solid #c99a00;padding:4px 10px;margin:8px 0}</style></head>
 <body><main><h1>Pages of ${task}</h1><p class="m">Logbook ${logbook} · read-only, on this Mac only</p>
@@ -110,11 +111,14 @@ export function servePages(request, response, { onMac, model }) {
   if (!target || !logbooks.has(target.logbook)) return missing();
   const folder = pageTaskFolder(target.logbook, target.task);
   if (!folder) return missing();
-  if (!target.file) { try { return send(200, "text/html; charset=utf-8", indexHtml(target.logbook, target.task, folder), INDEX_POLICY, true); } catch { return send(503, PLAIN, "This index is unavailable.\n"); } }
+  const onBoard = model?.tasks?.find((task) => task.id === target.task && task.project.slice(task.project.indexOf("/") + 1) === target.logbook);
+  const read = (file) => onBoard && file.endsWith(".md") ? readerUrl(onBoard.key, "page", file) : null;
+  if (!target.file) { try { return send(200, "text/html; charset=utf-8", indexHtml(target.logbook, target.task, folder, read), INDEX_POLICY, true); } catch { return send(503, PLAIN, "This index is unavailable.\n"); } }
   const bytes = pageFile(folder, target.file, true)?.bytes;
   if (!bytes) return missing();
   const origin = `http://${one(request, "host").toLowerCase()}`, own = `${origin}/pages/${target.logbook}/${target.task}/`;
   const type = pageType(target.file), html = type === PAGE_TYPES.html, dest = one(request, "sec-fetch-dest");
+  if (dest === "document" && one(request, "sec-fetch-site") === "none" && read(target.file)) { response.setHeader("Location", read(target.file)); return send(303, PLAIN, ""); }
   if (dest === "iframe") return send(200, type, bytes, pagePolicy(html && "'unsafe-inline'", own, origin));
   if (html && dest === "document" && ownScript(bytes.toString("utf8"))) return send(200, type, frameHtml(target.logbook, target.task, target.file), `default-src 'none'; style-src 'unsafe-inline'; frame-src ${own}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`, true);
   return send(200, type, bytes, pagePolicy(html && switchOnly(bytes) && SWITCH, own));

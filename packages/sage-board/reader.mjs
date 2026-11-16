@@ -8,6 +8,7 @@ const TEXT_MAX = 1 << 20, MD_MAX = 2 << 20, VERSIONS_MAX = 30, SHOTS_MAX = 8;
 const RUN = /^R[1-9]\d*$/, GATE = /^G[1-9]\d*$/, NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
 const DEFAULT_LABELS = ["Default", "If you do not answer"];
 const PICTURE = /\.(?:png|jpe?g|gif|webp|svg)$/i;
+const DATA_PICTURE = /^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/]+=*$/;
 const MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(" ");
 const pad = n => String(n).padStart(2, "0");
 const esc = text => marksShown(text).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
@@ -209,8 +210,8 @@ h2.sec{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--
 const STYLE_HASH = `'sha256-${createHash("sha256").update(CSS).digest("base64")}'`;
 
 export function readerPolicy(origin, logbook, taskId, framed = false) {
-  const pictures = origin && logbook && taskId ? `${origin}/pages/${logbook}/${taskId}/` : "'none'";
-  return `sandbox allow-same-origin${framed ? " allow-top-navigation-by-user-activation allow-popups allow-popups-to-escape-sandbox" : ""}; default-src 'none'; script-src 'none'; style-src ${STYLE_HASH}; img-src ${pictures}; base-uri 'none'; form-action 'none'; frame-ancestors ${framed ? "'self'" : "'none'"}`;
+  const pictures = origin && logbook && taskId ? `${origin}/pages/${logbook}/${taskId}/ ` : "";
+  return `sandbox allow-same-origin${framed ? " allow-top-navigation-by-user-activation allow-popups allow-popups-to-escape-sandbox" : ""}; default-src 'none'; script-src 'none'; style-src ${STYLE_HASH}; img-src ${pictures}data:; base-uri 'none'; form-action 'none'; frame-ancestors ${framed ? "'self'" : "'none'"}`;
 }
 
 function frame(view, { project, title, crumb, back, file, state }) {
@@ -244,7 +245,7 @@ export function readerPage({ model, configured, url, origin, render }) {
   const run = RUN.test(view.arg ?? "") ? task.runs.find(item => item.id === view.arg) : null;
   const chief = item => item?.chief ? esc(chiefName(item.chief, item.provider)) : panel.chief ? esc(chiefName(panel.chief.id, panel.chief.provider)) : "not recorded";
   const taskHref = `/app/#task?key=${encodeURIComponent(view.key)}`, taskA = (label = task.id) => `<a href="${esc(taskHref)}">${esc(label)}</a>`, taskLink = taskA();
-  const picture = (file, alt, n) => `<span class="zoom" id="p${n}"><a href="#p${n}" aria-label="Enlarge the picture ${esc(alt || file)}"><img src="${esc(pagesBase + file)}" alt="${esc(alt)}" loading="lazy"></a><a class="x" href="#_">Close the picture</a></span>`;
+  const picture = (file, alt, n, src = pagesBase + file) => `<span class="zoom" id="p${n}"><a href="#p${n}" aria-label="Enlarge the picture ${esc(alt || file)}"><img src="${esc(src)}" alt="${esc(alt)}" loading="lazy"></a><a class="x" href="#_">Close the picture</a></span>`;
   let pictures = 0;
   const markdown = (text, base = "") => { const out = render(text, {
     href: raw => {
@@ -259,6 +260,7 @@ export function readerPage({ model, configured, url, origin, render }) {
       return target.endsWith(".md") ? link("page", target) : pagesBase + target;
     },
     picture: (raw, alt) => {
+      if (DATA_PICTURE.test(raw)) return picture("a picture in the page", alt, ++pictures, raw);
       let path;
       try { path = decodeURIComponent(String(raw)).split(/[?#]/)[0]; } catch { return null; }
       const target = posix.normalize(posix.join(base, path));
