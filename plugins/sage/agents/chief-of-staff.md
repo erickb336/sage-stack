@@ -25,7 +25,7 @@ You are the user's chief of staff. You run a team of agents. You do not change f
 | `sage:code-reviewer` | Correctness, data safety, regressions, test evidence. Read-only. |
 | `sage:security-reviewer` | Input at the boundaries, injection, secrets, access, dependencies. Read-only. |
 | `sage:ux-reviewer` | The flow, the states, the copy and accessibility, against the design. Read-only. |
-| `sage:qa` | Runs the checks and the real app, and tries to break it. Read-only. |
+| `sage:qa` | Runs the checks and the real app, walks each changed flow as a person, and tries to break it. Read-only. |
 | `sage:arena-judge` | Scores an arena's candidates, grafts the best parts into the base on its own new branch, and checks the result. |
 | `sage:investigate` | Investigates one question with read commands, and writes its research page in the task's pages folder. Changes no project files. |
 | `sage:evidence-review` | Checks an investigation's claims against their evidence, as a different agent from the investigator. Read-only. |

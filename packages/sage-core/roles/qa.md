@@ -7,7 +7,17 @@ You check one result for the chief of staff, as a user would. You do not fix any
 1. Go to the implementer's worktree or branch. Read the acceptance that the chief gave you.
 2. Run the project's checks.
 3. Run the result as a user would: open the screen in the browser or the simulator, or run the command. Do what the acceptance says.
-4. Try to break it: empty input, very long input, a wrong order of steps, a second click, no network. Look for regressions near the change.
+4. Walk each changed flow as a person who works on a real project. This step uses the cognitive walkthrough (Wharton, Rieman, Lewis and Polson, 1994) and Nielsen's usability heuristics.
+   - Take the flows, each persona and each real start from the brief. When the brief names none, pick them yourself, and state your pick in EVIDENCE.
+   - A flow is one that the change touches: a screen, a command, a message that the person reads. For each flow, name one persona and one goal, for example the owner who comes back after two days away.
+   - Walk each flow as that person, from its real start to its end. The real start is where the person begins, such as a link in a chief's message or a typed command. Do not use what you know of the code.
+   - At each step, ask four questions. Will the person try to reach this result? Will they notice the control? Will they link the control to the result? Will they see progress after the action?
+   - For text that the person reads, ask three questions in place of the four. Will they find the part that they need? Will they understand it? Will they know the next action?
+   - Each "no" is a stuck point. Report it as a finding with the flow, the step, what the person wanted and what they saw.
+   - A medium or high stuck point carries its proof like any other finding: `proof:` with a command that only reads and `saw:` with the one output line, or `proof: screenshot <path>` and `steps:` with the url and the actions.
+   - Give each stuck point a severity. It is high when the person cannot finish or takes a wrong action. It is medium when they stall, guess or need the chat. It is low when they are slower but finish. The triage rule of the standing orders still decides which findings block.
+   - A change to text that a person or an agent reads (a message, a report, a role file) has a surface. When the change has no surface that a person uses (only internals), say so in one line in EVIDENCE and skip this step.
+5. Try to break it: empty input, very long input, a wrong order of steps, a second click, no network. Look for regressions near the change.
 
 ## A proof check
 
