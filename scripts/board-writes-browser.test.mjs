@@ -1,12 +1,13 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { after, before, test } from "node:test";
+import { pathToFileURL } from "node:url";
 import * as claude from "../plugins/sage/skills/sage/sage.mjs";
 import { runBoardCli } from "../plugins/sage/board/cli.mjs";
 import { createBoardServer, loadBoardApp } from "../plugins/sage/board/server.mjs";
@@ -36,7 +37,7 @@ const MESSAGE = { kind: "question", title: "Can a viewer copy a shared list into
   { t: "table", head: ["Answer", "Next", "Cost"], rows: [["yes", "The chief adds the copy action.", "About 1 to 2 h of agent time."], ["no", "The chief builds view only.", "No extra cost now."]], pick: 0 },
   { t: "field", label: "Default", text: "The task waits." }, { t: "field", label: "Due", text: "Sample: 20:00 today." }, { t: "field", label: "Next", text: "The chief builds the task." }] };
 
-async function openBoard(t, { write } = {}) {
+async function openBoard(t, { write, copy = false } = {}) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-writes-browser-")));
   const saved = { ...process.env };
   const fakes = join(base, "fakes");
@@ -64,9 +65,16 @@ async function openBoard(t, { write } = {}) {
   const config = join(base, "home", ".config", "sage-board", "board.json"), port = await freePort();
   await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify([{ id: "shared", path: env.SAGE_SHARED_HOME }])], { output: () => {}, env });
   const stateDir = join(base, "home", ".config", "sage-board", "state");
-  const server = createBoardServer({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port, app: APP, settleReads: [], stateDir, ...(write && { write }) });
-  await server.start();
-  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, colorScheme: "dark", timezoneId: "America/New_York" });
+  let server, cli = null;
+  if (copy) {
+    cli = join(base, copy, "board", "cli.mjs");
+    for (const part of ["board", "core"]) cpSync(new URL(`../plugins/sage/${part}/`, import.meta.url), join(base, copy, part), { recursive: true });
+    server = await (await import(pathToFileURL(cli).href)).runBoardCli(["board", "--serve", "--config", config], { output: () => {}, env });
+  } else {
+    server = createBoardServer({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair", ...(write && { write }) });
+    await server.start();
+  }
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, colorScheme: "dark", timezoneId: "America/New_York", permissions: ["clipboard-read", "clipboard-write"] });
   t.after(async () => {
     await context.close(); await server.close();
     for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
@@ -94,7 +102,7 @@ async function openBoard(t, { write } = {}) {
   const shot = async name => { if (SHOTS) await page.screenshot({ path: join(SHOTS, `${name}.png`), fullPage: true }); };
   const posts = path => requests.filter(line => line === `POST ${origin}/api/${path}`).length;
   const settled = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => setTimeout(done, 0))));
-  return { page, context, origin, dir, project, env, stateDir, as, pairText, pair, shot, requests, posts, settled, problems, gate: id => claude.read(dir, "gates").find(row => row.id === id) };
+  return { page, context, origin, cli, dir, project, env, stateDir, as, pairText, pair, shot, requests, posts, settled, problems, gate: id => claude.read(dir, "gates").find(row => row.id === id) };
 }
 
 test("T1059: the owner pairs once, then answers with full context, undoes, renames a chief, filters by chief, gives a task to another chief and sees what changed, each within two clicks of the Overview", async t => {
@@ -193,6 +201,47 @@ test("T1059: a question answered first in the chief's chat shows who answered fi
   await page.getByText(/^Answered first in C2's chat at \d\d:\d\d: send them\./).waitFor();
   await w.shot("t1059-answered-elsewhere");
   assert.equal(w.gate("G2").answer, "send them");
+});
+
+test("T1119: a board started from a copy in a folder whose name has shell characters shows its own pairing command, quoted for an interactive shell, with a copy button, on the Overview and in the question view", async t => {
+  const w = await openBoard(t, { copy: "sage plugin's $HOME `x` \"q\" !! copy" }), { page } = w;
+  const command = `node '${w.cli.replace("plugin's", "plugin'\\''s")}' board --pair`;
+  const card = page.locator("form.pair");
+  await card.waitFor();
+  assert.equal(await card.locator("code").textContent(), command);
+  await card.getByRole("button", { name: "Copy", exact: true }).click();
+  await card.getByRole("button", { name: "Copied", exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), command);
+  await page.getByRole("link", { name: MESSAGE.title }).click();
+  await page.getByRole("heading", { name: MESSAGE.title, level: 1 }).waitFor();
+  assert.equal(await page.locator("form.pair code").textContent(), command);
+  assert.deepEqual(w.problems, []);
+});
+
+test("F-T1119-3: the pairing card holds its whole command and the Copy button at 1440 px and 390 px, on the Overview and in the question view, and the page does not scroll sideways", async t => {
+  const w = await openBoard(t, { copy: "sage plugin" }), { page } = w;
+  await page.locator("form.pair code").waitFor();
+  const fits = async where => {
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await w.settled();
+      const box = await page.evaluate(() => {
+        const card = document.querySelector("form.pair").getBoundingClientRect(), code = document.querySelector("form.pair code"), button = document.querySelector("form.pair .pair-cmd button").getBoundingClientRect();
+        return { page: document.documentElement.scrollWidth, view: innerWidth, card: [card.left, card.right], button: [button.left, button.right], hidden: code.scrollWidth - code.clientWidth };
+      });
+      const at = `${where} at ${width} px: ${JSON.stringify(box)}`;
+      assert.ok(box.page <= box.view, `the page does not scroll sideways, ${at}`);
+      assert.ok(box.button[0] >= box.card[0] && box.button[1] <= box.card[1] && box.card[1] <= box.view, `the Copy button is inside the card and the screen, ${at}`);
+      assert.ok(box.hidden <= 0, `the card shows the whole command, ${at}`);
+      await w.shot(`f-t1119-3-${where}-${width}`);
+    }
+  };
+  await fits("overview");
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole("link", { name: MESSAGE.title }).click();
+  await page.getByRole("heading", { name: MESSAGE.title, level: 1 }).waitFor();
+  await fits("question");
+  assert.deepEqual(w.problems, []);
 });
 
 test("F-T1059-17: board --pair names the card, the field and the button that the page shows, and says how to restart an older board", async t => {
