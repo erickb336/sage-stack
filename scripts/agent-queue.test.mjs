@@ -447,3 +447,56 @@ test("T1062 F-T1062-3: the board takes cap.<name> from every checkout bound to t
   assert.equal(queue.limit, 7, "the board shows the same agent limit");
   assert.equal(queue.leadLimit, 4, "and the lead limit of the provider roots");
 });
+
+const decisionRows = (w) => readFileSync(join(storeDir(w.project, w.env), "decisions.tsv"), "utf8").trim().split("\n").slice(1).map((line) => line.split("\t"));
+const asOwner = (w, setting) => tool.sage(["config", setting, "--project", w.project], w.env);
+
+test("T1136 G200, G201: archive needs no chief; it ends queued and admitted runs, starts nothing, adds nothing and merges nothing; running agents finish; a restore lets work go on", async (t) => {
+  const w = world(t);
+  shared(w);
+  const sha = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
+  for (const [chief, task] of [["claude", "T1"], ["codex", "T2"], ["claude", "T1"], ["codex", "T2"], ["claude", "T1"]]) w[chief]("run", "add", task, "--role", "qa");
+  assert.match(w.claude("run", "done", "R1", "--status", "failed", "--why", "stopped"), /\nR4 admitted · qa on T2/);
+  assert.deepEqual(w.runs().rows.map((r) => [r.id, r.status]), [["R1", "failed"], ["R2", "running"], ["R3", "running"], ["R4", "running"], ["R5", "queued"]], "R4 is admitted, its agent has not started; R5 is queued");
+
+  assert.equal(asOwner(w, "archived=yes"), "name= archived=yes start=normal\nArchived: the project starts no agent and merges nothing; agents that run now finish, and their reports, findings and verdicts still record. Ended as failed, because the project was archived: R4 (qa on T2), R5 (qa on T1). To restore it: sage config archived=no.", "the owner's act: no --chief");
+  assert.deepEqual(w.runs().rows.map((r) => [r.id, r.status, r.failure ?? ""]), [["R1", "failed", "stopped"], ["R2", "running", ""], ["R3", "running", ""], ["R4", "failed", "the project was archived"], ["R5", "failed", "the project was archived"]], "running agents go on");
+  const [at, task, decision, why] = decisionRows(w).at(-1);
+  assert.deepEqual([task, decision, why], ["", "project archived", "config archived=yes; ended as failed: R4, R5"]);
+  assert.ok(Math.abs(Date.parse(at) - Date.now()) < 10 * 60_000, "the decision row is dated now");
+
+  const refusal = (what) => new RegExp(`this project is archived, so it takes no new ${what}: .* If the owner asked for new work here, restore it first with sage config archived=no, tell the owner in one line that you restored it, then add the ${what} again\\. A lead does not restore a project: report blocked to your chief\\. Nothing changed\\.$`);
+  assert.throws(() => w.claude("run", "add", "T1", "--role", "qa"), refusal("run"));
+  assert.throws(() => w.codex("run", "add", "T2", "--role", "qa"), refusal("run"));
+  assert.throws(() => w.codex("task", "add", "--title", "new work", "--size", "tiny", "--priority", "P2"), refusal("task"));
+  w.hook({ hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
+  const noStart = /this project is archived, so no agent starts, also not for R3\. If the owner asked for new work here, restore it first with sage config archived=no, tell the owner in one line that you restored it, then add a new run\.$/;
+  assert.match(denied(w.hook(claudeSpawn("R3", "T1"))) ?? "", noStart, "Claude starts no agent, also for a run that still runs");
+  assert.match(denied(await w.spawnCodex("sage_qa_t2_r4")) ?? "", /this project is archived, so no agent starts, also not for R4\./, "Codex starts no agent for the admitted run");
+
+  assert.equal(w.claude("run", "done", "R3", "--status", "done", "--tokens", "1000"), "R3 done", "a running agent finishes, and its end admits nothing");
+  assert.match(w.codex("finding", "add", "T2", "--source", "qa", "--severity", "low", "--summary", "a late finding", "--run", "R2", "--class", "other"), /F-T2-1/);
+  assert.equal(w.codex("run", "done", "R2", "--status", "done", "--tokens", "1000"), "R2 done");
+  w.claude("verdict", "T1", "--sha", sha, "--kind", "checks-pass");
+  assert.throws(() => w.claude("merge-check", "--sha", sha), /T1 is in an archived project, so it does not merge: an archived project merges nothing\. When the owner asks for work here again, restore it first with sage config archived=no/);
+  assert.match(asOwner(w, "archived=yes"), /\nThe project is archived already, so archived=yes changes nothing\.$/);
+
+  assert.equal(asOwner(w, "archived=no"), "name= archived=no start=normal\nRestored: the project takes new tasks and runs, and the merge check judges its commits again.");
+  assert.deepEqual(decisionRows(w).at(-1).slice(1), ["", "project restored", "config archived=no"]);
+  assert.match(w.claude("merge-check", "--sha", sha), /may merge/, "the same verdicts merge after the restore");
+  assert.match(w.claude("run", "add", "T1", "--role", "qa"), /^R6 running · qa on T1/);
+  assert.match(asOwner(w, "archived=no"), /\nThe project is not archived, so archived=no changes nothing\.$/);
+});
+
+test("T1136 G200: a logbook archived before its runs ended (an older sage) admits no queued run and marks no start", (t) => {
+  const w = world(t);
+  shared(w);
+  for (const task of ["T1", "T1", "T1", "T1", "T1"]) w.claude("run", "add", task, "--role", "qa");
+  assert.match(w.claude("run", "done", "R1", "--status", "failed", "--why", "stopped"), /\nR4 admitted/);
+  const file = join(storeDir(w.project, w.env), "config.json");
+  writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, "utf8")), archived: true }));
+  assert.equal(markStart(w.project, "R4", w.env), false, "the admitted run's agent does not start");
+  assert.equal(w.claude("run", "done", "R2", "--status", "failed", "--why", "stopped"), "R2 failed", "a run that ends admits nothing");
+  assert.equal(status(w, "R5"), "queued");
+  assert.match(asOwner(w, "archived=yes"), /\nThe project is archived already, so archived=yes changes nothing\.$/);
+});
