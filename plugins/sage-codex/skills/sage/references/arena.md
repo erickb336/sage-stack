@@ -4,6 +4,8 @@ An arena gives one task to several candidates, each on its own branch. A judge t
 
 The steps come in the same order as in Claude Code. You run the arena yourself, before any lead. Each `run_add`, `spawn_agent` and `run_done` goes as **Run the route** says in the chief's instructions, also with its `usage-interface`.
 
+For each candidate and the judge, keep the whole unchanged role output in the spawn message. Include the [canonical first read](roles.md#canonical-first-read) in each checked brief for its recorded role, task and run. Use the exact inspected installed command, its checks, failure handling and authority limits.
+
 A large task of kind `ui` or `design` gets the arena by default: `task_add` adds the arena block and writes a decision row with the count of candidates (config `arena`, 3 by default). When the owner says "no arena" for the task, give `task_add` the owner's reason as `no-arena`: the route keeps one designer. The state tool refuses an empty reason, and `no-arena` on a task that has no arena by default.
 
 For another task, frame it with `task_add`, with `add: "arena"` and the reason as `why`.
