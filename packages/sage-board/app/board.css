@@ -539,3 +539,22 @@ p.waits.never { color: var(--fail); }
   .log li { grid-template-columns: 70px minmax(0, 1fr); }
   .log li > :nth-child(3) { grid-column: 1 / -1; }
 }
+.pick-row { display: flex; align-items: center; gap: 6px; }
+.pick-row > a { flex: 1; min-width: 0; }
+.pick-row .btn { padding: 2px 8px; font-size: 12px; }
+.row-act { opacity: 0; }
+.pick-row:hover .row-act, .pick-row:focus-within .row-act { opacity: 1; }
+@media (hover: none) { .row-act { opacity: 1; } }
+.find { width: 100%; padding: 6px 10px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--card-2); color: var(--text); font: inherit; }
+.confirm { padding: 16px 18px; margin-bottom: 20px; max-width: 640px; display: grid; gap: 8px; }
+.confirm h2 { font-size: 16px; }
+.confirm p { margin: 0; }
+.confirm .warn { display: flex; gap: 8px; color: var(--need); }
+.banner.archived { border-color: var(--need); }
+.banner .row-btns { justify-content: start; margin: 8px 0 0; }
+.welcome { margin-bottom: 20px; }
+.welcome-body { padding: 4px 18px 14px; }
+.welcome-body > p { margin: 10px 0 0; }
+.welcome-body .lbl:first-child { margin-top: 10px; }
+.stood { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.archive-foot { margin-top: 28px; display: flex; gap: 10px; align-items: center; }

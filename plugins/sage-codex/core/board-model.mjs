@@ -390,6 +390,20 @@ function wasOf(project, task) {
 }
 const DAY_MS = 86400000, ACTIVE_DAYS = 14, OLDER_DAYS = 30;
 const bookTimes = project => [...(project.tables.decisions ?? NONE).map(row => row.at), ...(project.tables.gates ?? NONE).flatMap(gate => [gate.at, boardAnswer(gate)?.at])].map(time).filter(at => at !== null);
+const ARCHIVE_ROWS = ["project archived", "project restored"];
+function archiveFacts(books, tasks) {
+  let archivedAt = null, restoredAt = null, restored = true;
+  for (const { project } of books) {
+    const rows = (project.tables.decisions ?? NONE).filter(row => !row.task && ARCHIVE_ROWS.includes(row.decision) && time(row.at) !== null);
+    for (const row of rows) if (row.decision === ARCHIVE_ROWS[0]) archivedAt = Math.max(archivedAt ?? 0, time(row.at)); else restoredAt = Math.max(restoredAt ?? 0, time(row.at));
+    if (rows.length && rows.at(-1).decision === ARCHIVE_ROWS[0]) restored = false;
+  }
+  if (!restored) restoredAt = null;
+  const iso = at => at === null ? null : new Date(at).toISOString();
+  const count = name => books.reduce((n, { project }) => n + (project.tables[name] ?? NONE).filter(row => name !== "gates" || row.answer).length, 0);
+  return { logbooks: books.map(book => book.project.key), kept: { milestones: count("milestones"), findings: count("findings"), answers: count("gates") },
+    archivedAt: iso(archivedAt), restoredAt: iso(restoredAt), workSinceRestore: restoredAt !== null && tasks.some(task => task.runs.some(run => time(run.started) >= restoredAt)) };
+}
 const listOf = (archived, needsOwner, last, at) => archived ? "archived" : needsOwner ? "needs" : last && at - last > OLDER_DAYS * DAY_MS ? "older" : last && at - last <= ACTIVE_DAYS * DAY_MS ? "active" : "quiet";
 const repoPath = url => githubRepository(url)?.slice("https://github.com/".length) ?? null;
 const unique = list => list.filter((item, i) => item && list.indexOf(item) === i);
@@ -738,7 +752,7 @@ export function buildBoardModel(input,{ now = new Date().toISOString(), landing 
     const last = Math.max(0, ...own.map(recent), ...group.books.flatMap(book => bookTimes(book.project))), extra = milestoneNeeds.filter(need => need.group === group.key).length, needsOwner = live.filter(task => task.reasons.length).length + extra;
     const chiefs = group.books.filter(book => book.project.shared && !book.project.old).flatMap(({ project }) => boardChiefs({ rows: project.chiefs ?? NONE, live: project.chiefLive, names: project.chiefNames, runs: own.filter(task => task.project === project.key).flatMap(task => task.runs), waits: own.filter(task => task.project === project.key && !ENDED.includes(task.state)).flatMap(task => task.reasons.filter(reason => reason.owner).map(reason => reason.owner)), now: at }).map(chief => ({ key: `${project.key}/${chief.id}`, ...chief })));
     return { key: group.key, name: group.name, sub: group.sub, pathSub: group.pathSub ?? null, terms: group.terms, paths: group.paths, books: group.books.map(book => book.project.key), providers: group.providers, chiefs, archived: group.archived, problem: group.problem, tasks: own.length, needsOwner, agents: live.reduce((n, task) => n + task.agents.filter(agent => !agent.stale).length, 0), lastActivity: last ? new Date(last).toISOString() : null,
-      list: listOf(group.archived, needsOwner, last, at) };
+      list: listOf(group.archived, needsOwner, last, at), ...archiveFacts(group.books.filter(book => !book.project.old), own) };
   }).sort((a, b) => LISTS.indexOf(a.list) - LISTS.indexOf(b.list) || (a.list === "needs" ? b.needsOwner - a.needsOwner : 0) || (Date.parse(b.lastActivity ?? 0) || 0) - (Date.parse(a.lastActivity ?? 0) || 0) || a.name.localeCompare(b.name));
   const archived = projects.filter(project => project.archived).map(project => ({ key: project.key, name: project.name, tasks: project.tasks, needsOwner: project.needsOwner }));
   const agents = agentsOf(sources, groups, groupOf, byKey, at);

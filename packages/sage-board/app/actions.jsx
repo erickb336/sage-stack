@@ -14,6 +14,7 @@ const setAccess = writes => { access.writes = writes; listeners.forEach(fn => fn
 addEventListener("storage", event => { if (on && (event.key === TOKEN_KEY || event.key === null)) setAccess(stored.get() ? "paired" : "unpaired"); });
 const [, link, project] = /^#pair=([\w-]{1,64})(?:&project=([^&]*))?$/.exec(location.hash) ?? [];
 if (link) history.replaceState(null, "", `${location.pathname}${location.search}${PROJECT.test(project ?? "") ? `#?project=${project}` : ""}`);
+export const linkProject = link && PROJECT.test(project ?? "") ? project : null;
 let linkNote = { outcome: link && on ? "loading" : null };
 const noteListeners = new Set();
 const setNote = (outcome, detail) => { linkNote = { outcome, detail }; noteListeners.forEach(fn => fn()); };
