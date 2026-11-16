@@ -63,7 +63,7 @@ export function loadBoardApp(dir = APP_DIR) {
   if (!names.every(name => typeof name === "string" && APP_FILE.test(name)) || !manifest.script.endsWith(".js") || !manifest.style.endsWith(".css") || !manifest.vendor.endsWith(".js") || !manifest.graph.endsWith(".js")) return null;
   let files;
   try { files = new Map(names.map(name => [name, { type: APP_TYPES[name.split(".").pop()], body: readFileSync(join(dir, name)) }])); } catch { return null; }
-  const shell = (writes = "off") => `<!doctype html><html lang="en" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="sage-writes" content="${writes}"><title>Sage board</title><link rel="stylesheet" href="/app/${manifest.style}"><link rel="modulepreload" href="/app/${manifest.vendor}"><script type="module" src="/app/${manifest.script}"></script></head><body><div id="root"></div><noscript><p>This board needs scripts. The board in the chat needs none: send a message that starts with "show board".</p></noscript></body></html>`;
+  const shell = (writes = "off", pair = null) => `<!doctype html><html lang="en" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="sage-writes" content="${writes}">${pair ? `<meta name="sage-pair" content="${pair.replace(/[&"<>]/g, c => `&#${c.charCodeAt(0)};`)}">` : ""}<title>Sage board</title><link rel="stylesheet" href="/app/${manifest.style}"><link rel="modulepreload" href="/app/${manifest.vendor}"><script type="module" src="/app/${manifest.script}"></script></head><body><div id="root"></div><noscript><p>This board needs scripts. The board in the chat needs none: send a message that starts with "show board".</p></noscript></body></html>`;
   return { files, shell };
 }
 
@@ -102,7 +102,7 @@ function jsonBody(request) {
   });
 }
 
-export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () => new Date().toISOString(), settleReads = SETTLE_READS, lightEvery = LIGHT_EVERY, duringRead = null, providerRoots = [], app = loadBoardApp(), markdown = MARKDOWN, stateDir = null, write = writeInWorker } = {}) {
+export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () => new Date().toISOString(), settleReads = SETTLE_READS, lightEvery = LIGHT_EVERY, duringRead = null, providerRoots = [], app = loadBoardApp(), markdown = MARKDOWN, stateDir = null, pairCommand = null, write = writeInWorker } = {}) {
   if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) throw new TypeError("board port must be an integer from 1024 through 65535");
   if (typeof clock !== "function") throw new TypeError("the board clock must be a function that gives an ISO time");
   if (!Array.isArray(sources) || !sources.length || sources.length > 32) throw new TypeError("board needs 1 to 32 explicit sources");
@@ -118,6 +118,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
   const local = new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
   const origins = new Map([...local].map(host => [host, `http://${host}`]));
   let boardHeader = null;
+  if (stateDir && (typeof pairCommand !== "string" || !pairCommand || /[\x00-\x1f\x7f]/.test(pairCommand))) throw new TypeError("a board that takes writes needs the pairing command that the owner runs in Terminal");
   const access = stateDir ? boardAccess(stateDir) : null;
   const watchers = new Map(), watchErrors = new Map(), clients = new Set();
   let model, overview, lastGood, revision = 0, refreshTimer, boundaryTimer, settleTimer, startTimer, startPromise, closePromise, closed = false;
@@ -354,8 +355,8 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
       return paired.problem ? reply(403, { problem: paired.problem }) : reply(200, { token: paired.token }, { "Set-Cookie": `${COOKIE}=${paired.cookie}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000` });
     }
     const browser = access.browserOf(oneHeader(request, "cookie"));
-    if (!browser) return reply(401, { problem: "This browser is not paired with the board. Run board --pair in Terminal, then type its code on the board." });
-    if (!access.tokenFits(browser, oneHeader(request, "x-sage-token"))) return reply(403, { problem: "This page does not have this browser's pairing token. Pair again: run board --pair in Terminal, then type its code on the board." });
+    if (!browser) return reply(401, { problem: "This browser is not paired with the board. Run the command of the pairing card in Terminal, then type its code on the board." });
+    if (!access.tokenFits(browser, oneHeader(request, "x-sage-token"))) return reply(403, { problem: "This page does not have this browser's pairing token. Pair again: run the command of the pairing card in Terminal, then type its code on the board." });
     if (name === "seen") return reply(200, { previous: access.seen() });
     if (name === "name" && /^\s*-/.test(body.name ?? "")) return reply(400, { problem: "A chief's name cannot start with \"-\", because the state tool would read it as an option. Start it with a letter or a digit. Nothing changed." });
     const book = LOGBOOK.exec(body.logbook ?? ""), source = book && configured.find(item => item.id === book[1]);
@@ -425,7 +426,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
       response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Content-Length": body.length });
       return response.end(request.method === "HEAD" ? undefined : body);
     }
-    const body = name === "" ? Buffer.from(app.shell(access ? "on" : "off")) : app.files.get(name)?.body;
+    const body = name === "" ? Buffer.from(app.shell(access ? "on" : "off", access && pairCommand)) : app.files.get(name)?.body;
     if (!body) return fail(404, "This board page does not exist.");
     if (name === "") response.setHeader("Content-Security-Policy", appPolicy(origins.get(oneHeader(request, "host").toLowerCase())));
     response.writeHead(200, { "Content-Type": name === "" ? "text/html; charset=utf-8" : app.files.get(name).type, "Content-Length": body.length });

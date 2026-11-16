@@ -47,7 +47,7 @@ async function open(t, options = {}, { path = "/app/", theme = "dark", width = 1
   }
   const stateDir = seen === undefined ? null : join(dir, "state");
   if (stateDir) { mkdirSync(stateDir, { mode: 0o700 }); writeFileSync(join(stateDir, "seen.json"), JSON.stringify({ at: at(seen) }), { mode: 0o600 }); }
-  const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port, app: APP, settleReads: [], stateDir });
+  const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair" });
   await server.start();
   const base = `http://127.0.0.1:${port}`;
   const context = await browser.newContext({ viewport: { width, height: 1000 }, colorScheme: theme, reducedMotion: "reduce" });

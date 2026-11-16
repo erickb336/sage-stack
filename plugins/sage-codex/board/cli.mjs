@@ -90,7 +90,7 @@ export const defaultConfigPath = (env = process.env) => join(boardFolder(env), "
 
 export const configId = configPath => createHash("sha256").update(`sage-board-config:${realpathSync(configPath)}`).digest("hex").slice(0, 16);
 function boardCommand(option, configPath, env, explicit = false) {
-  const quote = text => /[^\w@%+=:,./-]/.test(text) ? `"${text.replace(/(["\\$`])/g, "\\$1")}"` : text;
+  const quote = text => /[^\w@%+=:,./-]/.test(text) ? `'${text.replaceAll("'", "'\\''")}'` : text;
   return ["node", quote(fileURLToPath(import.meta.url)), "board", option, ...(!explicit && configPath === defaultConfigPath(env) ? [] : ["--config", quote(configPath)])].join(" ");
 }
 
@@ -295,7 +295,7 @@ export async function runBoardCli(argv, { output = line => process.stdout.write(
   if (options["install-dir"] || options["login-file"]) throw new TypeError("installation paths require --install");
   if (options.serve) {
     if (value !== "all" || options.project) throw new TypeError("server uses all configured sources; no project option");
-    const configPath = boundedPath(options.config), server = createBoardServer({ ...config, sources: readSources(config.sources, env), providerRoots: providerRoots(env), id: configId(configPath), stateDir: stateFolder(configPath) });
+    const configPath = boundedPath(options.config), server = createBoardServer({ ...config, sources: readSources(config.sources, env), providerRoots: providerRoots(env), id: configId(configPath), stateDir: stateFolder(configPath), pairCommand: boardCommand("--pair", configPath, env) });
     try { await server.start(); } catch (error) { throw error.code === "EADDRINUSE" ? new Error(`${error.message} ${moveHint(configPath, config, env)}`) : error; }
     const close = () => server.close().finally(() => { if (readPid(configPath) === process.pid) rmSync(pidPath(configPath), { force: true }); });
     try { writePid(configPath, process.pid); replaceFile(join(dirname(configPath), PORT_FILE), `${config.port}\n`); } catch (error) { await close(); throw error; }

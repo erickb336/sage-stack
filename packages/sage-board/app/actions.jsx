@@ -6,6 +6,7 @@ import { chiefState, chiefSub, encodeKey, taskLink } from "./task.jsx";
 const TOKEN_KEY = "board-token";
 const stored = { get: () => { try { return localStorage.getItem(TOKEN_KEY) ?? ""; } catch { return ""; } }, set: value => { try { value ? localStorage.setItem(TOKEN_KEY, value) : localStorage.removeItem(TOKEN_KEY); } catch {} } };
 const on = document.querySelector('meta[name="sage-writes"]')?.content === "on";
+const PAIR_COMMAND = document.querySelector('meta[name="sage-pair"]')?.content ?? "";
 const access = { writes: !on ? "off" : stored.get() ? "paired" : "unpaired" };
 const listeners = new Set();
 const setAccess = writes => { access.writes = writes; listeners.forEach(fn => fn()); };
@@ -36,9 +37,10 @@ export async function post(path, body) {
 }
 
 export function PairBox() {
-  const writes = useAccess(), [code, setCode] = useState(""), [problem, setProblem] = useState(null);
+  const writes = useAccess(), [code, setCode] = useState(""), [problem, setProblem] = useState(null), [copied, setCopied] = useState(null);
   if (writes === "paired") return null;
   if (writes === "off") return <p className="note">This board only reads. Answer in the chief's chat, or stop this board and ask for it again.</p>;
+  const copy = () => Promise.resolve().then(() => navigator.clipboard.writeText(PAIR_COMMAND)).then(() => setCopied(true), () => setCopied(false));
   const pair = async event => {
     event.preventDefault();
     const result = await post("pair", { code });
@@ -48,7 +50,13 @@ export function PairBox() {
   return (
     <form className="card pair" onSubmit={pair} aria-labelledby="pair-h">
       <h2 id="pair-h">Pair this browser to act from the board</h2>
-      <p className="hint">Run <code>board --pair</code> in Terminal on this Mac, then type the code that it prints. You do this once for each browser. Until then, the board only reads.</p>
+      <p className="hint">You do this once for each browser. Until then, the board only reads.</p>
+      <div className="pair-step">
+        <p className="lbl">In Terminal</p>
+        <div className="pair-cmd"><code>{PAIR_COMMAND}</code><button type="button" className="btn" onClick={copy}>{copied === true ? "Copied" : "Copy"}</button></div>
+        <p className="hint">Run this command in Terminal on this Mac. It prints a one-time code.</p>
+        {copied === false && <p className="refused" role="alert">This browser did not let the board copy. Select the command and copy it.</p>}
+      </div>
       <label>Pairing code <input value={code} onChange={event => setCode(event.target.value)} autoComplete="off" spellCheck="false" placeholder="ABCD-EFGH" /></label>
       <button type="submit" className="btn primary" disabled={!code.trim()}>Pair</button>
       {problem && <p className="refused" role="alert">{problem}</p>}

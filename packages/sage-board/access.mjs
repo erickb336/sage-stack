@@ -54,12 +54,12 @@ export function boardAccess(dir) {
       const wanted = readJson(dir, "pair-code.json");
       if (!wanted || typeof wanted.hash !== "string" || !(wanted.expires > now) || !(wanted.tries < TRIES)) {
         rmSync(join(dir, "pair-code.json"), { force: true });
-        return { problem: "No pairing code is waiting, or it ran out. Run board --pair in Terminal for a new code." };
+        return { problem: "No pairing code is waiting, or it ran out. Run the command of the pairing card in Terminal again for a new code." };
       }
       const typed = String(code ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
       if (!same(sha(typed), wanted.hash)) {
         writeJson(dir, "pair-code.json", { ...wanted, tries: wanted.tries + 1 });
-        return { problem: wanted.tries + 1 < TRIES ? "This code is not the one that board --pair printed. Type it again." : "Five wrong codes: this code no longer works. Run board --pair in Terminal for a new code." };
+        return { problem: wanted.tries + 1 < TRIES ? "This code is not the one that the pairing command printed. Type it again." : "Five wrong codes: this code no longer works. Run the command of the pairing card in Terminal again for a new code." };
       }
       const old = readJson(dir, "paired.json"), cookie = randomBytes(32).toString("base64url"), token = randomBytes(32).toString("base64url");
       const browsers = [...(Array.isArray(old?.browsers) ? old.browsers : []), { hash: sha(cookie), token: sha(token), at: new Date(now).toISOString() }].slice(-BROWSERS);

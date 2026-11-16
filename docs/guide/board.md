@@ -203,8 +203,9 @@ The first answer wins. When you answer in a chat or on a card first, the board s
 
 **Pair a browser once.** Until you pair, the board only reads. Do these steps:
 
-1. In Terminal on the Mac, run `node <board folder>/cli.mjs board --pair` (the board folder of the installed plugin, or the installed copy). It prints a one-time code that works for 10 minutes.
-2. Open the board. In the card "Pair this browser to act from the board", type the code in the "Pairing code" field, and choose Pair.
+1. Open the board. The card "Pair this browser to act from the board" shows the pairing command of the board that runs, with its full path, for example `node "<board folder>/cli.mjs" board --pair`. Choose Copy.
+2. Paste the command in Terminal on the Mac, and run it. It prints a one-time code that works for 10 minutes.
+3. On the board, type the code in the "Pairing code" field, and choose Pair.
 
 If the page shows no pairing card, the board that runs is older than your sage: run the `board --stop` command that `board --pair` prints, ask for the board again, and reload the page. When a browser loses its site data, it pairs again.
 
