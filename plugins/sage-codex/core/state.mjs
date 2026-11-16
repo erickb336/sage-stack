@@ -147,7 +147,7 @@ const OPTIONS = {
   pages: ["run", "text"],
   message: ["file", "json"],
   "worktrees prune": ["yes"],
-  "prior-art": ["rows"],
+  "prior-art": ["file", "rows"],
 };
 const prNumber = (pr) => (/^\d+$/.test(pr ?? "") ? String(BigInt(pr)) : pr);
 const STANDING = `# Standing orders

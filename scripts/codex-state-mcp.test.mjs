@@ -720,6 +720,10 @@ test("T1143: the Codex chief adds and reads the prior-art index through prior_ar
   assert.equal(await w.call("prior_art", { topic: "reviews" }), readFileSync(file, "utf8").trimEnd());
   assert.equal(await w.call("prior_art", {}), `the prior-art index: ${folder}\nreviews · 1 row`);
   assert.match((await w.call("prior_art", { rows: row })).error, /^sage: prior-art takes no words/, "rows need a topic");
+  const proposed = join(w.dir, "prior-art-boards.md");
+  writeFileSync(proposed, `${row}\n`);
+  assert.equal(await w.call("prior_art", { topic: "boards", file: proposed }), `prior-art boards: added 1 row · ${join(folder, "boards.md")}`, "the file that a report names");
+  assert.equal(await w.call("prior_art", {}), `the prior-art index: ${folder}\nboards · 1 row\nreviews · 1 row`);
   const claude = spawnSync(process.execPath, [join(ROOT, "plugins/sage/skills/sage/sage.mjs"), "prior-art", "reviews", "--project", w.project], { cwd: w.dir, env: w.env, encoding: "utf8" });
   assert.equal(claude.stdout, readFileSync(file, "utf8"), claude.stderr);
   const before = readFileSync(file, "utf8"), other = row.replace("example/pstack", "example/other");

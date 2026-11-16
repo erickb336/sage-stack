@@ -147,13 +147,13 @@ Each design, engineering check (PE), arena and investigation names its prior art
 4. Read the best 2 or 3 from pages that the agent fetches, never from memory, with one failure and one opposite example.
 5. Report them in one table: what they do, what we take, where we differ and why, the link and the date read.
 
-The prior-art index keeps those tables, one file for each topic, in `~/.sage/prior-art/` on your Mac. Claude and Codex use the same folder. Agents do not write it: they propose rows in their report, and the chief adds them.
+The prior-art index keeps those tables, one file for each topic, in `~/.sage/prior-art/` on your Mac. Claude and Codex use the same folder. Agents do not write it: they save the rows that they propose in a file and name it in their report, and the chief adds the rows from that file.
 
 | Command | Who runs it | What happens |
 | --- | --- | --- |
 | `sage prior-art` | The chief. | Prints the index folder and each topic with its row count. |
 | `sage prior-art <topic>` | The chief, before a design, PE or investigate brief. | Prints the topic's table, which the chief puts in the brief's CONTEXT. |
-| `sage prior-art <topic> add --rows "<rows>"` | The chief, after a report proposes rows. In Codex, the `prior_art` tool does all three. | Adds the rows to the topic's file. A bad row refuses the whole add and names its line; a row whose link is in the topic already stays out. |
+| `sage prior-art <topic> add --file '<path>'` | The chief, after a report names a file of proposed rows. In Codex, the `prior_art` tool does all three. | Adds the rows to the topic's file. A bad row refuses the whole add and names its line; a row whose link is in the topic already stays out. |
 
 ### Each question takes one answer
 

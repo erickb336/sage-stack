@@ -1,15 +1,15 @@
 import { appendFileSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { sharedRoot } from "./shared-root.mjs";
 
 export const PRIOR_ART_FOLDER = "prior-art";
-export const PRIOR_ART_COLUMNS = Object.freeze(["Name", "What they do", "What we take", "Where we differ, and why", "Link", "Read on"]);
+export const PRIOR_ART_COLUMNS = Object.freeze(["Name", "What they do", "What we take", "Where we differ and why", "Link", "Read on"]);
 const TOPIC = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const ADDRESS = /https?:\/\/[^\s<>()|\]]+/i;
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const ROWS_MAX = 64 * 1024;
 const FORM = `a table row of ${PRIOR_ART_COLUMNS.length} cells: | ${PRIOR_ART_COLUMNS.join(" | ")} |, with an http or https address in Link and the date in Read on as YYYY-MM-DD`;
-const USAGE = "prior-art takes no words (the index folder and its topics), <topic> (print the topic), or <topic> add --rows <the table rows>";
+const USAGE = "prior-art takes no words (the index folder and its topics), <topic> (print the topic), or <topic> add --file <a file of table rows>";
 
 const cellsOf = (line) => line.trim().slice(1, -1).split(/(?<!\\)\|/).map((cell) => cell.trim());
 const linkOf = (row) => ADDRESS.exec(cellsOf(row)[4] ?? "")?.[0].replace(/[.,;:]+$/, "").toLowerCase();
@@ -38,11 +38,12 @@ const headerOrRule = (line) => {
 
 export function priorArtCommand(pos, opt, env, refuse) {
   const [topic, verb, ...more] = pos, folder = join(sharedRoot(env), PRIOR_ART_FOLDER);
-  if (more.length || (verb !== undefined && verb !== "add") || (verb === undefined && opt.rows !== undefined)) refuse(`${USAGE}. Nothing changed.`);
+  if (more.length || (verb !== undefined && verb !== "add") || (verb === undefined && (opt.rows ?? opt.file) !== undefined)) refuse(`${USAGE}. Nothing changed.`);
   if (topic !== undefined && (!TOPIC.test(topic) || topic.length > 40)) refuse(`the topic is 1 to 40 lower-case letters, digits and dashes, for example reviews or design-pages; not ${JSON.stringify(topic)}. Nothing changed.`);
+  const kind = lstatSync(folder, { throwIfNoEntry: false });
+  if (kind && !kind.isDirectory()) refuse(`${folder} is a link or a file, not a folder, so the prior-art index cannot use it. Ask the owner to check it. Nothing changed.`);
   if (topic === undefined) {
-    let names = [];
-    try { names = readdirSync(folder).filter((name) => name.endsWith(".md") && TOPIC.test(name.slice(0, -3))).sort(); } catch (e) { if (e.code !== "ENOENT") throw e; }
+    const names = kind ? readdirSync(folder).filter((name) => name.endsWith(".md") && TOPIC.test(name.slice(0, -3))).sort() : [];
     const lines = names.map((name) => {
       const rows = (plainFile(join(folder, name)) ?? "").split("\n").filter((line) => line.startsWith("|") && !headerOrRule(line)).length;
       return `${name.slice(0, -3)} · ${rows} row${rows === 1 ? "" : "s"}`;
@@ -51,8 +52,9 @@ export function priorArtCommand(pos, opt, env, refuse) {
   }
   const file = fileOf(folder, topic);
   if (verb === undefined) return plainFile(file)?.trimEnd() ?? `no rows for ${topic} yet: ${file}`;
-  const text = opt.rows ?? refuse(`add needs --rows with the table rows, each ${FORM}. Nothing changed.`);
-  if (Buffer.byteLength(text) > ROWS_MAX) refuse("--rows is at most 64 KiB. Nothing changed.");
+  if ((opt.rows === undefined) === (opt.file === undefined)) refuse(`add needs --file with the path of a file of table rows, each ${FORM}. Nothing changed.`);
+  const text = opt.rows ?? plainFile(resolve(opt.file)) ?? refuse(`${opt.file} is not a regular file that sage can read. Nothing changed.`);
+  if (Buffer.byteLength(text) > ROWS_MAX) refuse("the rows are at most 64 KiB. Nothing changed.");
   const rows = [], problems = [];
   text.split(/\r?\n/).forEach((raw, at) => {
     const line = raw.trim();
@@ -61,8 +63,8 @@ export function priorArtCommand(pos, opt, env, refuse) {
     if (why) problems.push(`line ${at + 1}: ${why}`);
     else rows.push(line);
   });
-  if (problems.length) refuse(`each line of --rows is ${FORM}. ${problems.join("; ")}. Nothing changed.`);
-  if (!rows.length) refuse(`--rows has no row: give each row as ${FORM}. Nothing changed.`);
+  if (problems.length) refuse(`each line of the rows is ${FORM}. ${problems.join("; ")}. Nothing changed.`);
+  if (!rows.length) refuse(`the rows have no row: give each row as ${FORM}. Nothing changed.`);
   mkdirSync(folder, { recursive: true, mode: 0o700 });
   try {
     writeFileSync(file, `# Prior art: ${topic}\n\n| ${PRIOR_ART_COLUMNS.join(" | ")} |\n|${PRIOR_ART_COLUMNS.map(() => " --- |").join("")}\n`, { flag: "wx", mode: 0o600 });

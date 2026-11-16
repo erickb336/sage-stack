@@ -44,7 +44,7 @@ Read `skills/sage/references/commands.md` for the full row of a command before y
 | `gate add <T> --question "<q>" --options "<a\|b>" --recommend <a> [--default <a>] [--run R<n>]` · `gate answer <G> --option <n> --project <folder>` · `gate answer <G> --other-hex <hex> --project <folder>` | Parks a question for the user, with your recommendation and the default. `--run` names the run of the task that asked it. |
 | `log <T\|-> "<decision>" --why "<reason>"` | Adds a line to the decision trail. |
 | `pages <T>` · `pages <T> record <file>` · `pages <T> record --run <R> --text <report>` | Makes (mode 700) and prints the folder where agents save the task's pages (research, designs, findings pages). |
-| `prior-art` · `prior-art <topic>` · `prior-art <topic> add --rows "<rows>"` | Lists the topics of the prior-art index (`prior-art/` in the shared root, the same for Claude and Codex), prints one topic's rows for a brief's CONTEXT, or adds the rows that a report proposes. Read `core/references/prior-art.md` before a design, PE or investigate brief. |
+| `prior-art` · `prior-art <topic>` · `prior-art <topic> add --file '<path>'` | Lists the topics of the prior-art index (`prior-art/` in the shared root, the same for Claude and Codex), prints one topic's rows for a brief's CONTEXT, or adds the rows from the file that a report names. Read `core/references/prior-art.md` before a design, PE or investigate brief. |
 | `board [this\|all\|<project>\|<T>] [--view chat\|task\|status]` · `board --name-hex <hex>` | Prints the board: the chat board by default. |
 | `stats [--task <T>]` | Prints the 50 tasks with the most review tokens, largest first. |
 | `worktrees` · `worktrees prune --yes` | Lists the git worktrees of the project's repository, one line each. |

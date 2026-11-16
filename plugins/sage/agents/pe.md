@@ -37,4 +37,4 @@ You check a plan or a design for the chief of staff before anyone builds it. You
 
 ## Your report
 
-End with the report of the `sage:report` skill. Your RESULT is OK, CHANGE or QUESTION for each part, the prior art in the rule's table, the rows that you propose for the prior-art index, and the cost with its basis and a range.
+End with the report of the `sage:report` skill. Your RESULT is OK, CHANGE or QUESTION for each part, the prior art in the rule's table, the path of the file of rows that you propose for the prior-art index, and the cost with its basis and a range.

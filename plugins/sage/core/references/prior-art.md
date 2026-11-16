@@ -21,7 +21,7 @@ When you could fetch no source, say so in NOT VERIFIED. Do not fill the table fr
 
 Report the sources that you read in this table, with these columns only:
 
-| Name | What they do | What we take | Where we differ, and why | Link | Read on |
+| Name | What they do | What we take | Where we differ and why | Link | Read on |
 | --- | --- | --- | --- | --- | --- |
 | pstack (sample) | Ships each principle as a skill | The frontmatter of a principle | sage adds a hook, because a prompt alone is not enough | https://github.com/... | 2026-11-16 |
 
@@ -40,13 +40,7 @@ Where the table goes:
 The index keeps the sources that earlier runs read, so that the next run starts from them. It is one folder in sage's data root on the owner's Mac, `prior-art/` in the shared root (`~/.sage/prior-art/`), with one Markdown file for each topic, such as `reviews.md`, `boards.md` or `verification.md`. Each file holds one prior-art table. Claude and Codex read and write the same folder.
 
 - **An agent reads** the rows that its brief gives in CONTEXT. It does not run the state tool.
-- **An agent proposes** new rows at the end of its RESULT, in this form, and never writes the index:
-
-  ```
-  Prior-art index <topic>:
-  | Name | What they do | What we take | Where we differ, and why | Link | Read on |
-  | <one row for each source that you read> |
-  ```
+- **An agent proposes** new rows and never writes the index. It saves the rows in a file `prior-art-<topic>.md` in its scratch folder, one row on each line, in the form of the table above. At the end of its RESULT, it names the file's full path: `Prior-art index <topic>: <path>`. The path has only letters, digits, `/`, `.`, `_` and `-`.
 
 - **The chief** puts a topic's rows in the brief's CONTEXT: `sage prior-art <topic>` prints them (Codex: the `prior_art` tool with `topic`). `sage prior-art` lists the topics.
-- **The chief adds** the proposed rows: `sage prior-art <topic> add --rows "<the rows>"` (Codex: `prior_art` with `topic` and `rows`). The tool refuses a bad row and adds nothing. It keeps out a row whose link is in the topic already.
+- **The chief adds** the proposed rows from that file: `sage prior-art <topic> add --file '<path>'` (Codex: `prior_art` with `topic` and `file`). Never put the rows themselves in a shell command: a backtick or `$(` in a row runs as a command. Run only a path with the characters above. The tool refuses a bad row and adds nothing. It keeps out a row whose link is in the topic already.

@@ -38,4 +38,4 @@ Your RESULT ends with a short rationale: the alternatives you considered, and wh
 
 ## Your report
 
-End with the report of the `sage:report` skill. Your RESULT is the page's path, its screenshots at 1440 px and 390 px, the design check's output, the options with your recommendation, the prior art, the rows that you propose for the prior-art index, and the acceptance.
+End with the report of the `sage:report` skill. Your RESULT is the page's path, its screenshots at 1440 px and 390 px, the design check's output, the options with your recommendation, the prior art, the path of the file of rows that you propose for the prior-art index, and the acceptance.

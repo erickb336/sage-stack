@@ -1384,8 +1384,33 @@ test("T927: the Claude chief runs worktrees and its prune with no --chief in a s
   }
 });
 
+test("F-T1143-1: the Claude hook lets the chief run the documented prior-art add from a file, with no --chief in a shared logbook; a lead and a helper run no prior-art", (t) => {
+  const w = hookWorld(t);
+  const sage = (...args) => claude.sage([...args, "--project", w.project], w.env);
+  sage("link", "--separate");
+  w.send({ hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
+  const chief = claude.chiefFor(w.project, "s1", w.env);
+  sage("task", "add", "--title", "a", ...ADD, "--chief", chief);
+  sage("task", "T1", "set", "state=briefed", "--chief", chief);
+  sage("run", "add", "T1", "--role", "lead", "--chief", chief);
+  const start = { subagent_type: "sage:lead", name: "lead-T1", description: "lead-T1", prompt: "GOAL a\nSCOPE b\nCONTEXT c\nDECISIONS d\nACCEPTANCE e\nVERIFY f\nBUDGET 1 hour of agent time\nFORBIDDEN g\nREPORT h\nSTANDING i", run_in_background: true };
+  assert.equal(w.denied(w.send({ hook_event_name: "PreToolUse", tool_name: "Agent", tool_input: start, tool_use_id: "start-1" })), undefined);
+  w.send({ hook_event_name: "PostToolUse", tool_name: "Agent", tool_use_id: "start-1", tool_response: { status: "async_launched", agentId: "lead-1" } });
+  w.send({ hook_event_name: "SubagentStart", agent_id: "lead-1", agent_type: "sage:lead" });
+  const add = `prior-art reviews add --file '${join(w.base, "R9", "prior-art-reviews.md")}'`;
+  for (const line of ["prior-art", "prior-art reviews", add]) {
+    assert.equal(w.bash(line), undefined, `the chief: ${line}`);
+    assert.match(w.bash(line, "s1", { agent_id: "qa-1", agent_type: "sage:qa" }), /writes the logbook, or is not a read command of the state tool\./, `a helper: ${line}`);
+    assert.match(w.bash(`${line} --lead R1`, "s1", { agent_id: "lead-1", agent_type: "sage:lead" }), /is not on a lead's list|a lead runs a write of the state tool only as one plain command/, `a lead: ${line}`);
+  }
+  const shown = ["plugins/sage/agents/chief-of-staff.md", "plugins/sage/skills/sage/SKILL.md", "plugins/sage/skills/sage/references/commands.md", "plugins/sage/core/references/prior-art.md"]
+    .flatMap((path) => [...readFileSync(at(`../${path}`), "utf8").matchAll(/`(?:sage )?(prior-art <topic> add [^`]*)`/g)].map((m) => [path, m[1]]));
+  assert.equal(shown.length, 4, "each Claude text shows the add command once");
+  for (const [path, form] of shown) assert.equal(form, "prior-art <topic> add --file '<path>'", `${path}: the chief's command holds a path, never the rows`);
+});
+
 const git = (...args) => execFileSync("git", args, { encoding: "utf8", env: gitEnv }).trim();
-const header = (text) => text.split("\n")[0].split("\t");
+const header =(text) => text.split("\n")[0].split("\t");
 function clones(t) {
   const w = world(t, codex, codex), a = realpathSync(w.project), b = join(w.base, "clone-b"), branch = "sage/t1-a";
   git("clone", "-q", a, b);
