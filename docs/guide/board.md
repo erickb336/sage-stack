@@ -318,25 +318,33 @@ The board shows web pages, PDFs, pictures (PNG, JPEG, GIF, WebP and SVG), and Ma
 
 A page can be at most 3 parts deep in the task's folder (for example `designs/final/index.html`) and at most 16 MiB. The index lists at most 200 pages.
 
-Each page opens in a sandbox. A page cannot read the board or your files, load a picture, a style or a frame from the board or from another site, or send a form.
+Each page opens in a sandbox. A page cannot read the board or your files, load a style or a frame from the board or from another site, or send a form.
+
+A page can show a picture from its own task's pages folder, with a relative link such as `shots/x.png`, or a `data:` picture. It cannot load a picture from another task or from another site.
 
 A script from another site does not run, but if its `integrity` hash matches the switch, your browser still asks that site for it before it checks the hash. A frame to another site stays blocked, but your browser still opens a connection to that site, and the connection sends its host name.
 
-Only sage's own script runs: the Today switch of a message's page. A page that holds this switch and also an `http-equiv` (for example a refresh) or a `srcdoc` outside sage's own policy tag gets no script, so that a refresh cannot move it: it shows without its switch. When the board cannot judge a page, the page also shows without its switch.
+A page with scripts of its own, for example a design prototype with tabs, opens in a frame below one warning line: "this page runs its own scripts in a sandbox". In the frame, the page's scripts run, but they cannot:
 
-The usual way out of a page is a link that you click in it. Two ways out need no click:
+- read the board, its storage or its cookies, or fetch from the board or from another site;
+- send a form, or open a window;
+- move the browser's window, or move the frame to another site. So a link to another site in such a page does not open: copy the link instead.
 
-- When a page opens, it can make your browser ask another site for an address, for example with a prerender link. The address can hold any text of the page, so that text can leave the Mac, and the request carries the cookies of that site that `SameSite=Lax` lets through. The board found no header that stops this in Chromium.
-- A page that you open with "open with its scripts" (`?scripts=1`) can move itself to another site, by its script or by a meta refresh.
+A page with no script of its own opens as it is, without the frame. In it, only sage's own script runs: the Today switch of a message's page.
 
-Two warning lines in the index tell you the rest:
+A page that holds this switch and also an `http-equiv` (for example a refresh) or a `srcdoc` outside sage's own policy tag gets no script, so that a refresh cannot move it: it shows without its switch. When the board cannot judge a page, the page also shows without its switch.
 
-- A page may link to sites outside this Mac. When you click such a link, your browser opens that site, and the site gets everything in the link's address.
-- The link "open with its scripts" (in the index, for a page with a script of its own) runs the page's own scripts. They cannot read the board or your files, but they can send the page's content to another site. Use it only for a page that you trust.
+The usual way out of a page with no script of its own is a link that you click in it. One way out needs no click: when a page opens, it can make your browser ask another site for an address, for example with a prerender link.
 
-A link in a page to another page of the board, or to the index, opens when you click it: the board opens a page by a person's click from any site. A page cannot load or fetch anything from the board.
+The address of that request can hold any text of the page, so that text can leave the Mac. The request carries the cookies of that site that `SameSite=Lax` lets through. The board found no header that stops this in Chromium.
 
-A site that moves you to a page by itself gets "not permitted", and so does a link to "open with its scripts" in a page or on another site: open it from the index. When another site opens the index in a new tab, the index cuts that site's hold on the tab, so the site cannot move the tab or read what a page sends to it.
+A warning line in the index tells you the rest: a page may link to sites outside this Mac. When you click such a link, your browser opens that site, and the site gets everything in the link's address.
+
+A link in a page to another page of the board, or to the index, opens when you click it: the board opens a page by a person's click from any site. A page cannot fetch anything from the board.
+
+Another site can show a picture of a pages folder when it knows the picture's full address, because the board cannot tell that request from a page's own request for its picture. That site cannot read the picture's pixels.
+
+A site that moves you to a page by itself gets "not permitted". When another site opens the index or a page with scripts in a new tab, the board cuts that site's hold on the tab, so the site cannot move the tab or read what a page sends to it.
 
 ## The board server
 
