@@ -152,7 +152,7 @@ export function App() {
   const body = page.hash === "" ? <Overview model={model} shown={shown} /> : page.hash === "tasks" ? <Tasks model={model} params={page.params} chief={picked} />
     : page.hash === "pull-requests" ? <Pulls model={model} chief={picked} />
     : page.hash === "agents" ? <Agents model={model} chief={picked} />
-    : page.hash === "question" ? <QuestionView needKey={page.params.get("key") ?? ""} model={model} theme={theme} archived={!!current?.archived} />
+    : page.hash === "question" ? <QuestionView key={page.params.get("key")} needKey={page.params.get("key") ?? ""} model={model} theme={theme} archived={!!current?.archived} />
     : page.hash === TASK.hash ? <TaskPage key={page.params.get("key")} taskKey={page.params.get("key") ?? ""} tab={page.params.get("tab")} at={model?.at} from={history.state?.from} /> : null;
   return (
     <div className="app">

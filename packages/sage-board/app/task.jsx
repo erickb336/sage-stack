@@ -133,12 +133,27 @@ function Cost({ task, brief }) {
   );
 }
 
+const FROM = { failure: "the run's failure line", report: "the RESULT of its kept report", decision: "the chief's decision" };
+const later = (task, run) => task.runs.some(other => other.role === run.role && Date.parse(other.started) > Date.parse(run.started));
+function Failed({ task }) {
+  if (task.ended) return null;
+  return task.runs.filter(run => run.status === "failed" && !later(task, run)).map(run => (
+    <div className="failed-run" key={run.id} role="note">
+      <p className="lbl">Failed run</p>
+      <p><strong>{run.role} {run.id} failed.</strong> {run.failure ? `"${controlsShown(run.failure.text)}"` : "No reason recorded."}</p>
+      {run.failure && <p className="faint">From {FROM[run.failure.from]}{run.ended && `, ${when(run.ended, task.at)}`}.</p>}
+      <a href={readLink(task.key, "report", run.id)}>Open the report of {run.id}</a>
+    </div>
+  ));
+}
+
 function About({ task }) {
   const { brief } = task, reports = task.files.kept.length + task.files.reports.length;
   return (
     <section className="card about-card" aria-labelledby="about-h">
       <h2 id="about-h">About this task</h2>
       {brief.state === "unread" && <p className="stale" role="alert">The board cannot read the brief now. {controlsShown(brief.why)}</p>}
+      <Failed task={task} />
       <Milestone task={task} />
       <Section label="Before and after">
         {!task.before.length && !task.after.length ? <p>No other task comes before or after it.</p> : <>
