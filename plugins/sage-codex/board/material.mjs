@@ -37,7 +37,7 @@ export function gateMaterial({ model, task, gate, message }) {
     const why = `${gate.id} names it in the question${owner && owner.id !== task.id ? `; it is a page of ${owner.id}` : ""}.${answer ? ` It shows answer ${answer}.` : ""}`;
     const title = typeof block.title === "string" && block.title.trim() ? block.title.trim() : block.file;
     add(owner ? { ...fileItem(owner, logbook, block.file, { group: "named", why, answer, part }), title }
-      : { task: id, file: block.file, group: "named", kind: "page", frame: null, title, sub: `in ${id}'s pages folder, which this board does not show`, why });
+      : { task: id, file: block.file, group: "named", kind: "page", frame: null, title, sub: `no task ${id} in this logbook on the board`, why });
   }
   const folder = pageTaskFolder(logbook, task.id), versions = designVersions(folder).filter(version => !version.candidate && !version.final);
   if (versions.length) {

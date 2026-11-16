@@ -97,6 +97,7 @@ test("T1121 G189: a question lists no page of the tasks that its task waits for;
   const named = material(w).items.filter(item => item.group === "named");
   assert.deepEqual(named.map(item => [item.task, item.src]), [["T10", readerUrl(KEY("T10"), "page", "designs/v2/notes.md", { in: "board" })], ["T3", readerUrl(KEY("T3"), "page", "retry-design.md", { in: "board" })], ["T999", undefined]]);
   assert.equal(named[1].why, "G4 names it in the question; it is a page of T3.");
+  assert.equal(named[2].sub, "no task T999 in this logbook on the board", "F-T1121-19: the item says the true reason that it has no frame");
   const question = readerPage({ model: w.model(), configured: w.sources, url: readerUrl(KEY("T10"), "question", "G4"), origin: ORIGIN, render: renderMarkdown });
   assert.match(question.rest, new RegExp(`<a href="${readerUrl(KEY("T3"), "page", "retry-design.md")}">Retry design</a>`), "the reader's question page links the named page of T3 too");
 });
@@ -154,11 +155,14 @@ test("T1121 R5: the app may frame only reader pages and the pages folder; a read
   assert.match(alone.body, /<header class="top">/);
   const framed = await get(base, readerUrl(KEY("T3"), "report", "R5", { in: "board" }));
   assert.equal(framed.status, 200);
-  assert.match(framed.headers["content-security-policy"], /^sandbox allow-same-origin allow-top-navigation-by-user-activation allow-popups allow-popups-to-escape-sandbox; default-src 'none'; script-src 'none'; .*frame-ancestors 'self'$/, "F-T1121-2: the page's own sandbox lets a click on a link leave the frame");
+  assert.match(framed.headers["content-security-policy"], /^sandbox allow-same-origin allow-popups allow-popups-to-escape-sandbox; default-src 'none'; script-src 'none'; .*frame-ancestors 'self'$/, "F-T1121-2: the page's own sandbox lets a click on a link open a new tab");
+  assert.doesNotMatch(framed.headers["content-security-policy"], /allow-top-navigation/, "F-T1121-20: nothing in the frame moves the board's window");
   assert.match(alone.headers["content-security-policy"], /^sandbox allow-same-origin; /, "a page outside a frame keeps the plain sandbox");
   assert.doesNotMatch(framed.headers["content-security-policy"], /allow-scripts/);
   assert.doesNotMatch(framed.body, /<header class="top">|class="back"/, "no top bar and no back link in the frame");
-  assert.match(framed.body, /<a target="_top" href="\/read\/[\w-]+\/brief\/R5">Brief of R5<\/a>/, "a link to another page opens in the top page");
+  assert.match(framed.body, /<a href="\/read\/[\w-]+\/brief\/R5\?in=board">Brief of R5<\/a>/, "F-T1121-20: a link to another reader page of the task stays in the frame");
+  assert.match(framed.body, /<a target="_blank" rel="noopener noreferrer" href="\/app\/#task\?key=[^"]+">Task T3<\/a>/, "F-T1121-20: a link to a board page opens a new tab");
+  assert.doesNotMatch(framed.body, /target="_top"/);
   assert.match(framed.body, /<a target="_blank" rel="noopener noreferrer" href="https:\/\/github\.com\/sample-owner\/sample-app\/pull\/12">PR 12<\/a>/, "a link to another site opens a new tab");
   assert.match(framed.body, /<a href="\/read\/[\w-]+\/report\/R5\?open=all&#38;in=board">Open all<\/a>/, "Open all stays in the frame");
   const iframe = await get(base, "/pages/sample-app-abc123/T10/designs/v2/index.html", { "sec-fetch-dest": "iframe", "sec-fetch-mode": "navigate", "sec-fetch-site": "same-origin" });
@@ -172,8 +176,20 @@ test("T1121 F-T1121-5: in a framed reader page, only a link to a board page stay
   writeFileSync(join(w.pages, "T10", "links.md"), "# Links\n\n[a look-alike](https://example.com/?in=board) and [notes](designs/v2/notes.md) and [here](#links)\n");
   const page = readerPage({ model: w.model(), configured: w.sources, url: readerUrl(KEY("T10"), "page", "links.md", { in: "board" }), origin: ORIGIN, render: renderMarkdown }).rest;
   assert.match(page, /<a target="_blank" rel="noopener noreferrer" href="https:\/\/example\.com\/\?in=board">a look-alike<\/a>/);
-  assert.match(page, /<a target="_top" href="\/read\/[\w-]+\/page\/designs\/v2\/notes\.md">notes<\/a>/);
+  assert.match(page, /<a href="\/read\/[\w-]+\/page\/designs\/v2\/notes\.md\?in=board">notes<\/a>/, "F-T1121-20: a page of the same task opens in the frame");
   assert.match(page, /<a href="#h-links">here<\/a>/, "a link inside the page stays in the frame");
+});
+
+test("T1121 F-T1121-20: in the framed design page, the design notes open in the frame, and the prototype and the pages index open a new tab; no link moves the board's window", t => {
+  const w = world(t);
+  const page = readerPage({ model: w.model(), configured: w.sources, url: readerUrl(KEY("T10"), "design", null, { in: "board" }), origin: ORIGIN, render: renderMarkdown });
+  const html = page.top + page.rest, links = [...html.matchAll(/<a [^>]*>[^<]*<\/a>/g)].map(([a]) => a);
+  const find = text => links.find(a => a.endsWith(`>${text}</a>`));
+  assert.match(find("Read the design notes"), /^<a href="\/read\/[\w-]+\/page\/designs\/v2\/notes\.md\?in=board">/);
+  assert.match(find("Open the prototype"), /^<a class="btn" target="_blank" rel="noopener noreferrer" href="\/pages\/sample-app-abc123\/T10\/designs\/v2\/index\.html">/);
+  assert.match(find("Open the pages index"), /^<a class="btn" target="_blank" rel="noopener noreferrer" href="\/pages\/sample-app-abc123\/T10\/">/);
+  assert.deepEqual(links.filter(a => !/target="_blank" rel="noopener noreferrer"|href="#|href="\/read\/[^"]*in=board/.test(a)), [], "every link stays in the frame or opens a new tab");
+  assert.doesNotMatch(page.policy, /allow-top-navigation/);
 });
 
 test("T1121 R6: /app/gate/<key> carries the material and the run that asked; the event stream does not", async t => {

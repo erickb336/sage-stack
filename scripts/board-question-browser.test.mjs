@@ -59,16 +59,19 @@ async function openBoard(t, viewport = { width: 1440, height: 1000 }, { refuse }
   const env = { PATH: `${fakes}:/usr/bin:/bin`, HOME: join(base, "home"), CLAUDE_CONFIG_DIR: join(base, "claude"), CODEX_HOME: join(base, "codex"), SAGE_SHARED_HOME: join(base, "shared"),
     SAGE_HOOKS_STATE: join(base, "hook-state"), SAGE_WORKTREES: join(base, "worktrees"), SAGE_TEST_PIDS: "{}", SAGE_TEST_MACHINE_ID: "test-machine", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
   Object.assign(process.env, env);
-  const project = join(base, "sample-app");
-  mkdirSync(project);
-  execFileSync("git", ["init", "-q", "-b", "main", project]);
-  execFileSync("git", ["-C", project, "commit", "-q", "--allow-empty", "-m", "first"], { env: gitEnv });
-  claude.sage(["link", "--separate", "--project", project], env);
-  const dir = claude.storeDir(project, env), now = Date.now(), iso = ms => new Date(ms).toISOString();
-  writeFileSync(join(dir, "chiefs.tsv"), `id\tprovider\tnative\tat\nC1\tclaude\tclaude-1\t${iso(now - 3 * 3600_000)}\nC2\tcodex\tcodex-1\t${iso(now - 2 * 3600_000)}\n`);
-  mkdirSync(join(dir, "live"));
-  for (const id of ["C1", "C2"]) writeFileSync(join(dir, "live", `${id}.json`), JSON.stringify({ provider: id === "C2" ? "codex" : "claude", checkout: project, sageMode: true, autopilot: false, at: iso(now) }));
-  const as = (chief, ...args) => claude.sage([...args, "--project", project, "--chief", chief], env);
+  const addProject = name => {
+    const project = join(base, name);
+    mkdirSync(project);
+    execFileSync("git", ["init", "-q", "-b", "main", project]);
+    execFileSync("git", ["-C", project, "commit", "-q", "--allow-empty", "-m", "first"], { env: gitEnv });
+    claude.sage(["link", "--separate", "--project", project], env);
+    const dir = claude.storeDir(project, env), now = Date.now(), iso = ms => new Date(ms).toISOString();
+    writeFileSync(join(dir, "chiefs.tsv"), `id\tprovider\tnative\tat\nC1\tclaude\tclaude-1\t${iso(now - 3 * 3600_000)}\nC2\tcodex\tcodex-1\t${iso(now - 2 * 3600_000)}\n`);
+    mkdirSync(join(dir, "live"));
+    for (const id of ["C1", "C2"]) writeFileSync(join(dir, "live", `${id}.json`), JSON.stringify({ provider: id === "C2" ? "codex" : "claude", checkout: project, sageMode: true, autopilot: false, at: iso(now) }));
+    return { dir, as: (chief, ...args) => claude.sage([...args, "--project", project, "--chief", chief], env) };
+  };
+  const { dir, as } = addProject("sample-app");
   as("C1", "task", "add", "--title", "Sample shared list permissions", "--size", "small", "--priority", "P1");
   as("C2", "task", "add", "--title", "Sample crash report screen", "--size", "small", "--priority", "P2");
   const pages = join(env.SAGE_WORKTREES, basename(dir), "pages", "T1");
@@ -77,6 +80,7 @@ async function openBoard(t, viewport = { width: 1440, height: 1000 }, { refuse }
   writeFileSync(join(pages, "hostile.md"), HOSTILE_MARKDOWN);
   writeFileSync(join(pages, "designs", "v1", "version.json"), JSON.stringify({ title: "v1", about: "The share sheet.", run: "R1" }));
   writeFileSync(join(pages, "designs", "v1", "index.html"), HOSTILE_PROTOTYPE);
+  writeFileSync(join(pages, "designs", "v1", "notes.md"), "# Notes of v1\n\nWhy the share sheet looks like this.\n");
   as("C1", "run", "add", "T1", "--role", "pe");
   writeFileSync(join(base, "question.json"), JSON.stringify(MESSAGE));
   as("C1", "gate", "add", "T1", "--question", TITLE, "--options", "A: yes|B: no", "--recommend", "A: yes", "--default", "A: yes", "--message", join(base, "question.json"), "--run", "R1");
@@ -100,7 +104,7 @@ async function openBoard(t, viewport = { width: 1440, height: 1000 }, { refuse }
   await page.goto(`${origin}/app/#pair=${startLink(stateDir)}`);
   await page.getByText(/^This browser is paired\./).waitFor();
   const shot = async name => { if (SHOTS) await page.screenshot({ path: join(SHOTS, `${name}.png`) }); };
-  return { page, origin, dir, writes, outside, shot, as, gate: id => claude.read(dir, "gates").find(row => row.id === id) };
+  return { page, origin, dir, writes, outside, shot, as, addProject, base, gate: id => claude.read(dir, "gates").find(row => row.id === id) };
 }
 
 test("T1121: one click on Needs you opens the question with its material; a page opens in place at the named part, beside the answers; the answer sends from there, and the view names the question left", async t => {
@@ -115,7 +119,7 @@ test("T1121: one click on Needs you opens the question with its material; a page
 
   await page.getByRole("button", { name: "See answer A in Design notes" }).click();
   const frame = page.locator(".viewer iframe");
-  assert.equal(await frame.getAttribute("sandbox"), "allow-same-origin allow-top-navigation-by-user-activation allow-popups allow-popups-to-escape-sandbox");
+  assert.equal(await frame.getAttribute("sandbox"), "allow-same-origin allow-popups allow-popups-to-escape-sandbox");
   assert.equal(await frame.getAttribute("referrerpolicy"), "no-referrer");
   const notes = page.frameLocator(".viewer iframe");
   await notes.getByRole("heading", { name: "The rule" }).waitFor();
@@ -209,7 +213,7 @@ test("T1121 R5: a hostile prototype or Markdown page in the material cannot read
   assert.deepEqual(w.writes, []);
 });
 
-test("T1121 F-T1121-2: in a framed reader page, a click on a link to another site opens a new page and a link to a board page moves the whole window; in the prototype frame, neither does", async t => {
+test("T1121 F-T1121-2: in a framed reader page, a click on a link to another site opens a new page and a link to a page of the task opens in the frame; in the prototype frame, neither does", async t => {
   const w = await openBoard(t), { page } = w, url = `${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G1`)}`;
   const context = page.context();
   await page.goto(url);
@@ -227,9 +231,60 @@ test("T1121 F-T1121-2: in a framed reader page, a click on a link to another sit
   assert.equal(context.pages().length, 2, "the board and that one page: the prototype's _blank link opened none");
   await popup.close();
   await doc.getByRole("link", { name: "a safe page" }).click();
-  await page.waitForURL(/\/read\/[\w-]+\/page\/notes\.md/);
-  await page.getByRole("heading", { name: "Design notes", level: 1 }).waitFor();
+  await doc.getByRole("heading", { name: "Design notes", level: 1 }).waitFor();
+  assert.equal(page.url(), url, "F-T1121-20: a page of the task opens in the frame, and the board stays");
   assert.deepEqual(w.writes, []);
+});
+
+test("T1121 F-T1121-20: in the Design item, each link keeps the question view and the picked answer: the prototype and the pages index open a new tab, the design notes open in the frame", async t => {
+  const w = await openBoard(t), { page } = w, url = `${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G1`)}`;
+  const context = page.context();
+  await page.goto(url);
+  await page.locator(".mat").filter({ hasText: "Design · 1 version" }).click();
+  const design = page.frameLocator(".viewer iframe"), picked = page.locator(".q-side").getByRole("radio", { name: /^B: no/ });
+  await design.getByRole("link", { name: "Read the design notes" }).waitFor();
+  await picked.check();
+  const stays = async why => {
+    assert.equal(page.url(), url, `${why}: the board stays on the question`);
+    assert.equal(await page.locator(".viewer h2").textContent(), "Design · 1 version", `${why}: the Design item stays open`);
+    assert.ok(await picked.isChecked(), `${why}: the picked answer stays`);
+    assert.match(await page.locator(".q-side .send").textContent(), /Your answer: B: no/, why);
+  };
+  for (const [name, path] of [["Open the prototype", "/designs/v1/index.html"], ["Open the pages index", "/T1/"]]) {
+    const [tab] = await Promise.all([context.waitForEvent("page"), design.getByRole("link", { name }).click()]);
+    await tab.waitForLoadState();
+    assert.ok(tab.url().startsWith(`${w.origin}/pages/`) && tab.url().endsWith(path), `${name} opens ${tab.url()} in a new tab`);
+    await tab.close();
+    await stays(name);
+  }
+  await design.getByRole("link", { name: "Read the design notes" }).click();
+  await design.getByRole("heading", { name: "Notes of v1", level: 1 }).waitFor();
+  await stays("Read the design notes");
+  assert.equal(context.pages().length, 1);
+  assert.deepEqual(w.writes, [], "the prototype in its own tab wrote nothing");
+});
+
+test("T1121 F-T1121-21: after the last question of this project, the line names the other project that needs you and opens it; a page of a task that the board does not have says so", async t => {
+  const w = await openBoard(t), { page } = w;
+  const other = w.addProject("other-app");
+  other.as("C1", "task", "add", "--title", "Sample export screen", "--size", "small", "--priority", "P1");
+  const far = join(w.base, "worktrees", basename(other.dir), "pages", "T9");
+  mkdirSync(far, { recursive: true });
+  writeFileSync(join(far, "far.md"), "# Far page\n\nA page in a folder of a task that the board does not have.\n");
+  writeFileSync(join(w.base, "far.json"), JSON.stringify({ ...MESSAGE, title: "Export as CSV or as a sheet?", blocks: [...MESSAGE.blocks.slice(0, -1), { t: "page", title: "Far page", task: "T9", file: "far.md" }] }));
+  other.as("C1", "gate", "add", "T1", "--question", "Export as CSV or as a sheet?", "--options", "A: yes|B: no", "--recommend", "A: yes", "--message", join(w.base, "far.json"));
+  w.as("C2", "gate", "answer", "G2", "--option", "1", "--via", "chat");
+  await page.goto(`${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G1`)}`);
+  await page.locator(".top").getByRole("button", { name: "1 other project needs you" }).waitFor();
+  await page.getByRole("radio", { name: /^A: yes/ }).check();
+  await page.getByRole("button", { name: "Send answer" }).click();
+  const line = page.getByRole("link", { name: "Nothing else waits in sample-app · 1 other project needs you: other-app" });
+  await line.waitFor();
+  await w.shot("question-other-project");
+  await line.click();
+  await page.getByRole("link", { name: "Export as CSV or as a sheet?" }).click();
+  await page.locator(".mat").filter({ hasText: "Far page" }).click();
+  assert.equal(await page.locator(".viewer .note").textContent(), "The board does not show this page: it has no task T9 in the logbook of this question.", "F-T1121-19: the note says the true reason");
 });
 
 test("T1121 S7: a failed run's recorded reason shows on its task page and on the Agents page", async t => {

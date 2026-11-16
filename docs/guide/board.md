@@ -189,7 +189,7 @@ A click on a question in Needs you opens the question view (`/app/#question?key=
 
 **Material** is beside the answers: what you may need to read before you answer, at most 8 items, in this order:
 
-1. **Named:** the pages that the question names. A page of another task of the same project opens too.
+1. **Named:** the pages that the question names. A page of another task in the same logbook opens too. A page of a task that the board does not have in that logbook (for example a task of the other logbook of the same repository) shows a note instead.
 2. **Task pages:** the design of the question's task, the prototype of its newest version, then its Markdown pages, newest first. Pages of the tasks that it waits for are not listed.
 3. **Asking run:** the report and the brief of the run that asked the question. For an older question with no run recorded, the newest designer, pe or investigate run of the task, and it says so.
 
@@ -198,11 +198,11 @@ A click on an item opens it in place, and the answers move beside it, so you can
 - "‹ The question" goes back, and "Open full page" opens the item in a new tab.
 - When a page shows one answer, "See answer A in …" under that answer opens it.
 - With more than 8 items, "All of T10's pages" opens the task's Artifacts.
-- After you send, "Needs you · 1 left: G6 from C2" opens the next question.
+- After you send, "Needs you · 1 left: G6 from C2" opens the next question. When this project has no question left but another project has, the line says so, for example "Nothing else waits in sample-app · 1 other project needs you: other-app", and opens that project.
 
 Each item opens in a frame that cannot act for the board:
 
-- A reader page runs no script. A click on a link to a board page opens it in the whole window, and a link to another site opens in a new tab.
+- A reader page runs no script. A link to another reader page of the same task opens in the frame. Every other link (a board page, a prototype, the pages index, another site) opens in a new tab, so the question view and your picked answer stay.
 - A design prototype runs its own scripts in a sandbox, below one warning line. They cannot read the board, its storage or cookies, call the board's API or move the board's window.
 - A picture shows as a picture.
 

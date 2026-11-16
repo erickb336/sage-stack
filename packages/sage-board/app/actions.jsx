@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { PROJECT, when } from "./use-model.js";
 import { UNKNOWN, chiefName, runWord } from "../../sage-core/state-words.mjs";
 import { chiefState, chiefSub, encodeKey, questionLink, taskLink } from "./task.jsx";
+import { othersLine, projectHref } from "./projects.jsx";
 
 const TOKEN_KEY = "board-token";
 const stored = { get: () => { try { return localStorage.getItem(TOKEN_KEY) ?? ""; } catch { return ""; } }, set: value => { try { value ? localStorage.setItem(TOKEN_KEY, value) : localStorage.removeItem(TOKEN_KEY); } catch {} } };
@@ -242,7 +243,7 @@ export function UndoButton({ logbook, gate, onDone }) {
 }
 
 const KINDS = { design: "Design", page: "Page", prototype: "Prototype", picture: "Picture", file: "File", report: "Report", brief: "Brief" };
-const SANDBOX = { reader: "allow-same-origin allow-top-navigation-by-user-activation allow-popups allow-popups-to-escape-sandbox", script: "allow-scripts", plain: "" };
+const SANDBOX = { reader: "allow-same-origin allow-popups allow-popups-to-escape-sandbox", script: "allow-scripts", plain: "" };
 const itemId = item => `${item.task}/${item.file ?? item.kind}`;
 const shows = (item, option, i) => !!item.answer && (same(item.answer, option) || same(item.answer, String.fromCharCode(65 + i)));
 
@@ -254,7 +255,7 @@ function Viewer({ item, close, theme }) {
       <p className="viewer-h"><button type="button" className="btn" onClick={close}>‹ The question</button><span className="grow" />{item.src && <a href={item.open} target="_blank" rel="noopener noreferrer">Open full page</a>}</p>
       <p className="lbl">{KINDS[item.kind]}</p><h2 id="viewer-h" tabIndex={-1}>{item.title}</h2>
       {item.frame === "script" && <p className="frame-warn" role="note">This page runs its own scripts in a sandbox. They cannot read the board or answer for you, but they can send this page's text to another site when you open a link in it.</p>}
-      {!item.src ? <p className="note">The board does not show this page: it is in {item.task}'s pages folder, outside this project.</p>
+      {!item.src ? <p className="note">The board does not show this page: it has no task {item.task} in the logbook of this question.</p>
         : item.gone ? <p className="note">The file is gone from {item.task}'s pages folder.</p>
         : item.frame === "picture" ? <img src={item.src} alt={item.title} />
         : <iframe key={src} src={src} sandbox={SANDBOX[item.frame]} referrerPolicy="no-referrer" title={item.title} onLoad={toPart} />}
@@ -324,7 +325,8 @@ export function QuestionView({ needKey, model, theme, archived }) {
     </div>
     <div className="send" role="status">
       {said?.ok ? <><p className="done">{result} <UndoButton logbook={gate.logbook} gate={gate.id} onDone={result => result.ok && setSaid(null)} /></p>
-          <p><a href={next ? questionLink(next.key) : "#"}>Needs you · {left.length} left{next && `: ${next.gate}${next.owner ? ` from ${next.owner}` : ""}`}</a></p></>
+          <p>{!next && model.others.length ? <a href={projectHref(model.others[0])}>Nothing else waits in {gate.project} · {othersLine(model.others)}{model.others.length === 1 && `: ${model.others[0].name}`}</a>
+            : <a href={next ? questionLink(next.key) : "#"}>Needs you · {left.length} left{next && `: ${next.gate}${next.owner ? ` from ${next.owner}` : ""}`}</a>}</p></>
         : !unanswered ? <p><span><Answered gate={gate} chiefs={model.chiefs} /></span>{gate.answered?.via === "board" && !gate.answer && <UndoButton logbook={gate.logbook} gate={gate.id} />}</p>
         : archived ? <p>This project is archived, so the board takes no answer here. Answer in the chief's chat.</p>
         : writes !== "paired" ? <PairBox />

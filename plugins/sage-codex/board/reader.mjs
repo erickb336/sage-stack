@@ -211,7 +211,7 @@ const STYLE_HASH = `'sha256-${createHash("sha256").update(CSS).digest("base64")}
 
 export function readerPolicy(origin, logbook, taskId, framed = false) {
   const pictures = origin && logbook && taskId ? `${origin}/pages/${logbook}/${taskId}/ ` : "";
-  return `sandbox allow-same-origin${framed ? " allow-top-navigation-by-user-activation allow-popups allow-popups-to-escape-sandbox" : ""}; default-src 'none'; script-src 'none'; style-src ${STYLE_HASH}; img-src ${pictures}data:; base-uri 'none'; form-action 'none'; frame-ancestors ${framed ? "'self'" : "'none'"}`;
+  return `sandbox allow-same-origin${framed ? " allow-popups allow-popups-to-escape-sandbox" : ""}; default-src 'none'; script-src 'none'; style-src ${STYLE_HASH}; img-src ${pictures}data:; base-uri 'none'; form-action 'none'; frame-ancestors ${framed ? "'self'" : "'none'"}`;
 }
 
 function frame(view, { project, title, crumb, back, file, state }) {
@@ -222,7 +222,7 @@ ${view.in ? "" : `<header class="top"><a href="/app/">sage board</a><span aria-h
 <div class="skel" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>`;
 }
 const linksOut = html => html.replace(/<a\b([^>]*?) href="([^"]*)"/g, (all, attrs, href) => href.startsWith("#") || href.startsWith("/read/") && href.includes("in=board") ? all
-  : `<a${attrs} ${/^https:/i.test(href) ? 'target="_blank" rel="noopener noreferrer"' : 'target="_top"'} href="${href}"`);
+  : `<a${attrs} target="_blank" rel="noopener noreferrer" href="${href}"`);
 
 const END = "</main></body></html>\n";
 const facts = items => `<dl class="facts">${items.filter(Boolean).map(([name, value]) => `<div><dt>${esc(name)}</dt><dd>${value}</dd></div>`).join("")}</dl>`;
@@ -239,7 +239,7 @@ export function readerPage({ model, configured, url, origin, render }) {
   const back = question ? { href: readerUrl(view.key, "question", question, { theme: view.theme }), text: `Back to ${question}`, where: `Overview / Needs you / ${question}` }
     : view.kind === "question" ? { href: "/app/#", text: "Back to Needs you", where: `Overview / Needs you / ${view.arg}` }
     : { href: `/app/#task?key=${encodeURIComponent(view.key)}`, text: `Back to ${task.id}`, where: `${task.id} · ${task.title} / Artifacts` };
-  const link = (kind, arg, extra = {}) => readerUrl(view.key, kind, arg, { theme: view.theme, back: view.back, ...(view.in && kind === view.kind && arg === view.arg && { in: view.in }), ...extra });
+  const link = (kind, arg, extra = {}) => readerUrl(view.key, kind, arg, { theme: view.theme, back: view.back, ...(view.in && { in: view.in }), ...extra });
   const staleNote = model.stale ? note(`<b>The board cannot read the logbook now.</b> This is the copy that it read at ${esc(when(model.at, model.at))}.`, "fail") : "";
   const state = model.stale ? `Not updated since ${when(model.at, model.at)}` : `Read ${when(model.at, model.at)} · reload to read again`;
   const run = RUN.test(view.arg ?? "") ? task.runs.find(item => item.id === view.arg) : null;
