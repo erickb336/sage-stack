@@ -35,7 +35,7 @@ The state lives in the logbook: plain files in `~/.claude/sage/<project>-<hash>/
 | **Code reviewer** | Correctness, data safety, regressions, test evidence |
 | **Security reviewer** | Input at the boundaries, injection, secrets, access |
 | **UX reviewer** | The flow, the states, the copy and accessibility |
-| **QA** | Runs the checks and the real app, and tries to break it |
+| **QA** | Runs the checks and the real app, walks each changed flow as a person on a real project and reports each stuck point, and tries to break it |
 | **Arena judge** | Scores an arena's candidates and grafts the best parts into one |
 | **Investigate** | Gathers the evidence for a question with read commands, and writes its research page |
 | **Evidence review** | Checks each claim of an investigation against its evidence, as a different agent |
