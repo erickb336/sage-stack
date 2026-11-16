@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { BOARD_PORT, boardFolder, boardView, PORT_FILE, sharedRoot } from "../sage-core/index.mjs";
 import { installBoard, stableNodePath, writeLoginFile } from "./install.mjs";
 import { createBoardServer } from "./server.mjs";
-import { startPairing, stateFolder } from "./access.mjs";
+import { startLink, startPairing, stateFolder } from "./access.mjs";
 
 const parseJson = text => { try { return JSON.parse(text); } catch { throw new TypeError("board JSON is invalid"); } };
 const boundedPath = path => { if (typeof path !== "string" || !isAbsolute(path) || path.length > 4096 || /[\p{Cc}\p{Cf}]/u.test(path)) throw new TypeError("use a bounded absolute path without control characters"); return resolve(path); };
@@ -120,9 +120,9 @@ function notOurs(found, configPath, config, env) {
   return `the board server is not running: another program answers on ${at}. ${elsewhere}`;
 }
 
-async function ensureBoard(configPath, config, env) {
+async function ensureBoard(configPath, config, env, link = false) {
   const url = `http://127.0.0.1:${config.port}/`;
-  const ready = how => `Sage board ${how}: ${url} · only on this Mac.`;
+  const ready = how => link ? `Sage board ${how}: ${url}app/#pair=${startLink(stateFolder(configPath))} · only on this Mac. The link pairs the first browser that opens it, once, within 10 minutes.` : `Sage board ${how}: ${url} · only on this Mac.`;
   const found = await probe(config), refused = notOurs(found, configPath, config, env);
   if (refused) throw new Error(refused);
   if (found.kind === "board") {
@@ -238,10 +238,11 @@ function parse(argv) {
     const key = value.slice(2);
     if (["set-password", "allowed-hosts"].includes(key)) throw new TypeError(`--${key} is gone: the board is for a browser on this Mac only, with no password and no other host.`);
     if (["html", "out", "pages"].includes(key)) throw new TypeError(`--${key} is gone: the board has no HTML file export. Open the board in the browser, or ask for the board in the chat.`);
-    if (!["config", "project", "scope", "serve", "status", "setup", "ensure", "stop", "pair", "sources", "port", "install", "install-dir", "login-file"].includes(key) || Object.hasOwn(options, key)) throw new TypeError("unknown or repeated board option");
-    if (["serve", "status", "setup", "ensure", "stop", "pair", "install"].includes(key)) options[key] = true;
+    if (!["config", "project", "scope", "serve", "status", "setup", "ensure", "link", "stop", "pair", "sources", "port", "install", "install-dir", "login-file"].includes(key) || Object.hasOwn(options, key)) throw new TypeError("unknown or repeated board option");
+    if (["serve", "status", "setup", "ensure", "link", "stop", "pair", "install"].includes(key)) options[key] = true;
     else { if (!argv[i + 1] || argv[i + 1].startsWith("--")) throw new TypeError(`--${key} needs a value`); options[key] = argv[++i]; }
   }
+  if (options.link && !options.ensure) throw new TypeError("--link goes with --ensure only");
   if (values.length > 1 || [options.serve, options.status, options.setup, options.ensure, options.stop, options.pair, options.install].filter(Boolean).length > 1) throw new TypeError("board needs one scope and one format");
   return { options, value: values[0] ?? "all" };
 }
@@ -269,7 +270,7 @@ export async function runBoardCli(argv, { output = line => process.stdout.write(
   } else if (options.sources || options.port) throw new TypeError(options.ensure ? existingConfig(boundedPath(options.config)) : "source and service settings require --setup");
   if (options.ensure) {
     if (value !== "all" || options.project || options["install-dir"] || options["login-file"]) throw new TypeError("ensure takes --config, and the setup settings for a new config");
-    output(await ensureBoard(boundedPath(options.config), readBoardConfig(options.config), env)); return null;
+    output(await ensureBoard(boundedPath(options.config), readBoardConfig(options.config), env, options.link)); return null;
   }
   if (options.stop) {
     if (value !== "all" || options.project || options["install-dir"] || options["login-file"]) throw new TypeError("stop takes only --config");

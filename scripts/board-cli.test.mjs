@@ -149,3 +149,10 @@ test("T1053, F-T1065-24: board --set-password and --allowed-hosts are gone, and 
   await assert.rejects(runBoardCli(["boards"], { output: () => {} }), { message: /--ensure\|--stop\|--setup\|--serve\|--pair\|--install/ });
   assert.equal(existsSync(join(dir, "new.json")), false);
 });
+
+test("T1125: --link goes with --ensure only", async t => {
+  const { config } = fixture(t);
+  for (const other of [[], ["--stop"], ["--status"], ["--pair"], ["--setup"]]) {
+    await assert.rejects(runBoardCli(["board", ...other, "--link", "--config", config], { output: () => {}, input: { isTTY: true } }), { message: "--link goes with --ensure only" }, other.join(" "));
+  }
+});

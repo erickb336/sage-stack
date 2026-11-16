@@ -98,7 +98,7 @@ export function agentCommandProblem(command, cwd, path = process.env.PATH ?? "",
 }
 
 const BOARD_CONFIG = "the board config rule (T229): no agent reads, copies or replaces the board config (~/.config/sage-board/board.json), or lists, searches, copies or moves the board's folder or a folder that holds it, because only the owner and the board command change the board's state. The board command's own output (board --ensure, the chat board) says what you need. The rule covers the board's state folder (~/.config/sage-board/state) too, because it holds the browser pairing (T1059).";
-const BOARD_PAIR = "the board pairing rule (T1059): no agent runs board --pair. It pairs the owner's browser with the board, so that the browser can answer questions and rename chiefs, and it prints a one-time code for the owner's eyes only. The owner runs it in Terminal; give the owner the command, and do not run it.";
+const BOARD_PAIR = "the board pairing rule (T1059, T1125): no agent runs board --pair, and only the chief runs board --ensure --link. Each one pairs the owner's browser with the board, so that the browser can answer questions and rename chiefs: --pair prints a one-time code for the owner's eyes only, and --link prints a one-time pairing link that only the chief shows, in the chat text. The owner runs --pair in Terminal; give the owner the command, and do not run it. Run board --ensure without --link.";
 const BOARD_MOVE = "the board port rule (T1079): no agent runs board --port. It moves the owner's board to another port: it stops the board, changes the board config and starts the board again. The owner runs it in Terminal, or asks the chief to run it; give the owner the command, and do not run it.";
 const VARIABLE = /[$`]/;
 function boardFolders(home) {
@@ -155,7 +155,7 @@ export function boardCommandProblem(text, cwd, { home = process.env.HOME || home
   };
   for (const { run, uncertainDirectory } of read.programs) {
     const name = programName(run.word), board = BOARD_RUN(run);
-    if (board && run.args.some((a) => /^--pair(?:=|$)/.test(a))) return BOARD_PAIR;
+    if (board && (run.args.some((a) => /^--pair(?:=|$)/.test(a)) || !chief && run.args.some((a) => /^--link(?:=|$)/.test(a)))) return BOARD_PAIR;
     if (board && !chief && run.args.some((a) => /^--port(?:=|$)/.test(a)) && !run.args.some((a) => /^--(?:setup|ensure)$/.test(a))) return BOARD_MOVE;
     const whole = WHOLE(name, run.args);
     const start = uncertainDirectory ? undefined : run.dir;

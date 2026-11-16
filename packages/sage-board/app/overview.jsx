@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { GiveBox, PairBox, UndoButton, chiefLabel, useAccess, useSeen } from "./actions.jsx";
+import { GiveBox, PairBox, PairNote, UndoButton, chiefLabel, useAccess, useSeen } from "./actions.jsx";
 import { useNow, when } from "./use-model.js";
 import { StateIcon } from "./icons.jsx";
 import { chiefSub, milestoneLink, ofChief, questionLink, taskLink } from "./task.jsx";
@@ -16,10 +16,10 @@ export function ago(from, to) {
   return `${Math.round(minutes / 1440)} days ago`;
 }
 
-const DAY = 86_400_000;
+const DAY = 86_400_000, WEEK = 7 * DAY;
 const after = (list, since) => list.filter(at => at && Date.parse(at) > since).length;
 function Counts({ model, previous, now }) {
-  const since = previous ? Date.parse(previous) : Date.parse(model.at) - DAY;
+  const old = previous && Date.parse(previous) < Date.parse(model.at) - WEEK, since = previous && !old ? Date.parse(previous) : Date.parse(model.at) - (old ? WEEK : DAY);
   const known = model.tasks.some(task => task.addedAt), unknown = model.tasks.some(task => !task.addedAt);
   const items = [
     ["merged", after(model.tasks.filter(task => task.state === "merged").map(task => task.doneAt), since), "Merged", "tasks merged into main"],
@@ -28,7 +28,7 @@ function Counts({ model, previous, now }) {
   ];
   return (
     <section className="counts" aria-labelledby="counts-h">
-      <h2 id="counts-h">{previous ? <>Since you looked <span className="hint">· you last opened the board at {when(previous)}, {ago(previous, now)}</span></> : "In the last 24 hours"}</h2>
+      <h2 id="counts-h">{old ? <>In the last 7 days <span className="hint">· you last looked more than 7 days ago, and the board keeps 7 days</span></> : previous ? <>Since you looked <span className="hint">· you left the board at {when(previous)}, {ago(previous, now)}</span></> : "In the last 24 hours"}</h2>
       <div className="kpis">
         {items.map(([kind, count, label, hint]) => (
           <div className={`kpi ${kind}`} key={kind} data-count={kind}>
@@ -197,13 +197,14 @@ function Milestones({ milestones, hiddenDone, many }) {
 }
 
 export function Overview({ model, shown }) {
-  const many = model.projects.length > 1, writes = useAccess(), previous = useSeen(writes), now = useNow();
+  const many = model.projects.length > 1, previous = useSeen(), now = useNow();
   return (
     <>
       <div className="page-h">
         <h1>Overview</h1>
         <p>What changed, what needs you, and where each milestone stands.</p>
       </div>
+      <PairNote />
       <PairBox />
       <div className="grid">
         <NeedsYou model={model} shown={shown} many={many} now={now} />
