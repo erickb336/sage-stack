@@ -51,9 +51,9 @@ export function readBoardConfig(path) {
   path = boundedPath(path);
   return validateBoardConfig(readConfigFile(path).raw, path);
 }
-const RETIRED_KEYS = ["allowedHosts", "secret", "password"];
+const RETIRED_KEYS = ["allowedHosts", "secret", "password", "pagesDir"];
 export function validateBoardConfig(config, configPath = null) {
-  const allowed = ["version", "sources", "port", "pagesDir", ...RETIRED_KEYS];
+  const allowed = ["version", "sources", "port", ...RETIRED_KEYS];
   if (!config || config.version !== 1 || Object.keys(config).some(key => !allowed.includes(key)) || !Array.isArray(config.sources) || !config.sources.length) throw new TypeError("board config needs version 1 and explicit sources");
   const ids = new Set();
   const sources = config.sources.map(source => {
@@ -62,13 +62,12 @@ export function validateBoardConfig(config, configPath = null) {
   });
   const port = config.port ?? BOARD_PORT;
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new TypeError("board port must be from 1024 to 65535");
-  const pagesDir = config.pagesDir ? boundedPath(config.pagesDir) : null;
-  if (configPath && !outsideRoots(resolve(configPath), sources) || pagesDir && !outsideRoots(pagesDir, sources)) throw new TypeError("board config and exported pages must stay outside logbook roots");
-  return { version: 1, sources, port, ...(pagesDir ? { pagesDir } : {}) };
+  if (configPath && !outsideRoots(resolve(configPath), sources)) throw new TypeError("board config must stay outside logbook roots");
+  return { version: 1, sources, port };
 }
-export function createBoardConfig(path, { sources, port = BOARD_PORT, pagesDir } = {}) {
+export function createBoardConfig(path, { sources, port = BOARD_PORT } = {}) {
   path = boundedPath(path);
-  const config = validateBoardConfig({ version: 1, sources, port, ...(pagesDir ? { pagesDir } : {}) }, path);
+  const config = validateBoardConfig({ version: 1, sources, port }, path);
   noLinkedParents(path);
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   try { writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, { flag: "wx", mode: 0o600 }); }
@@ -231,18 +230,19 @@ async function stopBoard(configPath, config, env, kill) {
 }
 
 function parse(argv) {
-  if (argv[0] !== "board") throw new TypeError("use: sage board [this|all|project|Tn] --config <absolute path> [--ensure|--stop|--setup|--serve|--pair|--install|--port <port>|--html --out <absolute path>|--status]");
+  if (argv[0] !== "board") throw new TypeError("use: sage board [this|all|project|Tn] --config <absolute path> [--ensure|--stop|--setup|--serve|--pair|--install|--port <port>|--status]");
   const options = {}, values = [];
   for (let i = 1; i < argv.length; i++) {
     const value = argv[i];
     if (!value.startsWith("--")) { values.push(value); continue; }
     const key = value.slice(2);
     if (["set-password", "allowed-hosts"].includes(key)) throw new TypeError(`--${key} is gone: the board is for a browser on this Mac only, with no password and no other host.`);
-    if (!["config", "out", "project", "scope", "serve", "html", "status", "setup", "ensure", "stop", "pair", "sources", "pages", "port", "install", "install-dir", "login-file"].includes(key) || Object.hasOwn(options, key)) throw new TypeError("unknown or repeated board option");
-    if (["serve", "html", "status", "setup", "ensure", "stop", "pair", "install"].includes(key)) options[key] = true;
+    if (["html", "out", "pages"].includes(key)) throw new TypeError(`--${key} is gone: the board has no HTML file export. Open the board in the browser, or ask for the board in the chat.`);
+    if (!["config", "project", "scope", "serve", "status", "setup", "ensure", "stop", "pair", "sources", "port", "install", "install-dir", "login-file"].includes(key) || Object.hasOwn(options, key)) throw new TypeError("unknown or repeated board option");
+    if (["serve", "status", "setup", "ensure", "stop", "pair", "install"].includes(key)) options[key] = true;
     else { if (!argv[i + 1] || argv[i + 1].startsWith("--")) throw new TypeError(`--${key} needs a value`); options[key] = argv[++i]; }
   }
-  if (values.length > 1 || [options.serve, options.html, options.status, options.setup, options.ensure, options.stop, options.pair, options.install].filter(Boolean).length > 1) throw new TypeError("board needs one scope and one format");
+  if (values.length > 1 || [options.serve, options.status, options.setup, options.ensure, options.stop, options.pair, options.install].filter(Boolean).length > 1) throw new TypeError("board needs one scope and one format");
   return { options, value: values[0] ?? "all" };
 }
 export async function runBoardCli(argv, { output = line => process.stdout.write(`${line}\n`), env = process.env, kill = (pid, signal) => process.kill(pid, signal), input = process.stdin } = {}) {
@@ -250,34 +250,34 @@ export async function runBoardCli(argv, { output = line => process.stdout.write(
   options.config ??= defaultConfigPath(env);
   if (options.scope && (options.serve || options.setup || options.ensure || options.stop || options.pair || options.install)) throw new TypeError("--scope is only for a task lookup");
   if (options.pair) {
-    if (value !== "all" || options.project || options.out || options.sources || options.pages || options.port || options["install-dir"] || options["login-file"]) throw new TypeError("pair takes only --config");
+    if (value !== "all" || options.project || options.sources || options.port || options["install-dir"] || options["login-file"]) throw new TypeError("pair takes only --config");
     if (!input?.isTTY) throw new TypeError("board --pair runs only in Terminal, with your keyboard as its input, because it prints a one-time code for your eyes only. Open Terminal on this Mac and run it there.");
     const configPath = boundedPath(options.config), config = readBoardConfig(configPath), code = startPairing(stateFolder(configPath));
     output(`Pairing code: ${code}\nOpen http://127.0.0.1:${config.port}/app/ in your browser. In the card "Pair this browser to act from the board", type the code in the "Pairing code" field, then choose Pair. The code works once, within 10 minutes. After that, this browser can answer questions, undo an answer, rename chiefs and give tasks to another chief.\nIf the page shows no pairing card and this browser is not paired yet, the board that runs is older than this one: run ${boardCommand("--stop", configPath, env, explicit)}, ask for the board again, and reload the page.`);
     return null;
   }
-  if (options.port && !["serve", "html", "status", "setup", "ensure", "stop", "install"].some(key => options[key])) {
-    if (value !== "all" || options.project || options.out || options.sources || options.pages || options["install-dir"] || options["login-file"]) throw new TypeError("board --port takes only --config");
+  if (options.port && !["serve", "status", "setup", "ensure", "stop", "install"].some(key => options[key])) {
+    if (value !== "all" || options.project || options.sources || options["install-dir"] || options["login-file"]) throw new TypeError("board --port takes only --config");
     output(await movePort(boundedPath(options.config), options.port, env, kill)); return null;
   }
   const missing = options.ensure && !lstatSync(boundedPath(options.config), { throwIfNoEntry: false });
   if (options.setup || missing) {
-    if (value !== "all" || options.sources?.length > 65536 || options.project || options.out || options["install-dir"] || options["login-file"]) throw new TypeError("setup takes --config, with optional sources, port and pages");
+    if (value !== "all" || options.sources?.length > 65536 || options.project || options["install-dir"] || options["login-file"]) throw new TypeError("setup takes --config, with optional sources and port");
     if (options.port && !/^[1-9]\d*$/.test(options.port)) throw new TypeError("port must be a positive integer");
-    createBoardConfig(options.config, { sources: options.sources ? parseJson(options.sources) : standardSources(env), port: options.port ? Number(options.port) : BOARD_PORT, pagesDir: options.pages });
+    createBoardConfig(options.config, { sources: options.sources ? parseJson(options.sources) : standardSources(env), port: options.port ? Number(options.port) : BOARD_PORT });
     if (options.setup) { output(`Board config created: ${boundedPath(options.config)}. Start the board with ${boardCommand("--ensure", boundedPath(options.config), env, explicit)}`); return null; }
-  } else if (options.sources || options.pages || options.port) throw new TypeError(options.ensure ? existingConfig(boundedPath(options.config)) : "source and service settings require --setup");
+  } else if (options.sources || options.port) throw new TypeError(options.ensure ? existingConfig(boundedPath(options.config)) : "source and service settings require --setup");
   if (options.ensure) {
-    if (value !== "all" || options.project || options.out || options["install-dir"] || options["login-file"]) throw new TypeError("ensure takes --config, and the setup settings for a new config");
+    if (value !== "all" || options.project || options["install-dir"] || options["login-file"]) throw new TypeError("ensure takes --config, and the setup settings for a new config");
     output(await ensureBoard(boundedPath(options.config), readBoardConfig(options.config), env)); return null;
   }
   if (options.stop) {
-    if (value !== "all" || options.project || options.out || options["install-dir"] || options["login-file"]) throw new TypeError("stop takes only --config");
+    if (value !== "all" || options.project || options["install-dir"] || options["login-file"]) throw new TypeError("stop takes only --config");
     output(await stopBoard(boundedPath(options.config), readBoardConfig(options.config), env, kill)); return null;
   }
   const config = readBoardConfig(options.config);
   if (options.install) {
-    if (value !== "all" || !options["install-dir"] || options.project || options.out) throw new TypeError("install needs --install-dir and --config");
+    if (value !== "all" || !options["install-dir"] || options.project) throw new TypeError("install needs --install-dir and --config");
     const installDir = boundedPath(options["install-dir"]);
     if (!outsideRoots(installDir, config.sources)) throw new TypeError("installation must stay outside logbook roots");
     const plistPath = options["login-file"] ? boundedPath(options["login-file"]) : null;
@@ -294,7 +294,7 @@ export async function runBoardCli(argv, { output = line => process.stdout.write(
   }
   if (options["install-dir"] || options["login-file"]) throw new TypeError("installation paths require --install");
   if (options.serve) {
-    if (value !== "all" || options.out || options.project) throw new TypeError("server uses all configured sources; no output or project option");
+    if (value !== "all" || options.project) throw new TypeError("server uses all configured sources; no project option");
     const configPath = boundedPath(options.config), server = createBoardServer({ ...config, sources: readSources(config.sources, env), providerRoots: providerRoots(env), id: configId(configPath), stateDir: stateFolder(configPath) });
     try { await server.start(); } catch (error) { throw error.code === "EADDRINUSE" ? new Error(`${error.message} ${moveHint(configPath, config, env)}`) : error; }
     const close = () => server.close().finally(() => { if (readPid(configPath) === process.pid) rmSync(pidPath(configPath), { force: true }); });
@@ -304,16 +304,8 @@ export async function runBoardCli(argv, { output = line => process.stdout.write(
   }
   const taskId = /^T[1-9]\d*$/.test(value) ? value : null;
   if (options.scope && !taskId) throw new TypeError("--scope selects the exact project of a task lookup");
-  const format = options.html ? "html" : options.status ? "status" : taskId ? "task" : "chat";
-  const sources = readSources(config.sources, env);
-  const body = boardView({ sources, scope: taskId ? options.scope ?? "this" : value, project: options.project ?? process.cwd(), providerRoots: providerRoots(env), taskId, format });
-  if (options.html) {
-    const file = boundedPath(options.out ?? (config.pagesDir ? resolve(config.pagesDir, `board-${Date.now()}-${randomBytes(6).toString("hex")}.html`) : ""));
-    if (!file.endsWith(".html") || !outsideRoots(file, sources)) throw new TypeError("HTML output must be an .html artifact outside logbook roots");
-    noLinkedParents(file);
-    mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-    writeFileSync(file, body, { flag: "wx", mode: 0o600 }); output(file);
-  } else { if (options.out) throw new TypeError("--out needs --html"); output(body); }
+  const format = options.status ? "status" : taskId ? "task" : "chat";
+  output(boardView({ sources: readSources(config.sources, env), scope: taskId ? options.scope ?? "this" : value, project: options.project ?? process.cwd(), providerRoots: providerRoots(env), taskId, format }));
   return null;
 }
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

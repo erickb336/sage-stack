@@ -5548,7 +5548,7 @@ test("R1249-1: gate add makes the question one line, every line break a space; s
   assert.equal(gatesLine(s), "gates   1 open · G1 Ship it? I recommend: no x (default: none)");
 });
 
-test("R1258-1: gate add makes each option, the recommendation and the default one line; the card, the text board, the chat board and status show a plain gate's option on one line", async () => {
+test("R1258-1: gate add makes each option, the recommendation and the default one line; the text board, the chat board and status show a plain gate's option on one line", async () => {
   const s = store();
   s.ok("task", "add", "--priority", "P2", "--title", "One", "--size", "small");
   s.ok("gate", "add", "T1", "--question", "Ship it?", "--options", "ship\u2028now|wait\n\rfor Bob", "--recommend", "ship\u2028now", "--default", "wait\u2029for Bob");
@@ -5558,10 +5558,8 @@ test("R1258-1: gate add makes each option, the recommendation and the default on
   const board = s.ok("board", "this");
   assert.ok(board.includes("ship now") && !/[\u2028\u2029]/.test(board), board);
   const core = (file) => import(new URL(`../plugins/sage/core/${file}`, import.meta.url).href);
-  const [{ readBoardSources }, { buildBoardModel }, { renderBoardHtml, renderBoardText }] = await Promise.all(["board-reader.mjs", "board-model.mjs", "board-render.mjs"].map(core));
+  const [{ readBoardSources }, { buildBoardModel }, { renderBoardText }] = await Promise.all(["board-reader.mjs", "board-model.mjs", "board-render.mjs"].map(core));
   const model = buildBoardModel(readBoardSources([{ id: "sage", label: "Sage", path: s.home }]));
-  const html = renderBoardHtml(model, { snapshot: false });
-  assert.ok(html.includes("<b>Needs you:</b> Ship it? I recommend: ship now</span>"), html);
   assert.ok(renderBoardText(model).includes("> Options: 1: ship now · 2: wait for Bob\\\n> Recommended: ship now"), renderBoardText(model));
 });
 

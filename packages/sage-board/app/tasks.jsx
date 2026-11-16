@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ago } from "./overview.jsx";
 import { ChiefDot, chiefName, controlsShown, ofChief, taskLink } from "./task.jsx";
 import { useNow } from "./use-model.js";
-import { OBJECTS, UNKNOWN, URGENCY as WORDS, prName } from "../../sage-core/state-words.mjs";
+import { OBJECTS, STEPS, UNKNOWN, URGENCY as WORDS, prName, shown } from "../../sage-core/state-words.mjs";
 
 const PRIORITIES = ["P0", "P1", "P2", "P3"];
 const ENDED_WORDS = ["done", "stopped"];
@@ -24,12 +24,17 @@ const FILTERS = [
   ["state", "State", task => task.word ?? NONE],
 ];
 
+function StepMark({ status }) {
+  const step = shown(STEPS[status]);
+  return step.word === "needs you" || step.flag ? <><span aria-hidden="true">{step.mark} </span><span className="sr">{step.text}: </span></> : null;
+}
+
 function Row({ task, at, many }) {
   const age = task.lastActivity ? ago(task.lastActivity, at) : null, shown = task.conflicts.slice(0, SHOWN_CONFLICTS), more = task.conflicts.length - shown.length;
   return (
     <li>
       <a className={`row${task.ended ? " ended" : ""}`} href={taskLink(task.key)} data-task={task.key}>
-        <span className={`badge prio ${(task.priority ?? "none").toLowerCase()}`}>{task.priority ?? NONE}</span>
+        {task.priority ? <span className={`badge prio ${task.priority.toLowerCase()}`}>{task.priority}</span> : <span />}
         <span className="title">
           <span className="text">{controlsShown(task.title)}</span>
           {many && <span className="kind">{task.project}</span>}
@@ -40,9 +45,9 @@ function Row({ task, at, many }) {
         <span className="mono id">{task.id}</span>
         <span className={`badge word ${(task.word ?? UNKNOWN).replace(" ", "-")}`}>{task.word ?? UNKNOWN}</span>
         <span className="chief">{task.chief && !task.chief.old && <ChiefDot stopped={task.chief.stopped} />}{chiefName(task.chief)}{task.chief?.stopped && " (stopped)"}{task.chief?.waits && " (waits for you)"}</span>
-        <span className={`step ${task.step?.status ?? ""}`}>{task.step?.label ?? (task.ended ? "" : NONE)}</span>
-        <span className="mono pr">{task.pr ? prName(task.pr) : NONE}</span>
-        <span className="age">{age ?? NONE}</span>
+        <span className={`step ${task.step?.status ?? ""}`}>{task.step && <StepMark status={task.step.status} />}{task.step?.label}</span>
+        <span className="mono pr">{task.pr && prName(task.pr)}</span>
+        <span className="age">{age ?? `age ${UNKNOWN}`}</span>
       </a>
     </li>
   );

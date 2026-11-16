@@ -20,7 +20,7 @@ The board and status phrases work at the start of your message. [Ask for the boa
 
 | Send this | What you see |
 | --- | --- |
-| `show board` or `sage board` | The board of this project in the chat, and the address of the board page. |
+| `show board` or `sage board` | The board of this project in the chat, and the address of the board in the browser. |
 | `show board for all` or `sage board for all projects` | The board of every project. |
 | `show board for <project>` or `sage board for <project>` | The board of one project. |
 | `show board <task id>`, `sage board <task id>` or `board <task id>` | One task in full, for example `show board T1`. |
@@ -128,8 +128,8 @@ Until then, you can take a board answer back. An answer in the chat or on a card
 | --- | --- | --- |
 | `sage gate answer <G> --option <n> --via <place>` | The chief records your answer, with its own `--chief` in a shared logbook, so that the gate keeps which chief applied it. The place is `chat`, `claude-card`, `codex-card` or `board`; with no `--via`, it is `chat`. | A gate with an answer refuses, and names that answer, its place and its time. A board answer waits for its chief; any other answer acts at once. A breakdown gate keeps its own rule: it answers once, and a change of mind proposes the milestone again. |
 | `sage gate undo <G>` | You, or the chief when you ask. Only for a board answer that no chief has picked up yet. | The answer goes, and the question is open again. After the pickup, or for an answer from the chat or a card, it refuses and says why. |
-| `sage gate answer <G> ... --via board --seen <digest>` | The board page, for your paired browser. The digest names the question and the options that you saw. | Refused when the question changed after you read it. |
-| `node <board folder>/cli.mjs board --pair` | You, in Terminal, once for each browser. It refuses input that is not a terminal, and the hooks refuse it from an agent. | A one-time code for the board page. After you type it there, the browser can answer, undo, rename a chief and give a task to another chief ([Act from the board](board.md#act-from-the-board)). |
+| `sage gate answer <G> ... --via board --seen <digest>` | The board in the browser, for your paired browser. The digest names the question and the options that you saw. | Refused when the question changed after you read it. |
+| `node <board folder>/cli.mjs board --pair` | You, in Terminal, once for each browser. It refuses input that is not a terminal, and the hooks refuse it from an agent. | A one-time code for the board in the browser. After you type it there, the browser can answer, undo, rename a chief and give a task to another chief ([Act from the board](board.md#act-from-the-board)). |
 | `sage gate add <T> ... --message <file>` | The chief, when it parks a question. The file is the JSON of the question's message. | The gate keeps the whole message as `gates/G<n>.json` in the logbook, after the message check, so that the board can show the full question. |
 
 - **Who picks up a board answer.** The chief that owns the question's task now, also after a takeover; the chief that opened a question with no task, such as the lint offer; or the receiving chief of a takeover gate. Its hook reads your answer at its next step, applies it, records the pickup and tells the chief what it did.
@@ -208,7 +208,7 @@ A tiny task has no review and no QA in its route, so its lead runs only the impl
 
 Before any verdict and any repair round of a cycle with such a finding, one QA run, the proof check, reruns each proof on a fresh copy of the head, after the project's dependency install. `finding triage --proof R<n>` names that run, and the state tool checks it. Its report backs no verdict, and a run whose medium findings were all dropped gives its clean verdict.
 
-An open low finding never blocks a merge; it stays on the task's polish list. The board shows that list on the task's card and page. An open medium or high finding blocks the move to verifying and the merge.
+An open low finding never blocks a merge; it stays on the task's polish list. The board in the chat shows each finding of a task (`show board T<n>`), and the board's Pull requests page counts the open findings of each PR. An open medium or high finding blocks the move to verifying and the merge.
 
 The lead ends blocked when it cannot clear a finding itself:
 
@@ -261,7 +261,7 @@ A milestone is one request that sage runs as several tasks for one goal, with on
 
 Milestones were called programs before. At its first write, this version renames each program of a logbook to a milestone with a new number, such as M5 for PG1. Your old answers stay as you gave them.
 
-The board shows each milestone on its Milestones tab: see [Milestones on the board](board.md#milestones-on-the-board). The full rules are in [Rules held in code](../design/rules-in-code.md#waits-and-milestones).
+The board shows each milestone on its Overview and its Tasks page: see [Milestones on the board](board.md#milestones-on-the-board). The full rules are in [Rules held in code](../design/rules-in-code.md#waits-and-milestones).
 
 ### Releases
 
@@ -456,7 +456,7 @@ Only the chief runs the clean; a lead, a reviewer or QA cannot.
 
 3. If the folder `~/.local/share/sage-board` exists, remove its installed copy (`service/`) and its pages folder (`pages/`). The board has no command that removes them.
 
-   > **Warning:** this command also deletes the board's offline pages. Copy each page that you want to keep first.
+   > **Warning:** this command also deletes the HTML files that an older board exported to `pages/`. Copy each file that you want to keep first.
 
    ```sh
    rm -r ~/.local/share/sage-board
@@ -480,7 +480,7 @@ Only the chief runs the clean; a lead, a reviewer or QA cannot.
 
 Claude Code keeps the plugin files in `~/.claude/plugins/cache/sage/` after the uninstall. It removes each version 14 days later, but only while another plugin is still installed ([plugin loading](https://code.claude.com/docs/en/plugins/loading)). To remove them at once, delete that folder, but only after step 1: the stop command is in it.
 
-The uninstall keeps your logbooks, the task pages in each project's pages folder and the board's config; only step 3 deletes the board's offline pages. They are plain files in the folders below. Delete them yourself when you no longer want the record.
+The uninstall keeps your logbooks, the task pages in each project's pages folder and the board's config; only step 3 deletes the HTML files that an older board exported. They are plain files in the folders below. Delete them yourself when you no longer want the record.
 
 ## Shared logbooks
 
@@ -551,7 +551,7 @@ A moved folder with no Git commits, or that is no Git repository, has no first c
 - Each chief's own hook keeps `live/C<n>.json` in the logbook: its checkout, sage mode, autopilot and the time. It writes the file at most once a minute, and at once when sage mode or autopilot changes. The board shows a chief as stopped when that time is over 30 minutes old and the chief has no running run, other than a run that the board shows with no news for over 24 hours.
 - A chief with an open question of yours is not stopped: the board shows that it waits for you. A stopped chief shows no sage mode and no autopilot state.
 - A chief with no live file, or with a time more than 5 minutes in the future, shows unknown values: the board does not know its sage mode, its autopilot or whether it stopped.
-- The new board page shows each chief as a chip under its top bar, by its default name, "provider · folder · start time". The folder part has at most 30 characters, and when two chiefs have the same name, each name ends with its chief id.
+- The board in the browser shows each chief as a chip under its top bar, by its default name, "provider · folder · start time". The folder part has at most 30 characters, and when two chiefs have the same name, each name ends with its chief id.
 - To give a chief your own name, rename it on the board (the chief's menu, then Rename), or ask the chief in the chat, for example "name C2 Night shift". Either runs the state tool's `chief name C<n> <name>`, and the same command with no name clears your name.
 - A name has 1 to 60 characters, with no space at its start or end and no two spaces together. It has no tab, line break or other control, format or hidden character, and at least one visible character. A bad entry in `chief-names.json` hides only that chief's name: the board shows its default name and a warning.
 - A resume keeps the session, so it is the same chief.
@@ -623,7 +623,7 @@ This check prevents mistakes. It does not stop an agent that gives another chief
 - The first shared write takes the largest value of both provider roots for each count, so a project never needs fewer cycles than you wrote. A later link leaves the shared counts.
 - Model keys, `arena`, the agent caps and the hook state stay in each provider root.
 
-**The board.** The board shows a shared project as one project, in Claude and in Codex, in the chat and on the board page. It only reads, and an existing project looks as before ([board guide](board.md#a-shared-project-on-the-board)).
+**The board.** The board shows a shared project as one project, in Claude and in Codex, in the chat and in the browser. It only reads, and an existing project looks as before ([board guide](board.md#a-shared-project-on-the-board)).
 
 After you update sage in Claude and in Codex, stop a running board server with the `board --stop` command that `board --ensure` prints, then ask for the board again. A board server that started before the update reads with its old code.
 
@@ -708,7 +708,7 @@ After a restore, the old move gate moves nothing: to move again, ask the chief f
 - **The pages** of each task: `~/sage-worktrees/<project>-<hash>/pages/<task>/`, outside the logbook. Agents save their research pages and designs there. The chief makes the folder and prints its path.
 - **The board's config**: `~/.config/sage-board/`, when you use the board server. It holds `board.json`, `board.log` and `board.pid`.
 - **The board's login service**, when you install it ([Optional login startup](../../packages/sage-board/README.md#optional-login-startup)): the login file `~/Library/LaunchAgents/dev.sage.board.plist`, and the installed copy of the board in `~/.local/share/sage-board/service/`.
-- **The board's pages folder**: `~/.local/share/sage-board/pages/`, when the board's setup names it. The board saves its offline HTML pages there.
+- **The board's old export folder**: `~/.local/share/sage-board/pages/`, when an older board's setup named it. An older board saved its HTML file exports there; the board of today exports nothing.
 
 ## Troubleshooting
 

@@ -39,12 +39,12 @@ Read `skills/sage/references/commands.md` for the full row of a command before y
 | `run add <T> --role <role> [--branch <b>] [--candidate <k>]` · `run done <R> --status done\|blocked\|question\|failed [--tokens <n>] [--report <path>]` | Records an agent run. |
 | `finding add <T> --source <role> --severity high\|medium\|low --summary "<s>" [--key <K>] [--run <R>] [--class <class>]` | Records a finding. |
 | `finding triage <T> <K> fix\|dismiss\|ask [--reason "<r>"] [--proof <R>]` · `finding close <T> <K>` | Triage every finding; `--proof` names the proof check that reran it. Close a fix, also a moved finding, after a re-check confirms it. |
-| `finding move <T> <K> --to "<title>" [--size tiny\|small\|large]` · `finding move <T> <K> --into <T>` | Moves an open medium or low finding to a new follow-up task (small by default), which it frames, or into an open task of this logbook. `--to` takes a title, never a task id. The finding arrives triaged fix, with the reason "moved from <K>", and needs no proof check there. A move `--into` a verified or pr-ready task puts that task back to reviewing, writes the state decision, and the output ends with the new state. |
+| `finding move <T> <K> --to "<title>" [--size tiny\|small\|large]` · `finding move <T> <K> --into <T>` | Moves an open medium or low finding to a new follow-up task, or into an open task of this logbook. |
 | `verdict <T> --sha <sha> --kind <kind> [--cycle <n>] [--pr <n>] [--run <R>]` | Records a verdict on a head SHA. |
 | `gate add <T> --question "<q>" --options "<a\|b>" --recommend <a> [--default <a>]` · `gate answer <G> --option <n> --project <folder>` · `gate answer <G> --other-hex <hex> --project <folder>` | Parks a question for the user, with your recommendation and the default. |
 | `log <T\|-> "<decision>" --why "<reason>"` | Adds a line to the decision trail. |
 | `pages <T>` · `pages <T> record <file>` · `pages <T> record --run <R> --text <report>` | Makes (mode 700) and prints the folder where agents save the task's pages (research, designs, findings pages). |
-| `board [this\|all\|<project>\|<T>] [--view chat\|task\|status\|html]` · `board --name-hex <hex>` | Prints the board: the chat board by default. |
+| `board [this\|all\|<project>\|<T>] [--view chat\|task\|status]` · `board --name-hex <hex>` | Prints the board: the chat board by default. |
 | `stats [--task <T>]` | Prints the 50 tasks with the most review tokens, largest first. |
 | `worktrees` · `worktrees prune --yes` | Lists the git worktrees of the project's repository, one line each. |
 | `status` | Prints the status lines. |

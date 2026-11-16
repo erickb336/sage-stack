@@ -80,14 +80,14 @@ Use Codex 0.164 or later, in the CLI or the desktop app, and a multi-agent v2 mo
 
 ## The board
 
-Send `show board` to see what needs you, the agents at work, and each task in its column. On the Mac, it also starts the board page and gives its address; in Codex, after you approve one prompt ([The board in Codex](docs/guide/codex.md#the-board-in-codex)). The board server, and [Remote Control](docs/guide/remote-control.md) (sessions from your phone), need macOS.
+Send `show board` to see the board in the chat: what needs you, the agents at work, and each task by its state. On the Mac, it also starts the board in the browser and gives its address; in Codex, after you approve one prompt ([The board in Codex](docs/guide/codex.md#the-board-in-codex)). The board server, and [Remote Control](docs/guide/remote-control.md) (sessions from your phone), need macOS.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/board-dark.png">
-  <img alt="The board page on a laptop screen, with SAMPLE DATA: the project picker, the filter bar, a Needs you box with two milestone items, and six columns side by side, from Backlog to Done. The first card of the Backlog column asks you to approve a milestone." src="docs/assets/board-light.png" width="100%">
+  <img alt="The Overview of the board on a laptop screen, with SAMPLE DATA: the chief chips under the top bar, Needs you with three items, the Milestones card by priority, and the counts of the last 24 hours." src="docs/assets/board-light.png" width="100%">
 </picture>
 
-*Sample data: every task and milestone shown is made up. The screenshot shows the first screen on a laptop (1280 by 800 pixels). The [board guide](docs/guide/board.md) describes the full board.*
+*Sample data: every task and milestone shown is made up. The screenshot shows the first screen on a laptop (1280 by 800 pixels). The [board guide](docs/guide/board.md) shows each page of the board.*
 
 ## What to say
 
@@ -97,7 +97,7 @@ Send `show board` to see what needs you, the agents at work, and each task in it
 | `show status` | Task state and missing priority. Clean main merges keep proved cycles after fresh head checks. |
 | Tell either chief to take over a task of another chief, with its PR | In a shared logbook, the chief opens a [takeover gate](docs/guide/using-sage.md#shared-logbooks) for you to answer in either chat: its instructions say never to answer it itself, but no code ties the answer to your message. The branch and the verdicts stay, and then only the new owning chief and its agents push to the branch; a Claude chief that takes a task from Codex runs one fresh Claude cycle first. Any chief may abandon a task with no owning chief, with a reason; in separate logbooks, the chief uses [task adoption](docs/guide/codex.md#task-adoption), and reviews and QA start fresh. |
 | Tell the chief that a checkout joins a shared logbook, or starts its own, or ask it to move this project there | After your answer, [`sage link`](docs/guide/using-sage.md#shared-logbooks) joins checkouts on the board; each task has one owning chief, and each takeover needs your gate. [`sage move`](docs/guide/using-sage.md#move-an-existing-project) previews the move, then takes open tasks into one shared logbook after your gate, with an end check and restore steps. [`sage init`](docs/guide/using-sage.md#shared-logbooks) starts shared when both plugins are ready; a legacy retry preserves its checkout identity and refuses a mismatch or missing identity before task writes. |
-| `show board` | The board in the chat, and the address of the board page. When another program uses its port, [one command moves the board](docs/guide/board.md#change-the-boards-port). |
+| `show board` | The board in the chat, and the address of the board in the browser. When another program uses its port, [one command moves the board](docs/guide/board.md#change-the-boards-port). |
 | `autopilot on` / `autopilot off` | Merge verified work, or wait. Starts off. Codex requires the chief's active turn. |
 | `sage mode off` | A normal session again, for the rest of the session. Autopilot goes off too. |
 | `sage help` | Every phrase, and whether sage mode and autopilot are on. |

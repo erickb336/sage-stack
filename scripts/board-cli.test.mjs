@@ -17,12 +17,12 @@ function fixture(t) {
   const tool = createStateTool({ defaultRoot: () => root });
   tool.sage(["init", "--project", dir], { ...process.env, SAGE_HOME: root });
   tool.sage(["task", "add", "--priority", "P2", "--title", "Sample CLI task", "--size", "small", "--project", dir], { ...process.env, SAGE_HOME: root });
-  const value = createBoardConfig(config, { sources: [{ id: "sample", path: root }], pagesDir: join(dir, "pages") });
+  const value = createBoardConfig(config, { sources: [{ id: "sample", path: root }] });
   return { dir, root, config, value };
 }
 test("T229, T1053: standalone config has no secret, no password and no allowed hosts, private mode and no logbook output path", t => {
   const { config, root, value } = fixture(t);
-  assert.deepEqual(Object.keys(JSON.parse(readFileSync(config, "utf8"))).sort(), ["pagesDir", "port", "sources", "version"]);
+  assert.deepEqual(Object.keys(JSON.parse(readFileSync(config, "utf8"))).sort(), ["port", "sources", "version"]);
   assert.throws(() => createBoardConfig(join(root, "low-port.json"), { sources: [{ id: "sample", path: root }], port: 1023 }), /1024 to 65535/);
   assert.equal(statSync(config).mode & 0o777, 0o600);
   assert.deepEqual(readBoardConfig(config), value);
@@ -43,26 +43,16 @@ test("T395, T1053: setup with --config prints the start command with that --conf
   await runBoardCli(["board", "--setup", "--config", config, "--sources", JSON.stringify([{ id: "sample", path: root }])], { output: line => lines.push(line), env: { HOME: home } });
   assert.deepEqual(lines, [`Board config created: ${config}. Start the board with node ${cli} board --ensure --config ${config}`]);
 });
-test("standalone HTML export includes task detail, prints its path and does not overwrite", async t => {
-  const { dir, config, value } = fixture(t), lines = [];
-  await runBoardCli(["board", "all", "--html", "--config", config], { output: line => lines.push(line) });
-  const file = lines[0];
-  assert.ok(file.startsWith(join(dir, "pages/board-")));
-  const html = readFileSync(file, "utf8");
-  assert.ok(html.includes("Sample CLI task")); assert.ok(html.includes('<h3>Evidence <span class="n">0</span></h3>'));
-  await runBoardCli(["board", "all", "--html", "--config", config], { output: line => lines.push(line) });
-  assert.notEqual(lines[1], file);
-  assert.ok(existsSync(file) && existsSync(lines[1]));
-  await assert.rejects(runBoardCli(["board", "all", "--html", "--out", file, "--config", config], { output: () => {} }), /EEXIST/);
-});
-test("standalone refuses linked output parents and exposes status without a server", async t => {
+test("T770: the HTML file export is gone: --html, --out and --pages say so, a config with the old pagesDir still loads, and status needs no server", async t => {
   const { dir, root, config } = fixture(t), lines = [];
-  const link = join(dir, "linked-pages"); symlinkSync(root, link);
-  await assert.rejects(runBoardCli(["board", "all", "--html", "--out", join(link, "board.html"), "--config", config]), TypeError);
-  assert.equal(existsSync(join(root, "board.html")), false);
-  const outside = join(dir, "outside"), outsideLink = join(dir, "outside-link"); mkdirSync(outside); symlinkSync(outside, outsideLink);
-  await assert.rejects(runBoardCli(["board", "all", "--html", "--out", join(outsideLink, "board.html"), "--config", config]), TypeError);
-  assert.equal(existsSync(join(outside, "board.html")), false);
+  for (const args of [["board", "all", "--html", "--config", config], ["board", "all", "--out", join(dir, "board.html"), "--config", config], ["board", "--setup", "--config", join(dir, "new.json"), "--pages", join(dir, "pages")]]) {
+    const option = args.find(arg => ["--html", "--out", "--pages"].includes(arg));
+    await assert.rejects(runBoardCli(args, { output: () => {} }), { message: `${option} is gone: the board has no HTML file export. Open the board in the browser, or ask for the board in the chat.` });
+  }
+  assert.equal(existsSync(join(dir, "board.html")) || existsSync(join(dir, "new.json")) || existsSync(join(dir, "pages")), false);
+  const old = join(dir, "old.json");
+  writeFileSync(old, JSON.stringify({ version: 1, sources: [{ id: "sample", path: root }], pagesDir: join(dir, "pages") }), { mode: 0o600 });
+  assert.deepEqual(Object.keys(readBoardConfig(old)).sort(), ["port", "sources", "version"], "the old export folder is dropped on load");
   await runBoardCli(["board", "all", "--status", "--config", config], { output: line => lines.push(line) });
   assert.ok(lines[0].includes("framed 1"));
   await assert.rejects(runBoardCli(["board", "--config", config, "--config", config]), /repeated/);
@@ -129,7 +119,7 @@ async function freePort() {
 const get = (port, host) => new Promise((accept, reject) => {
   const req = request({ host: "127.0.0.1", port, path: "/", agent: false, headers: { Host: host } }, response => {
     let body = ""; response.setEncoding("utf8"); response.on("data", chunk => body += chunk);
-    response.on("end", () => accept({ status: response.statusCode, body }));
+    response.on("end", () => accept({ status: response.statusCode, location: response.headers.location, body }));
   });
   req.on("error", reject); req.end();
 });
@@ -147,7 +137,7 @@ test("T229, T1053: a config with the keys of the old phone access still loads an
   t.after(() => server.close());
   assert.equal(lines.at(-1), `Sage board: http://127.0.0.1:${port}/ · only on this Mac.`);
   const page = await get(port, `127.0.0.1:${port}`);
-  assert.equal(page.status, 200); assert.match(page.body, /Sample CLI task/);
+  assert.deepEqual([page.status, page.location], [302, "/app/"], "the board's address opens the app");
   assert.equal((await get(port, "sample.tailnet.ts.net")).status, 403, "the old allowed host gets nothing");
 });
 

@@ -188,10 +188,10 @@ test("the Codex install line names a GitHub remote, as docs/guide/codex.md does 
   assert.match(readFileSync(join(ROOT, "docs/guide/codex.md"), "utf8"), /a GitHub remote for the project/);
 });
 
-test("the board image's alt text says its two Needs you items are milestone items, not questions (T467-3)", () => {
-  const alt = realReadme().match(/<img alt="The board page[^"]*"/)[0];
-  assert.match(alt, /a Needs you box with two milestone items,/);
-  assert.doesNotMatch(alt, /milestone questions/);
+test("the board image's alt text names the Overview and its parts as the sample shows them (T467-3, T770)", () => {
+  const alt = realReadme().match(/<img alt="The Overview of the board[^"]*"/)[0];
+  assert.match(alt, /SAMPLE DATA: the chief chips under the top bar, Needs you with three items, the Milestones card by priority/);
+  assert.doesNotMatch(alt, /columns|card of the Backlog/);
 });
 
 test("the README defines the on phrase and the update warning in words the reader has met (R1661)", () => {

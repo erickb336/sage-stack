@@ -54,7 +54,8 @@ test("T1054: the Overview answers J1 and J2 with no click, from the logbook, and
   assert.match(await page.locator(".needs li").first().textContent(), /Recommended: A: yes, as a new private list.*G4.*T10 · Sample sync design.*asked 3 h ago/);
   assert.deepEqual(await texts(page.locator(".ms .name")), ["Milestone 2: Offline syncP0in progress", "Milestone 1: Board redesignP1in progress", "Milestone 3: Sign-in reworkdone"], "J2: milestones by priority");
   assert.deepEqual(await texts(page.locator(".ms .of")), ["0 of 2 merged", "1 of 4 merged", "2 of 2 merged"]);
-  assert.deepEqual(await texts(page.locator(".kpi .n")), ["1", "1", "–"]);
+  assert.deepEqual(await texts(page.locator(".kpi .n")), ["1", "1", "unknown"]);
+  assert.equal(await page.locator('.kpi[data-count="stuck"] .l').textContent(), "failed, may be stuck or run still open", "T1099 (F-T1099-51): the label names each flag that the count counts");
   assert.equal(await page.locator(".counts h2").textContent(), "In the last 24 hours");
   assert.equal(await page.locator("header.top a.limit").first().textContent(), "Agents 1 of 10 · no chief 1", "a logbook with no limit in its config has the default limit");
   await page.getByRole("navigation", { name: "Pages" }).getByRole("link", { name: /^Agents/ }).click();
@@ -168,4 +169,28 @@ test("F-T1065-19: at 200% zoom of a 1280 px window, the pages bar goes above the
   assert.equal(side.width, 640);
   assert.ok(main.y >= side.y + side.height && main.width === 640, JSON.stringify({ side, main }));
   assert.equal(await page.getByRole("link", { name: /^Tasks/ }).isVisible(), true, "the page links keep their names");
+});
+
+test("R1349: the contrast helper's edge measure takes the better of a control's fill and its border", async t => {
+  const context = await browser.newContext();
+  t.after(() => context.close());
+  const page = await context.newPage();
+  await page.setContent('<div id="tray"><span id="flat">Sample</span><span id="edged">Sample</span><span id="filled">Sample</span></div>');
+  await page.addStyleTag({ content: "#tray{background:#f0f0f1}span{background:#fff;border:1px solid transparent}#edged{border-color:#87878d}#filled{background:#555;border:0}" });
+  const [[flat], [edged], [filled]] = await page.evaluate(measureContrast, [["flat", "#flat", "edge"], ["edged", "#edged", "edge"], ["filled", "#filled", "edge"]]);
+  assert.ok(flat.ratio < 1.2, `white on the tray with no edge: ${flat.ratio}`);
+  assert.ok(edged.ratio >= 3 && edged.ratio < 3.3, `the edge colour: ${edged.ratio}`);
+  assert.ok(filled.ratio > 6, `a dark fill with no border: ${filled.ratio}`);
+});
+
+test("T349: the contrast helper takes the worst stop of a gradient, and refuses an image", async t => {
+  const context = await browser.newContext();
+  t.after(() => context.close());
+  const page = await context.newPage();
+  await page.setContent('<p id="even">Sample</p><p id="half">Sample</p><p id="image">Sample</p>');
+  await page.addStyleTag({ content: "p{color:#000}#even{background:linear-gradient(#fff,#eee)}#half{background:linear-gradient(90deg,#fff,#555)}#image{background:url(data:image/gif;base64,R0lGODlhAQABAAAAACw=)}" });
+  const [[even], [half]] = await page.evaluate(measureContrast, [["even", "#even"], ["half", "#half"]]);
+  assert.ok(even.ratio >= 17, `black on a light gradient: ${even.ratio}`);
+  assert.ok(half.ratio < 4.5, `black on a gradient that ends dark grey fails: ${half.ratio}`);
+  await assert.rejects(page.evaluate(measureContrast, [["image", "#image"]]), /An image needs a separate contrast check/);
 });

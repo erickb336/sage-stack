@@ -39,9 +39,9 @@ The chief frames one task, T1. It is small (one bounded change) and has no risk 
 
 What the app shows for an empty search is a product choice, so the chief asks you once. It asks on a choice card: a question in the chat with options to pick, its recommendation first. The chief also records the question as gate G1, a question that waits for your answer, so the board shows it under "Needs you":
 
-<img alt="The board on a laptop screen, with SAMPLE DATA: six columns side by side and T1 in Backlog, the first column, with the step line Plan, Build, Review 1 of 1 and Merge, and a Needs you box that asks what an empty search shows, with the recommendation: a hint to type a name." src="../assets/learn-asks.png" width="100%">
+<img alt="The task page of T1 on a laptop screen, with SAMPLE DATA: T1 needs you at its first step, Plan, and its Status names the open question and the recommendation." src="../assets/learn-asks.png" width="100%">
 
-The step line on the card shows where T1 is: Plan, then the steps of its route, then Merge. In Plan, the chief frames the task and writes the brief for the agents. The `!` mark says that Plan needs you, because gate G1 is open.
+T1's task page on the board shows where T1 is: Plan, then the steps of its route, then Merge. In Plan, the chief frames the task and writes the brief for the agents. T1 needs you, because gate G1 is open, and the Overview lists G1 under "Needs you".
 
 `show board` prints the question in the chat too:
 
@@ -55,7 +55,7 @@ You pick option 1. Engineering choices, such as the name of the helper function,
 
 The chief starts one lead for the task's pull request: an agent that runs the build, the reviews and the repairs, and reports to the chief once. The lead starts an implementer, which works in its own git worktree. The board shows both at work:
 
-<img alt="The board on a laptop screen, with SAMPLE DATA: T1 in Building, the third of six columns, with the step line Plan done and Build running, and the lead and the implementer at work." src="../assets/learn-building.png" width="100%">
+<img alt="The task page of T1 on a laptop screen, with SAMPLE DATA: T1 in progress at the step Build, with the lead and the implementer at work now." src="../assets/learn-building.png" width="100%">
 
 You can leave. The logbook keeps the state, so a later session on the same Mac continues the work. You can also follow and steer it from your phone with [Remote Control](remote-control.md).
 
@@ -69,19 +69,17 @@ A small task needs 1 clean cycle; a large task, or a task with a risk flag, need
 
 ### 6. The result comes to you
 
-The reviews are clean on the final commit, so the chief reports to you. You get the result, the evidence (the commands that ran, and screenshots), what was not checked, and the pull request. The board says what it needs from you:
+The reviews are clean on the final commit, so the chief reports to you. You get the result, the evidence (the commands that ran, and screenshots), what was not checked, and the pull request. T1's task page shows that it is at its last step, Merge:
 
-<img alt="The board on a laptop screen, with SAMPLE DATA: T1 in Ready to merge, the fifth of six columns, with Plan, Build and Review 1 of 1 done, and Needs you: review and merge PR 41." src="../assets/learn-ready.png" width="100%">
+<img alt="The task page of T1 on a laptop screen, with SAMPLE DATA: T1 in progress at the step Merge, 1 of 1 review cycle passed, with build, reviews and QA done." src="../assets/learn-ready.png" width="100%">
 
-> The board cannot tell if autopilot is on, so review and merge PR 41.
-
-You look at the result, not the code. Autopilot is off by default, so you merge.
+PR 41 waits for your merge. You look at the result, not the code. Autopilot is off by default, so you merge.
 
 ### 7. Merged
 
-You merge PR 41 on GitHub. The chief does not watch GitHub, so tell it in the chat that you merged the pull request. The chief then records the merge in the logbook, and the board moves T1 to Done:
+You merge PR 41 on GitHub. The chief does not watch GitHub, so tell it in the chat that you merged the pull request. The chief then records the merge in the logbook, and the board shows T1 as done:
 
-<img alt="The board on a laptop screen, with SAMPLE DATA: T1 in Done, last 7 days, the last of six columns, with PR 41." src="../assets/learn-merged.png" width="100%">
+<img alt="The task page of T1 on a laptop screen, with SAMPLE DATA: T1 done, with PR 41 merged." src="../assets/learn-merged.png" width="100%">
 
 To let verified pull requests merge by themselves, send `autopilot on` alone while sage mode is on. The chief then merges each task after its clean cycles, and tells you in one line.
 
@@ -100,4 +98,4 @@ Pick one small, real bug in a project that has tests and a GitHub remote. Send `
 
 - [Using sage](using-sage.md): every phrase, the four cases in which the chief asks you again, and how to stop a task.
 - [How sage works](how-it-works.md): the team, the routes for each task size, and a task's life.
-- [The board](board.md): the columns, the cards and the Agents page.
+- [The board](board.md): the Overview, Tasks, the task page, Agents and Pull requests.

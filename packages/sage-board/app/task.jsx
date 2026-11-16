@@ -5,7 +5,7 @@ import { MARKS, OBJECTS, UNKNOWN, chiefName as nameOf, prName, shown, taskWord }
 export const taskLink = (key, tab) => `#task?key=${encodeURIComponent(key)}${tab && tab !== "artifacts" ? `&tab=${tab}` : ""}`;
 export const milestoneLink = key => `#tasks?milestone=${encodeURIComponent(key)}`;
 export const ofChief = (task, chief) => !chief || task.chief?.id === chief.id && task.key === `${chief.logbook}/${task.id}`;
-export const chiefName = chief => chief ? chief.old ?? (chief.id ? nameOf(chief.id, chief.provider) : `Chief ${UNKNOWN}`) : "No chief";
+export const chiefName = chief => chief ? chief.old ?? nameOf(chief.id ?? `chief ${UNKNOWN}`, chief.provider) : "No chief";
 export const chiefState = key => Object.hasOwn(OBJECTS.chief.states, key) ? shown(OBJECTS.chief.states[key]).text : UNKNOWN;
 export const chiefSub = chief => { const head = `${nameOf(null, chief.provider)} · `, tail = ` · ${chief.id}`, name = chief.name.startsWith(head) ? chief.name.slice(head.length) : chief.name; return name.endsWith(tail) ? name.slice(0, -tail.length) : name; };
 const liveness = stopped => stopped === false ? "live" : stopped ? "stopped" : "unknown";
@@ -173,8 +173,8 @@ function AtWork({ task }) {
 
 const BACK_NAMES = { "": "Overview", tasks: "Tasks", agents: "Agents", "pull-requests": "Pull requests", question: OBJECTS.question.label };
 const backName = from => {
-  const key = /^task\?key=([^&]*)/.exec(from)?.[1], path = from.split("?")[0];
-  return key ? `${OBJECTS.task.label} ${decodeURIComponent(key).split("/").pop()}` : Object.hasOwn(BACK_NAMES, path) ? BACK_NAMES[path] : null;
+  const [path, query] = from.split("?"), key = path === "task" && new URLSearchParams(query).get("key");
+  return key ? `${OBJECTS.task.label} ${key.split("/").pop()}` : Object.hasOwn(BACK_NAMES, path) ? BACK_NAMES[path] : null;
 };
 export function TaskPage({ taskKey, tab: asked, at, from }) {
   const { data: task, problem } = useTask(taskKey, at);
@@ -201,7 +201,7 @@ export function TaskPage({ taskKey, tab: asked, at, from }) {
       {task && <>
         <p className="facts-line">
           <span className={`badge word ${(task.word ?? UNKNOWN).replace(" ", "-")}`}>{task.word ?? UNKNOWN}</span>
-          {[task.priority ?? "no priority", task.size ?? `size ${UNKNOWN}`, task.risk && `risk flag ${task.risk}`, task.kind, task.step?.label, `Run by ${chiefName(task.chief)}${task.chief && !task.chief.old && !task.ended ? ` (chief ${chiefState(liveness(task.chief.stopped))})` : ""}`].filter(Boolean).join(" · ")}
+          {[task.priority ?? "no priority", task.size ?? `size ${UNKNOWN}`, task.risk && `risk flag ${task.risk}`, task.kind, task.step?.label, `${task.chief ? "Run by " : ""}${chiefName(task.chief)}${task.chief?.id && !task.chief.old && !task.ended ? ` (chief ${chiefState(liveness(task.chief.stopped))})` : ""}`].filter(Boolean).join(" · ")}
           {task.branch && <> · <code>{controlsShown(task.branch)}</code></>}
         </p>
         <AtWork task={task} />

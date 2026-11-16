@@ -3,7 +3,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs, { appendFileSync, linkSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
-import { createHash } from "node:crypto";
 import { request } from "node:http";
 import { createServer } from "node:net";
 import { syncBuiltinESMExports } from "node:module";
@@ -40,13 +39,16 @@ async function freePort() {
 }
 
 const EVENT_GUARD = 30_000, REQUEST_GUARD = 120_000;
+const APP = loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", import.meta.url)));
+const has = (model, text) => JSON.stringify(model).includes(text);
+const BOARD_POLICY = "default-src 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'";
 
 async function fixture(t, { missing = false, id, clock, before, settleReads } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-server-")), root = join(dir, "source"), port = await freePort();
   if (!missing) populate(root);
   before?.(join(root, "project-abcdef"));
   const sources = [{ id: "sample", path: root, label: "Sample source" }];
-  const server = createBoardServer({ sources, port, id, ...(clock ? { clock } : {}), ...(settleReads ? { settleReads } : {}) });
+  const server = createBoardServer({ sources, port, id, app: APP, ...(clock ? { clock } : {}), ...(settleReads ? { settleReads } : {}) });
   t.after(async () => { await server.close(); rmSync(dir, { recursive: true, force: true }); });
   await server.start();
   return { dir, root, project: join(root, "project-abcdef"), port, sources, server };
@@ -69,7 +71,7 @@ async function keepWriting(write, seen) {
   try { return await seen; } finally { clearInterval(again); }
 }
 
-function events(f, path = "/?events=1") {
+function events(f, path = "/app/events") {
   const queue = [], waiters = new Set();
   let response, buffer = "", ended = false;
   const stop = error => { ended = true; for (const waiter of waiters) { clearTimeout(waiter.timer); waiter.reject(error); } waiters.clear(); };
@@ -81,9 +83,9 @@ function events(f, path = "/?events=1") {
       buffer += chunk;
       for (let end; (end = buffer.indexOf("\n\n")) !== -1;) {
         const frame = buffer.slice(0, end); buffer = buffer.slice(end + 2);
-        if (!frame.includes("event: board\n")) continue;
+        if (!frame.includes("event: model\n")) continue;
         try {
-          const payload = JSON.parse(frame.split("\n").find(line => line.startsWith("data: ")).slice(6));
+          const lines = frame.split("\n"), payload = { ...JSON.parse(lines.find(line => line.startsWith("data: ")).slice(6)), revision: lines.find(line => line.startsWith("id: "))?.slice(4) };
           let consumed = false;
           for (const waiter of waiters) if (waiter.predicate(payload)) { consumed = true; clearTimeout(waiter.timer); waiters.delete(waiter); waiter.accept(payload); }
           if (!consumed) queue.push(payload);
@@ -108,76 +110,88 @@ function events(f, path = "/?events=1") {
   };
 }
 
-test("board server serves pages and HEAD with exact CSP hashes and no data writes", async t => {
+const probeOfThePluginBeforeT770 = ({ port }) => new Promise(done => {
+  const req = request({ host: "127.0.0.1", port, path: "/", method: "HEAD", agent: false, timeout: 2000, headers: { Host: `127.0.0.1:${port}` } }, response => {
+    response.resume();
+    const { "content-type": type = "", "content-security-policy": policy = "", "cross-origin-resource-policy": resource, "x-sage-board": named = "" } = response.headers;
+    const boardHeaders = policy.startsWith("default-src 'none'") && resource === "same-origin";
+    const own = /^id=([a-f0-9]{16,64}); pid=([1-9]\d{0,9}); started=(\d{1,16})$/.exec(named);
+    if (boardHeaders && response.statusCode === 200 && type.startsWith("text/html")) done(own ? { kind: "board", id: own[1], pid: Number(own[2]), started: Number(own[3]) } : { kind: "older" });
+    else done({ kind: "other" });
+  });
+  req.once("error", error => done({ kind: error.code }));
+  req.end();
+});
+
+test("T770: the board command's probe of an older plugin reads the new board as its own board, not as another program", async t => {
+  const f = await fixture(t, { id: "0123456789abcdef" });
+  const found = await probeOfThePluginBeforeT770(f);
+  assert.deepEqual([found.kind, found.id, found.pid], ["board", "0123456789abcdef", process.pid]);
+  const head = await read(f, "/", { method: "HEAD" });
+  assert.deepEqual([head.status, head.headers["content-type"], head.headers.location, head.body], [200, "text/html; charset=utf-8", undefined, ""]);
+  assert.equal(head.headers["content-security-policy"], BOARD_POLICY);
+  assert.equal((await read(f, "/", { method: "HEAD", rawHeaders: ["Host", "evil.example"] })).status, 403, "the Host check still comes first");
+});
+
+test("T770: the board's address sends the browser to the app, the old board's pages are gone, and nothing writes the logbook", async t => {
   const f = await fixture(t), file = join(f.project, "tasks.tsv"), before = readFileSync(file);
-  const page = await read(f);
-  assert.equal(page.status, 200); assert.match(page.body, /Sample first task/); assert.match(page.body, /new EventSource/);
-  assert.equal(f.server.address().address, "127.0.0.1"); assert.equal(f.server.address().port, f.port);
-  assert.equal(page.headers["cache-control"], "no-store"); assert.equal(page.headers["x-content-type-options"], "nosniff");
-  assert.equal(page.headers["referrer-policy"], "no-referrer"); assert.equal(page.headers["access-control-allow-origin"], undefined);
-  for (const tag of ["script", "style"]) for (const [, content] of page.body.matchAll(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "g"))) {
-    assert.ok(page.headers["content-security-policy"].includes(`'sha256-${createHash("sha256").update(content).digest("base64")}'`));
+  for (const [method, status, location] of [["GET", 302, "/app/"], ["HEAD", 200, undefined]]) {
+    const page = await read(f, "/", { method });
+    assert.deepEqual([page.status, page.headers.location, page.body], [status, location, ""], method);
+    assert.equal(page.headers["content-security-policy"], BOARD_POLICY); assert.equal(page.headers["cache-control"], "no-store");
+    assert.equal(page.headers["x-content-type-options"], "nosniff"); assert.equal(page.headers["referrer-policy"], "no-referrer"); assert.equal(page.headers["access-control-allow-origin"], undefined);
   }
-  assert.doesNotMatch(page.headers["content-security-policy"], /unsafe-inline|https:/);
-  assert.match(page.headers["content-security-policy"], /frame-ancestors 'none'/);
-  const head = await read(f, "/", { method: "HEAD" }); assert.equal(head.status, 200); assert.equal(head.body, ""); assert.equal(head.headers["content-length"], page.headers["content-length"]);
-  const detail = await read(f, `/task/${key}`); assert.equal(detail.status, 200); assert.match(detail.body, /class="detail"/); assert.doesNotMatch(detail.body, /Sample abandoned task/);
-  const hidden = Buffer.from("sample/project-abcdef/T2").toString("base64url");
-  assert.match((await read(f, `/task/${hidden}`)).body, /Sample abandoned task/);
+  assert.equal(f.server.address().address, "127.0.0.1"); assert.equal(f.server.address().port, f.port);
+  const app = await read(f, "/app/"); assert.equal(app.status, 200); assert.match(app.body, /<div id="root"><\/div>/);
+  assert.doesNotMatch(app.headers["content-security-policy"], /unsafe-inline|unsafe-eval|https:/);
+  const panel = await read(f, `/app/task/${key}`); assert.equal(panel.status, 200); assert.equal(JSON.parse(panel.body).title, "Sample first task");
+  const old = ["/agents", "/milestones", "/releases", "/programs", `/task/${key}`, `/milestone/${key}`, `/program/${key}`, "/?events=1", `/?events=1&task=${key}`, "/agents?events=1", "/milestones?events=1", "/releases?events=1"];
+  for (const path of old) { const gone = await read(f, path); assert.equal(gone.status, 404, path); assert.doesNotMatch(gone.body, /Sample first task/, path); }
   assert.deepEqual(readFileSync(file), before);
 });
 
 test("T1053: a request with any other Host gets 403 on every page and event route, also with a sign-in header, and discloses nothing", async t => {
   const f = await fixture(t), basic = `Basic ${Buffer.from("sage:sample board pass 01").toString("base64")}`;
-  for (const path of ["/", `/task/${key}`, "/?events=1", `/?events=1&task=${key}`, "/agents", "/milestones", "/releases", "/app/", "/app/events"]) {
+  for (const path of ["/", `/task/${key}`, "/?events=1", "/agents", "/app/", "/app/events", `/app/task/${key}`]) {
     for (const rawHeaders of [["Host", "evil.example"], ["Host", "sample.tailnet.ts.net", "Authorization", basic], ["Host", `evil.example:${f.port}`]]) {
       const result = await read(f, path, { rawHeaders });
       assert.equal(result.status, 403, `${path} ${rawHeaders.join(" ")}`); assert.equal(result.body, "This request is not permitted.\n");
       assert.equal(result.headers["www-authenticate"], undefined, "no sign-in dialog"); assert.equal(result.headers["x-sage-board"], undefined);
     }
   }
-  const eventHead = await read(f, "/?events=1", { method: "HEAD" }); assert.equal(eventHead.status, 200); assert.equal(eventHead.body, "");
+  const eventHead = await read(f, "/app/events", { method: "HEAD" }); assert.equal(eventHead.status, 200); assert.equal(eventHead.body, "");
 });
 
 test("T216: on the Mac itself (a loopback Host) the board needs no sign-in, and the browser checks still hold", async t => {
   const f = await fixture(t);
   for (const host of [`127.0.0.1:${f.port}`, `localhost:${f.port}`, `LOCALHOST:${f.port}`, `[::1]:${f.port}`]) {
-    const page = await read(f, "/", { rawHeaders: ["Host", host] });
+    const page = await read(f, `/app/task/${key}`, { rawHeaders: ["Host", host] });
     assert.equal(page.status, 200, host); assert.match(page.body, /Sample first task/); assert.equal(page.headers["www-authenticate"], undefined);
+    assert.equal((await read(f, "/", { rawHeaders: ["Host", host] })).status, 302, host);
   }
-  assert.equal((await read(f, `/task/${key}`, { rawHeaders: ["Host", `127.0.0.1:${f.port}`] })).status, 200);
-  assert.equal((await read(f, "/?events=1", { method: "HEAD", rawHeaders: ["Host", `127.0.0.1:${f.port}`] })).status, 200);
+  assert.equal((await read(f, "/app/events", { method: "HEAD", rawHeaders: ["Host", `127.0.0.1:${f.port}`] })).status, 200);
   for (const extra of [["Origin", "https://attacker.test"], ["Origin", "https://sample.tailnet.ts.net"], ["Sec-Fetch-Site", "cross-site"]]) {
-    const refused = await read(f, "/", { rawHeaders: ["Host", `127.0.0.1:${f.port}`, ...extra] });
+    const refused = await read(f, `/app/task/${key}`, { rawHeaders: ["Host", `127.0.0.1:${f.port}`, ...extra] });
     assert.equal(refused.status, 403, extra.join(": ")); assert.doesNotMatch(refused.body, /Sample first task/);
   }
-  for (const host of ["attacker.test", `127.0.0.1:${f.port + 1}`, `localhost`]) assert.equal((await read(f, "/", { rawHeaders: ["Host", host] })).status, 403, host);
+  for (const host of ["attacker.test", `127.0.0.1:${f.port + 1}`, `localhost`]) assert.equal((await read(f, `/app/task/${key}`, { rawHeaders: ["Host", host] })).status, 403, host);
   assert.equal((await read(f, "/", { method: "POST", rawHeaders: ["Host", `127.0.0.1:${f.port}`] })).status, 405);
 });
 
 test("T1053: a request with a forwarded header gets 403, also with a loopback Host; a vendor's own header changes nothing", async t => {
   const f = await fixture(t, { id: "0123456789abcdef" }), loopback = `127.0.0.1:${f.port}`;
   for (const proxy of [["X-Forwarded-For", "100.64.0.7"], ["X-Forwarded-Host", loopback], ["X-Forwarded-Proto", "https"], ["Forwarded", "for=100.64.0.7"], ["x-forwarded-for", "203.0.113.9"]]) {
-    for (const path of ["/", `/task/${key}`, "/?events=1", "/app/", "/app/events"]) {
+    for (const path of ["/", "/app/", "/app/events", `/app/task/${key}`]) {
       const proxied = await read(f, path, { rawHeaders: ["Host", loopback, ...proxy] });
       assert.equal(proxied.status, 403, `${path} ${proxy[0]}`); assert.equal(proxied.body, "This request is not permitted.\n");
       assert.equal(proxied.headers["x-sage-board"], undefined, "a proxied request does not learn the board's pid");
     }
   }
   const mac = await read(f, "/", { rawHeaders: ["Host", loopback] });
-  assert.equal(mac.status, 200);
+  assert.equal(mac.status, 302);
   assert.match(mac.headers["x-sage-board"], new RegExp(`^id=0123456789abcdef; pid=${process.pid}; started=\\d+$`));
   const vendor = await read(f, "/", { rawHeaders: ["Host", loopback, "Tailscale-User-Login", "sample@example.test"] });
-  assert.equal(vendor.status, 200); assert.match(vendor.headers["x-sage-board"], /^id=0123456789abcdef; /);
-});
-
-test("R1069-2: the board page has the checkout's full path as a search term", async t => {
-  const f = await fixture(t), checkout = join(f.dir, "work", "sample-checkout-folder");
-  mkdirSync(checkout, { recursive: true }); writeFileSync(join(f.project, "checkout.txt"), `${checkout}\n`);
-  const loopback = `127.0.0.1:${f.port}`;
-  let mac;
-  for (let i = 0; i < 600 && !(mac = await read(f, "/", { rawHeaders: ["Host", loopback] })).body.includes("folder sample-checkout-folder"); i++) await new Promise(wake => setTimeout(wake, 50));
-  assert.ok(mac.body.includes(checkout), "the Mac's own page can search by the path");
+  assert.equal(vendor.status, 302); assert.match(vendor.headers["x-sage-board"], /^id=0123456789abcdef; /);
 });
 
 test("T1053: the server listens on 127.0.0.1 only: no other address of the Mac reaches it", async t => {
@@ -202,7 +216,7 @@ test("board server rejects foreign, duplicate and mismatched browser authority h
     const headers = [...(name === "Host" ? [] : ["Host", `127.0.0.1:${f.port}`]), name, value, name, value];
     assert.equal((await read(f, "/", { rawHeaders: headers })).status, 403);
   }
-  assert.equal((await read(f, "/", { headers: { Origin: `http://127.0.0.1:${f.port}`, "Sec-Fetch-Site": "same-origin" } })).status, 200);
+  assert.equal((await read(f, "/", { headers: { Origin: `http://127.0.0.1:${f.port}`, "Sec-Fetch-Site": "same-origin" } })).status, 302);
   assert.equal((await read(f, "/", { headers: { Host: "sample.tailnet.ts.net", Origin: "https://sample.tailnet.ts.net", "Sec-Fetch-Site": "same-origin" } })).status, 403);
 });
 
@@ -211,39 +225,25 @@ function slot(root, name, marks) {
   for (const mark of [...marks, "ok"]) writeFileSync(join(dir, mark), "");
 }
 
-test("T308: the Agents page is a route with the same access check, CSP and browser checks; its stream follows the hook's slots", async t => {
-  const f = await fixture(t), loopback = `127.0.0.1:${f.port}`;
+test("T308, T770: the app stream follows the hook's slots: a new running agent reaches the Agents data", async t => {
+  const f = await fixture(t);
   writeFileSync(join(f.project, "runs.tsv"), `${HEADERS.runs.replaceAll(" ", "\t")}\nR1\tT1\tqa\t0\t\t\trunning\t\t\t${new Date(Date.now() - 60_000).toISOString()}\t\n`);
   slot(f.root, "slot-1", ["project-project", "role-sage_qa", "run-R1"]);
-  let mac;
-  for (let i = 0; i < 600 && !(mac = await read(f, "/agents", { rawHeaders: ["Host", loopback] })).body.includes("Sample first task"); i++) await new Promise(wake => setTimeout(wake, 50));
-  assert.equal(mac.status, 200); assert.equal(mac.headers["www-authenticate"], undefined, "no sign-in on the Mac");
-  assert.match(mac.body, /<a href="\/agents" aria-current="page">Agents \(1\)<\/a>/); assert.match(mac.body, /<span class="role">qa<\/span><span class="id">R1<\/span>/);
-  assert.match(mac.body, /new EventSource\("\/agents\?events=1"\)/);
-  for (const [tag, content] of [...mac.body.matchAll(/<(script|style)>([\s\S]*?)<\/\1>/g)].map(m => [m[1], m[2]])) assert.ok(mac.headers["content-security-policy"].includes(`'sha256-${createHash("sha256").update(content).digest("base64")}'`), tag);
-  assert.match((await read(f, "/", { rawHeaders: ["Host", loopback] })).body, /<a href="\/" aria-current="page">Task board<\/a><a href="\/milestones">Milestones<\/a><a href="\/agents">Agents \(1\)<\/a>/);
-  for (const path of ["/agents", "/agents?events=1"]) {
-    const refused = await read(f, path, { rawHeaders: ["Host", "sample.tailnet.ts.net"] });
-    assert.equal(refused.status, 403, path); assert.doesNotMatch(refused.body, /Sample first task/);
-    assert.equal((await read(f, path, { rawHeaders: ["Host", loopback, "X-Forwarded-For", "100.64.0.7"] })).status, 403, path);
-    assert.equal((await read(f, path, { method: "HEAD", rawHeaders: ["Host", loopback] })).status, 200, path);
-    assert.equal((await read(f, path, { rawHeaders: ["Host", loopback, "Origin", "https://attacker.test"] })).status, 403, path);
-  }
-  for (const path of ["/agents/", "/agents?events=1&task=x", "/agents?x=1", "/Agents"]) assert.equal((await read(f, path)).status, 404, path);
-  const stream = events(f, "/agents?events=1"); t.after(() => stream.close());
-  assert.match((await stream.next()).html, /Agents \(1\)/);
+  const stream = events(f); t.after(() => stream.close());
+  const runs = model => model.agents.flatMap(book => book.runs).filter(run => run.status === "running").map(run => `${run.id} ${run.role}`);
+  await stream.next(p => runs(p).includes("R1 qa"));
   writeFileSync(join(f.project, "runs.tsv"), `${readFileSync(join(f.project, "runs.tsv"), "utf8")}R2\tT1\tcode-reviewer\t0\t\t\trunning\t\t\t${new Date().toISOString()}\t\n`);
   slot(f.root, "slot-3", ["project-project", "role-sage_code-reviewer", "run-R2"]);
-  const next = await stream.next(p => p.html.includes("Agents (2)"));
-  assert.match(next.html, /<span class="role">code-reviewer<\/span><span class="id">R2<\/span>/); assert.doesNotMatch(next.html, /class="board"/);
+  const next = await stream.next(p => runs(p).includes("R2 code-reviewer"));
+  assert.deepEqual(runs(next), ["R1 qa", "R2 code-reviewer"]);
 });
 
 test("board server exposes only canonical read routes and refuses invalid configuration", async t => {
   const f = await fixture(t);
-  for (const path of ["/tasks.tsv", "/../config.json", "/%2e%2e/config.json", "/?events=1&events=1", "/?events=1&other=x", `/?events=1&task=${key}&task=${key}`, `/?task=${key}&events=1`, `/task/${key}=`, "/task/_w", `/task/${Buffer.from("missing").toString("base64url")}`, "/task/YR"]) {
+  for (const path of ["/tasks.tsv", "/../config.json", "/%2e%2e/config.json", "/?x=1", "//", "/index.html", "/app/x.js", `/app/task/${key}=`, "/app/task/_w", `/app/task/${Buffer.from("missing").toString("base64url")}`, "/app/task/YR"]) {
     const result = await read(f, path); assert.equal(result.status, 404, path); assert.doesNotMatch(result.body, /Sample first task/);
   }
-  for (const method of ["POST", "PUT", "DELETE", "PATCH", "OPTIONS"]) for (const path of ["/", `/task/${key}`, "/?events=1", "/agents", "/app/", "/app/events"]) {
+  for (const method of ["POST", "PUT", "DELETE", "PATCH", "OPTIONS"]) for (const path of ["/", "/app/", "/app/events", `/app/task/${key}`]) {
     const refused = await read(f, path, { method });
     assert.equal(refused.status, 405, `${method} ${path}`); assert.equal(refused.headers.allow, "GET, HEAD");
   }
@@ -255,35 +255,34 @@ test("board server fails on an occupied fixed port and closes without changing a
   const f = await fixture(t), other = createBoardServer({ sources: f.sources, port: f.port });
   t.after(() => other.close());
   await assert.rejects(other.start(), { code: "EADDRINUSE" });
-  assert.equal((await read(f)).status, 200);
+  assert.equal((await read(f)).status, 302);
   assert.deepEqual(await f.server.start(), f.server.address());
   await Promise.all([f.server.close(), f.server.close()]); assert.equal(f.server.address(), null);
   await assert.rejects(f.server.start(), /closed/);
 });
 
-test("board event streams deliver initial and atomic file updates for the selected page and reconnect", async t => {
-  const f = await fixture(t), board = events(f), task = events(f, `/?events=1&task=${key}`);
-  t.after(() => { board.close(); task.close(); });
-  const first = await board.next(), firstTask = await task.next();
-  assert.equal(first.stale, false); assert.deepEqual(first.diagnostics, []); assert.match(first.html, /class="board"/);
-  assert.match(firstTask.html, /class="detail"/); assert.match(firstTask.html, /Agent runs/);
+test("board event streams deliver initial and atomic file updates and reconnect", async t => {
+  const f = await fixture(t), board = events(f);
+  t.after(() => board.close());
+  const first = await board.next();
+  assert.equal(first.stale, false); assert.deepEqual(first.problems, []); assert.ok(has(first, "Sample first task"));
   const temporary = join(f.project, "tasks.pending"), target = join(f.project, "tasks.tsv");
   writeFileSync(temporary, tasks(row("Sample replaced title"))); renameSync(temporary, target);
-  const updated = await board.next(p => p.html.includes("Sample replaced title") && !p.stale);
-  const updatedTask = await task.next(p => p.html.includes("Sample replaced title") && !p.stale);
-  assert.ok(Number(updated.revision) > Number(first.revision)); assert.match(updatedTask.html, /class="detail"/);
+  const updated = await board.next(p => has(p, "Sample replaced title") && !p.stale);
+  assert.ok(Number(updated.revision) > Number(first.revision));
+  const panel = JSON.parse((await read(f, `/app/task/${key}`)).body); assert.equal(panel.title, "Sample replaced title");
   const reconnect = events(f); t.after(() => reconnect.close());
-  const snapshot = await reconnect.next(); assert.ok(Number(snapshot.revision) >= Number(updated.revision)); assert.match(snapshot.html, /Sample replaced title/);
+  const snapshot = await reconnect.next(); assert.ok(Number(snapshot.revision) >= Number(updated.revision)); assert.ok(has(snapshot, "Sample replaced title"));
 });
 
 test("T305 R1023-3: a file event that does not change the page sends nothing; the next change sends the new page", async t => {
   const f = await fixture(t, { clock: () => "2026-10-18T12:00:00Z" }), stream = events(f); t.after(() => stream.close());
-  const first = await stream.next(); assert.match(first.html, /Sample first task/);
+  const first = await stream.next(); assert.ok(has(first, "Sample first task"));
   writeFileSync(join(f.project, "unrelated.txt"), "sample\n");
   await new Promise(wake => setTimeout(wake, 1000));
   const temporary = join(f.project, "tasks.pending"); writeFileSync(temporary, tasks(row("Sample changed title"))); renameSync(temporary, join(f.project, "tasks.tsv"));
   const next = await stream.next();
-  assert.match(next.html, /Sample changed title/, "the next event is the change, not a copy of the page");
+  assert.ok(has(next, "Sample changed title"), "the next event is the change, not a copy of the model");
 });
 
 test("board event streams keep the last valid content while an incomplete write is stale, then recover", async t => {
@@ -291,11 +290,10 @@ test("board event streams keep the last valid content while an incomplete write 
   const initial = await stream.next(); assert.equal(initial.stale, false);
   const file = join(f.project, "tasks.tsv"); writeFileSync(file, "incomplete header\nprivate partial data\n");
   const stale = await stream.next(p => p.stale);
-  assert.match(stale.html, /Sample first task/); assert.doesNotMatch(stale.html, /private partial data/);
-  assert.ok(stale.diagnostics.some(d => /tasks/.test(d.message))); assert.ok(Number(stale.revision) > Number(initial.revision));
-  const page = await read(f); assert.match(page.body, /Sample first task/); assert.match(page.body, /Incomplete sources/);
+  assert.ok(has(stale, "Sample first task")); assert.ok(!has(stale, "private partial data"));
+  assert.ok(stale.problems.some(problem => /tasks/.test(problem))); assert.ok(Number(stale.revision) > Number(initial.revision));
   writeFileSync(file, tasks(row("Sample repaired title")));
-  const repaired = await stream.next(p => !p.stale && p.html.includes("Sample repaired title")); assert.deepEqual(repaired.diagnostics, []);
+  const repaired = await stream.next(p => !p.stale && has(p, "Sample repaired title")); assert.deepEqual(repaired.problems, []);
 });
 
 test("R1506-F1: a table written in place after an earlier rename onto it still updates the board, on Linux too", async t => {
@@ -303,10 +301,10 @@ test("R1506-F1: a table written in place after an earlier rename onto it still u
   assert.equal((await stream.next()).stale, false);
   const target = join(f.project, "tasks.tsv"), temporary = join(f.project, "tasks.pending");
   const renamed = () => { writeFileSync(temporary, tasks(row("Sample renamed title"))); renameSync(temporary, target); };
-  await keepWriting(renamed, stream.next(p => !p.stale && p.html.includes("Sample renamed title")));
+  await keepWriting(renamed, stream.next(p => !p.stale && has(p, "Sample renamed title")));
   const stale = await keepWriting(() => writeFileSync(target, "Sample invalid table header\nSample incomplete write\n"), stream.next(p => p.stale));
-  assert.match(stale.html, /Sample renamed title/); assert.doesNotMatch(stale.html, /Sample incomplete write/);
-  await keepWriting(() => writeFileSync(target, tasks(row("Sample written in place"))), stream.next(p => !p.stale && p.html.includes("Sample written in place")));
+  assert.ok(has(stale, "Sample renamed title")); assert.ok(!has(stale, "Sample incomplete write"));
+  await keepWriting(() => writeFileSync(target, tasks(row("Sample written in place"))), stream.next(p => !p.stale && has(p, "Sample written in place")));
 });
 
 test("T348: a write that no watcher reports still reaches the board through the reads after a new watch", async t => {
@@ -318,18 +316,16 @@ test("T348: a write that no watcher reports still reaches the board through the 
   const stream = events(f); t.after(() => stream.close());
   await stream.next(p => !p.stale);
   writeFileSync(join(f.project, "tasks.tsv"), tasks(row("Sample write with no event")));
-  await stream.next(p => p.html.includes("Sample write with no event"));
+  await stream.next(p => has(p, "Sample write with no event"));
 });
 
-test("T314 R1042-2: a bad name or archived value in a logbook's config.json is a warning: the board stays live and shows the warning", async t => {
+test("T314 R1042-2: a bad name or archived value in a logbook's config.json is a warning: the board stays live", async t => {
   const f = await fixture(t), stream = events(f); t.after(() => stream.close());
   const initial = await stream.next(); assert.equal(initial.stale, false);
   writeFileSync(join(f.project, "config.json"), JSON.stringify({ name: "bad\ttab", archived: "yes" }));
   writeFileSync(join(f.project, "tasks.tsv"), tasks(row("Sample title after the bad config")));
-  const live = await stream.next(p => p.html.includes("Sample title after the bad config"));
-  assert.equal(live.stale, false); assert.deepEqual(live.diagnostics, []);
-  assert.match(live.html, /<b>Settings ignored\.<\/b>.*<li>sample · sample\/project-abcdef · config: the name has a control, format or hidden character [^<]*<\/li><li>sample · sample\/project-abcdef · config: archived is not true or false<\/li>/);
-  assert.doesNotMatch(live.html, /Incomplete sources/);
+  const live = await stream.next(p => has(p, "Sample title after the bad config"));
+  assert.equal(live.stale, false); assert.deepEqual(live.problems, []);
 });
 
 test("F-T216-19: a root that appears while the board starts does not stop the start, and close ends", async t => {
@@ -347,17 +343,15 @@ test("F-T216-19: a root that appears while the board starts does not stop the st
 
 test("board watches a missing root and reattaches after root replacement without polling", async t => {
   const f = await fixture(t, { missing: true }), stream = events(f); t.after(() => stream.close());
-  const missing = await stream.next(); assert.equal(missing.stale, false); assert.deepEqual(missing.diagnostics, []);
-  assert.match(missing.html, /Not set up yet: Sample source\./); assert.doesNotMatch(missing.html, /Incomplete sources/);
-  const page = await read(f); assert.match(page.body, /Not set up yet: Sample source\./); assert.doesNotMatch(page.body, /Incomplete sources/);
+  const missing = await stream.next(); assert.equal(missing.stale, false); assert.deepEqual(missing.problems, []); assert.deepEqual(missing.tasks, []);
   populate(f.root, "Sample created source");
-  const created = await stream.next(p => !p.stale && p.html.includes("Sample created source")); assert.doesNotMatch(created.html, /Not set up yet/);
+  await stream.next(p => !p.stale && has(p, "Sample created source"));
   const old = join(f.dir, "old-source"); renameSync(f.root, old);
-  const removed = await stream.next(p => p.html.includes("Not set up yet")); assert.equal(removed.stale, false); assert.deepEqual(removed.diagnostics, []);
+  const removed = await stream.next(p => !p.tasks.length); assert.equal(removed.stale, false); assert.deepEqual(removed.problems, []);
   populate(f.root, "Sample replacement source");
-  await stream.next(p => !p.stale && p.html.includes("Sample replacement source"));
+  await stream.next(p => !p.stale && has(p, "Sample replacement source"));
   writeFileSync(join(f.project, "tasks.tsv"), tasks(row("Sample replacement changed")));
-  await stream.next(p => !p.stale && p.html.includes("Sample replacement changed"));
+  await stream.next(p => !p.stale && has(p, "Sample replacement changed"));
 });
 
 test("board watcher errors publish a stale diagnostic and recover on an observed root change", async t => {
@@ -369,12 +363,12 @@ test("board watcher errors publish a stale diagnostic and recover on an observed
   const stream = events(f); t.after(() => stream.close()); await stream.next();
   const root = captured.find(item => item.path === f.root); assert.ok(root);
   root.watcher.emit("error", new Error("sample watcher failure"));
-  const stale = await stream.next(p => p.stale && p.diagnostics.some(d => /File watching/.test(d.message)));
-  assert.match(stale.html, /Sample first task/); assert.doesNotMatch(stale.html, /sample watcher failure/);
+  const stale = await stream.next(p => p.stale && p.problems.some(problem => /File watching/.test(problem)));
+  assert.ok(has(stale, "Sample first task")); assert.ok(!has(stale, "sample watcher failure"));
   renameSync(f.root, join(f.dir, "old-source"));
-  await stream.next(p => p.html.includes("Not set up yet: Sample source"));
+  await stream.next(p => !p.tasks.length);
   populate(f.root, "Sample watcher restored");
-  await stream.next(p => !p.stale && p.html.includes("Sample watcher restored"));
+  await stream.next(p => !p.stale && has(p, "Sample watcher restored"));
 });
 
 
@@ -394,158 +388,11 @@ test("a parent rename that names only the destination refreshes the missing boar
   const parent = captured.find(entry => entry.path === f.dir);
   assert.ok(parent);
   parent.callback("rename", "renamed-source");
-  const missing = await stream.next(p => p.html.includes("Not set up yet: Sample source"));
-  assert.equal(missing.stale, false); assert.doesNotMatch(missing.html, /Sample first task/);
+  const missing = await stream.next(p => !p.tasks.length);
+  assert.equal(missing.stale, false); assert.ok(!has(missing, "Sample first task"));
   populate(f.root, "Sample recreated source");
   parent.callback("rename", "source");
-  await stream.next(p => !p.stale && p.html.includes("Sample recreated source"));
-});
-
-function milestones(project, goal = "Sample goal of M1.", pilot = "Sample pilot") {
-  writeFileSync(join(project, "tasks.tsv"), `${HEADERS.tasks.replaceAll(" ", "\t")}\twaits\tmilestone\nT1\t${pilot}\tsmall\t\tbuild\tmerged\t\t\t0\t\t\tM1\nT2\tSample second\tsmall\t\tbuild\tframed\t\t\t0\t\tT1\tM1\n`);
-  writeFileSync(join(project, "gates.tsv"), `${HEADERS.gates.replaceAll(" ", "\t")}\nG1\tT1\tApprove milestone M1? No task builds before you approve.\tapprove|change|drop\tapprove\t\tapprove\t\n`);
-  writeFileSync(join(project, "milestones.tsv"), `id\tname\tgoal\tpilot\tgate\tat\nM1\tSample milestone\t${goal}\tT1\tG1\t\n`);
-}
-const milestoneKey = id => Buffer.from(`sample/project-abcdef/${id}`).toString("base64url");
-async function until(f, path, text) {
-  let page;
-  for (let i = 0; i < 600 && !(page = await read(f, path)).body.includes(text); i++) await new Promise(wake => setTimeout(wake, 50));
-  return page;
-}
-
-test("T996: /releases is a route with the CSP and a live stream; the board shows its tab only when a logbook has releases", async t => {
-  const f = await fixture(t);
-  milestones(f.project);
-  assert.ok(!(await until(f, "/", "Sample milestone")).body.includes('href="/releases"'), "no releases: no tab");
-  writeFileSync(join(f.project, "releases.tsv"), "name\tgoal\tat\n1.0\tSample release goal.\t\n");
-  writeFileSync(join(f.project, "milestones.tsv"), "id\tname\tgoal\tpilot\tgate\tat\trelease\nM1\tSample milestone\tSample goal of M1.\tT1\tG1\t\t1.0\n");
-  const list = await until(f, "/releases", "Sample release goal.");
-  assert.equal(list.status, 200); assert.match(list.headers["content-type"], /^text\/html/);
-  assert.match(list.body, /<a href="\/releases" aria-current="page">Releases<\/a>/);
-  assert.ok(list.body.includes("Release 1.0") && list.body.includes("1 of 2 tasks done") && list.body.includes("Milestone 1: Sample milestone"), list.body.slice(-3000));
-  assert.match(list.body, /new EventSource\("\/releases\?events=1"\)/);
-  for (const [tag, content] of [...list.body.matchAll(/<(script|style)>([\s\S]*?)<\/\1>/g)].map(m => [m[1], m[2]])) assert.ok(list.headers["content-security-policy"].includes(`'sha256-${createHash("sha256").update(content).digest("base64")}'`), tag);
-  const board = (await read(f, "/")).body;
-  assert.match(board, /<a href="\/" aria-current="page">Task board<\/a><a href="\/releases">Releases<\/a><a href="\/milestones">Milestones<\/a>/);
-  assert.ok(board.includes('<section class="where"'), "the frame is on the board");
-  for (const path of ["/releases/", "/releases?x=1", "/Releases"]) assert.equal((await read(f, path)).status, 404, path);
-});
-
-test("T368 C9: /milestones and /milestone/KEY are routes with the same access check and CSP; an unknown key is the not-found page with 404; a bad key is 404", async t => {
-  const f = await fixture(t);
-  milestones(f.project);
-  const list = await until(f, "/milestones", "Sample milestone");
-  assert.equal(list.status, 200); assert.match(list.headers["content-type"], /^text\/html/);
-  assert.match(list.body, /<a href="\/milestones" aria-current="page">Milestones<\/a>/);
-  assert.ok(list.body.includes(`<a class="prog" href="/milestone/${milestoneKey("M1")}">`) && list.body.includes("1 of 2 merged"));
-  assert.match(list.body, /new EventSource\("\/milestones\?events=1"\)/);
-  for (const [tag, content] of [...list.body.matchAll(/<(script|style)>([\s\S]*?)<\/\1>/g)].map(m => [m[1], m[2]])) assert.ok(list.headers["content-security-policy"].includes(`'sha256-${createHash("sha256").update(content).digest("base64")}'`), tag);
-  const page = await read(f, `/milestone/${milestoneKey("M1")}`);
-  assert.equal(page.status, 200); assert.ok(page.body.includes("Sample goal of M1.") && page.body.includes("<h1 class=\"ptitle\"><span aria-hidden=\"true\">◫</span> Sample milestone</h1>"), page.body.slice(-3000));
-  assert.match((await read(f, "/")).body, /<a href="\/" aria-current="page">Task board<\/a><a href="\/milestones">Milestones<\/a><a href="\/agents">Agents \(0\)<\/a>/);
-  assert.ok((await read(f, `/task/${Buffer.from("sample/project-abcdef/T2").toString("base64url")}`)).body.includes(`<a class="back plink" href="/milestone/${milestoneKey("M1")}" title="Sample milestone">◫ <span class="cn">Sample milestone</span></a>`));
-  const missing = await read(f, `/milestone/${milestoneKey("M9")}`);
-  assert.equal(missing.status, 404); assert.match(missing.headers["content-type"], /^text\/html/); assert.ok(missing.body.includes("<b>No milestone M9 on the board.</b>"));
-  assert.equal((await read(f, `/milestone/${milestoneKey("M9")}`, { method: "HEAD" })).status, 404);
-  assert.equal((await read(f, `/milestone/${milestoneKey("M9")}?events=1`)).status, 404, "no stream for an unknown milestone");
-  for (const path of ["/milestone/", "/milestone/_w", `/milestone/${milestoneKey("M1")}=`, `/milestone/${milestoneKey("M1")}/`, `/milestone/${milestoneKey("M1")}?events=2`, "/milestones/", "/milestones?x=1", "/Milestones", `/milestone/${Buffer.from("a\nb").toString("base64url")}`]) {
-    const result = await read(f, path); assert.equal(result.status, 404, path); assert.doesNotMatch(result.body, /Sample milestone/, path);
-  }
-  for (const [old, to] of [["/programs", "/milestones"], [`/program/${milestoneKey("M1")}`, `/milestone/${milestoneKey("M1")}`]]) {
-    const moved = await read(f, old);
-    assert.deepEqual([moved.status, moved.headers.location], [301, to], old);
-    assert.equal((await read(f, old, { rawHeaders: ["Host", "sample.tailnet.ts.net"] })).status, 403, `${old}: away from the Mac, the refusal comes first`);
-  }
-  for (const [old, text] of [["/programs?events=1", "1 of 2 merged"], [`/program/${milestoneKey("M1")}?events=1`, "Sample goal of M1."]]) {
-    assert.equal((await read(f, old, { rawHeaders: ["Host", "sample.tailnet.ts.net"] })).status, 403, `${old}: away from the Mac, the refusal comes first`);
-    const stream = events(f, old); t.after(() => stream.close());
-    assert.ok((await stream.next()).html.includes(text), old);
-  }
-  for (const path of ["/program/", "/programs/", "/programs?events=2", `/program/${milestoneKey("M1")}?events=1&task=x`]) assert.equal((await read(f, path)).status, 404, path);
-  assert.equal((await read(f, `/program/${milestoneKey("M9")}?events=1`)).status, 404, "no stream for an unknown milestone, also at its old address");
-  for (const path of ["/milestones", "/milestones?events=1", `/milestone/${milestoneKey("M1")}`, `/milestone/${milestoneKey("M1")}?events=1`]) {
-    const refused = await read(f, path, { rawHeaders: ["Host", "sample.tailnet.ts.net"] });
-    assert.equal(refused.status, 403, path); assert.doesNotMatch(refused.body, /Sample milestone/);
-    assert.equal((await read(f, path, { method: "HEAD" })).status, 200, path);
-  }
-  const stream = events(f, `/milestone/${milestoneKey("M1")}?events=1`); t.after(() => stream.close());
-  assert.ok((await stream.next()).html.includes("Sample goal of M1."));
-  milestones(f.project, "Sample changed goal.");
-  assert.ok((await stream.next(p => p.html.includes("Sample changed goal."))).html.includes("Sample milestone"));
-});
-
-test("F-T995-4: an old milestone page's address, with its program id, moves to the page of its milestone through the id map, before and after the migration", async t => {
-  const f = await fixture(t);
-  writeFileSync(join(f.project, "tasks.tsv"), `${HEADERS.tasks.replaceAll(" ", "\t")}\twaits\tprogram\nT1\tSample pilot\tsmall\t\tbuild\tmerged\t\t\t0\t\t\tPG1\nT2\tSample second\tsmall\t\tbuild\tframed\t\t\t0\t\tT1\tPG1\n`);
-  writeFileSync(join(f.project, "gates.tsv"), `${HEADERS.gates.replaceAll(" ", "\t")}\nG1\tT1\tApprove program PG1? No task builds before you approve.\tapprove|change|drop\tapprove\t\tapprove\t\n`);
-  writeFileSync(join(f.project, "decisions.tsv"), `${HEADERS.decisions.replaceAll(" ", "\t")}\n2026-10-10T09:00:00Z\tM4\tM4 is the last of milestones 1 to 4\tsample floor\n`);
-  writeFileSync(join(f.project, "programs.tsv"), "id\tname\tgoal\tpilot\tgate\tat\nPG1\tSample milestone\tSample goal of PG1.\tT1\tG1\t\n");
-  for (const when of ["before", "after"]) {
-    if (when === "after") {
-      rmSync(join(f.project, "programs.tsv"));
-      writeFileSync(join(f.project, "milestones.tsv"), "id\tname\tgoal\tpilot\tgate\tat\nM5\tSample milestone\tSample goal of PG1.\tT1\tG1\t\n");
-      writeFileSync(join(f.project, "tasks.tsv"), `${HEADERS.tasks.replaceAll(" ", "\t")}\twaits\tmilestone\nT1\tSample pilot\tsmall\t\tbuild\tmerged\t\t\t0\t\t\tM5\nT2\tSample second\tsmall\t\tbuild\tframed\t\t\t0\t\tT1\tM5\n`);
-      writeFileSync(join(f.project, "decisions.tsv"), `${HEADERS.decisions.replaceAll(" ", "\t")}\n2026-10-10T09:00:00Z\tM4\tM4 is the last of milestones 1 to 4\tsample floor\n2026-10-11T09:00:00Z\t\tM5 was PG1\tprogram renamed to milestone (T995)\n`);
-    }
-    const page = await until(f, `/milestone/${milestoneKey("M5")}`, "Sample goal of PG1.");
-    assert.equal(page.status, 200, when);
-    const moved = await read(f, `/program/${milestoneKey("PG1")}`);
-    assert.deepEqual([moved.status, moved.headers.location], [301, `/milestone/${milestoneKey("M5")}`], when);
-    const stream = events(f, `/program/${milestoneKey("PG1")}?events=1`); t.after(() => stream.close());
-    assert.ok((await stream.next()).html.includes("Sample goal of PG1."), when);
-  }
-});
-
-test("T368 C9: the size check covers the milestones list: a goal that makes it too large keeps the last good board, marked stale", async t => {
-  const f = await fixture(t);
-  milestones(f.project);
-  await until(f, "/milestones", "Sample goal of M1.");
-  milestones(f.project, "<".repeat(3.9 * 1024 * 1024));
-  const page = await until(f, "/milestones", "The board snapshot is unavailable.");
-  assert.ok(page.body.includes("The board snapshot is unavailable.") && page.body.includes("Sample goal of M1.") && !page.body.includes("&lt;&lt;&lt;&lt;"), "the last good page, with the reason");
-  assert.ok(Buffer.byteLength(page.body) < 8 * 1024 * 1024);
-});
-
-test("R1334-3, T383 items 15 and 16: a milestone page that is too large shows the milestones list with a note, and keeps its stream; the rest of the board stays live", async t => {
-  const f = await fixture(t);
-  milestones(f.project);
-  const path = `/milestone/${milestoneKey("M1")}`;
-  await until(f, path, "Sample pilot");
-  const stream = events(f, `${path}?events=1`); t.after(() => stream.close());
-  assert.equal((await stream.next()).stale, false);
-  milestones(f.project, "Sample changed goal.", "<".repeat(3.9 * 1024 * 1024));
-  const page = await until(f, path, "too large to show");
-  assert.equal(page.status, 200);
-  assert.ok(page.body.includes("so the board shows this page instead") && page.body.includes("Sample changed goal.") && !page.body.includes("&lt;&lt;&lt;&lt;"), "the milestones list of the new snapshot, with the reason");
-  assert.ok(!page.body.includes("new EventSource("), "R1509-2: the page with the note opens no stream, so no update of the milestones list removes the note");
-  const sent = await stream.next(p => p.html.includes("too large to show"));
-  assert.ok(sent.html.includes("Sample changed goal.") && !sent.html.includes("&lt;&lt;&lt;&lt;") && sent.stale === false, "the stream stays open and sends the same page");
-  assert.ok(page.body.includes("This page does not update: reload the address to try again.") && !sent.html.includes("does not update"), "R1534-2: only the page without a stream says that it does not update; the stream does update it");
-  const list = await read(f, "/milestones");
-  assert.ok(list.body.includes("Sample changed goal.") && !list.body.includes("too large to show") && !list.body.includes("The board snapshot is unavailable."), "the milestones list is live");
-  assert.ok(!(await read(f, "/")).body.includes("The board snapshot is unavailable."), "the board is live");
-});
-
-test("T383 item 16: a task page that is too large shows the board with a note, by the same rule, also at the first start; the board stays live", async t => {
-  const finding = project => writeFileSync(join(project, "findings.tsv"), `${HEADERS.findings.replaceAll(" ", "\t")}\nT1\tF-1\t1\tcode-review\tlow\t${"<".repeat(3.9 * 1024 * 1024)}\t\t\topen\n`);
-  const f = await fixture(t);
-  await until(f, `/task/${key}`, "Sample first task");
-  finding(f.project);
-  const page = await until(f, `/task/${key}`, "too large to show");
-  assert.equal(page.status, 200);
-  assert.ok(page.body.includes("so the board shows this page instead") && page.body.includes("Sample first task") && !page.body.includes("&lt;&lt;&lt;&lt;"), "the board, with the reason");
-  assert.ok(!page.body.includes("Incomplete sources"), "R1391-3: the note is its own banner, not an incomplete source");
-  assert.ok(page.body.includes("This page does not update: reload the address to try again.") && !page.body.includes("new EventSource("), "R1509-2: the page with the note opens no stream, so no update of the board removes the note");
-  const board = await read(f, "/");
-  assert.ok(board.body.includes("Sample first task") && !board.body.includes("too large to show") && !board.body.includes("The board snapshot is unavailable."), "the board is live");
-  const first = await fixture(t, { before: finding });
-  const fallback = await read(first, `/task/${key}`);
-  assert.equal(fallback.status, 200);
-  assert.ok(fallback.body.includes("so the board shows this page instead") && fallback.body.includes("Sample first task") && !fallback.body.includes("&lt;&lt;&lt;&lt;"), fallback.body.slice(0, 2000));
-  assert.ok(Buffer.byteLength(fallback.body) < 8 * 1024 * 1024);
-  const stream = events(first, `/?events=1&task=${key}`); t.after(() => stream.close());
-  const sent = await stream.next();
-  assert.ok(sent.html.includes("so the board shows this page instead") && !sent.html.includes("does not update") && sent.stale === false, "its stream sends the same page, without the reload sentence (R1534-2)");
+  await stream.next(p => !p.stale && has(p, "Sample recreated source"));
 });
 
 const wait = ms => new Promise(wake => setTimeout(wake, ms));
@@ -553,11 +400,12 @@ const call = i => i.toString(16).padStart(8, "0");
 const action = (i, run = "R1") => `${JSON.stringify({ v: 1, at: new Date(Date.UTC(2026, 10, 14, 12, 0, i)).toISOString(), run, tool: "Read", kind: "file", target: `src/sample-${i}.mjs`, call: call(i), mark: "ok" })}\n`;
 const R1 = "sample/project-abcdef/R1";
 
-async function lightBoard(t, { lightEvery, quiet = false, slotOnly = false } = {}) {
+async function lightBoard(t, { lightEvery, quiet = false, slotOnly = false, hooks = true, slotAge = 0 } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-light-")), root = join(dir, "source"), project = populate(root), port = await freePort();
   writeFileSync(join(project, "runs.tsv"), `${HEADERS.runs.replaceAll(" ", "\t")}\nR1\tT1\tqa\t0\t\t\trunning\t\t\t${new Date(Date.now() - 60 * 60_000).toISOString()}\t\nR2\tT1\timplementer\t0\t\t\tdone\t\t\t2026-11-14T10:00:00Z\t2026-11-14T11:00:00Z\n`);
-  slot(root, "slot-1", ["project-project", "role-sage_qa", "run-R1"]);
+  if (hooks) slot(root, "slot-1", ["project-project", "role-sage_qa", "run-R1"]);
   if (slotOnly) slot(root, "slot-2", ["project-project", "role-sage_explore"]);
+  if (slotAge) { const then = new Date(Date.now() - slotAge * 60_000); utimesSync(join(root, ".hooks", "slots", "slot-1"), then, then); }
   if (quiet) { const long = new Date(Date.now() - 40 * 60_000); for (const name of slotOnly ? ["slot-2", "slot-1"] : ["slot-1"]) utimesSync(join(root, ".hooks", "slots", name), long, long); }
   mkdirSync(join(project, "actions"));
   let reads = 0;
@@ -620,23 +468,32 @@ test("T1100: 100 action appends and 100 slot renewals cause at most 1 full read 
   assert.deepEqual(later.frames.map(frame => frame.event), ["model", "activity"], "a new stream gets the model, then the activity of each running agent");
 });
 
-test("T1100: a quiet agent that wakes, also one whose slot names no run, and a slot that comes, still get a full read, so the Agents page shows the new state", async t => {
-  const f = await lightBoard(t, { lightEvery: 200, quiet: true, slotOnly: true }), quiet = async () => ((await read(f, "/agents")).body.match(/no activity for 40 min/g) ?? []).length;
-  assert.equal(await quiet(), 2, "the qa agent of run R1 and the explore agent of a slot with no run are both quiet");
+test("T1100: a quiet agent that wakes, also one whose slot names no run, and a slot that comes, still get a full read, so the Agents data shows the new state", async t => {
+  const f = await lightBoard(t, { lightEvery: 200, quiet: true, slotOnly: true }), stream = appFrames(f); t.after(() => stream.close());
+  const runs = () => stream.frames.filter(frame => frame.event === "model").at(-1)?.data.agents.flatMap(book => book.runs) ?? [];
+  const r1 = () => runs().find(run => run.id === "R1");
+  await stream.until(() => r1()?.state === "stuck" && /no activity for 40 min/.test(r1().why));
   const reads = f.reads(), renew = path => { const now = new Date(); utimesSync(path, now, now); };
   renew(join(f.root, ".hooks", "slots", "slot-2"));
-  let count;
-  for (let i = 0; i < 600 && (count = await quiet()) === 2; i++) await wait(50);
-  assert.equal(count, 1, "the agent of the slot with no run works again (F-T1100-1)");
-  assert.ok(f.reads() > reads);
+  for (let i = 0; i < 600 && f.reads() === reads; i++) await wait(50);
+  assert.ok(f.reads() > reads, "the agent of the slot with no run works again, and that is a full read (F-T1100-1)");
   renew(f.slot);
-  for (let i = 0; i < 600 && (count = await quiet()) === 1; i++) await wait(50);
-  assert.equal(count, 0, "the agent of run R1 works again");
-  let page;
+  await stream.until(() => r1()?.state === "work");
   writeFileSync(join(f.project, "runs.tsv"), `${readFileSync(join(f.project, "runs.tsv"), "utf8")}R3\tT1\tcode-reviewer\t0\t\t\trunning\t\t\t${new Date().toISOString()}\t\n`);
   slot(f.root, "slot-3", ["project-project", "role-sage_code-reviewer", "run-R3"]);
-  for (let i = 0; i < 600 && !(page = await read(f, "/agents")).body.includes("Agents (3)"); i++) await wait(50);
-  assert.match(page.body, /<span class="role">code-reviewer<\/span><span class="id">R3<\/span>/);
+  await stream.until(() => runs().some(run => run.id === "R3" && run.role === "code-reviewer" && run.status === "running"));
+});
+
+test("T1099 (F-T1088-2): a board that starts before the hook's folder exists sees the slots made after it", async t => {
+  const f = await lightBoard(t, { lightEvery: 50, hooks: false }), stream = appFrames(f); t.after(() => stream.close());
+  const r1 = () => stream.frames.filter(frame => frame.event === "model").at(-1)?.data.agents.flatMap(book => book.runs).find(run => run.id === "R1");
+  await stream.until(() => r1() !== undefined);
+  assert.doesNotMatch(r1().why ?? "", /no activity for 40 min/, "no hook folder yet: the run has no slot");
+  mkdirSync(join(f.root, ".hooks"));
+  await wait(400);
+  slot(f.root, "slot-1", ["project-project", "role-sage_qa", "run-R1"]);
+  const long = new Date(Date.now() - 40 * 60_000); utimesSync(f.slot, long, long);
+  await stream.until(() => /no activity for 40 min/.test(r1()?.why ?? ""));
 });
 
 test("T1100: GET /api/actions/R<n> gives a known run's last 20 actions, and refuses path tricks, unknown runs and links", async t => {

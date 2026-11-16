@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { when } from "./use-model.js";
-import { UNKNOWN, chiefName } from "../../sage-core/state-words.mjs";
+import { UNKNOWN, chiefName, runWord } from "../../sage-core/state-words.mjs";
 import { chiefState, chiefSub, encodeKey, taskLink } from "./task.jsx";
 
 const TOKEN_KEY = "board-token";
@@ -38,7 +38,7 @@ export async function post(path, body) {
 export function PairBox() {
   const writes = useAccess(), [code, setCode] = useState(""), [problem, setProblem] = useState(null);
   if (writes === "paired") return null;
-  if (writes === "off") return <p className="note">This board only reads: it runs without its config folder. Answer in the chief's chat.</p>;
+  if (writes === "off") return <p className="note">This board only reads. Answer in the chief's chat, or stop this board and ask for it again.</p>;
   const pair = async event => {
     event.preventDefault();
     const result = await post("pair", { code });
@@ -88,7 +88,7 @@ function ChiefMenu({ chief, onFilter, close }) {
       <dl className="facts">
         <dt>Started</dt><dd>{chief.startedAt ? when(chief.startedAt) : UNKNOWN}</dd>
         <dt>Last event</dt><dd>{chief.heartbeat ? clock(chief.heartbeat) : UNKNOWN}</dd>
-        <dt>Agents</dt><dd>{chief.agents} running</dd>
+        <dt>Agents</dt><dd>{chief.agents} {runWord("running").text}</dd>
         <dt>Autopilot</dt><dd>{chief.autopilot === null ? UNKNOWN : chief.autopilot ? "on" : "off"} · you switch it in the chief's chat</dd>
       </dl>
       {writes === "paired" ? (

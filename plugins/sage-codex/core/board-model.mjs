@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
 import { githubRepository, hookProvider } from "./board-reader.mjs";
-import { LINE, PRIORITIES, TASK_ADDED, TASK_KINDS, agentCaps, boardAnswer, gateDigest, projectLimits, proposalOf, queueOrder } from "./logbook-fields.mjs";
+import { LINE, PRIORITIES, TASK_ADDED, TASK_KINDS, boardAnswer, gateDigest, projectLimits, proposalOf, queueOrder } from "./logbook-fields.mjs";
 import { ENDED, MET, breakdownGate, dead, gateLines, lostWhy, milestoneName, milestoneWordOf, namedText, progressOf, progressText, releasesOf, shownGraph, shownMilestoneState, shownWaits, waitGraph, waitsOf } from "./milestone-rules.mjs";
 import { chiefName, taskWord } from "./state-words.mjs";
 import { offerOf, replaceOf } from "./chiefs.mjs";
@@ -98,7 +98,7 @@ function stepLine({ task, route, cycles, required, head, judged, reasons, proble
   const failed = reviewing && judged && !allClean ? cycles[at].steps.filter(step => step.status === "failed").map(step => ROLE_WORD[step.role] ?? step.role) : [];
   let [step, who, started] = PHASE[state];
   if (allClean) [step, who, started] = ["merge", "chief", false];
-  if (["verified", "pr-ready"].includes(state) && (autopilot || !build)) who = "chief";
+  if (["verified", "pr-ready"].includes(state) && (autopilot || !build) && !reasons.length) who = "chief";
   if (state === "awaiting-you" && answered) who = "chief";
   if (gate && who !== "done") who = "owner";
   else if (problems.length && who === "owner") who = "chief";
@@ -157,7 +157,7 @@ function stepLine({ task, route, cycles, required, head, judged, reasons, proble
   }
 
   const mergeDetail = { before: build ? task.state === "concluded" ? "Closed with no merge." : "Merged." : "The report went to you.", after: build ? `After ${plural(required, "clean cycle")}${required > 1 ? " on one commit" : ""}.` : "The report goes to you." }[place("merge")]
-    ?? heldAt ?? (!build ? "The chief concludes it." : task.state === "verifying" || allClean ? "The chief checks the verdicts first." : merge && !merge.ok ? merge.text
+    ?? (heldAt && merge && !merge.ok ? `${merge.text} ${heldAt}` : heldAt) ?? (!build ? "The chief concludes it." : task.state === "verifying" || allClean ? "The chief checks the verdicts first." : merge && !merge.ok ? merge.text
       : `${merge ? `${merge.text} ` : ""}${autopilot ? "Autopilot merges it."
       : reasons.some(reason => reason.kind === "merge" && reason.mode) ? "Autopilot is off, so the merge waits for you." : "The board cannot tell if autopilot is on, so the merge waits for you."}`);
   steps.push({ key: "merge", label: build ? "Merge" : "Conclude", status: mark("merge"), detail: mergeDetail });
@@ -192,7 +192,7 @@ function stepLine({ task, route, cycles, required, head, judged, reasons, proble
     "awaiting-you": answered ? `The chief briefs ${NAME.build}.` : `${cap(NAME.build)} is briefed after your answer.`,
     briefed: `${cap(NAME.build)}.`,
     building: build ? `Review cycle 1 of ${required}, ${task.pr ? "on the PR's last commit" : "when the PR opens"}.` : `${cap(reviewName(1))}.`,
-    held: answered ? `${cap(NAME.build)} goes on, or the chief briefs it again.` : "The chief asks you how to go on.",
+    held: answered ? `${cap(NAME.build)} goes on, or the chief briefs it again.` : "The chief decides how it goes on. If it needs you, its question shows in Needs you.",
     replan: "The chief briefs it again.",
     reviewing: allClean ? build ? "The chief checks the verdicts, then the merge." : "The chief checks the evidence review, then the conclusion."
       : failed.length ? build ? "A repair round, then the reviews start again at cycle 1." : "A repair round, then the evidence review starts again."
@@ -463,12 +463,12 @@ function slotOf(slot) {
 }
 
 function agentsOf(sources, groups, groupOf, cards, at) {
-  const rows = [], problems = [], caps = [];
+  const rows = [], problems = [];
   const bare = name => name.replace(/-[0-9a-f]{6}$/, "");
   const groupNamed = name => groups.find(group => group.books.some(book => bare(book.project.name) === name));
   const hooked = sources.map(source => {
     const hooks = source.hooks ?? { present: false, slots: [], helpers: [], problem: null };
-    return { source, hooks, provider: String(source.provider ?? standIn(source)).toLowerCase(), writer: String(hookProvider(source) ?? standIn(source)).toLowerCase(), slots: hooks.slots.map(slotOf), known: hooks.present && !hooks.problem };
+    return { source, hooks, writer: String(hookProvider(source) ?? standIn(source)).toLowerCase(), slots: hooks.slots.map(slotOf), known: hooks.present && !hooks.problem };
   });
   const runs = sources.flatMap(source => source.projects.filter(book => !book.old).flatMap(book => (book.tables.runs ?? []).filter(run => run.status === "running" && /^R[1-9]\d*$/.test(run.id)).map(run => ({ source, book, run }))));
   const leadKey = item => sha256(`${item.book.logbook}:${item.run.id}`);
@@ -484,13 +484,8 @@ function agentsOf(sources, groups, groupOf, cards, at) {
       task: card ? { key: card.key, id: card.id, title: card.title, kind: card.kind, priority: card.priority } : item ? { key: null, id: item.run.task, title: "", kind: "", priority: "" } : null,
       lead: null, children: [], ...extra });
   };
-  for (const { source, hooks, provider, slots, known } of hooked) {
+  for (const { source, hooks, slots } of hooked) {
     if (hooks.problem) problems.push({ source: source.id, message: plainProblem(hooks.problem) });
-    if (known) {
-      const config = agentCaps(source.config);
-      const used = name => slots.filter(slot => slot.project === name).length;
-      caps.push({ source: source.id, label: title(provider), total: { used: slots.length, cap: config.total }, of: name => ({ used: used(name), cap: config.cap(name) }) });
-    }
     for (const slot of slots.filter(slot => slot.ok)) {
       const match = slot.run ? runs.filter(item => (item.source === source || item.source.shared) && item.run.id === slot.run && bare(item.book.name) === slot.project && (!slot.logbook || item.book.logbook === slot.logbook)) : [];
       const own = match.filter(item => item.source === source), found = own.length ? own : match;
@@ -548,14 +543,10 @@ function agentsOf(sources, groups, groupOf, cards, at) {
   for (const agent of rows) byGroup.set(agent.group, [...(byGroup.get(agent.group) ?? []), agent]);
   const projects = [...byGroup.entries()].map(([key, list]) => {
     const name = list[0].groupName, group = groups.find(item => item.key === key);
-    const hooked = caps.find(entry => list.some(agent => agent.source === entry.source && agent.how !== "logbook"));
-    const book = limits.find(item => item.group === key && item.shared);
-    const cap = book ? { label: "Project", used: book.running, cap: book.limit } : hooked ? { label: hooked.label, ...hooked.of(group ? bare(group.books[0].project.name) : key.slice(5)) } : null;
-    return { key, name, sub: group?.sub ?? "", pathSub: group?.pathSub ?? null, agents: sort(list.filter(agent => !agent.lead)), count: list.length, look: list.filter(agent => LOOK.includes(agent.state)).length, worst: Math.min(...list.map(order)), cap };
+    return { key, name, sub: group?.sub ?? "", pathSub: group?.pathSub ?? null, agents: sort(list.filter(agent => !agent.lead)), count: list.length, look: list.filter(agent => LOOK.includes(agent.state)).length, worst: Math.min(...list.map(order)) };
   }).sort((a, b) => a.worst - b.worst || b.count - a.count || a.name.localeCompare(b.name));
   const providers = [...new Set(rows.map(agent => title(agent.provider.toLowerCase())))].map(name => ({ name, count: rows.filter(agent => title(agent.provider.toLowerCase()) === name).length }));
   return { count: rows.length, limits, queues: limits.filter(queue => queue.running || queue.queued.length), look: rows.filter(agent => LOOK.includes(agent.state)).length, providers, projects,
-    caps: caps.map(entry => ({ label: entry.label, total: entry.total, projects: projects.filter(project => project.cap?.label === entry.label).map(project => ({ name: project.name, used: project.cap.used, cap: project.cap.cap })) })),
     problems, unmatched: rows.filter(agent => agent.how === "noslot").map(agent => ({ run: agent.runId, project: agent.groupName })), next: Number.isFinite(next) ? next : null,
     rules: { quiet: AGENT_QUIET_MS / 60_000, factor: LONG_FACTOR, basis: LONG_BASIS } };
 }
