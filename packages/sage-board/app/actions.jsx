@@ -22,7 +22,6 @@ if (linkNote.outcome) post("pair", { link }).then(({ json, text }) => {
 const VIA = { board: "on the board", chat: "in the chat", "claude-card": "on a Claude card", "codex-card": "on a Codex card" };
 const clock = at => Number.isFinite(Date.parse(at)) ? new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "an unknown time";
 const clocks = text => String(text).replace(/\b\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d+)?)?Z\b/g, clock);
-export const questionLink = key => `#question?key=${encodeURIComponent(key)}`;
 export const chiefOf = (chiefs, logbook, id) => chiefs.find(chief => chief.logbook === logbook && chief.id === id) ?? null;
 export const chiefLabel = (chiefs, logbook, id) => { const chief = chiefOf(chiefs, logbook, id); return chief ? `${chiefName(chief.id, chief.provider)} · ${chiefSub(chief)}` : id ?? "the chief"; };
 

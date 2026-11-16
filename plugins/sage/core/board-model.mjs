@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { basename } from "node:path";
+import { basename, isAbsolute } from "node:path";
 import { githubRepository, hookProvider } from "./board-reader.mjs";
 import { LINE, PRIORITIES, TASK_ADDED, TASK_KINDS, boardAnswer, gateDigest, projectLimits, proposalOf, queueOrder } from "./logbook-fields.mjs";
 import { ENDED, MET, breakdownGate, dead, gateLines, lostWhy, milestoneName, milestoneWordOf, namedText, progressOf, progressText, releasesOf, shownGraph, shownMilestoneState, shownWaits, waitGraph, waitsOf } from "./milestone-rules.mjs";
@@ -7,6 +7,7 @@ import { chiefName, taskWord } from "./state-words.mjs";
 import { offerOf, replaceOf } from "./chiefs.mjs";
 import { boardChiefs } from "./chief-live.mjs";
 import { checkoutLabel, plainName } from "./shared-root.mjs";
+import { createStateTool } from "./state.mjs";
 const COLUMNS = [
   ["backlog", "Backlog", ["framed"]],
   ["design", "Design", ["designing", "awaiting-you"]],
@@ -242,6 +243,16 @@ function waitLine(task, waits, column) {
   return { never, text: `Waits for ${and(named.map(waitName))}${never ? ": it cannot start." : "."}${odd}${loop}${!never && column === "design" ? " Design and PE may run." : ""}` };
 }
 
+let stateTool;
+const carried = new Map();
+function carryOver(checkout, task, head, rows) {
+  const key = ENDED.includes(task.state) && checkout && JSON.stringify([checkout, task.id, task.route, head, rows.length]);
+  if (key && carried.has(key)) return carried.get(key);
+  const result = (stateTool ??= createStateTool({ defaultRoot: () => { throw new Error("the board names each root"); } })).carryOver(checkout, task, head, rows);
+  if (key) carried.set(key, result);
+  return result;
+}
+
 function card(source, project, group, task, now, graph, landing) {
   const records = (byTask(project.observations?.records ?? NONE).get(task.id) ?? NONE).filter(record => time(record.observedAt) !== null && time(record.observedAt) <= now);
   const pr = latest(records, "pr", data => String(data.number) === task.pr);
@@ -298,7 +309,8 @@ function card(source, project, group, task, now, graph, landing) {
     const what = task.pr ? `review and merge PR ${task.pr}` : "review and merge it";
     reasons.push({ kind: "merge", mode: !!mode, text: mode ? `Autopilot is off, so ${what}.` : `The board cannot tell if autopilot is on, so ${what}.` });
   }
-  const current = repairing ? [] : build ? head ? ledger.filter(row => row.sha === head && String(row.pr) === task.pr) : [] : ledger.filter(row => !row.sha);
+  const carry = !repairing && build && head ? carryOver(isAbsolute(project.checkout ?? "") ? project.checkout : undefined, task, head, ledger.filter(row => String(row.pr) === task.pr)) : null;
+  const current = repairing ? [] : build ? carry?.rows ?? [] : ledger.filter(row => !row.sha);
   const steps = [...(build ? ["checks"] : []), ...route.filter(block => CLEAN[block])];
   const required = Math.max(positive(source.config?.["cycles.small"]) ?? 1, task.size === "large" ? Math.max(2, positive(source.config?.["cycles.large"] ?? source.config?.autopilot_cycles) ?? 2) : 1, task.risk ? Math.max(2, positive(source.config?.["cycles.risk"]) ?? 2) : 1);
   const count = Math.min(Math.max(required, ...ENDED.includes(task.state) ? current.map(row => positive(row.cycle) ?? 0) : []), 10);
@@ -312,12 +324,12 @@ function card(source, project, group, task, now, graph, landing) {
   for (const [index, row] of current.entries()) {
     if (!["checks-fail", "qa-fail"].includes(row.kind)) continue;
     const newer = current.slice(index + 1).find(other => other.kind === (row.kind === "checks-fail" ? "checks-pass" : "qa-pass") && (row.kind === "checks-fail" || other.cycle === row.cycle));
-    if (!newer && !merge?.ok) reasons.push({ kind: row.kind, text: `${row.kind === "checks-fail" ? "Checks" : "QA"} failed on the recorded PR head.`, evidence: row });
+    if (!newer && !merge?.ok) reasons.push({ kind: row.kind, text: `${row.kind === "checks-fail" ? "Checks" : "QA"} failed on the recorded PR head; the chief repairs it.`, evidence: row });
   }
   const worker = project.shared ? NO_SLOT_NOTES.includes(String(chiefOf(task.chief)?.provider ?? "").toLowerCase()) : task.branch.startsWith("codex/");
   const inferred = pr?.data.state === "open" && worker && !agents.length;
   if (inferred && !["merged", "concluded", "abandoned"].includes(task.state)) reasons.push({ kind: "review-wait", text: "The PR has inferred provider work and waits for review." });
-  const problems = reasons.some(reason => reason.kind === "merge-refused") ? reasons.filter(reason => CHIEF_FIXES.includes(reason.kind)) : [];
+  const problems = reasons.filter(reason => CHIEF_FIXES.includes(reason.kind));
   if (problems.length) reasons.splice(0, reasons.length, ...reasons.filter(reason => !problems.includes(reason)));
   const column = merge && !merge.ok ? "review" : COLUMNS.find(([, , states]) => states.includes(task.state))?.[0] ?? null;
   const milestone = task.milestone ? graph.milestones.get(task.milestone) : null, waits = waitsFor(task, graph);
@@ -330,7 +342,7 @@ function card(source, project, group, task, now, graph, landing) {
     ...rows(project, "findings", task).map(row => ({ ...row, movedFrom: (moves.to.get(task.id) ?? NONE).find(({ move }) => move[3] === row.key)?.row.task ?? null })),
     ...(moves.from.get(task.id) ?? NONE).map(({ row, move }) => { const [, run = "", severity = ""] = /^the (?:follow-up|open) task \(from (R[1-9]\d*), (\w+)\)/.exec(row.why ?? "") ?? []; return { severity, summary: row.decision.slice(row.decision.indexOf(":") + 1).trim(), ...found(move[2], move[3]), run, task: task.id, key: move[1], status: "moved", reason: "", movedTo: move[2] }; }),
   ];
-  return { key: `${project.key}/${task.id}`, source: source.id, sourceLabel: source.label, providerStandIn: standInOf(source, project), repository: githubRepository(pr?.data.repository) ?? githubRepository(project.repository), lastActivity, headBasis, project: project.key, group: group.key, projectName: group.name, archived: group.archived, milestone: task.milestone ? { key: `${project.key}/${task.milestone}`, id: task.milestone, name: milestone?.name ?? null, pilot: milestone?.pilot === task.id } : null, waits, waitLine: waitLine(task, waits, column), priority: PRIORITIES.includes(task.priority) ? task.priority : "", kind: TASK_KINDS.includes(task.kind) ? task.kind : "", ...Object.fromEntries(["id", "title", "size", "risk", "route", "state", "branch", "pr", "round", "keys", "hold", "request"].map(field => [field, task[field] ?? ""])), column, prEvidence: pr, currentHead: head, modeEvidence: mode, completedAt, addedAt: rows(project, "decisions", task).find(row => row.decision === TASK_ADDED)?.at ?? null, boardAnswers, visible: column !== "done" || completedAt !== null && completedAt <= now && completedAt >= now - 7 * 86400000, agents, inferredWork: inferred, cycles, requiredCycles: required, reasons, problems, runs, ledger, gates, findings, decisions: rows(project, "decisions", task).slice(-10), decisionRows: rows(project, "decisions", task), gateRows: allGates, brief, briefFields: briefFields(brief), projectCheck, mergeCheck: merge, loop: stepLine({ task, route, cycles, required: count, head, judged, reasons, problems, merge, gates: allGates, runs, ledger, rounds: positive(source.config?.max_rounds) ?? 3, autopilot: mode?.data.autopilot === true }), changedFiles: files && { ...files.data, observedAt: files.observedAt }, mayConflict: [], runClocks: Object.fromEntries(runs.filter(run => run.status === "running").map(run => [run.id, run.clock])), goneRun: writer?.checkoutGone ? writer.id : null, artifacts: records.filter(record => record.kind === "artifact").map(record => ({ ...record, content: project.contents?.[record.id] ?? null })), diagnostics: [...project.diagnostics], ...holderOf(project, task, runs, label, gates),...(wasOf(project, task) && { was: wasOf(project, task) }) };
+  return { key: `${project.key}/${task.id}`, source: source.id, sourceLabel: source.label, providerStandIn: standInOf(source, project), repository: githubRepository(pr?.data.repository) ?? githubRepository(project.repository), lastActivity, headBasis, project: project.key, group: group.key, projectName: group.name, archived: group.archived, milestone: task.milestone ? { key: `${project.key}/${task.milestone}`, id: task.milestone, name: milestone?.name ?? null, pilot: milestone?.pilot === task.id } : null, waits, waitLine: waitLine(task, waits, column), priority: PRIORITIES.includes(task.priority) ? task.priority : "", kind: TASK_KINDS.includes(task.kind) ? task.kind : "", ...Object.fromEntries(["id", "title", "size", "risk", "route", "state", "branch", "pr", "round", "keys", "hold", "request"].map(field => [field, task[field] ?? ""])), column, prEvidence: pr, currentHead: head, modeEvidence: mode, completedAt, addedAt: rows(project, "decisions", task).find(row => row.decision === TASK_ADDED)?.at ?? null, boardAnswers, visible: column !== "done" || completedAt !== null && completedAt <= now && completedAt >= now - 7 * 86400000, agents, inferredWork: inferred, cycles, carriedFrom: carry?.from ?? null, requiredCycles: required, reasons, problems, runs, ledger, gates, findings, decisions: rows(project, "decisions", task).slice(-10), decisionRows: rows(project, "decisions", task), gateRows: allGates, brief, briefFields: briefFields(brief), projectCheck, mergeCheck: merge, loop: stepLine({ task, route, cycles, required: count, head, judged, reasons, problems, merge, gates: allGates, runs, ledger, rounds: positive(source.config?.max_rounds) ?? 3, autopilot: mode?.data.autopilot === true }), changedFiles: files && { ...files.data, observedAt: files.observedAt }, mayConflict: [], runClocks: Object.fromEntries(runs.filter(run => run.status === "running").map(run => [run.id, run.clock])), goneRun: writer?.checkoutGone ? writer.id : null, artifacts: records.filter(record => record.kind === "artifact").map(record => ({ ...record, content: project.contents?.[record.id] ?? null })), diagnostics: [...project.diagnostics], ...holderOf(project, task, runs, label, gates),...(wasOf(project, task) && { was: wasOf(project, task) }) };
 }
 
 const chiefTag = owner => chiefName(owner.id, owner.provider);

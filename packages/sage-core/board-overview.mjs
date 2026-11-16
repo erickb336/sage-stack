@@ -69,7 +69,7 @@ const CI = { done: "pass", failed: "fail" };
 function cyclesOf(task) {
   const reviews = task.cycles.some(cycle => cycle.steps.length > 0);
   const known = !task.cycles.some(cycle => cycle.steps.some(step => step.status === "unknown"));
-  return { required: task.requiredCycles, clean: reviews && known ? task.cycles.filter(cycle => cycle.steps.every(step => step.status === "done")).length : null, reviews };
+  return { required: task.requiredCycles, clean: reviews && known ? task.cycles.filter(cycle => cycle.steps.every(step => step.status === "done")).length : null, reviews, ...(task.carriedFrom && { carriedFrom: task.carriedFrom }) };
 }
 
 const SEVERITIES = ["high", "medium", "low"];
@@ -89,7 +89,7 @@ function taskRow(task, chiefs, names) {
     key: task.key, id: task.id, title: task.title, project: names.get(task.group) ?? task.projectName, state: task.state, word: task.word ?? null, ended: ENDED.includes(task.state),
     priority: task.priority || null, kind: task.kind || null, size: task.size || null, pr: task.pr || null,
     milestone: task.milestone ? { key: task.milestone.key, id: task.milestone.id, title: milestoneName({ id: task.milestone.id, name: task.milestone.name ?? "" }) } : null,
-    chief: chiefTag(task, chiefs), needsYou: task.reasons.length > 0, waits: task.waitLine?.text ?? null,
+    chief: chiefTag(task, chiefs), needsYou: task.reasons.length > 0, waits: task.waitLine?.text ?? null, cannotStart: !!task.waitLine?.never,
     waitsFor: task.waits.filter(wait => wait.id).map(wait => ({ key: `${task.project}/${wait.id}`, id: wait.id, met: wait.met })),
     why: task.reasons.length || task.problems?.length ? taskWord(task).reason : null,
     conflicts: task.mayConflict.map(other => ({ key: other.key, id: other.id, chief: other.chief })),
@@ -104,6 +104,7 @@ const LIVE = ["running", "queued"], HELPERS_MAX = 20;
 const count = value => /^\d+$/.test(String(value ?? "")) ? Number(value) : null;
 
 
+const retried = (task, run) => task.runs.some(other => other.role === run.role && time(other.started) > time(run.started));
 const failReason = (task, run) => (task.decisionRows ?? []).findLast(row => String(row.decision ?? "").startsWith(`${run.id} failed: `))?.decision.slice(`${run.id} failed: `.length) ?? null;
 
 function agentsOf(model, recent, agents, chiefs) {
@@ -113,7 +114,7 @@ function agentsOf(model, recent, agents, chiefs) {
   const books = (model.agents?.limits ?? []).filter(book => !groups.get(book.group)?.archived).map(book => {
     const all = model.tasks.filter(task => task.project === book.key).flatMap(task => task.runs.map(run => {
       const agent = run.status === "running" ? states.get(`${book.key}/${run.id}`) : null, state = run.status !== "running" ? null : agent?.state ?? (run.clock.stale ? "stuck" : "unk");
-      return { run, task, agent, state, look: run.status === "failed" ? !task.archived && recent(run.ended) : LOOK.includes(state) };
+      return { run, task, agent, state, look: run.status === "failed" ? !task.archived && !ENDED.includes(task.state) && recent(run.ended) && !retried(task, run) : LOOK.includes(state) };
     }));
     look.push(...all.filter(item => item.look));
     const leads = new Map(all.filter(({ run }) => run.role === "lead" && LIVE.includes(run.status)).map(item => [item.task.key, item.run]));
@@ -252,6 +253,7 @@ export function taskPanel(model, key) {
     logbook: task.project.slice(task.project.indexOf("/") + 1),
     conflicts: task.mayConflict.map(other => ({ key: other.key, id: other.id, chief: other.chief, paths: other.paths })),
     steps,
+    question: task.reasons[0]?.gateId ? task.reasons[0].key : null,
     now: (task.loop.now.needs ? task.reasons.flatMap(reason => [...lines(reason.text), ...(reason.recommendation ? [`I recommend: ${reason.recommendation}`] : [])]) : lines(task.loop.now.text))
       .filter(line => !steps.some(step => step.detail === line)),
     next: task.loop.next,

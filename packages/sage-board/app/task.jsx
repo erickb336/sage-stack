@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AgentRing, age, span, stateText, tokens } from "./agent.jsx";
 import { MARKS, OBJECTS, UNKNOWN, chiefName as nameOf, prName, shown, taskWord } from "../../sage-core/state-words.mjs";
 
+export const questionLink = key => `#question?key=${encodeURIComponent(key)}`;
 export const taskLink = (key, tab) => `#task?key=${encodeURIComponent(key)}${tab && tab !== "artifacts" ? `&tab=${tab}` : ""}`;
 export const milestoneLink = key => `#tasks?milestone=${encodeURIComponent(key)}`;
 export const ofChief = (task, chief) => !chief || task.chief?.id === chief.id && task.key === `${chief.logbook}/${task.id}`;
@@ -112,7 +113,7 @@ function Status({ task }) {
   return (
     <Section label="Status">
       {task.needsYou && task.now.length ? <>
-        <p className="now"><strong>{where}</strong> {controlsShown(task.now[0])}</p>
+        <p className="now"><strong>{where}</strong> {task.question ? <a href={questionLink(task.question)}>{controlsShown(task.now[0])}</a> : controlsShown(task.now[0])}</p>
         {task.now.slice(1).map((line, i) => <p className="now" key={i}>{controlsShown(line)}</p>)}
         {task.next && <p className="now">Next: {controlsShown(task.next)}</p>}
       </> : <p className="now"><strong>{where}</strong> {controlsShown(said)}.{task.next && !task.ended && <> Next: {controlsShown(task.next)}</>}</p>}
@@ -143,10 +144,11 @@ function About({ task }) {
         {!task.before.length && !task.after.length ? <p>No other task comes before or after it.</p> : <>
           <p>Comes after: {task.before.length ? <Linked items={task.before} word /> : "no other task"}.</p>
           <p>Needed by: {task.after.length ? <Linked items={task.after} /> : "no other task"}.</p>
+          {task.waits && !task.ended && <p className={`waits${task.cannotStart ? " never" : ""}`}><span aria-hidden="true">{task.cannotStart ? MARKS["cannot start"] : MARKS.waiting} </span>{controlsShown(task.waits)}</p>}
         </>}
       </Section>
       <Section label="Goal">{brief.state === "kept" ? brief.goal ? <Long text={brief.goal} /> : UNKNOWN_WHY(`The brief of ${brief.run} has no GOAL field.`) : UNKNOWN_WHY(brief.why)}</Section>
-      <Section label="Why">{task.request ? <Long text={task.request} /> : UNKNOWN_WHY("The logbook keeps no request for this task: the chief records your words with task set request= when it frames a task.")}</Section>
+      <Section label="Why">{task.request ? <Long text={task.request} /> : <p className="faint">Not recorded. The chief did not record your request for this task.</p>}</Section>
       <Criteria brief={brief} />
       <Status task={task} />
       <Cost task={task} brief={brief} />

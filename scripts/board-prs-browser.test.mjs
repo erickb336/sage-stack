@@ -62,7 +62,7 @@ test("T1063: J5 is within two clicks of the Overview, and the graph's file loads
   const click = async locator => { clicks++; await locator.click(); };
   await click(page.getByRole("link", { name: /^Pull requests/ }));
   await page.locator("main h1", { hasText: "Pull requests" }).waitFor();
-  assert.deepEqual(await groups(page), ["Needs you", "In review", "Repairing", "Ready to merge", "Waiting for another task", "Merged recently"]);
+  assert.deepEqual(await groups(page), ["In review", "Repairing", "Ready to merge", "Waiting for another task", "Merged recently"], "T1120 S8: T8's failed checks are the chief's repair, so no PR needs you");
   assert.equal(requests.filter(graphFile).length, 0, "the list does not load the graph's file");
   await click(page.getByRole("button", { name: "Graph" }));
   await page.locator(".gnode").first().waitFor();
@@ -136,14 +136,14 @@ test("T1063: each link of the graph keeps its own line: two links never share a 
 
 test("T1063: the list groups each PR by its next action and shows its task, chief, clean cycles, CI state, findings and may-conflict flag", async t => {
   const { page } = await open(t, {}, "/app/#pull-requests");
-  assert.deepEqual(await ids(page, "need"), ["T8"]);
-  assert.deepEqual(await ids(page, "review"), ["T3"]);
+  assert.deepEqual(await ids(page, "need"), [], "T1120 S8: failed checks are the chief's repair, not a question for you");
+  assert.deepEqual(await ids(page, "review"), ["T3", "T8"]);
   assert.deepEqual(await ids(page, "repair"), ["T7"]);
   assert.deepEqual(await ids(page, "ready"), ["T5"]);
   assert.deepEqual((await ids(page, "wait")).sort(), ["T11", "T13", "T4", "T6"]);
   assert.deepEqual(await ids(page, "merged"), ["T9"], "T12 merged 9 days ago, so it is not recent");
   const text = async id => (await row(page, id).innerText()).replace(/\s+/g, " ");
-  assert.match(await text("T8"), /^PR 17 Sample search highlight Claude · C1 T8 may conflict · T3 · PR 12 Checks failed on the recorded PR head\. 0 of 1 clean cycles CI fails 0 open \d+ h ago$/);
+  assert.match(await text("T8"), /^PR 17 Sample search highlight Claude · C1 T8 may conflict · T3 · PR 12 Checks failed on the recorded PR head; the chief repairs it\. 0 of 1 clean cycles CI fails 0 open \d+ h ago$/);
   assert.match(await text("T3"), /^PR 12 Sample shared limits Codex · C2 T3 Milestone 1: Board redesign may conflict · T40 may conflict · T8 · PR 17 0 of 1 clean cycles CI passes 0 open \d+ min ago$/);
   assert.match(await text("T7"), /^PR 16 Sample offline banner Codex · C2 T7 .* Clean cycles unknown · 1 needed CI unknown 0 open age unknown$/);
   assert.match(await text("T5"), /^PR 14 Sample retry backoff Claude · C1 T5 .* 1 of 1 clean cycles CI passes 0 open \d+ h ago$/);
@@ -192,12 +192,12 @@ test("T1063: the keyboard reaches each link of the list and the graph, and Enter
   await page.getByRole("button", { name: "List" }).focus();
   const stops = [];
   for (let i = 0; i < 4; i++) { await page.keyboard.press("Tab"); stops.push(await page.evaluate(() => document.activeElement.textContent)); }
-  assert.deepEqual(stops, ["Graph", "PR 17", "Sample search highlight", "PR 12"], "the view switch, then each row's number and title");
+  assert.deepEqual(stops, ["Graph", "PR 12", "Sample shared limits", "PR 17"], "the view switch, then each row's number and title");
   await page.keyboard.press("Shift+Tab");
   await page.keyboard.press("Enter");
-  await page.locator(".taskpage h1", { hasText: "Sample search highlight" }).waitFor();
+  await page.locator(".taskpage h1", { hasText: "Sample shared limits" }).waitFor();
   await page.goBack();
-  await page.waitForFunction(key => document.activeElement?.dataset.task === key, KEY("T8"));
+  await page.waitForFunction(key => document.activeElement?.dataset.task === key, KEY("T3"));
   await page.getByRole("button", { name: "Graph" }).focus();
   await page.keyboard.press("Enter");
   await page.locator(".gnode").first().waitFor();
@@ -261,9 +261,9 @@ test("F-T1081-2, -9, -14, -8, -25, -7, -3, -20, -21, -1: each edge case goes to 
   const { page, problems } = await open(t, { edit: edgeCases }, "/app/#pull-requests");
   await row(page, "T90").waitFor();
   assert.deepEqual(await groups(page), ["Needs you", "In review", "Building", "Waiting for another task", "Merged recently"], "T5 has 1 of 12 clean cycles now, so it is not ready");
-  assert.deepEqual((await ids(page, "wait")).sort(), ["T11", "T13", "T4", "T6"], "F-T1081-2: T4 has no PR, so it waits, also with a question for you");
+  assert.deepEqual((await ids(page, "wait")).sort(), ["T11", "T13", "T4", "T6", "T8"], "F-T1081-2: T4 has no PR, so it waits, also with a question for you; T1120 S8: T8's failed checks do not ask you, so it waits for T6");
   assert.deepEqual((await ids(page, "build")).sort(), ["T40", "T90"], "F-T1081-9, -14: a framed or building task with a PR is not in review");
-  assert.deepEqual((await ids(page, "need")).sort(), ["T7", "T8"]);
+  assert.deepEqual((await ids(page, "need")).sort(), ["T7"], "T1120 S8: T8's failed checks are the chief's repair");
   const text = async id => (await row(page, id).innerText()).replace(/\s+/g, " ");
   assert.match(await text("T9"), / 1 clean cycle CI passes 0 open merge time is in the future$/, "F-T1081-8, -25: no false 'just now', and no 'of 12' from today's config");
   assert.match(await text("T5"), / 1 of 12 clean cycles /, "an open task still counts against today's config");
@@ -272,9 +272,9 @@ test("F-T1081-2, -9, -14, -8, -25, -7, -3, -20, -21, -1: each edge case goes to 
   assert.equal(await page.locator("section.group .card-h svg.grp").count(), 5, "F-T1081-3: each group has its icon");
   assert.equal(await page.locator("li.prow > svg.grp").count(), await page.locator("li.prow").count(), "F-T1081-3: each row has its group's icon");
   assert.match(await row(page, "T7").locator(".meta").innerText(), /No GitHub link: the logbook names no repository for this PR\./, "F-T1081-20: the reason is on the page, not only in a tooltip");
-  assert.equal(await row(page, "T8").locator(".why").textContent(), "Checks failed on the recorded PR head.");
+  assert.equal(await row(page, "T8").locator(".why").textContent(), "Checks failed on the recorded PR head; the chief repairs it.");
   assert.equal(await row(page, "T8").locator(".waits").textContent(), "Waits for T6 (in progress).", "F-T1081-21: the why line does not hide the waits line");
-  assert.equal(await row(page, "T6").locator(".waits").textContent(), "Waits for T99 (not in the logbook) and T5 (in progress): it cannot start.", "F-T1081-1: a wait for a missing task shows in the row");
+  assert.equal(await row(page, "T6").locator(".waits").textContent(), "⊘ Waits for T99 (not in the logbook) and T5 (in progress): it cannot start.", "F-T1081-1: a wait for a missing task shows in the row");
   await page.getByRole("button", { name: "Graph" }).click();
   await page.locator(".gnode").first().waitFor();
   const box = id => page.locator(`.gnode[data-task="${KEY(id)}"]`);

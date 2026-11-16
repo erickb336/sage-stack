@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { GiveBox, PairBox, PairNote, UndoButton, chiefLabel, questionLink, useAccess, useSeen } from "./actions.jsx";
+import { GiveBox, PairBox, PairNote, UndoButton, chiefLabel, useAccess, useSeen } from "./actions.jsx";
 import { useNow, when } from "./use-model.js";
 import { StateIcon } from "./icons.jsx";
-import { chiefSub, milestoneLink, ofChief, taskLink } from "./task.jsx";
-import { FLAGS, OBJECTS, UNKNOWN, chiefName } from "../../sage-core/state-words.mjs";
+import { chiefSub, milestoneLink, ofChief, questionLink, taskLink } from "./task.jsx";
+import { FLAGGED, OBJECTS, UNKNOWN, chiefName } from "../../sage-core/state-words.mjs";
 
 const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
@@ -23,7 +23,7 @@ function Counts({ model, previous, now }) {
   const known = model.tasks.some(task => task.addedAt), unknown = model.tasks.some(task => !task.addedAt);
   const items = [
     ["merged", after(model.tasks.filter(task => task.state === "merged").map(task => task.doneAt), since), "Merged", "tasks merged into main"],
-    ["stuck", model.counts.stuck, `${FLAGS[0]}, ${FLAGS[2]} or ${FLAGS[4]}`, "runs that failed in the last 24 hours, or agents silent for 30 min or stopped now"],
+    ["stuck", model.counts.stuck, FLAGGED[0].toUpperCase() + FLAGGED.slice(1), "runs of open tasks that failed in the last 24 hours and did not run again, or agents silent for 30 min or stopped"],
     ["added", known ? after(model.tasks.map(task => task.addedAt), since) : null, "New tasks", !known ? `${UNKNOWN} · no task in the logbook has a time when it was added` : unknown ? "tasks added to the logbook; older tasks have no time" : "tasks added to the logbook"],
   ];
   return (
@@ -33,7 +33,7 @@ function Counts({ model, previous, now }) {
         {items.map(([kind, count, label, hint]) => (
           <div className={`kpi ${kind}`} key={kind} data-count={kind}>
             <div className="n">{count ?? UNKNOWN}</div>
-            <div className="l"><span className="dot" aria-hidden="true" />{label}</div>
+            <div className="l"><span className="dot" aria-hidden="true" />{kind === "stuck" ? <a href="#agents">{label}</a> : label}</div>
             <div className="h">{hint}</div>
           </div>
         ))}
