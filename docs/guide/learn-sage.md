@@ -61,7 +61,7 @@ You can leave. The logbook keeps the state, so a later session on the same Mac c
 
 ### 5. Reviews and QA check it
 
-The implementer opens PR 41. Fresh agents review it: a code reviewer, and QA, which runs the app and tries to break it. A medium or high finding goes back to an implementer for a repair.
+The implementer opens PR 41. Fresh agents review it: a code reviewer, and QA, which runs the app, walks each changed flow as a person and tries to break it. A medium or high finding goes back to an implementer for a repair.
 
 One full set of fresh reviews and QA on one commit is a cycle, and a new commit starts again from cycle 1. T1 needs 1 clean cycle, so its step line shows "Review 1 of 1".
 

@@ -1095,6 +1095,23 @@ test("shared role instructions ship outside the checkout and generate existing s
   }
 });
 
+test("each plugin's built QA role walks each changed flow as a person before it tries to break the change", async t => {
+  for (const provider of ["claude", "codex"]) {
+    const f = await roleInstructionsFixture(t, provider);
+    const texts = [f.api.renderRoleInstructions("qa", f.bindings.qa)];
+    if (provider === "claude") texts.push(readFileSync(join(f.plugin, "agents", "qa.md"), "utf8"));
+    for (const text of texts) {
+      const steps = text.split("\n## ")[1];
+      const walk = steps.match(/^(4\. Walk each changed flow as a person[^\n]*\n(?: {3}- [^\n]*\n)+)5\. Try to break it/m);
+      assert(walk, `${provider}: the walkthrough is step 4, after running the result and before trying to break it`);
+      for (const part of [/cognitive walkthrough/, /persona and one goal/, /real start/, /Do not use what you know of the code/,
+        /try to reach this result\?/, /notice the control\?/, /link the control to the result\?/, /see progress after the action\?/,
+        /stuck point/, /high when the person cannot finish/, /no surface that a person uses/])
+        assert.match(walk[1], part, `${provider}: the walkthrough step lacks ${part}`);
+    }
+  }
+});
+
 test("shared role instructions require exact packaged provider bindings and refuse unknown roles", async t => {
   const f = await roleInstructionsFixture(t);
   for (const role of ["chief-of-staff", "../state", "report", null, {}, "unknown"]) assert.throws(() => f.api.renderRoleInstructions(role), /Unknown child role/);
