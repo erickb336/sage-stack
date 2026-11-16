@@ -7,6 +7,7 @@ import { Overview, ago } from "./overview.jsx";
 import { Pulls } from "./pulls.jsx";
 import { Tasks } from "./tasks.jsx";
 import { Picker, Signal, projectNamed, projectOfKey, projectView } from "./projects.jsx";
+import { ArchiveFoot, ArchiveLayer, WelcomeBack } from "./archive.jsx";
 import { useModel, useNow, when } from "./use-model.js";
 import { OBJECTS, runWord } from "../../sage-core/state-words.mjs";
 
@@ -188,7 +189,8 @@ export function App() {
         </header>
         {model && <ChiefChips chiefs={model.chiefs} filter={filter} setFilter={setFilter} />}
         <main className="main">
-          {model ? <><Banner model={model} link={link} lostAt={lostAt} now={now} />{unknown && <p className="banner" role="status">This board shows no project {unknown}, so it opened {current.name}.</p>}{body}</> : <NoData link={link} />}
+          {model ? <><Banner model={model} link={link} lostAt={lostAt} now={now} />{unknown && <p className="banner" role="status">This board shows no project {unknown}, so it opened {current.name}.</p>}
+            <ArchiveLayer all={all} current={current} now={now} />{page.hash === "" && current && <WelcomeBack key={`${current.key} ${current.welcome}`} project={current} model={model} now={now} />}{body}{page.hash === "" && <ArchiveFoot project={current} />}</> : <NoData link={link} />}
         </main>
       </div>
     </div>

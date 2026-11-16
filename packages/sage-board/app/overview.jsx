@@ -42,7 +42,7 @@ function Counts({ model, previous, now }) {
   );
 }
 
-function NeedRow({ need, now }) {
+function NeedRow({ need, now, archived }) {
   const asked = need.askedAt ? ago(need.askedAt, now) : null;
   return (
     <li data-need={need.key}>
@@ -56,6 +56,7 @@ function NeedRow({ need, now }) {
           {need.gate && <span className="mono">{need.gate}</span>}
           {need.task && <a href={taskLink(need.task.key)}>{need.task.id} · {need.task.title}</a>}
           <span>{asked ? `asked ${asked}` : "time not recorded"}</span>
+          {archived && <span className="need">Restore to answer</span>}
         </p>
       </div>
     </li>
@@ -124,12 +125,12 @@ function NeedsYou({ model, shown, now }) {
     <section className="card" aria-labelledby="needs-h">
       <div className="card-h">
         <h2 id="needs-h">Needs you</h2>
-        {needs.length > 0 && <span className="badge need" aria-label={`${needs.length} open`}>{needs.length}</span>}
+        {needs.length > 0 && (model.archived ? <span className="badge">{needs.length} {needs.length === 1 ? "waits" : "wait"}</span> : <span className="badge need" aria-label={`${needs.length} open`}>{needs.length}</span>)}
         <span className="grow" />
-        <span className="hint">Oldest first · {writes === "paired" ? "open a question to answer it here" : "answer in the chief's chat, or pair this browser"}</span>
+        <span className="hint">Oldest first · {model.archived ? "the project is archived: answers wait until Restore" : writes === "paired" ? "open a question to answer it here" : "answer in the chief's chat, or pair this browser"}</span>
       </div>
       {needs.length
-        ? <ul className="needs">{needs.map(need => <NeedRow key={need.key} need={need} now={now} />)}</ul>
+        ? <ul className="needs">{needs.map(need => <NeedRow key={need.key} need={need} now={now} archived={model.archived && need.project !== null} />)}</ul>
         : <p className="empty">Nothing needs you now.</p>}
       <Waits answered={answered} chiefs={model.chiefs} now={now} />
       <Stopped model={model} shown={shown} />

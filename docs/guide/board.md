@@ -91,10 +91,33 @@ Each page of the board in the browser shows one project: the Overview, Tasks, Ag
 - **No project in the link:** after `show board for all`, or from a folder of no project, the board opens on the project that you looked at last in this browser. A name in the address that the board does not show opens that last project too, with a short notice that names it.
 - **The address:** it keeps the project, for example `/app/#tasks?project=sage-43265b`. A reload keeps the project, and Back returns to the project before.
 - **The picker:** click the project's name at the start of the top bar. Projects that need you come first, then the others by their last work. A row says "2 need you", "1 agent · 5 min ago" or how long ago the last work was.
+- **Find:** with 8 or more projects, the field "Find a project" at the top of the picker filters the rows by name.
 - **Older:** a project with no work for 30 days folds into the Older list by itself, also when it has open tasks. A project with a question that waits for you never folds. An Older project opens like any other, and it comes back to the top list when work starts.
 - **Work:** a run, a decision, a question asked or answered, or a merge. A project with no task uses the time of its decisions.
-- **Archived:** a project that you archived is in the Archived list, and its name has the mark "archived". Its pages still open, with its tasks, its questions and its agents; the board takes no answer for it.
+- **Archived:** a project that you archived is in the Archived list, with the day of the archive and a Restore button, and its name has the mark "archived". Its pages still open under a banner with Restore, but the board takes no answer for it: its Needs you card marks each question "Restore to answer" ([Archive a project](#archive-a-project)).
 - **The signal:** "2 other projects need you" in the top bar counts the other projects with a question for you. Older and archived projects never count. A click lists them, and a click on one opens its Overview, with its Needs you.
+
+## Archive a project
+
+Archive puts a project away when you stop work on it. Restore brings it back where it was. Both need a [paired browser](#act-from-the-board), or ask the chief in the project's chat; when the browser is not paired, the confirm has the pairing box.
+
+1. **Archive:** point to the project's row in the picker and choose Archive, or choose "Archive project" at the foot of its Overview.
+2. **Confirm:** the board asks first. It names what the logbook keeps (tasks, milestones, findings and answers), and it warns when agents run, pull requests are open or a question waits for you:
+   - A running agent finishes its run. Then the chief starts nothing new in the project.
+   - An open pull request stays open on GitHub. Nothing closes or merges it.
+   - A question waits in the archive. You answer it after Restore.
+
+   The confirm keeps the keyboard inside it, and Escape closes it.
+3. **Undo:** for 10 seconds after the archive, the note "<project> is archived" has Undo. Undo opens no Welcome back. After that, use Restore.
+4. **Restore:** choose Restore in the banner on each page of the archived project, or on its row in the Archived list of the picker.
+5. **Welcome back:** after Restore, the Overview shows where each task stood (the states that the logbook recorded), what waits for you and the next step. Open pull requests may need a merge of main and fresh checks, and the chief checks this first; the board runs no Git, so it counts no new commits of main. Welcome back ends when you close it or when a run starts.
+
+What the archive writes:
+
+- The board runs `config archived=yes` (Archive) or `config archived=no` (Restore, Undo) through the state tool, in each live logbook of the project: the shared logbook, or a Claude or Codex logbook of a project that has not moved to the shared root.
+- The state tool records one decisions row for each change, with its time. The board reads the newest row for "Archived on 12 Aug" and for Welcome back.
+- When one of two logbooks refuses, the note names it, for example "Archived in 1 of 2 logbooks. The Codex logbook of recipe-box did not save.", with the reason and Try again, which runs the same Archive or Restore. The board shows the project as archived only when every logbook agrees.
+- The chat that sent the link names its project. When that project is archived, the banner says so, and you can restore it there.
 
 ## The Overview
 
@@ -211,6 +234,8 @@ With a paired browser, you act from the Overview:
 | Rename a chief | 2: the chief's menu (▾), then Rename | `chief name`. An empty name clears your name. |
 | Show only one chief's work | 1: the chief's chip. "All chiefs" shows all again | Nothing: the filter holds on each page, in this browser tab. |
 | Give a task of a stopped chief to another chief | 2: Give to another chief, then Open the takeover question | `gate give`. Nothing moves until you answer the takeover question. |
+| Archive the project | 2: Archive project (at the foot), then Archive. Or 3 from the picker | `config archived=yes` in each logbook of the project ([Archive a project](#archive-a-project)). |
+| Restore an archived project | 1: Restore, in the banner or in the picker's Archived list | `config archived=no` in each logbook of the project. |
 | See what changed since you looked | 0 | Nothing on the Mac: each browser keeps the time when you last left the board (the tab closed, or hidden for 5 minutes). A reload keeps the counts. |
 
 The first answer wins. When you answer in a chat or on a card first, the board shows where and when, for example "Answered first in C2's chat at 14:51", and a later board answer is not recorded.
@@ -255,11 +280,18 @@ If the page shows no pairing card, the board that runs is older than your sage: 
 2. The browser has the pairing cookie (`HttpOnly; SameSite=Strict`). The board keeps only its hash, in the board's state folder (`~/.config/sage-board/state`).
 3. The request carries the pairing token of the same browser. The server gives it to the page once, when you pair, and keeps only its hash. The page keeps it in `localStorage`, which belongs to the board's own address and port, and a `/pages` page runs in a sandbox without it.
 4. An answer names the digest of the question and the options that you saw. When the question changed, the state tool refuses the answer.
-5. The board runs only your commands: `gate answer --via board`, `gate undo`, `gate give` and `chief name`, through the state tool, in its own thread. It never claims, accepts or writes a task.
+5. The board runs only your commands: `gate answer --via board`, `gate undo`, `gate give`, `chief name`, and for Archive and Restore exactly `config archived=yes` or `config archived=no`, through the state tool, in its own thread. It never claims, accepts or writes a task.
 
 A browser sends the cookie to every server on `127.0.0.1`, also on another port. That server never gets the token, so the cookie alone writes nothing.
 
-The board writes only a shared logbook. A logbook with no checkout on this Mac refuses, and you answer in the chief's chat.
+Which logbooks the board writes:
+
+- Answers, undo, give and names write only a shared logbook, and only for a project that is not archived.
+- Archive and Restore name a project of the board, never a logbook or a path. They also write a Claude or Codex logbook of that project.
+- For a Claude or Codex logbook, the board reads the checkout from the logbook's `checkout.txt`. It writes only when the state tool finds that same logbook folder for that checkout.
+- A logbook that moved to the shared root, a `checkout.txt` that is a link, or a checkout of another project refuses.
+- A logbook with no checkout on this Mac refuses. Then answer or archive in the chief's chat.
+- A Claude or Codex logbook without a `checkout.txt` refuses too, because the board cannot check its checkout. The note says so. Archive or restore it in the project's own chat.
 
 An agent runs as your user, so a script that builds the state folder's path while it runs can still read the cookie's hash file. The sandbox is the full protection.
 
