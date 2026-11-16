@@ -70,7 +70,7 @@ async function board(t, options = {}) {
   const port = await freePort();
   await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify([{ id: "shared", path: env.SAGE_SHARED_HOME }])], { output: () => {}, env });
   const stateDir = join(base, "home", ".config", "sage-board", "state");
-  const server = createBoardServer({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port, app: APP, settleReads: [], stateDir, ...options });
+  const server = createBoardServer({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair", ...options });
   await server.start();
   t.after(() => server.close());
   const origin = `http://127.0.0.1:${port}`;
