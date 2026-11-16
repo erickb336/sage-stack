@@ -176,7 +176,7 @@ test("T1063, T1083: each PR number links to GitHub, each title opens the task's 
   assert.equal(await page.evaluate(() => location.hash), `#task?key=${encodeURIComponent(KEY("T5"))}`);
   assert.equal(await page.locator(".taskpage .back").textContent(), "‹ Pull requests");
   await page.goBack();
-  assert.equal(await page.evaluate(() => location.hash), "#pull-requests");
+  assert.equal(await page.evaluate(() => location.hash), "#pull-requests?project=sample-app-abc123");
   await page.waitForFunction(key => document.activeElement?.dataset.task === key, KEY("T5"));
   await page.getByRole("button", { name: "Graph" }).click();
   await page.locator(`.gnode[data-task="${KEY("T6")}"]`).click();
@@ -285,18 +285,20 @@ test("F-T1081-2, -9, -14, -8, -25, -7, -3, -20, -21, -1: each edge case goes to 
   assert.deepEqual(problems, []);
 });
 
-test("F-T1081-22: with two projects, each row and each box names its project", async t => {
+test("F-T1081-22, T1135: with two projects, the list and the graph show the chosen project's pull requests only", async t => {
   const second = (logbook, root) => {
     cpSync(logbook, join(root, "other-app-def456"), { recursive: true });
     appendFileSync(join(root, "projects.tsv"), `other-app-def456\t${hoursFromNow(-90)}\tinit\n`);
   };
-  const { page } = await open(t, { edit: second }, "/app/#pull-requests");
-  const rows = page.locator("li.prow").filter({ hasText: "Sample shared limits" });
-  await rows.nth(1).waitFor();
-  assert.deepEqual((await rows.locator(".meta").allInnerTexts()).map(text => text.match(/sample-app|other-app/)?.[0]).sort(), ["other-app", "sample-app"]);
+  const { page } = await open(t, { edit: second }, "/app/#pull-requests?project=other-app-def456");
+  const books = async selector => [...new Set((await page.locator(selector).evaluateAll(items => items.map(item => item.dataset.prTask ?? item.dataset.task))).map(key => key.slice(0, key.lastIndexOf("/"))))];
+  await page.locator("li.prow").first().waitFor();
+  assert.deepEqual(await books("li.prow"), ["shared/other-app-def456"]);
+  assert.equal(await page.locator("li.prow").filter({ hasText: "Sample shared limits" }).count(), 1, "the twin's row is not on this page");
   await page.getByRole("button", { name: "Graph" }).click();
   await page.locator(".gnode").first().waitFor();
-  assert.deepEqual((await page.locator(".gnode", { hasText: "Sample shared limits" }).locator(".g-head span").allTextContents()).map(text => text.match(/sample-app|other-app/)?.[0]).sort(), ["other-app", "sample-app"]);
+  assert.deepEqual(await books(".gnode[data-task]"), ["shared/other-app-def456"]);
+  assert.doesNotMatch((await page.locator(".gnode .g-head").allTextContents()).join(" "), /sample-app|other-app/, "no box names a project");
 });
 
 const inCanvas = page => page.evaluate(() => {

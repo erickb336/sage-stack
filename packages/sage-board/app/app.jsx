@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { TaskPage, taskLink } from "./task.jsx";
 import { ChiefChips, QuestionView } from "./actions.jsx";
 import { Agents, LimitCounts } from "./agents.jsx";
@@ -6,6 +6,7 @@ import { AgentsIcon, AlertIcon, LeafIcon, MoonIcon, OverviewIcon, PullsIcon, Sun
 import { Overview, ago } from "./overview.jsx";
 import { Pulls } from "./pulls.jsx";
 import { Tasks } from "./tasks.jsx";
+import { Picker, Signal, projectNamed, projectOfKey, projectView } from "./projects.jsx";
 import { useModel, useNow, when } from "./use-model.js";
 import { OBJECTS, runWord } from "../../sage-core/state-words.mjs";
 
@@ -18,11 +19,13 @@ const PAGES = [
 ];
 const QUESTION = { hash: "question", name: OBJECTS.question.label, hidden: true };
 const TASK = { hash: "task", name: OBJECTS.task.label, hidden: true };
-const FILTER_KEY = "board-chief";
+const FILTER_KEY = "board-chief", PROJECT_KEY = "board-project";
+const LISTED = PAGES.map(page => page.hash);
 
 const clock = at => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 function pageOf(hash) {
-  const [path, query = ""] = hash.replace(/^#\/?/, "").split("?");
+  let [path, query = ""] = hash.replace(/^#\/?/, "").split("?");
+  if (path.includes("=")) [path, query] = ["", path];
   return { ...([...PAGES, QUESTION, TASK].find(page => page.hash === path) ?? PAGES[0]), params: new URLSearchParams(query) };
 }
 function pageWithOldTaskLinkMoved() {
@@ -114,15 +117,33 @@ function useChiefFilter() {
   return [filter, set];
 }
 
+function useProject(all, page) {
+  const last = useRef(null);
+  if (last.current === null) try { last.current = localStorage.getItem(PROJECT_KEY) ?? ""; } catch { last.current = ""; }
+  const projects = all?.projects ?? [], keyed = ["task", "question"].includes(page.hash) && projectOfKey(projects, page.params.get("key"));
+  const current = all ? keyed || projectNamed(projects, page.params.get("project")) || projectNamed(projects, last.current) || projects[0] || null : null;
+  useEffect(() => {
+    if (!current) return;
+    last.current = current.key;
+    try { localStorage.setItem(PROJECT_KEY, current.key); } catch {}
+    const params = pageOf(location.hash).params;
+    if (!LISTED.includes(page.hash) || params.get("project") === current.key) return;
+    params.set("project", current.key);
+    history.replaceState(history.state, "", `#${page.hash}?${params}`);
+  }, [current?.key, page]);
+  return current;
+}
+
 export function App() {
-  const { model, link, lostAt } = useModel("/app/events"), now = useNow();
-  const page = useHashPage(!!model);
+  const { model: all, link, lostAt } = useModel("/app/events"), now = useNow();
+  const page = useHashPage(!!all);
+  const current = useProject(all, page);
+  const model = all && projectView(all, current?.key ?? null);
   const [theme, flip] = useTheme();
   const [chosen, setFilter] = useChiefFilter();
   const filter = model?.chiefs.some(chief => chief.key === chosen) ? chosen : null;
   const picked = model?.chiefs.find(chief => chief.key === filter);
   const shown = (logbook, id) => !filter || `${logbook}/${id}` === filter;
-  const crumb = model?.projects.length === 1 ? model.projects[0] : "All projects";
   const next = theme === "dark" ? "light" : "dark";
   const open = model ? model.tasks.filter(task => !task.ended).length : 0;
   const prs = model ? model.tasks.filter(task => task.pr && !task.ended).length : 0;
@@ -130,7 +151,7 @@ export function App() {
   const body = page.hash === "" ? <Overview model={model} shown={shown} /> : page.hash === "tasks" ? <Tasks model={model} params={page.params} chief={picked} />
     : page.hash === "pull-requests" ? <Pulls model={model} chief={picked} />
     : page.hash === "agents" ? <Agents model={model} chief={picked} />
-    : page.hash === "question" ? <QuestionView needKey={page.params.get("key") ?? ""} model={model} theme={theme} />
+    : page.hash === "question" ? <QuestionView needKey={page.params.get("key") ?? ""} model={model} theme={theme} archived={!!current?.archived} />
     : page.hash === TASK.hash ? <TaskPage key={page.params.get("key")} taskKey={page.params.get("key") ?? ""} tab={page.params.get("tab")} at={model?.at} from={history.state?.from} /> : null;
   return (
     <div className="app">
@@ -155,15 +176,16 @@ export function App() {
       </aside>
       <div className="col">
         <header className="top">
-          <span className="crumb">{crumb}<span aria-hidden="true">/</span><b>{page.name}</b></span>
+          <span className="crumb">{all && <Picker projects={all.projects} current={current} page={LISTED.includes(page.hash) ? page.hash : ""} now={now} />}<span aria-hidden="true">/</span><b>{page.name}</b></span>
+          {all && <Signal projects={all.projects} current={current} />}
           <span className="grow" />
-          {model && <LimitCounts agents={model.agents} />}
+          {model && <LimitCounts agents={model.agents} all={all.agents} />}
           <Status model={model} link={link} lostAt={lostAt} now={now} />
           <button type="button" className="theme" onClick={flip} aria-label={`Switch to the ${next} theme`} title={`Switch to the ${next} theme`}>
             {theme === "dark" ? <SunIcon /> : <MoonIcon />}
           </button>
         </header>
-        {model && <ChiefChips chiefs={model.chiefs} filter={filter} setFilter={setFilter} many={model.projects.length > 1} />}
+        {model && <ChiefChips chiefs={model.chiefs} filter={filter} setFilter={setFilter} />}
         <main className="main">
           {model ? <><Banner model={model} link={link} lostAt={lostAt} now={now} />{body}</> : <NoData link={link} />}
         </main>

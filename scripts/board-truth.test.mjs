@@ -21,7 +21,6 @@ test("T1120 S3: the problem count counts a failed run only while its task is ope
   const { overview } = sample(t);
   const failed = overview.agents.flatMap(book => book.runs.filter(run => run.look && run.status === "failed").map(run => `${run.id} ${run.task.id}`));
   assert.deepEqual(failed, ["R254 T210"], "R250 (T207 merged), R251 (T208 abandoned) and R252 (T209, which ran its implementer again) are not problems");
-  assert.equal(overview.counts.stuck, overview.agents.reduce((sum, book) => sum + book.look, 0), "the Overview and the Agents page count the same runs");
 });
 
 test("T1120 S6: a task that waits for an abandoned task says that it cannot start, on its row and its page", t => {

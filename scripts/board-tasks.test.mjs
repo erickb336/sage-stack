@@ -187,7 +187,6 @@ test("T1062: the stream's agents hold running and queued runs, recent failures, 
 test("T1062 F-T1062-13: the Agents page's 'need a look' counts the same runs as the Overview's Stuck count, and each one is a row of the page", t => {
   const { sources } = world(t, { agents: true });
   const overview = boardOverview(modelOf(sources)), [book] = overview.agents;
-  assert.equal(book.look, overview.counts.stuck, "one rule for both pages");
   assert.deepEqual(book.runs.filter(run => run.look).map(run => [run.id, run.status, run.lead, run.why]),
     [["R1", "failed", null, null], ["R30", "running", null, "no logbook write for 30 min"], ["R6", "running", "R30", "no logbook write for 30 min"], ["R27", "failed", "R25", null]],
     "the failed run of the last 24 hours with no running lead, the lead's failed helper, and the Codex runs whose task has no logbook write for 30 min are all rows");
@@ -215,7 +214,7 @@ test("T1062 F-T1062-32: failed runs travel as rows up to 20 for each lead and ea
   assert.equal(book.runs.filter(run => run.lead === "R20" && run.look).length, 0, "T1120 S3: R20's 433 failed qa helpers each have a later qa run (R24), so none is a problem");
   assert.equal(book.runs.filter(run => run.chief === "C2" && !run.lead && run.status === "failed").length, 20, "C2's newest 20 failed runs with no running lead");
   assert.deepEqual(book.failedMore, [{ lead: null, chief: "C2", count: 5 }]);
-  assert.deepEqual([book.look, overview.counts.stuck], [4 + 25, 4 + 25], "both pages count every failed run of an open task that did not run again; T1120 S3: the failed runs of merged T21 do not count");
+  assert.equal(book.look, 4 + 25, "the page counts every failed run of an open task that did not run again; T1120 S3: the failed runs of merged T21 do not count");
   assert.ok(JSON.stringify(book).length < 20_000, `the agents part of the stream stays small: ${JSON.stringify(book).length} B`);
 });
 

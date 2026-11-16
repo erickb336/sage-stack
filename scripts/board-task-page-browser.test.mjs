@@ -84,7 +84,7 @@ test("T1083: a card's title and About have one address, the task page; Back retu
   const tab = await opened;
   await tab.locator(".taskpage h1", { hasText: "Sample chief records" }).waitFor();
   assert.equal(await tab.locator(".taskpage .back").textContent(), "‹ Tasks", "a new tab has no page to go back to, so the back link opens the Tasks page");
-  assert.equal(new URL(page.url()).hash, "#agents", "the first tab stays on the Agents page");
+  assert.equal(new URL(page.url()).hash, "#agents?project=sample-app-abc123", "the first tab stays on the Agents page");
   assert.deepEqual(problems, []);
 });
 
@@ -140,7 +140,7 @@ test("T1083 F-T1083-3, F-T1083-5: the question page and an old #tasks?task= addr
   assert.equal(await page.locator(".taskpage .back").textContent(), "‹ Agents", "task T2 still goes back to the Agents page");
   await page.locator(".taskpage .back").click();
   await page.locator(".chief-box").first().waitFor();
-  assert.equal(new URL(page.url()).hash, "#agents");
+  assert.equal(new URL(page.url()).hash, "#agents?project=sample-app-abc123");
   assert.deepEqual(problems, []);
 });
 

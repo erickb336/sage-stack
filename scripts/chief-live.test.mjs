@@ -368,7 +368,7 @@ test("the board model lists each chief with provider, name, sage mode, autopilot
   assert.deepEqual(model.diagnostics, [], "the new files never make the board stale");
   assert.deepEqual(model.warnings.map((w) => w.message), ["live/C5.json: invalid JSON"]);
   const overview = boardOverview(model);
-  assert.deepEqual(overview.chiefs.map((c) => [c.id, c.project]), ["C1", "C2", "C3", "C4", "C5"].map((id) => [id, project.name]));
+  assert.deepEqual(overview.chiefs.map((c) => [c.id, c.project]), ["C1", "C2", "C3", "C4", "C5"].map((id) => [id, project.key]), "T1135: each chief names its project by key");
   assert.equal(overview.next, now - MINUTE + 30 * MINUTE + 1, "the overview wakes when the fresh chief would stop");
 });
 

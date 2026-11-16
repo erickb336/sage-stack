@@ -335,12 +335,12 @@ test("T1125: one click on the chief's link pairs a fresh browser, takes the key 
   const page = await w.context.newPage();
   await page.goto(link);
   await page.getByText("This browser is paired. You can now answer questions and send from the board. The link is used up.").waitFor();
-  assert.equal(page.url(), `${w.origin}/app/`, "the key left the address bar");
+  assert.match(page.url(), new RegExp(`^${w.origin}/app/(#\\?project=[a-z0-9-]+)?$`), "the key left the address bar; T1135: the board may add the project");
   if (SHOTS) await page.screenshot({ path: join(SHOTS, "t1125-paired.png") });
   await page.goBack();
   assert.equal(page.url(), "about:blank", "no history entry keeps the key: the entry before the board is the new tab's blank page");
   await page.goForward();
-  assert.equal(page.url(), `${w.origin}/app/`, "the board's own entry has no key");
+  assert.match(page.url(), new RegExp(`^${w.origin}/app/(#\\?project=[a-z0-9-]+)?$`), "the board's own entry has no key");
   await page.locator("#counts-h").waitFor();
   assert.equal(await page.getByRole("heading", { name: "Pair this browser to act from the board" }).count(), 0, "the pairing card is gone");
   await page.getByRole("link", { name: MESSAGE.title }).click();
@@ -352,7 +352,7 @@ test("T1125: one click on the chief's link pairs a fresh browser, takes the key 
   const second = await other.newPage();
   await second.goto(link);
   await second.getByText(/^Another browser on this Mac used this link at \d\d:\d\d\. This browser still reads only\./).waitFor();
-  assert.equal(second.url(), `${w.origin}/app/`);
+  assert.match(second.url(), new RegExp(`^${w.origin}/app/(#\\?project=[a-z0-9-]+)?$`));
   if (SHOTS) await second.screenshot({ path: join(SHOTS, "t1125-used.png") });
   await second.getByRole("button", { name: "Unpair every browser" }).click();
   await second.getByText(/^Every browser is unpaired: each one reads only now\./).waitFor();

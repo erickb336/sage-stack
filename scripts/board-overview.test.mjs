@@ -11,6 +11,7 @@ const NOW = "2026-11-13T12:00:00.000Z";
 const source = (tables = appTables(NOW), label = "claude") => ({ id: label, label, provider: null, config: {}, diagnostics: [], hooks: { present: false, slots: [], helpers: [], problem: null },
   projects: [{ key: `${label}/sample-app-abc123`, source: label, name: "sample-app-abc123", checkout: "/sample/app", displayName: "sample app", diagnostics: [], warnings: [], tables, observations: { version: 1, records: [] } }] });
 const overview = (tables, now = NOW, label) => boardOverview(buildBoardModel([source(tables, label)], { now }));
+const stuck = view => view.agents.reduce((n, book) => n + book.look, 0);
 
 test("T1054: Needs you lists each open question oldest first, with its recommendation, gate, task and the time it was asked", () => {
   const { needs } = overview();
@@ -40,14 +41,14 @@ test("T1054: milestones come by the top priority of their open tasks, with progr
   ]);
   const later = overview(undefined, "2026-11-19T12:00:00.000Z");
   assert.deepEqual(later.milestones.map(m => m.id), ["M2", "M1"], "M3's last task merged 30 h before NOW, so it leaves after 7 days");
-  assert.equal(later.hiddenDone, 1);
+  assert.deepEqual(later.hiddenDone, { "sample-app-abc123": 1 }, "T1135: by project");
 });
 
-test("T1054: the counts cover the last 24 hours: a merge 2 h ago counts and one 30 h ago does not; a failed run counts as stuck", () => {
-  const { counts, next } = overview();
-  assert.deepEqual(counts, { merged: 1, stuck: 1, added: null });
-  assert.equal(next, Date.parse("2026-11-14T10:00:00.000Z") + 1, "T1's merge leaves the window first");
-  assert.deepEqual(overview(undefined, "2026-11-14T13:00:00.000Z").counts, { merged: 0, stuck: 0, added: null });
+test("T1054: the board reads again when a merge leaves the last 24 hours; a failed run of the last 24 hours counts as stuck", () => {
+  const now = overview();
+  assert.equal(stuck(now), 1);
+  assert.equal(now.next, Date.parse("2026-11-14T10:00:00.000Z") + 1, "T1's merge leaves the window first");
+  assert.equal(stuck(overview(undefined, "2026-11-14T13:00:00.000Z")), 0);
 });
 
 test("F-T1065-2: a Codex run that writes nothing to the logbook for 30 minutes counts as stuck, and the board wakes when one goes silent", () => {
@@ -59,14 +60,13 @@ test("F-T1065-2: a Codex run that writes nothing to the logbook for 30 minutes c
     return overview(tables, NOW, "codex");
   };
   const silentNow = codex(40), [book] = silentNow.agents;
-  assert.deepEqual(silentNow.counts, { merged: 1, stuck: 2, added: null }, "R2 started 40 min ago, and T3 has no later write");
-  assert.equal(book.look, silentNow.counts.stuck, "the Agents page counts the same runs as the Overview");
+  assert.equal(book.look, 2, "R2 started 40 min ago, and T3 has no later write");
   assert.deepEqual(book.runs.filter(run => run.status === "running").map(run => [run.id, run.state, run.look, run.why]), [["R2", "stuck", true, "no logbook write for 40 min"]]);
-  assert.deepEqual(codex(40, [{ at: minutesAgo(5), task: "T3", decision: "round 1", why: "sample" }]).counts, { merged: 1, stuck: 1, added: null }, "a write on T3 5 min ago shows that the run is alive");
+  assert.equal(stuck(codex(40, [{ at: minutesAgo(5), task: "T3", decision: "round 1", why: "sample" }])), 1, "a write on T3 5 min ago shows that the run is alive");
   const quiet = codex(10);
-  assert.deepEqual(quiet.counts, { merged: 1, stuck: 1, added: null });
+  assert.equal(stuck(quiet), 1);
   assert.equal(quiet.next, Date.parse(NOW) + 20 * 60_000, "the board reads again when R2 reaches 30 silent minutes");
-  assert.equal(overview(undefined, NOW, "claude").counts.stuck, 1, "a Claude run with no hook notes is not known, so only the failed run R1 counts");
+  assert.equal(stuck(overview(undefined, NOW, "claude")), 1, "a Claude run with no hook notes is not known, so only the failed run R1 counts");
 });
 
 const LOGBOOK = "f".repeat(64), minutesAgo = minutes => new Date(Date.parse(NOW) - minutes * 60_000).toISOString();
@@ -93,17 +93,17 @@ test("F-T1062-21, F-T1062-24, F-T1065-3: Stuck counts the one list: failed in 24
   const [book] = world.agents, byId = Object.fromEntries(book.runs.map(run => [run.id, run]));
   assert.deepEqual([byId.R50.state, byId.R51.state, byId.R52.state, byId.R53.state, byId.R2.state], ["stuck", "stuck", "stop", "long", "work"]);
   assert.deepEqual(lookRuns(book), ["R1", "R50", "R51", "R52"], "the failed run, the two silent agents and the stopped helper; R53 only runs long");
-  assert.equal(world.counts.stuck, 4, "the two slots with no running logbook run (R99, and one with no run mark) count on neither page");
-  assert.equal(book.look, world.counts.stuck, "one list: the Agents page's 'need a look' is the Overview's Stuck");
+  assert.equal(book.look, 4, "the two slots with no running logbook run (R99, and one with no run mark) count on neither page");
 });
 
-test("F-T1062-27, F-T1062-29: an archived project and a run that failed after the model's time count on neither page", () => {
+test("F-T1062-29, T1135 R11: a run that failed after the model's time does not count; an archived project keeps its agents, on its own pages only", () => {
   const future = hooked({ runs: [["R60", "T2", "qa", "failed", 10, -30]], slots: [["R2", 1]] });
-  assert.equal(future.counts.stuck, 1, "R60's end is 30 min after the model's time, so only R1 counts");
+  assert.equal(stuck(future), 1, "R60's end is 30 min after the model's time, so only R1 counts");
   assert.deepEqual(lookRuns(future.agents[0]), ["R1"]);
   const archived = hooked({ runs: [["R50", "T2", "lead", "running", 90]], slots: [["R50", 40], ["R2", 1]], archived: true });
-  assert.deepEqual([archived.counts.stuck, archived.agents], [0, []], "an archived project's silent lead and failed run count nowhere");
-  assert.equal(hooked({ runs: [["R50", "T2", "lead", "running", 90]], slots: [["R50", 40], ["R2", 1]] }).counts.stuck, 2, "the same lead counts when the project is not archived");
+  assert.deepEqual(archived.projects.map(project => [project.key, project.list, project.archived]), [["sample-app-abc123", "archived", true]]);
+  assert.deepEqual(archived.agents.map(book => [book.project, lookRuns(book)]), [["sample-app-abc123", ["R50"]]], "the silent lead shows on the archived project's Agents page; its failed run R1 needs no look there");
+  assert.deepEqual(lookRuns(hooked({ runs: [["R50", "T2", "lead", "running", 90]], slots: [["R50", 40], ["R2", 1]] }).agents[0]), ["R1", "R50"], "the same lead and the failed run when the project is not archived");
 });
 
 test("F-T1065-1: a milestone names its abandoned tasks", () => {
@@ -146,4 +146,17 @@ test("F-T1062-38: a running lead with no valid start takes no helper by time; wi
   for (const start of ["", "not a time"]) {
     assert.deepEqual(shown(start), [["R4", null, 0], ["R3", null, null], ["R5", null, null]], `lead start ${JSON.stringify(start)}: unknown stays unknown, so no helper and no ended helper is the lead's`);
   }
+});
+
+test("T1135 R11: the app model lists each project for the picker, and every row names its project, also in an archived project", () => {
+  const live = source(), put = source(appTables(NOW), "codex");
+  Object.assign(put.projects[0], { key: "codex/old-app-def456", name: "old-app-def456", checkout: "/sample/old-app", displayName: "old app", archived: true });
+  const view = boardOverview(buildBoardModel([live, put], { now: NOW }));
+  assert.deepEqual(view.projects.map(project => [project.key, project.name, project.list, project.archived, project.books, project.needs > 0, project.open > 0]), [
+    ["sample-app-abc123", "sample app", "needs", false, ["claude/sample-app-abc123"], true, true],
+    ["old-app-def456", "old app", "archived", true, ["codex/old-app-def456"], true, true],
+  ], "needs you first; the archived project stays, marked");
+  const of = rows => [...new Set(rows.map(row => row.project))].sort();
+  for (const rows of [view.tasks, view.needs, view.milestones, view.agents]) assert.deepEqual(of(rows), ["old-app-def456", "sample-app-abc123"], "each row names its project by key, and the archived project keeps its rows");
+  assert.deepEqual(view.needs.filter(need => need.project === "old-app-def456").map(need => need.gate), ["G4", "G5"], "its questions stay on its own page");
 });

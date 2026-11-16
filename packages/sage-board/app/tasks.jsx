@@ -29,7 +29,7 @@ function StepMark({ status }) {
   return step.word === "needs you" || step.flag ? <><span aria-hidden="true">{step.mark} </span><span className="sr">{step.text}: </span></> : null;
 }
 
-function Row({ task, at, many }) {
+function Row({ task, at }) {
   const age = task.lastActivity ? ago(task.lastActivity, at) : null, shown = task.conflicts.slice(0, SHOWN_CONFLICTS), more = task.conflicts.length - shown.length;
   return (
     <li>
@@ -37,7 +37,6 @@ function Row({ task, at, many }) {
         {task.priority ? <span className={`badge prio ${task.priority.toLowerCase()}`}>{task.priority}</span> : <span />}
         <span className="title">
           <span className="text">{controlsShown(task.title)}</span>
-          {many && <span className="kind">{task.project}</span>}
           {task.kind && <span className="kind">{task.kind}</span>}
           {shown.length > 0 && <span className="badge warn" title={more ? `May conflict with ${task.conflicts.map(other => other.id).join(", ")}` : undefined}>may conflict · {shown.map(other => other.id).join(", ")}{more > 0 && ` +${more}`}</span>}
           {task.waits && !task.ended && <span className={`badge${task.cannotStart ? " warn" : ""}`} title={task.waits}>{task.cannotStart ? `${MARKS["cannot start"]} cannot start` : "waits"}</span>}
@@ -99,8 +98,7 @@ export function Tasks({ model, params, chief = null }) {
     if (focus) requestAnimationFrame(() => document.querySelector(`[data-group="${CSS.escape(focus)}"], .lost`)?.scrollIntoView({ block: "start" }));
   }, [focus]);
 
-  const many = model.projects.length > 1;
-  const tasks = useMemo(() => model.tasks.map(task => ({ ...task, who: many ? `${chiefName(task.chief)} · ${task.project}` : chiefName(task.chief) })), [model.tasks, many]);
+  const tasks = useMemo(() => model.tasks.map(task => ({ ...task, who: chiefName(task.chief) })), [model.tasks]);
   const options = useMemo(() => Object.fromEntries(FILTERS.map(([key, , value]) => [key, [...new Set(tasks.map(value))].sort((a, b) => key === "state" ? order(WORDS, a) - order(WORDS, b) : a.localeCompare(b))])), [tasks]);
   const shown = useMemo(() => tasks.filter(task => ofChief(task, chief) && FILTERS.every(([key, , value]) => !filters[key] || value(task) === filters[key])), [tasks, chief, ...Object.values(filters)]);
   const groups = useMemo(() => {
@@ -119,7 +117,7 @@ export function Tasks({ model, params, chief = null }) {
   const milestones = new Map(model.milestones.map(milestone => [milestone.key, milestone]));
   const needsOf = key => model.needs.filter(need => need.milestone === key);
   const lost = focus && !groups.some(item => item.key === focus);
-  const row = task => <Row key={task.key} task={task} at={now} many={many} />;
+  const row = task => <Row key={task.key} task={task} at={now} />;
   return (
     <>
       <div className="page-h">
