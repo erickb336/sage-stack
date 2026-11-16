@@ -114,6 +114,29 @@ Engineering choices, such as file formats and names, are the chief's. It decides
 
 You answer in your own words, or pick an option. When you do not answer, the work behind the question waits; the rest goes on.
 
+### A design page
+
+Every design that the agents make for you is one page in the same format, in Claude and in Codex. You read it in one scroll, with no tabs and nothing behind a click. It has ten parts, in this order:
+
+1. The title, and one sentence: what changes for you.
+2. The problem: the real story as a picture, with real numbers only.
+3. After: the same story with the design in place, labelled sample.
+4. How it works: one diagram of at most 6 boxes, and the prior art.
+5. What you will see: each screen or surface that you meet, with its states side by side, in sample data.
+6. What the agents do: one plain line for each role.
+7. Rules: the rules and the edge cases.
+8. Your choices: each open question, with the recommended option first.
+9. Cost and plan: the pull requests in order, and the cost in agent time and human time.
+10. Under the hood: the engineering details, for engineers only.
+
+Each design also has the diagrams that fit it: a state chart for how a thing moves between states, an architecture diagram for the parts and their links, and a flow chart for the steps and the decisions.
+
+A design check reads the page before you get it:
+
+- It names each missing part, and it fails on a page with no diagram, tabs or hidden parts, code above "Under the hood", or invented data that is not labelled sample.
+- The designer and the arena judge run it, and the chief runs it again before it sends you the design.
+- The format and the check are in `core/references/design-format.md` and `core/design-page.mjs` in the plugin's folder.
+
 ### Each question takes one answer
 
 You can answer a question in the chat, on a choice card in Claude or in Codex, or on the board. The first answer counts, wherever you give it.

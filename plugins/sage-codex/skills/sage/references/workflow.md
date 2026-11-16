@@ -106,7 +106,7 @@ The chief keeps this order: designer → PE → the owner's answer on the design
 
 1. Record the designer run with its own branch and worktree. The branch must have no other active writer. Name each allowed artifact path in the brief.
 2. Ask `pages` for the task’s pages folder before the brief. The designer saves the prototype and screenshots there when the chief needs to record them. A prototype in the worktree can also have a copy there.
-3. Read the designer’s complete report and open the artifacts. Use `pages` with `record` to record each existing file inside that folder. Use `pages` with `run` and `text` to save the complete report, then end the actual run. Supplying report text does not create an arbitrary prototype.
+3. Read the designer’s complete report and open the artifacts. Run the design check on the page, `node <the plugin's folder>/core/design-page.mjs <page>`: a page that fails goes back to the designer. Use `pages` with `record` to record each existing file inside that folder. Use `pages` with `run` and `text` to save the complete report, then end the actual run. Supplying report text does not create an arbitrary prototype.
 4. Start a distinct PE child with its own run, the saved prototype, screenshots and designer report. Save its complete report and actual outcome. Resolve PE `CHANGE`, `blocked` and `question` outcomes before acceptance.
 5. Show the design and PE report to the owner. When the design waits for approval, record the owner’s actual design approval before starting dependent implementation. A stored report supplies no approval.
 

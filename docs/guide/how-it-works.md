@@ -29,7 +29,7 @@ The state lives in the logbook: plain files in `~/.claude/sage/<project>-<hash>/
 | --- | --- |
 | **Chief of staff** | Frames the work, picks routes, writes briefs, records results, asks you the questions |
 | **Lead** | Runs one task's pull request from the build to its clean cycles, with its own implementer, reviewers and QA |
-| **Designer** | A clickable prototype with sample data, and every state of each screen |
+| **Designer** | One [design page](using-sage.md#a-design-page) in the standard format: the story, diagrams, every state with sample data, and your choices |
 | **PE** (principal engineer) | Checks a plan or a design before the build: feasibility, data, risks, cost |
 | **Implementer** | Builds one task, runs the checks, opens the pull request, repairs findings |
 | **Code reviewer** | Correctness, data safety, regressions, test evidence |

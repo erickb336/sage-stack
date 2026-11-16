@@ -87,7 +87,7 @@ The chief of staff never edits files. It writes briefs, records verdicts and ask
 | Agent | Does | Writes? | Principles it loads |
 | --- | --- | --- | --- |
 | **chief-of-staff** | Frames the work, picks routes, writes briefs, drains reports, triages findings, keeps the ledger, asks you the questions | No: the state tool only | never-block-on-the-human, encode-lessons-in-structure, contextualize-and-write-for-the-reader |
-| **designer** | A clickable prototype with sample data, 2–3 options when the answer isn't clear, every state | Design files, own worktree | experience-first, exhaust-the-design-space, writing-standard |
+| **designer** | One design page in the design format: ten parts in one scroll, a diagram, every state side by side with sample data, 2–3 options when the answer isn't clear | Design files, own worktree | experience-first, exhaust-the-design-space, writing-standard |
 | **pe** | Checks feasibility, data, risks and cost before the build. Verdict: OK, CHANGE or QUESTION | No | foundational-thinking, boundary-discipline, laziness-protocol |
 | **implementer** | Builds one task, runs the checks, opens the pull request, repairs findings | Code, own worktree | laziness, subtract-before-you-add, test-behaviour, prove-it-works, fix-root-causes |
 | **code-reviewer** | Correctness, data safety, regressions, test evidence | No | test-behaviour, minimize-reader-load, migrate-callers |
@@ -149,7 +149,7 @@ The minimum of the size and the risk flags. The merge check blocks the merge whe
 
 ### Design: your default way to design
 
-The Design block is Orchestrator's Vision, made smaller. It works in rounds, one focus at a time: the experience, the data, the flows. The designer makes a prototype you can click, with sample data. The PE checks it. You mark each part keep, change or drop, as a choice with previews. The parts you keep go into the decision log. Implementers then build against it, and QA checks against it.
+The Design block is Orchestrator's Vision, made smaller. It works in rounds, one focus at a time: the experience, the data, the flows. The designer makes one design page in the design format: ten parts that you read in one scroll, with diagrams and sample data, and no click. The PE checks it. You mark each part keep, change or drop, as a choice with previews. The parts you keep go into the decision log. Implementers then build against it, and QA checks against it.
 
 <a id="arena"></a>
 

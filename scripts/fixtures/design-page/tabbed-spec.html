@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sample: a design as an engineering spec with tabs</title>
+<style>.tabs button{padding:4px 8px}[role=tabpanel][hidden]{display:none}</style>
+</head>
+<body>
+<main>
+<h1>Anti-decay in the flow</h1>
+<p>Sample page in the shape of a rejected design: tabs, terminal output and limit tables.</p>
+
+<h2>The real case: the hook's false refusals</h2>
+<p>Four patches in two weeks.</p>
+
+<div class="tabs" role="tablist">
+  <button role="tab" aria-selected="true">1 · Recent fixes in the brief</button>
+  <button role="tab" aria-selected="false">2 · The patch signal</button>
+  <button role="tab" aria-selected="false">3 · The decay check in a PR</button>
+</div>
+
+<section role="tabpanel">
+  <h2>1 · Recent fixes in the brief</h2>
+  <pre>$ node sage.mjs brief T42
+recent fixes: T386 T621 T632 (same symptom)
+cause step added</pre>
+</section>
+
+<section role="tabpanel" hidden>
+  <h2>2 · The patch signal</h2>
+  <pre>$ node decay.mjs signal --base main --head HEAD
+hunk 3: complexity 14 -> 19 (limit 15)</pre>
+</section>
+
+<section role="tabpanel" hidden>
+  <h2>3 · The decay check in a PR</h2>
+  <p>Run <code>decay.mjs check</code> on each new commit.</p>
+</section>
+
+<details>
+  <summary>Data and limits</summary>
+  <table><tr><th>Measure</th><th>Limit</th></tr><tr><td>Complexity</td><td>15</td></tr></table>
+</details>
+
+<h2>Data and rules</h2>
+<p>Complexity over 15 is worse.</p>
+
+<h2>Prior art</h2>
+<p>SonarQube, Tricorder, CodeScene.</p>
+
+<h2>Your 4 questions</h2>
+<p>Approve the design?</p>
+</main>
+</body>
+</html>
