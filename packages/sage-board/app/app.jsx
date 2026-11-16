@@ -131,13 +131,14 @@ function useProject(all, page) {
     params.set("project", current.key);
     history.replaceState(history.state, "", `#${page.hash}?${params}`);
   }, [current?.key, page]);
-  return current;
+  const asked = page.params.get("project");
+  return [current, current && asked && !projectNamed(projects, asked) ? asked.slice(0, 80) : null];
 }
 
 export function App() {
   const { model: all, link, lostAt } = useModel("/app/events"), now = useNow();
   const page = useHashPage(!!all);
-  const current = useProject(all, page);
+  const [current, unknown] = useProject(all, page);
   const model = all && projectView(all, current?.key ?? null);
   const [theme, flip] = useTheme();
   const [chosen, setFilter] = useChiefFilter();
@@ -187,7 +188,7 @@ export function App() {
         </header>
         {model && <ChiefChips chiefs={model.chiefs} filter={filter} setFilter={setFilter} />}
         <main className="main">
-          {model ? <><Banner model={model} link={link} lostAt={lostAt} now={now} />{body}</> : <NoData link={link} />}
+          {model ? <><Banner model={model} link={link} lostAt={lostAt} now={now} />{unknown && <p className="banner" role="status">This board shows no project {unknown}, so it opened {current.name}.</p>}{body}</> : <NoData link={link} />}
         </main>
       </div>
     </div>

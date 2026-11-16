@@ -1,4 +1,5 @@
-import { basename, isAbsolute, resolve, sep } from "node:path";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { readBoardSources } from "./board-reader.mjs";
 import { buildBoardModel, projectName } from "./board-model.mjs";
 import { renderBoardText, renderTaskText, renderBoardStatus } from "./board-render.mjs";
@@ -21,17 +22,38 @@ export const sessionRoots = (root, legacy, provider) => [...new Set([root, ...le
 
 const fold = value => String(value).normalize("NFC").toLowerCase();
 const bare = name => name.replace(/-[0-9a-f]{6}$/, "");
+const real = path => { try { return realpathSync(path); } catch { return resolve(path); } };
+function checkoutOf(folder) {
+  const start = real(folder);
+  try {
+    for (let dir = start; ; dir = dirname(dir)) {
+      const dotGit = join(dir, ".git"), kind = lstatSync(dotGit, { throwIfNoEntry: false });
+      if (kind?.isDirectory()) return dir;
+      if (kind?.isFile()) {
+        const gitDir = real(resolve(dir, /^gitdir: (.+)$/m.exec(readFileSync(dotGit, "utf8"))[1].trim()));
+        const common = real(resolve(gitDir, readFileSync(join(gitDir, "commondir"), "utf8").trim()));
+        return dirname(gitDir) === join(common, "worktrees") ? dirname(common) : dir;
+      }
+      if (dir === dirname(dir)) return start;
+    }
+  } catch { return start; }
+}
 function groupsOfThis(snapshots, project, here, now) {
-  const projects = snapshots.flatMap(source => source.projects);
+  const projects = snapshots.flatMap(source => source.projects), root = checkoutOf(project);
   let mine = projects.filter(book => book.key === here);
-  if (!mine.length) mine = projects.filter(book => book.checkout && resolve(book.checkout) === resolve(project));
-  if (!mine.length) mine = projects.filter(book => book.shared && (book.checkouts ?? []).some(item => item.root === resolve(project)));
-  if (!mine.length) mine = projects.filter(book => !book.shared && !book.old && fold(bare(book.name)) === fold(basename(project)));
+  if (!mine.length) mine = projects.filter(book => book.checkout && real(book.checkout) === root);
+  if (!mine.length) mine = projects.filter(book => book.shared && (book.checkouts ?? []).some(item => real(item.root) === root));
+  if (!mine.length) mine = projects.filter(book => !book.shared && !book.old && fold(bare(book.name)) === fold(basename(root)));
   return buildBoardModel(snapshots, { now }).projects.filter(group => group.books.some(key => mine.some(book => book.key === key)));
 }
+function groupsNamed(snapshots, name, now) {
+  const projects = snapshots.flatMap(source => source.projects);
+  return buildBoardModel(snapshots, { now }).projects.filter(group => [...group.books, group.key, group.name, ...group.terms, ...group.terms.map(bare), ...projects.filter(book => group.books.includes(book.key)).map(projectName)].some(term => fold(term) === fold(name)));
+}
 
-export function boardProjectKey({ sources, project, providerRoots = [], now = new Date().toISOString() }) {
-  const groups = groupsOfThis(readBoardSources(sources, { now: Date.parse(now), providerRoots }), project, null, now);
+export function boardProjectKey({ sources, project = null, name = null, providerRoots = [], now = new Date().toISOString() }) {
+  const snapshots = readBoardSources(sources, { now: Date.parse(now), providerRoots });
+  const groups = name === null ? groupsOfThis(snapshots, project, null, now) : groupsNamed(snapshots, name, now);
   return groups.length === 1 ? groups[0].key : null;
 }
 
@@ -51,10 +73,7 @@ export function boardView({ sources, scope = "all", project = null, logbookKey =
     if (scope === "this") {
       if (!project) throw new RangeError("this board needs the current project");
       selected = groupsOfThis(snapshots, project, here, now);
-    } else {
-      const groups = buildBoardModel(snapshots, { now }).projects;
-      selected = groups.filter(group => [group.key, group.name, ...group.terms, ...group.terms.map(bare), ...projects.filter(book => group.books.includes(book.key)).map(projectName)].some(name => fold(name) === fold(scope)));
-    }
+    } else selected = groupsNamed(snapshots, scope, now);
     if (!selected.length || scope !== "this" && selected.length !== 1) throw new RangeError(selected.length ? `The project is ambiguous. Choose: ${selected.flatMap(group => group.books).join(", ")}` : "No recorded project matches this board scope.");
     keys = new Set(selected.flatMap(group => group.books));
   }

@@ -121,7 +121,7 @@ test("T921: each board phrase gives the chief the board note in Codex, in any mo
   const off = session(), on = session();
   for (const m of S_ON) await on.prompt(m);
   const board = (scope) => [
-    `sage: the owner asked for the board. ${ESCALATED}First run, as a command of its own: node "${BOARD_CLI}" board --ensure --link --project '${scratch}'`,
+    `sage: the owner asked for the board. ${ESCALATED}First run, as a command of its own: node "${BOARD_CLI}" board --ensure --link${{ this: ` --project '${scratch}'`, all: "" }[scope] ?? ` ${scope}`}`,
     `It starts the local board server on this Mac when it is not running, and prints one line: the board's address, or why the server is not running. Then run: node "${STATE_CLI}" board ${scope} --project '${scratch}' --view chat`,
   ].join("\n");
   const read = (kind, command) => [`sage: the owner asked for ${kind}. Run: node "${STATE_CLI}" ${command}`, "Print its output word for word as the start of your reply"].join("\n");

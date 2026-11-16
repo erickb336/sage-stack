@@ -262,3 +262,29 @@ test("T1135 R2: the board link keeps a valid project in the address and drops th
   await until(() => hash(page), "#?project=old-notes-bbbbbb");
   assert.equal(await picker(page).textContent(), "old-notes ▾", "a new tab opens on the project shown last");
 });
+
+test("T1135 F-T1135-12: a link to a project that the board does not show opens another project with a short notice; the next page has no notice", async t => {
+  const { page, base } = await open(t, { edit: fourProjects, path: "/app/#project=garden-log-aaaaaa" });
+  await until(() => picker(page).textContent(), "garden-log ▾");
+  const notice = page.locator("main .banner[role=status]");
+  assert.equal(await notice.count(), 0, "a known project gives no notice");
+  await page.goto("about:blank");
+  await page.goto(`${base}/app/#pair=sample-code&project=gone-away-dddddd`);
+  await until(() => hash(page), "#?project=garden-log-aaaaaa");
+  await until(() => notice.textContent(), "This board shows no project gone-away-dddddd, so it opened garden-log.");
+  await page.locator("a[href='#tasks']").click();
+  await until(() => hash(page), "#tasks?project=garden-log-aaaaaa");
+  assert.equal(await notice.count(), 0);
+});
+
+test("T1135 F-T1135-6: Esc closes the project picker and the signal, and the focus goes back to the button that opened it", async t => {
+  const { page } = await open(t, { edit: fourProjects, path: "/app/#project=garden-log-aaaaaa" });
+  await until(() => picker(page).textContent(), "garden-log ▾");
+  for (const button of [picker(page), page.locator("button.signal")]) {
+    await button.click();
+    await page.locator(".pick-menu a").first().focus();
+    await page.keyboard.press("Escape");
+    assert.equal(await page.locator(".pick-menu").count(), 0);
+    assert.equal(await button.evaluate(element => element === document.activeElement), true, await button.textContent());
+  }
+});

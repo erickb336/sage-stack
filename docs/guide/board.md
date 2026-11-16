@@ -87,7 +87,8 @@ The board in the browser answers seven questions. Each answer is at most two cli
 
 Each page of the board in the browser shows one project: the Overview, Tasks, Agents and Pull requests. No page mixes the rows of two projects, and there is no view of all projects.
 
-- **The project that opens:** the link from `show board` names the project of that chat, so the board opens on it, in Claude and in Codex. With no project in the link, the board opens on the project that you looked at last in this browser. A name in the address that is not a logbook folder opens that last project too.
+- **The project that opens:** the link from `show board` names the project of that chat, so the board opens on it, in Claude and in Codex. A chat in a subfolder or a linked worktree of the checkout opens the same project, and the link from `show board for sage-bot` opens `sage-bot`, as the chat board does.
+- **No project in the link:** after `show board for all`, or from a folder of no project, the board opens on the project that you looked at last in this browser. A name in the address that the board does not show opens that last project too, with a short notice that names it.
 - **The address:** it keeps the project, for example `/app/#tasks?project=sage-43265b`. A reload keeps the project, and Back returns to the project before.
 - **The picker:** click the project's name at the start of the top bar. Projects that need you come first, then the others by their last work. A row says "2 need you", "1 agent · 5 min ago" or how long ago the last work was.
 - **Older:** a project with no work for 30 days folds into the Older list by itself, also when it has open tasks. A project with a question that waits for you never folds. An Older project opens like any other, and it comes back to the top list when work starts.
@@ -219,7 +220,7 @@ The first answer wins. When you answer in a chat or on a card first, the board s
 The chief makes the link with `board --ensure --link`:
 
 - The link has the form `http://127.0.0.1:<port>/app/#pair=<key>&project=<folder>`. The key is 256 random bits. It is after the `#`, so the browser never sends it in a request line, a log or a referrer.
-- The folder is the logbook folder of the chat's project. The command finds it from the chat's folder (`--project`) and writes nothing; the link has no path.
+- The folder is the logbook folder of the chat's project. The command finds it from the chat's folder (`--project`), or from the asked name (`--name-hex`, the name's UTF-8 bytes in hex), with the chat board's rule. It writes nothing and runs no other program; the link has no path.
 - The board takes the key out of the address bar and the history at once, keeps the project, then sends the key once. The server keeps only its hash, in `pair-link.json` in the board's state folder.
 - A link pairs one browser, once, within 10 minutes. A new link ends the older one.
 - The hooks refuse `--link` from an agent: only the chief runs it, and the chief puts the link in the chat text only, never in a file, a message page or a brief.

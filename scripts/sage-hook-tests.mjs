@@ -2984,7 +2984,7 @@ test("T216: the board note's two commands pass the hook for the chief, as the no
     const note = context(handle({ ...prompt(ask), session_id: "s1", cwd: FEATURE }, { sage: true, given: true }, slots));
     const ensure = note.match(/First run, as a command of its own: (.+)$/m)?.[1];
     const chat = note.match(/Then run: (.+)$/m)?.[1];
-    assert.equal(ensure, `node ${fileURLToPath(new URL("../plugins/sage/board/cli.mjs", import.meta.url))} board --ensure --link --project '${FEATURE}'`, `${ask}: T1135, the link names the chat's project`);
+    assert.equal(ensure, `node ${fileURLToPath(new URL("../plugins/sage/board/cli.mjs", import.meta.url))} board --ensure --link${{ "show board": ` --project '${FEATURE}'`, "show board for all": "", "show board for sage": " --name-hex 73616765" }[ask]}`, `${ask}: T1135, the link names the chat board's project`);
     assert.ok(chat?.startsWith(`node ${TOOL} board `), note);
     for (const command of [ensure, chat]) assert.equal(denied(handle(bash(command), { sage: true, given: true }, slots)), undefined, command);
     assert.ok(denied(handle(bash("git push origin main"), { sage: true, given: true }, slots)), "the same check refuses a chief's command that the hook forbids");

@@ -17,7 +17,7 @@ function useMenu() {
   const [open, setOpen] = useState(false), box = useRef(null);
   useEffect(() => {
     if (!open) return;
-    const key = event => { if (event.key === "Escape") setOpen(false); };
+    const key = event => { if (event.key === "Escape") { setOpen(false); box.current?.querySelector("button")?.focus(); } };
     const click = event => { if (!box.current?.contains(event.target)) setOpen(false); }, moved = () => setOpen(false);
     addEventListener("keydown", key); addEventListener("hashchange", moved); document.addEventListener("click", click);
     return () => { removeEventListener("keydown", key); removeEventListener("hashchange", moved); document.removeEventListener("click", click); };
