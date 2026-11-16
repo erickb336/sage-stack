@@ -210,20 +210,25 @@ test("T1062 F-T1062-8, F-T1062-14, F-T1062-17, F-T1062-18, F-T1062-19: every cou
   }
 });
 
-test("F-T1062-42: two logbooks with one display name and the same chief ids: a stopped chief lists only its own logbook's tasks", async t => {
-  const { page, problems } = await open(t, {}, { path: "/app/#agents", twin: true });
+test("F-T1062-42, T1135: two logbooks with one display name and the same chief ids: a stopped chief lists only its own logbook's tasks, on its own project's page", async t => {
+  const { page, problems } = await open(t, {}, { path: "/app/#agents?project=sample-app-abc123", twin: true });
   const owns = chief => page.locator(`section.chief-box.stopped[data-chief="${chief}"] .stopped-note a`).evaluateAll(links => links.map(link => `${link.textContent} ${link.dataset.task}`));
-  await page.locator('section.chief-box.stopped[data-chief="shared/other-app-def456/C3"]').waitFor();
+  await page.locator(`section.chief-box.stopped[data-chief="${KEY("C3")}"]`).waitFor();
   assert.deepEqual(await owns(KEY("C3")), [`T70 · Sample stopped chief ${KEY("T70")}`], "C3 of the first logbook owns only its own T70");
+  assert.equal(await page.locator('section.chief-box[data-chief^="shared/other-app-def456/"]').count(), 0, "the other project's chiefs are not on this page");
+  await page.goto(page.url().replace(/#.*$/, "#agents?project=other-app-def456"));
+  await page.locator('section.chief-box.stopped[data-chief="shared/other-app-def456/C3"]').waitFor();
   assert.deepEqual(await owns("shared/other-app-def456/C3"), ["T70 · Task of the other logbook shared/other-app-def456/T70"], "C3 of the second logbook owns only its own T70");
   assert.deepEqual(problems, []);
 });
 
-test("T1098 (R4165-1): two logbooks with one display name and the same chief ids: the Overview's stopped chief lists and gives only its own logbook's tasks", async t => {
-  const { page, problems } = await open(t, {}, { twin: true });
+test("T1098 (R4165-1), T1135: two logbooks with one display name and the same chief ids: the Overview's stopped chief lists and gives only its own logbook's tasks", async t => {
+  const { page, problems } = await open(t, {}, { path: "/app/#?project=sample-app-abc123", twin: true });
   const owns = chief => page.locator(`li[data-stopped="${chief}"] ul.owned > li`).evaluateAll(rows => rows.map(row => `${row.querySelector("a").textContent} ${row.querySelector("a").getAttribute("href")} [${row.querySelector("button")?.textContent}]`));
-  await page.locator('li[data-stopped="shared/other-app-def456/C3"] ul.owned').waitFor();
+  await page.locator(`li[data-stopped="${KEY("C3")}"] ul.owned`).waitFor();
   assert.deepEqual(await owns(KEY("C3")), [`T70 · Sample stopped chief #task?key=${encodeURIComponent(KEY("T70"))} [Give to another chief]`], "C3 of the first logbook lists and offers only its own T70");
+  await page.goto(page.url().replace(/#.*$/, "#?project=other-app-def456"));
+  await page.locator('li[data-stopped="shared/other-app-def456/C3"] ul.owned').waitFor();
   assert.deepEqual(await owns("shared/other-app-def456/C3"), [`T70 · Task of the other logbook #task?key=${encodeURIComponent("shared/other-app-def456/T70")} [Give to another chief]`], "C3 of the second logbook lists and offers only its own T70");
   assert.deepEqual(problems, []);
 });

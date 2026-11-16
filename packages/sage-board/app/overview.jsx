@@ -5,7 +5,7 @@ import { StateIcon } from "./icons.jsx";
 import { chiefSub, milestoneLink, ofChief, questionLink, taskLink } from "./task.jsx";
 import { FLAGGED, OBJECTS, UNKNOWN, chiefName } from "../../sage-core/state-words.mjs";
 
-const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
+export const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
 export function ago(from, to) {
   const minutes = Math.max(0, Math.round((Date.parse(to) - Date.parse(from)) / 60000));
@@ -23,7 +23,7 @@ function Counts({ model, previous, now }) {
   const known = model.tasks.some(task => task.addedAt), unknown = model.tasks.some(task => !task.addedAt);
   const items = [
     ["merged", after(model.tasks.filter(task => task.state === "merged").map(task => task.doneAt), since), "Merged", "tasks merged into main"],
-    ["stuck", model.counts.stuck, FLAGGED[0].toUpperCase() + FLAGGED.slice(1), "runs of open tasks that failed in the last 24 hours and did not run again, or agents silent for 30 min or stopped"],
+    ["stuck", model.stuck, FLAGGED[0].toUpperCase() + FLAGGED.slice(1), "runs of open tasks that failed in the last 24 hours and did not run again, or agents silent for 30 min or stopped"],
     ["added", known ? after(model.tasks.map(task => task.addedAt), since) : null, "New tasks", !known ? `${UNKNOWN} · no task in the logbook has a time when it was added` : unknown ? "tasks added to the logbook; older tasks have no time" : "tasks added to the logbook"],
   ];
   return (
@@ -42,7 +42,7 @@ function Counts({ model, previous, now }) {
   );
 }
 
-function NeedRow({ need, now, many }) {
+function NeedRow({ need, now }) {
   const asked = need.askedAt ? ago(need.askedAt, now) : null;
   return (
     <li data-need={need.key}>
@@ -55,7 +55,6 @@ function NeedRow({ need, now, many }) {
           {need.chief && <span>chief {need.chief}</span>}
           {need.gate && <span className="mono">{need.gate}</span>}
           {need.task && <a href={taskLink(need.task.key)}>{need.task.id} · {need.task.title}</a>}
-          {many && need.project && <span>{need.project}</span>}
           <span>{asked ? `asked ${asked}` : "time not recorded"}</span>
         </p>
       </div>
@@ -117,7 +116,7 @@ function Stopped({ model, shown }) {
   );
 }
 
-function NeedsYou({ model, shown, many, now }) {
+function NeedsYou({ model, shown, now }) {
   const writes = useAccess();
   const needs = model.needs.filter(need => shown(need.logbook, need.owner));
   const answered = model.answered.filter(item => shown(item.logbook, item.owner));
@@ -130,7 +129,7 @@ function NeedsYou({ model, shown, many, now }) {
         <span className="hint">Oldest first · {writes === "paired" ? "open a question to answer it here" : "answer in the chief's chat, or pair this browser"}</span>
       </div>
       {needs.length
-        ? <ul className="needs">{needs.map(need => <NeedRow key={need.key} need={need} now={now} many={many} />)}</ul>
+        ? <ul className="needs">{needs.map(need => <NeedRow key={need.key} need={need} now={now} />)}</ul>
         : <p className="empty">Nothing needs you now.</p>}
       <Waits answered={answered} chiefs={model.chiefs} now={now} />
       <Stopped model={model} shown={shown} />
@@ -149,14 +148,13 @@ function Bar({ merged, moving, total }) {
   );
 }
 
-function MilestoneRow({ milestone, many }) {
+function MilestoneRow({ milestone }) {
   const parts = [
     milestone.needsYou > 0 && <span className="need" key="need">{milestone.needsYou} {milestone.needsYou === 1 ? "needs" : "need"} you</span>,
     milestone.moving > 0 && <span key="moving">{milestone.moving} in progress</span>,
     milestone.waiting > 0 && <span key="waiting">{milestone.waiting} waiting</span>,
     milestone.abandoned.length > 0 && <span key="abandoned">{milestone.abandoned.join(", ")} abandoned</span>,
     <span key="pilot">Pilot {milestone.pilot}</span>,
-    many && <span key="project">{milestone.project}</span>,
   ].filter(Boolean);
   return (
     <li data-milestone={milestone.key}>
@@ -177,7 +175,7 @@ function MilestoneRow({ milestone, many }) {
 }
 
 const MILESTONES_SHOWN = 6;
-function Milestones({ milestones, hiddenDone, many }) {
+function Milestones({ milestones, hiddenDone }) {
   const [all, setAll] = useState(false);
   const shown = all ? milestones : milestones.slice(0, MILESTONES_SHOWN), more = milestones.length - MILESTONES_SHOWN;
   return (
@@ -188,7 +186,7 @@ function Milestones({ milestones, hiddenDone, many }) {
         <span className="hint">By priority · {plural(milestones.length, "milestone")}</span>
       </div>
       {milestones.length
-        ? <ul className="ms">{shown.map(milestone => <MilestoneRow key={milestone.key} milestone={milestone} many={many} />)}</ul>
+        ? <ul className="ms">{shown.map(milestone => <MilestoneRow key={milestone.key} milestone={milestone} />)}</ul>
         : <p className="empty">No milestones yet. A milestone starts when you ask for work that needs two or more tasks.</p>}
       {more > 0 && <button type="button" className="more-ended" aria-expanded={all} onClick={() => setAll(!all)}>{all ? `Show the first ${MILESTONES_SHOWN} only` : `Show ${plural(more, "more milestone")}`}</button>}
       {hiddenDone > 0 && <p className="more-done">{plural(hiddenDone, "milestone")} done more than 7 days ago {hiddenDone === 1 ? "is" : "are"} not shown.</p>}
@@ -197,7 +195,7 @@ function Milestones({ milestones, hiddenDone, many }) {
 }
 
 export function Overview({ model, shown }) {
-  const many = model.projects.length > 1, previous = useSeen(), now = useNow();
+  const previous = useSeen(), now = useNow();
   return (
     <>
       <div className="page-h">
@@ -207,8 +205,8 @@ export function Overview({ model, shown }) {
       <PairNote />
       <PairBox />
       <div className="grid">
-        <NeedsYou model={model} shown={shown} many={many} now={now} />
-        <Milestones milestones={model.milestones} hiddenDone={model.hiddenDone} many={many} />
+        <NeedsYou model={model} shown={shown} now={now} />
+        <Milestones milestones={model.milestones} hiddenDone={model.hiddenDone} />
       </div>
       <Counts model={model} previous={previous} now={now} />
     </>

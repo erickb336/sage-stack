@@ -80,7 +80,7 @@ Use Codex 0.164 or later, in the CLI or the desktop app, and a multi-agent v2 mo
 
 ## The board
 
-Send `show board` to see the board in the chat: what needs you, the agents at work, and each task by its state. On the Mac, it also starts the board in the browser and gives its address; in Codex, after you approve one prompt ([The board in Codex](docs/guide/codex.md#the-board-in-codex)). The board server, and [Remote Control](docs/guide/remote-control.md) (sessions from your phone), need macOS.
+Send `show board` to see the board in the chat: what needs you, the agents at work, and each task by its state. On the Mac, it also starts the board in the browser and gives a link to this project; in Codex, after you approve one prompt ([The board in Codex](docs/guide/codex.md#the-board-in-codex)). The board server, and [Remote Control](docs/guide/remote-control.md) (sessions from your phone), need macOS.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/board-dark.png">

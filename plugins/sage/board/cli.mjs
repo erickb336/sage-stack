@@ -7,7 +7,7 @@ import { createServer as createNetServer } from "node:net";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { BOARD_PORT, boardFolder, boardView, PORT_FILE, sharedRoot } from "../core/index.mjs";
+import { BOARD_PORT, boardFolder, boardProjectKey, boardView, PORT_FILE, sharedRoot } from "../core/index.mjs";
 import { installBoard, stableNodePath, writeLoginFile } from "./install.mjs";
 import { createBoardServer } from "./server.mjs";
 import { startLink, startPairing, stateFolder } from "./access.mjs";
@@ -120,9 +120,16 @@ function notOurs(found, configPath, config, env) {
   return `the board server is not running: another program answers on ${at}. ${elsewhere}`;
 }
 
-async function ensureBoard(configPath, config, env, link = false) {
-  const url = `http://127.0.0.1:${config.port}/`;
-  const ready = how => link ? `Sage board ${how}: ${url}app/#pair=${startLink(stateFolder(configPath))} · only on this Mac. The link pairs the first browser that opens it, once, within 10 minutes.` : `Sage board ${how}: ${url} · only on this Mac.`;
+function linkProject(config, { project, "name-hex": hex }, env) {
+  try {
+    if (hex !== undefined && !/^(?:[0-9a-f]{2}){1,2048}$/.test(hex)) return null;
+    const name = hex === undefined ? null : new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(hex, "hex"));
+    return name !== null || project ? boardProjectKey({ sources: readSources(config.sources, env), project: name === null ? boundedPath(project) : null, name, providerRoots: providerRoots(env) }) : null;
+  } catch { return null; }
+}
+async function ensureBoard(configPath, config, env, link = false, project = null) {
+  const url = `http://127.0.0.1:${config.port}/`, opens = project && `project=${project}`;
+  const ready = how => link ? `Sage board ${how}: ${url}app/#pair=${startLink(stateFolder(configPath))}${opens ? `&${opens}` : ""} · only on this Mac. The link pairs the first browser that opens it, once, within 10 minutes.` : `Sage board ${how}: ${url}${opens ? `app/#${opens}` : ""} · only on this Mac.`;
   const found = await probe(config), refused = notOurs(found, configPath, config, env);
   if (refused) throw new Error(refused);
   if (found.kind === "board") {
@@ -238,11 +245,11 @@ function parse(argv) {
     const key = value.slice(2);
     if (["set-password", "allowed-hosts"].includes(key)) throw new TypeError(`--${key} is gone: the board is for a browser on this Mac only, with no password and no other host.`);
     if (["html", "out", "pages"].includes(key)) throw new TypeError(`--${key} is gone: the board has no HTML file export. Open the board in the browser, or ask for the board in the chat.`);
-    if (!["config", "project", "scope", "serve", "status", "setup", "ensure", "link", "stop", "pair", "sources", "port", "install", "install-dir", "login-file"].includes(key) || Object.hasOwn(options, key)) throw new TypeError("unknown or repeated board option");
+    if (!["config", "project", "scope", "serve", "status", "setup", "ensure", "link", "name-hex", "stop", "pair", "sources", "port", "install", "install-dir", "login-file"].includes(key) || Object.hasOwn(options, key)) throw new TypeError("unknown or repeated board option");
     if (["serve", "status", "setup", "ensure", "link", "stop", "pair", "install"].includes(key)) options[key] = true;
     else { if (!argv[i + 1] || argv[i + 1].startsWith("--")) throw new TypeError(`--${key} needs a value`); options[key] = argv[++i]; }
   }
-  if (options.link && !options.ensure) throw new TypeError("--link goes with --ensure only");
+  if ((options.link || options["name-hex"] !== undefined) && !options.ensure) throw new TypeError(`--${options.link ? "link" : "name-hex"} goes with --ensure only`);
   if (values.length > 1 || [options.serve, options.status, options.setup, options.ensure, options.stop, options.pair, options.install].filter(Boolean).length > 1) throw new TypeError("board needs one scope and one format");
   return { options, value: values[0] ?? "all" };
 }
@@ -263,14 +270,15 @@ export async function runBoardCli(argv, { output = line => process.stdout.write(
   }
   const missing = options.ensure && !lstatSync(boundedPath(options.config), { throwIfNoEntry: false });
   if (options.setup || missing) {
-    if (value !== "all" || options.sources?.length > 65536 || options.project || options["install-dir"] || options["login-file"]) throw new TypeError("setup takes --config, with optional sources and port");
+    if (value !== "all" || options.sources?.length > 65536 || options.project && options.setup || options["install-dir"] || options["login-file"]) throw new TypeError("setup takes --config, with optional sources and port");
     if (options.port && !/^[1-9]\d*$/.test(options.port)) throw new TypeError("port must be a positive integer");
     createBoardConfig(options.config, { sources: options.sources ? parseJson(options.sources) : standardSources(env), port: options.port ? Number(options.port) : BOARD_PORT });
     if (options.setup) { output(`Board config created: ${boundedPath(options.config)}. Start the board with ${boardCommand("--ensure", boundedPath(options.config), env, explicit)}`); return null; }
   } else if (options.sources || options.port) throw new TypeError(options.ensure ? existingConfig(boundedPath(options.config)) : "source and service settings require --setup");
   if (options.ensure) {
-    if (value !== "all" || options.project || options["install-dir"] || options["login-file"]) throw new TypeError("ensure takes --config, and the setup settings for a new config");
-    output(await ensureBoard(boundedPath(options.config), readBoardConfig(options.config), env, options.link)); return null;
+    if (value !== "all" || options["install-dir"] || options["login-file"]) throw new TypeError("ensure takes --config, the chat's --project or --name-hex, and the setup settings for a new config");
+    const config = readBoardConfig(options.config);
+    output(await ensureBoard(boundedPath(options.config), config, env, options.link, linkProject(config, options, env))); return null;
   }
   if (options.stop) {
     if (value !== "all" || options.project || options["install-dir"] || options["login-file"]) throw new TypeError("stop takes only --config");

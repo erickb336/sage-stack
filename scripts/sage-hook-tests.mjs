@@ -2984,7 +2984,7 @@ test("T216: the board note's two commands pass the hook for the chief, as the no
     const note = context(handle({ ...prompt(ask), session_id: "s1", cwd: FEATURE }, { sage: true, given: true }, slots));
     const ensure = note.match(/First run, as a command of its own: (.+)$/m)?.[1];
     const chat = note.match(/Then run: (.+)$/m)?.[1];
-    assert.equal(ensure, `node ${fileURLToPath(new URL("../plugins/sage/board/cli.mjs", import.meta.url))} board --ensure --link`, ask);
+    assert.equal(ensure, `node ${fileURLToPath(new URL("../plugins/sage/board/cli.mjs", import.meta.url))} board --ensure --link${{ "show board": ` --project '${FEATURE}'`, "show board for all": "", "show board for sage": " --name-hex 73616765" }[ask]}`, `${ask}: T1135, the link names the chat board's project`);
     assert.ok(chat?.startsWith(`node ${TOOL} board `), note);
     for (const command of [ensure, chat]) assert.equal(denied(handle(bash(command), { sage: true, given: true }, slots)), undefined, command);
     assert.ok(denied(handle(bash("git push origin main"), { sage: true, given: true }, slots)), "the same check refuses a chief's command that the hook forbids");
@@ -3329,7 +3329,7 @@ test("T72-C5-STATECMD: with the plugin in a folder with a space, the read-only b
   assert.equal(r.status, 0, r.stderr);
   const lines = context(JSON.parse(r.stdout)).split("\n");
   const board = `node "${tool}" board this --project '${project}' --view chat`;
-  assert.equal(lines[0], `sage: the owner asked for the board. The plugin path has a space: when the sandbox is on, it needs a plugin path without spaces. First run, as a command of its own: node "${join(dir, "my plugins", "sage", "board", "cli.mjs")}" board --ensure --link`);
+  assert.equal(lines[0], `sage: the owner asked for the board. The plugin path has a space: when the sandbox is on, it needs a plugin path without spaces. First run, as a command of its own: node "${join(dir, "my plugins", "sage", "board", "cli.mjs")}" board --ensure --link --project '${project}'`);
   assert.ok(lines[1].endsWith(`Then run: ${board}`), lines[1]);
   assert.ok(!lines.some(line => line.includes("gate answer")));
   const shown = spawnSync("node", [tool, "board", "this", "--project", project, "--view", "chat"], { encoding: "utf8", env });
@@ -7006,4 +7006,34 @@ test("T621 F-T621-11, T815: a heredoc body in a text flag of gh pr passes", () =
   const pass = [`gh pr create --title t --body "${body}"`, `gh pr create --title t --body="${body}"`, `gh pr create -t "${body}" -b b`, `gh pr comment 41 --body "${body}"`, `gh pr edit 41 --title "${body}"`];
   for (const command of pass) assert.equal(denied(f.send(command)), undefined, command);
   assert.match(denied(f.send(`gh repo delete acme/project --body "${body}"`)) ?? "", /an agent runs only these gh commands/);
+});
+
+const pause = (s, active = true) => s.send({ hook_event_name: "SubagentStop", ...LEAD, stop_hook_active: active, last_assistant_message: "I'm waiting for the background CI wait to report." });
+
+test("T1133: a lead that ends its turn with no report, to wait for its background command, keeps its slot and writes again at the notice", () => {
+  const s = leadSession();
+  s.sage("run", "done", "R2", "--status", "done", "--tokens", "1");
+  const nudge = pause(s, false);
+  assert.equal(nudge?.decision, "block", "the first stop with no report gets the report check");
+  assert.equal(pause(s), undefined, "the lead's turn ends");
+  assert.equal(denied(stateRun(s, "round T1")), undefined, "at the notice, the lead writes the logbook again");
+  assert.equal(denied(stateRun(s, "run add T1 --role qa")), undefined, "and adds a run");
+  assert.match(denied(s.send(leadSpawn("second-lead", 1, { cwd: s.dir }))) ?? "", /a lead named lead-T1 already holds a slot/, "a second lead of T1 gets no slot while the first one waits");
+  assert.equal(s.send({ hook_event_name: "SubagentStop", ...LEAD, stop_hook_active: false, last_assistant_message: report("ready") }), undefined, "the lead ends with its report");
+  assert.match(denied(stateRun(s, "round T1")) ?? "", /this lead holds no bound lead slot/, "its report frees its slot");
+  assert.match(nudge.reason, /^sage: your report has no STATUS.*A lead that waits for its own background work may end its turn again/, "the report check tells a waiting lead that it may end its turn");
+});
+
+test("T1133: a lead that ends its turn with no report and never wakes frees its slot by the sage's stop, or by its lease once its lead run ends", () => {
+  for (const how of ["stop", "lease"]) {
+    const s = leadSession();
+    s.sage("run", "done", "R2", "--status", "done", "--tokens", "1");
+    assert.equal(pause(s), undefined, how);
+    s.sage("run", "done", "R1", "--status", "failed", "--why", "its agent stopped");
+    if (how === "stop") s.send(tool("TaskStop", { task_id: "lead-T1" }));
+    else ageSlots(s, 61);
+    s.sage("run", "add", "T1", "--role", "lead");
+    assert.equal(denied(s.send(leadSpawn("fresh-lead", 1, { cwd: s.dir }))), undefined, `${how}: a fresh lead of T1 starts`);
+    assert.match(denied(stateRun(s, "round T1")) ?? "", /this lead holds no bound lead slot/, `${how}: the old lead writes nothing`);
+  }
 });

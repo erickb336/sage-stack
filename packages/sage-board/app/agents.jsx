@@ -21,12 +21,10 @@ function useNow(at) {
   return Math.max(now, Date.parse(at) || 0);
 }
 
-export function LimitCounts({ agents }) {
-  if (!agents?.length) return null;
-  if (agents.length > 1) {
-    const running = agents.reduce((n, book) => n + book.running, 0), queued = agents.reduce((n, book) => n + book.queued, 0);
-    return <a className="limit" href="#agents">Agents <b>{running} {RUN}</b> in {agents.length} projects{queued > 0 && ` · ${queued} ${WAIT}`}</a>;
-  }
+const runningIn = books => books.reduce((n, book) => n + book.running, 0);
+export function LimitCounts({ agents, all }) {
+  const everywhere = runningIn(all), others = all.length > agents.length && <span className="limit" title="Running agents of every project on this Mac">{everywhere} {RUN} in all projects</span>;
+  if (agents.length !== 1) return <>{agents.length > 1 && <a className="limit" href="#agents">Agents <b>{runningIn(agents)} {RUN}</b>{agents.some(book => book.queued) && ` · ${agents.reduce((n, book) => n + book.queued, 0)} ${WAIT}`}</a>}{others}</>;
   const [book] = agents, full = book.running >= book.limit, leads = book.leads >= book.leadLimit;
   return (
     <>
@@ -34,6 +32,7 @@ export function LimitCounts({ agents }) {
         Agents <b>{book.running} of {book.limit}</b>{book.byChief.map(item => <span key={chiefKey(item.chief)}> · {item.chief ?? "no chief"} {item.count}</span>)}{book.queued > 0 && <b> · {book.queued} {WAIT}</b>}
       </a>
       <a className={`limit${leads ? " full" : ""}`} href="#agents" title="Lead runs that run or wait in the queue, against the project's lead limit">Leads <b>{book.leads} of {book.leadLimit}</b></a>
+      {others}
     </>
   );
 }
@@ -251,7 +250,7 @@ function Book({ book, model, chief, now, many }) {
   const full = book.running >= book.limit, leads = book.leads >= book.leadLimit;
   return (
     <div className="book" data-book={book.key}>
-      {many && <h2 className="book-h">{book.project}</h2>}
+      {many && <h2 className="book-h">{book.key}</h2>}
       <div className="card seat-card">
         <Seats book={book} />
         <div className="kpis agents-kpis" aria-label="Counts against the limits">

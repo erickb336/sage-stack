@@ -1,6 +1,6 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -9,6 +9,7 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
 import { writeAppLogbook } from "./fixtures/board-app.mjs";
+import { TABLES } from "../packages/sage-core/logbook-fields.mjs";
 import { measureContrast } from "./fixtures/contrast.mjs";
 
 const require = createRequire(import.meta.url);
@@ -27,9 +28,10 @@ async function freePort() {
   return port;
 }
 
-async function open(t, { viewport = { width: 1440, height: 1000 }, clock = false } = {}) {
+async function open(t, { viewport = { width: 1440, height: 1000 }, clock = false, edit, path = "/app/" } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-app-browser-")), root = join(dir, "logbooks"), port = await freePort();
   const project = writeAppLogbook(root, new Date().toISOString());
+  edit?.(project, root);
   const server = createBoardServer({ sources: [{ id: "sample", path: root, label: "Sample" }], port, app: APP, settleReads: [] });
   await server.start();
   const base = `http://127.0.0.1:${port}`;
@@ -41,7 +43,7 @@ async function open(t, { viewport = { width: 1440, height: 1000 }, clock = false
   page.on("pageerror", error => problems.push(String(error)));
   page.on("console", message => { if (message.type() === "error" || /Content Security Policy|Refused to/.test(message.text())) problems.push(message.text()); });
   if (clock) await page.clock.install();
-  await page.goto(`${base}/app/`);
+  await page.goto(`${base}${path}`);
   await page.getByRole("heading", { name: "Needs you" }).waitFor();
   return { page, base, project, server, requests, problems };
 }
@@ -106,14 +108,14 @@ test("T1054: text and controls meet AA contrast in the dark and the light theme,
 test("T1054: the keyboard reaches each page link and the theme switch in order, with a visible focus ring", async t => {
   const { page } = await open(t);
   const reached = [];
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 8; i++) {
     await page.keyboard.press("Tab");
     reached.push(await page.evaluate(() => {
       const element = document.activeElement, style = getComputedStyle(element);
       return { name: element.getAttribute("aria-label") ?? element.textContent.trim(), ring: `${style.outlineStyle} ${style.outlineWidth}` };
     }));
   }
-  assert.deepEqual(reached.map(item => item.name), ["Overview2", "Tasks6", "Agents1", "Pull requests1", "Agents 1 of 10 · no chief 1", "Leads 0 of 5", "Switch to the light theme"]);
+  assert.deepEqual(reached.map(item => item.name), ["Overview2", "Tasks6", "Agents1", "Pull requests1", "sample-app ▾", "Agents 1 of 10 · no chief 1", "Leads 0 of 5", "Switch to the light theme"]);
   for (const item of reached) assert.equal(item.ring, "solid 2px", item.name);
   await page.keyboard.press("Enter");
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), "light", "Enter on the theme switch flips it");
@@ -193,4 +195,96 @@ test("T349: the contrast helper takes the worst stop of a gradient, and refuses 
   assert.ok(even.ratio >= 17, `black on a light gradient: ${even.ratio}`);
   assert.ok(half.ratio < 4.5, `black on a gradient that ends dark grey fails: ${half.ratio}`);
   await assert.rejects(page.evaluate(measureContrast, [["image", "#image"]]), /An image needs a separate contrast check/);
+});
+
+const DAY = 86_400_000;
+function fourProjects(sample, root) {
+  const copy = (folder, config) => { cpSync(sample, join(root, folder), { recursive: true }); writeFileSync(join(root, folder, "config.json"), JSON.stringify(config)); };
+  copy("garden-log-aaaaaa", { name: "garden-log" });
+  copy("put-away-cccccc", { name: "put-away", archived: true });
+  const old = join(root, "old-notes-bbbbbb"), at = new Date(Date.now() - 40 * DAY).toISOString();
+  mkdirSync(old);
+  writeFileSync(join(old, "config.json"), JSON.stringify({ name: "old-notes" }));
+  const rows = { tasks: [{ id: "T1", title: "Sample old note", size: "small", route: "build,code-review,qa", state: "framed", round: "0" }], decisions: [{ at, task: "T1", decision: "sample", why: "sample" }] };
+  for (const [name, columns] of Object.entries(TABLES)) writeFileSync(join(old, `${name}.tsv`), [columns, ...(rows[name] ?? []).map(row => columns.map(column => row[column] ?? ""))].map(cells => cells.join("\t")).join("\n") + "\n");
+}
+const hash = page => page.evaluate(() => location.hash);
+const picker = page => page.locator("header.top button.picker");
+const bookOf = key => key.slice(0, key.lastIndexOf("/"));
+const taskBooks = async page => [...new Set((await page.locator("a.row[data-task]").evaluateAll(rows => rows.map(row => row.dataset.task))).map(bookOf))];
+async function until(read, expected) {
+  let last;
+  for (const end = Date.now() + 5000; Date.now() < end; await new Promise(accept => setTimeout(accept, 25))) { last = await read(); if (JSON.stringify(last) === JSON.stringify(expected)) return; }
+  assert.deepEqual(last, expected);
+}
+
+test("T1135: the link's project opens first; each page shows that project only; the picker folds Older and Archived; the signal opens the other project; Back returns", async t => {
+  const { page, problems } = await open(t, { edit: fourProjects, path: "/app/#project=garden-log-aaaaaa" });
+  await until(() => picker(page).textContent(), "garden-log ▾");
+  await until(() => hash(page), "#project=garden-log-aaaaaa");
+  assert.equal(await page.getByText("All projects", { exact: true }).count(), 0, "no All projects view");
+  assert.match(await page.locator("header.top").textContent(), /Leads 0 of 53 in progress in all projects/, "R8: this project's agents against its own limit, and the running agents of every project");
+  assert.equal(await page.locator("button.signal").textContent(), "1 other project needs you", "sample-app asks too; the archived and the older project never count");
+  await page.locator("a[href='#tasks']").click();
+  await until(() => hash(page), "#tasks?project=garden-log-aaaaaa");
+  await until(() => taskBooks(page), ["sample/garden-log-aaaaaa"]);
+  await picker(page).click();
+  assert.deepEqual(await page.locator(".pick-menu > ul a b").allTextContents(), ["garden-log", "sample-app"], "projects that need you first; the folded lists are apart");
+  assert.deepEqual(await page.locator(".pick-menu summary").allTextContents(), ["Older · 1 project no work for 30 days", "Archived · 1 project put away by you"]);
+  await page.locator(".pick-menu summary", { hasText: "Older" }).click();
+  assert.match(await page.locator('.pick-menu a[data-project="old-notes-bbbbbb"]').textContent(), /^old-notes40 days ago · 1 open$/);
+  await page.locator(".pick-menu summary", { hasText: "Archived" }).click();
+  await page.locator('.pick-menu a[data-project="put-away-cccccc"]').click();
+  await until(() => picker(page).textContent(), "put-awayarchived ▾");
+  await until(() => taskBooks(page), ["sample/put-away-cccccc"], "an archived project's page opens with its rows");
+  await page.goBack();
+  await until(() => picker(page).textContent(), "garden-log ▾");
+  await until(() => taskBooks(page), ["sample/garden-log-aaaaaa"]);
+  await page.locator("button.signal").click();
+  await page.locator('.pick-menu a[data-project="sample-app-abc123"]').click();
+  await until(() => hash(page), "#?project=sample-app-abc123");
+  await until(() => picker(page).textContent(), "sample-app ▾");
+  assert.equal(await page.locator("button.signal").textContent(), "1 other project needs you", "now garden-log is the other one");
+  assert.deepEqual(problems, []);
+});
+
+test("T1135 R2: the board link keeps a valid project in the address and drops the pairing key; a name that is not a logbook folder opens the last project", async t => {
+  const { page, base } = await open(t, { edit: fourProjects, path: "/app/#pair=sample-code&project=old-notes-bbbbbb" });
+  await until(() => hash(page), "#?project=old-notes-bbbbbb");
+  await until(() => picker(page).textContent(), "old-notes ▾");
+  for (const name of ["..%2Fevil", "OLD-NOTES-BBBBBB", "old-notes", "javascript:alert(1)"]) {
+    await page.goto(`${base}/app/#tasks?project=${name}`);
+    await until(() => hash(page), "#tasks?project=old-notes-bbbbbb");
+    await until(() => picker(page).textContent(), "old-notes ▾");
+  }
+  await page.goto("about:blank");
+  await page.goto(`${base}/app/#pair=sample-code&project=../evil`);
+  await until(() => hash(page), "#?project=old-notes-bbbbbb");
+  assert.equal(await picker(page).textContent(), "old-notes ▾", "a new tab opens on the project shown last");
+});
+
+test("T1135 F-T1135-12: a link to a project that the board does not show opens another project with a short notice; the next page has no notice", async t => {
+  const { page, base } = await open(t, { edit: fourProjects, path: "/app/#project=garden-log-aaaaaa" });
+  await until(() => picker(page).textContent(), "garden-log ▾");
+  const notice = page.locator("main .banner[role=status]");
+  assert.equal(await notice.count(), 0, "a known project gives no notice");
+  await page.goto("about:blank");
+  await page.goto(`${base}/app/#pair=sample-code&project=gone-away-dddddd`);
+  await until(() => hash(page), "#?project=garden-log-aaaaaa");
+  await until(() => notice.textContent(), "This board shows no project gone-away-dddddd, so it opened garden-log.");
+  await page.locator("a[href='#tasks']").click();
+  await until(() => hash(page), "#tasks?project=garden-log-aaaaaa");
+  assert.equal(await notice.count(), 0);
+});
+
+test("T1135 F-T1135-6: Esc closes the project picker and the signal, and the focus goes back to the button that opened it", async t => {
+  const { page } = await open(t, { edit: fourProjects, path: "/app/#project=garden-log-aaaaaa" });
+  await until(() => picker(page).textContent(), "garden-log ▾");
+  for (const button of [picker(page), page.locator("button.signal")]) {
+    await button.click();
+    await page.locator(".pick-menu a").first().focus();
+    await page.keyboard.press("Escape");
+    assert.equal(await page.locator(".pick-menu").count(), 0);
+    assert.equal(await button.evaluate(element => element === document.activeElement), true, await button.textContent());
+  }
 });
