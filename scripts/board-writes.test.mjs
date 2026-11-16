@@ -293,6 +293,8 @@ test("T1125: a link pairs a fresh browser once, and each other outcome says why:
 
   const older = startLink(w.stateDir), newer = startLink(w.stateDir);
   assert.equal((await linkPair(w, older)).json.outcome, "replaced", "a new link ends the older one");
+  const usedThenReplaced = await linkPair(w, second);
+  assert.deepEqual([usedThenReplaced.json.outcome, typeof usedThenReplaced.json.at], ["used", "string"], "F-T1125-1: a used link still reads used, with its time, after newer links replaced it");
   assert.equal((await linkPair(w, newer)).json.outcome, "paired");
 
   const expired = startLink(w.stateDir, Date.now() - 10 * 60_000 - 1);

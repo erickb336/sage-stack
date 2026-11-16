@@ -64,7 +64,7 @@ export function PairNote() {
   return (
     <div className={`card pair-note ${kind}`} role="status">
       <p>{typeof text === "function" ? text(detail) : text} <button type="button" className="btn" onClick={() => setNote(null)}>Close</button></p>
-      {outcome === "used" && <p>Not you? <button type="button" className="btn" disabled={unpaired?.ok} onClick={unpair}>Unpair every browser</button> Every browser then reads only, until you pair it again.</p>}
+      {kind === "refused" && outcome !== "error" && <p>Not you? <button type="button" className="btn" disabled={unpaired?.ok} onClick={unpair}>Unpair every browser</button> Every browser then reads only, until you pair it again.</p>}
       {unpaired && <p className={unpaired.ok ? "done" : "refused"} role="alert">{unpaired.text}</p>}
     </div>
   );

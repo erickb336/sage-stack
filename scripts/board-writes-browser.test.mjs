@@ -371,6 +371,37 @@ test("T1125: one click on the chief's link pairs a fresh browser, takes the key 
   assert.deepEqual(w.problems, []);
 });
 
+test("F-T1125-9: after a newer link exists, the owner still finds Unpair every browser on the used, expired and replaced notes, and it unpairs the unknown browser", async t => {
+  const w = await openBoard(t);
+  const first = startLink(w.stateDir), unknown = await w.context.newPage();
+  await unknown.goto(`${w.origin}/app/#pair=${first}`);
+  await unknown.getByText(/^This browser is paired\./).waitFor();
+  startLink(w.stateDir);
+  const owner = await w.context.browser().newContext();
+  t.after(() => owner.close());
+  const open = async (key, note) => {
+    const page = await owner.newPage();
+    await page.goto(`${w.origin}/app/#pair=${key}`);
+    await page.getByText(note).waitFor();
+    await page.getByRole("button", { name: "Unpair every browser" }).waitFor();
+    return page;
+  };
+  await open(first, /^Another browser on this Mac used this link at \d\d:\d\d\./);
+  await open(startLink(w.stateDir, Date.now() - 11 * 60_000), /^This link expired at \d\d:\d\d/);
+  const older = startLink(w.stateDir);
+  startLink(w.stateDir);
+  const replaced = await open(older, /^A newer link replaced this one\./);
+  if (SHOTS) await replaced.screenshot({ path: join(SHOTS, "t1125-replaced.png") });
+  await replaced.getByRole("button", { name: "Unpair every browser" }).click();
+  await replaced.getByText(/^Every browser is unpaired: each one reads only now\./).waitFor();
+  await unknown.getByRole("link", { name: MESSAGE.title }).click();
+  await unknown.getByRole("radio", { name: /^no/ }).check();
+  await unknown.getByRole("button", { name: "Send answer" }).click();
+  await unknown.getByRole("heading", { name: "Pair this browser to act from the board" }).waitFor();
+  assert.ok(!w.gate("G1").answered, "the unknown browser writes nothing after the unpair");
+  assert.deepEqual(w.problems, []);
+});
+
 test("F-T1059-47: after a give, the stopped chief's card shows the open takeover question in place of Give, also after a reload", async t => {
   const w = await openBoard(t), { page } = w;
   await w.pair();

@@ -42,7 +42,7 @@ export function startPairing(dir, now = Date.now()) {
 
 export function startLink(dir, now = Date.now()) {
   const key = randomBytes(32).toString("base64url"), old = readJson(dir, "pair-link.json");
-  const replaced = [...(typeof old?.hash === "string" ? [old.hash] : []), ...(Array.isArray(old?.replaced) ? old.replaced : [])].slice(0, OLD_LINKS);
+  const replaced = [...(typeof old?.hash === "string" ? [{ hash: old.hash, ...(old.state === "used" && { at: old.at }) }] : []), ...(Array.isArray(old?.replaced) ? old.replaced : [])].slice(0, OLD_LINKS);
   writeJson(dir, "pair-link.json", { hash: sha(key), expires: now + CODE_MS, state: "open", replaced });
   return key;
 }
@@ -63,7 +63,10 @@ export function boardAccess(dir) {
       const open = hash && link && same(link.hash, hash) && link.state === "open" && link.expires > now, at = new Date(now).toISOString();
       if (paired) { if (open) writeJson(dir, "pair-link.json", { ...link, state: "used", at }); return { outcome: "already" }; }
       if (!hash || !link) return { outcome: "refused" };
-      if (!same(link.hash, hash)) return { outcome: (Array.isArray(link.replaced) ? link.replaced : []).some(old => same(old, hash)) ? "replaced" : "refused" };
+      if (!same(link.hash, hash)) {
+        const gone = (Array.isArray(link.replaced) ? link.replaced : []).find(old => same(old?.hash, hash));
+        return !gone ? { outcome: "refused" } : gone.at ? { outcome: "used", at: gone.at } : { outcome: "replaced" };
+      }
       if (link.state !== "open") return { outcome: "used", at: link.at };
       if (!open) return { outcome: "expired", ...(Number.isFinite(new Date(link.expires).getTime()) && { at: new Date(link.expires).toISOString() }) };
       const issued = issue(now);
