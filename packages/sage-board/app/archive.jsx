@@ -20,6 +20,13 @@ const cancel = () => {
 };
 
 const logbookNames = (labels = []) => labels.length ? `The ${labels.join(" and ")} ${labels.length === 1 ? "logbook" : "logbooks"}` : "A logbook";
+const noteFromBoard = (note, shown) => {
+  if (note.kind !== "partial") return note.text;
+  const archived = shown?.archived ?? note.project.archived, agree = note.logbooks === 2 ? "both agree" : "every logbook agrees";
+  return `${logbookNames(note.failed)} of ${note.project.name} did not save. ${archived === (note.again === "archive")
+    ? `The board shows the project as ${archived ? "archived" : "restored"}. Try again so that ${agree}.`
+    : `The project stays ${archived ? "archived" : "shown"} until ${agree}.`}`;
+};
 
 async function send(kind, project, { undo = false } = {}) {
   if (state.busy) return;
@@ -29,8 +36,7 @@ async function send(kind, project, { undo = false } = {}) {
   const word = kind === "archive" ? "Archive" : "Restore";
   const note = result.ok ? (kind === "archive" ? { kind: "archived", project } : null)
     : pending ? { kind: "pending", project, text: result.text }
-    : landed ? { kind: "partial", project, again: kind, head: `${kind === "archive" ? "Archived" : "Restored"} in ${landed} of ${logbooks} logbooks.`,
-      text: `${logbookNames(failed)} of ${project.name} did not save. ${result.text} The board shows ${project.name} as ${kind === "archive" ? "not archived" : "archived"} until ${logbooks === 2 ? "both agree" : "every logbook agrees"}.` }
+    : landed ? { kind: "partial", project, again: kind, logbooks, failed, head: `${kind === "archive" ? "Archived" : "Restored"} in ${landed} of ${logbooks} logbooks.` }
     : { kind: "failed", project, again: kind, text: result.text, head: `${word} did not save.` };
   const stays = !result.ok && !landed && kind === "archive" && state.asking === project.key;
   set({ busy: null, asking: stays ? state.asking : null, note, ...(stays || { opener: null }), ...(undo && !result.ok && { undone: null }) });
@@ -81,13 +87,13 @@ function Confirm({ project, tasks }) {
         {warnings.map(text => <p key={text} className="warn" role="note"><AlertIcon />{text}</p>)}
         {busy === project.key ? <p role="status">Archiving {project.name}. Writing to its logbook.</p>
           : <p className="row-btns"><button type="button" className="btn primary" disabled={!!busy} onClick={() => send("archive", project)}>{failed ? "Try again" : "Archive"}</button><button type="button" className="btn" onClick={cancel}>Cancel</button></p>}
-        {failed && <p className="refused" role="alert">{failed.head && <b>{failed.head} </b>}{failed.text}</p>}
+        {failed && <p className="refused" role="alert">{failed.head && <b>{failed.head} </b>}{noteFromBoard(failed, project)}</p>}
       </>}
     </section>
   );
 }
 
-function Note({ note }) {
+function Note({ note, shown }) {
   const { project } = note, button = useRef(null);
   useEffect(() => { button.current?.focus(); }, [note]);
   if (note.kind === "archived") return (
@@ -95,7 +101,7 @@ function Note({ note }) {
   );
   return (
     <div className={`banner ${note.kind === "pending" ? "" : "fail"}`} role="alert"><AlertIcon />
-      <div>{note.head && <b>{note.head} </b>}{note.text}{note.again && <> <button type="button" className="btn" ref={button} onClick={() => send(note.again, project)}>Try again</button></>}</div>
+      <div>{note.head && <b>{note.head} </b>}{noteFromBoard(note, shown)}{note.again && <> <button type="button" className="btn" ref={button} onClick={() => send(note.again, project)}>Try again</button></>}</div>
     </div>
   );
 }
@@ -120,7 +126,7 @@ export function ArchiveLayer({ all, current, now }) {
   useEffect(() => { if (back?.welcome && !back.archived) { closeWelcome(back); set({ undone: null }); } }, [back?.welcome, back?.archived]);
   return <>
     {project && <Confirm project={project} tasks={all.tasks} />}
-    {note && !(note.again === "archive" && asking) && <Note note={note} />}
+    {note && !(note.again === "archive" && asking) && <Note note={note} shown={all.projects.find(item => item.key === note.project.key)} />}
     {current?.archived && <Banner project={current} projects={all.projects} now={now} />}
   </>;
 }

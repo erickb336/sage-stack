@@ -259,7 +259,7 @@ test("T1137 at 390 px: the confirm and the notes clear the header; a partial arc
   await archiveButton.click();
   const partial = page.locator(".banner.fail");
   await partial.waitFor();
-  assert.match(await partial.textContent(), /^Archived in 1 of 2 logbooks\. The Codex logbook of meadow did not save\. .+ The board shows meadow as not archived until both agree\. Try again$/, "F-T1137-7: the partial note names the logbook that did not save");
+  assert.equal(await partial.textContent(), "Archived in 1 of 2 logbooks. The Codex logbook of meadow did not save. The project stays shown until both agree. Try again", "F-T1137-7, F-T1137-16: the partial note names the logbook that did not save, in the words of the design");
   assert.equal((await focused(page)).text, "Try again", "F-T1137-11: the partial note has Try again, with focus on it");
   assert.ok(await clear(page, ".banner.fail") >= 0, "F-T1137-8: the header does not cover the partial note");
   await w.shot("t1137-partial-390");
@@ -271,5 +271,84 @@ test("T1137 at 390 px: the confirm and the notes clear the header; a partial arc
   assert.equal(w.archived("meadow"), true, "Try again archives the logbook that did not save");
   assert.ok(await clear(page, ".banner") >= 0, `F-T1137-8: the header does not cover the Undo note (${await clear(page, ".banner")} px)`);
   await w.shot("t1137-undo-390");
+  assert.deepEqual(w.problems.filter(problem => !/status of 409/.test(problem)), []);
+});
+
+const busy = dir => { mkdirSync(join(dir, ".lock")); writeFileSync(join(dir, ".lock", "held"), "sample holder\n"); };
+const free = dir => rmSync(join(dir, ".lock"), { recursive: true, force: true });
+async function openMeadow(t) {
+  const w = await openBoard(t), { page } = w;
+  await page.goto(`${w.origin}/app/#?project=${basename(w.dirs.meadow)}`);
+  await page.getByRole("heading", { name: "Overview", level: 1 }).waitFor();
+  await page.getByPlaceholder("ABCD-EFGH").fill(await w.code());
+  await page.getByRole("button", { name: "Pair", exact: true }).click();
+  const archive = async () => { await page.getByRole("button", { name: "Archive project" }).click(); await page.getByRole("dialog", { name: "Archive meadow?" }).getByRole("button", { name: "Archive", exact: true }).click(); };
+  const restore = () => page.locator(".banner.archived").getByRole("button", { name: "Restore" }).click();
+  const again = () => page.locator(".banner.fail").getByRole("button", { name: "Try again" }).click();
+  const books = () => [w.archived("meadowClaude"), w.archived("meadow")];
+  const settled = async want => { for (let i = 0; i < 100 && JSON.stringify(books()) !== JSON.stringify(want); i++) await page.waitForTimeout(100); return books(); };
+  return { ...w, archive, restore, again, books, settled };
+}
+async function partialNote({ page }, shown, expected, message) {
+  const note = page.locator(".banner.fail");
+  await note.waitFor();
+  await page.locator(".banner.archived").waitFor({ state: shown === "archived" ? "attached" : "detached" });
+  const text = await note.textContent();
+  assert.equal(text, expected, message);
+  assert.doesNotMatch(text, /\/|\.lock|config\.json|checkout\.txt/, "F-T1137-16: the partial note shows no file path");
+  assert.equal((await focused(page)).text, "Try again", "the partial note offers Try again, with focus on it");
+}
+const SHOWN = "The project stays shown until both agree. Try again", RESTORED = "The board shows the project as restored. Try again so that both agree. Try again", ARCHIVED = "The board shows the project as archived. Try again so that both agree. Try again";
+
+test("T1137: a partial Archive that the board does not show says that the project stays shown, in the words of the design", async t => {
+  const w = await openMeadow(t);
+  busy(w.dirs.meadowClaude);
+  await w.archive();
+  await partialNote(w, "shown", `Archived in 1 of 2 logbooks. The Claude logbook of meadow did not save. ${SHOWN}`, "F-T1137-16: the Claude logbook failed, the Codex logbook saved");
+  assert.deepEqual(w.books(), [false, true]);
+  await w.shot("t1137-partial-archive");
+  free(w.dirs.meadowClaude);
+  await w.again();
+  await w.page.getByText("meadow is archived.").waitFor();
+  assert.deepEqual(w.books(), [true, true], "Try again archives the logbook that did not save");
+});
+
+test("T1137: a partial Restore that the board shows as restored says restored, not archived", async t => {
+  const w = await openMeadow(t);
+  await w.archive();
+  await w.page.getByText("meadow is archived.").waitFor();
+  busy(w.dirs.meadow);
+  await w.restore();
+  await partialNote(w, "shown", `Restored in 1 of 2 logbooks. The Codex logbook of meadow did not save. ${RESTORED}`, "F-T1137-15: the note agrees with the board after a partial Restore");
+  assert.deepEqual(w.books(), [false, true]);
+  await w.shot("t1137-partial-restore");
+  free(w.dirs.meadow);
+  await w.again();
+  assert.deepEqual(await w.settled([false, false]), [false, false], "Try again restores the logbook that did not save");
+});
+
+test("T1137: a partial Undo says what the board shows", async t => {
+  const w = await openMeadow(t);
+  await w.archive();
+  await w.page.getByText("meadow is archived.").waitFor();
+  busy(w.dirs.meadowClaude);
+  await w.page.getByRole("button", { name: "Undo" }).click();
+  await partialNote(w, "shown", `Restored in 1 of 2 logbooks. The Claude logbook of meadow did not save. ${RESTORED}`, "the note agrees with the board after a partial Undo");
+  assert.deepEqual(w.books(), [true, false]);
+  free(w.dirs.meadowClaude);
+  await w.again();
+  assert.deepEqual(await w.settled([false, false]), [false, false]);
+});
+
+test("T1137: a partial Archive from a missing checkout.txt that the board shows as archived says archived; its Restore says restored", async t => {
+  const w = await openMeadow(t);
+  rmSync(join(w.dirs.meadow, "checkout.txt"));
+  await w.archive();
+  await partialNote(w, "archived", `Archived in 1 of 2 logbooks. The Codex logbook of meadow did not save. ${ARCHIVED}`, "F-T1137-17: the note agrees with the board, which reads only the logbook that names its checkout");
+  assert.deepEqual(w.books(), [true, false]);
+  await w.shot("t1137-partial-archive-no-checkout");
+  await w.restore();
+  await partialNote(w, "shown", `Restored in 1 of 2 logbooks. The Codex logbook of meadow did not save. ${RESTORED}`, "the note agrees with the board after a partial Restore");
+  assert.deepEqual(w.books(), [false, false]);
   assert.deepEqual(w.problems.filter(problem => !/status of 409/.test(problem)), []);
 });
