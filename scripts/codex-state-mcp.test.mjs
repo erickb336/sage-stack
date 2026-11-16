@@ -742,6 +742,7 @@ test("the state server lists one tool for each state-tool command, and marks onl
   assert.ok(tools.every((tool) => tool.inputSchema.required.includes("project") && tool.inputSchema.additionalProperties === false));
   const add = tools.find((tool) => tool.name === "task_add").inputSchema;
   assert.deepEqual([add.required.sort(), add.properties.priority.enum], [["priority", "project", "size", "title"], ["P0", "P1", "P2", "P3"]]);
+  assert.match(tools.find((tool) => tool.name === "finding_add").inputSchema.properties.class.description, /^state-edge, speed, copy, layout, security, fragile-pattern or other;/, "the class field names each class of the state tool");
 });
 
 test("T91: MCP compares synthetic retained reports with status-only results and existing admission", async t => {
@@ -1098,7 +1099,7 @@ test("each tool writes the Codex logbook in CODEX_HOME/sage, and returns each re
   for (const role of ["code-reviewer", "qa"]) await call("run_add", { task: "T1", role });
   for (const run of ["R2", "R3"]) await call("run_done", { run, status: "done", tokens: 1 });
   assert.equal((await call("finding_add", { task: "T1", source: "code-reviewer", severity: "medium", summary: "a.js:1 bad", run: "R2" })).error,
-    "sage: code-reviewer is a review or QA role, so finding add needs --run with the run whose report holds the finding and --class with one of state-edge, speed, copy, layout, security, other; it lacks --class. Nothing changed.");
+    "sage: code-reviewer is a review or QA role, so finding add needs --run with the run whose report holds the finding and --class with one of state-edge, speed, copy, layout, security, fragile-pattern, other; it lacks --class. Nothing changed.");
   assert.equal(await call("finding_add", { task: "T1", source: "code-reviewer", severity: "medium", summary: "a.js:1 bad", run: "R2", class: "state-edge" }), "F-T1-1 open · medium · T1");
   assert.match(readFileSync(join(logbook, "findings.tsv"), "utf8"), /\nT1\tF-T1-1\t0\tcode-reviewer\tmedium\ta\.js:1 bad\t\t\topen\tR2\tstate-edge\n/);
   assert.equal((await call("finding_triage", { task: "T1", key: "F-T1-1", decision: "dismiss" })).error, "sage: missing --reason for a dismissal");
@@ -1112,6 +1113,8 @@ test("each tool writes the Codex logbook in CODEX_HOME/sage, and returns each re
   await call("finding_add", { task: "T1", source: "qa", severity: "low", summary: "c.js:3 slow", run: "R3", class: "speed" });
   assert.equal(await call("finding_move", { task: "T1", key: "F-T1-3", to: "Follow up" }), "F-T1-3 moved to T2 as F-T2-1 · T2 framed · small · route build,code-review,qa · P2");
   await call("finding_add", { task: "T1", source: "qa", severity: "low", summary: "d.js:4 slow", run: "R3", class: "speed" });
+  assert.equal(await call("finding_add", { task: "T1", source: "code-reviewer", severity: "low", summary: "e.js:5 a rule written twice", run: "R2", class: "fragile-pattern" }), "F-T1-5 open · low · T1");
+  assert.match(readFileSync(join(logbook, "findings.tsv"), "utf8"), /\nT1\tF-T1-5\t[^\n]*\tR2\tfragile-pattern\n/);
   assert.match((await call("finding_move", { task: "T1", key: "F-T1-4", to: "T2" })).error, /is a task id\. To move F-T1-4 into that open task, use --into T2\./);
   assert.equal(await call("finding_move", { task: "T1", key: "F-T1-4", into: "T2" }), "F-T1-4 moved to T2 as F-T2-2 · T2 framed");
 
