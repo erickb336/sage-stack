@@ -272,7 +272,7 @@ test("T584: candidate branches stay apart: a new candidate never takes the branc
   const s = store();
   s.ok("task", "add", "--priority", "P2", "--title", "t", "--size", "small");
   s.ok("run", "add", "T1", "--role", "designer", "--branch", "sage/t1-a", "--candidate", "1");
-  s.ok("run", "done", "R1", "--status", "failed");
+  s.ok("run", "done", "R1", "--status", "failed", "--why", "stopped");
   const taken = (mine) => `sage: R1 (designer, candidate 1) is on sage/t1-a, and ${mine}. Give this run a new branch. Nothing changed.`;
   const own = taken("each candidate of an arena has its own branch");
   assert.equal(s.no("run", "add", "T1", "--role", "designer", "--branch", "sage/t1-a", "--candidate", "2"), own);
@@ -342,7 +342,7 @@ test("T601: an arena candidate starts on its own branch: a new one, its task's o
 
 const arenaExits = (task = "T1") => `Finish a judge: sage run add ${task} --role arena-judge --branch sage/${task.toLowerCase()}-judge, then sage run done <R> --status done. A task that needs no arena: sage task ${task} set state=abandoned, then frame it again with sage task add, on a new branch.`;
 const openStep = `sage: T1's arena step is open: its route has the arena block or it has a candidate run, and no arena-judge run of it ended done, so T1 has no final version yet. ${arenaExits()}`;
-const judged = (s, branch, status) => s.ok("run", "done", s.ok("run", "add", "T1", "--role", "arena-judge", "--branch", branch).split(" ")[0], "--status", status);
+const judged = (s, branch, status) => s.ok("run", "done", s.ok("run", "add", "T1", "--role", "arena-judge", "--branch", branch).split(" ")[0], "--status", status, ...(status === "failed" ? ["--why", "stopped"] : []));
 
 test("T584: while a task's arena step is open, a writer run needs --candidate, except the judge; a judge that ended done closes the step", () => {
   const s = store();
@@ -356,7 +356,7 @@ test("T584: while a task's arena step is open, a writer run needs --candidate, e
   s.ok("run", "add", "T1", "--role", "arena-judge", "--branch", "sage/t1-judge");
   assert.equal(s.no("run", "add", "T1", "--role", "implementer", "--branch", "sage/t1-other"), open("implementer"), "a running judge has not closed the step");
   for (const status of ["question", "blocked", "failed"]) {
-    s.ok("run", "done", rows(s.dir, "runs").at(-1).id, "--status", status);
+    s.ok("run", "done", rows(s.dir, "runs").at(-1).id, "--status", status, ...(status === "failed" ? ["--why", "stopped"] : []));
     assert.equal(s.no("run", "add", "T1", "--role", "implementer", "--branch", "sage/t1-other"), open("implementer"), `a judge that ended ${status}`);
     s.ok("run", "add", "T1", "--role", "arena-judge", "--branch", "sage/t1-judge");
   }
@@ -671,7 +671,7 @@ test("T584: a retry on a new branch after a failed candidate: the old run and br
   s.ok("task", "add", "--priority", "P2", "--title", "t", "--size", "small", "--add", "arena", "--why", "no clear answer");
   s.ok("run", "add", "T1", "--role", "implementer", "--branch", "sage/t1-c1", "--candidate", "1");
   s.ok("run", "add", "T1", "--role", "implementer", "--branch", "sage/t1-c2", "--candidate", "2");
-  s.ok("run", "done", "R1", "--status", "failed");
+  s.ok("run", "done", "R1", "--status", "failed", "--why", "stopped");
   s.ok("run", "done", "R2", "--status", "done");
   assert.match(s.ok("run", "add", "T1", "--role", "implementer", "--branch", "sage/t1-c1-2", "--candidate", "1"), /^R3 running · implementer on T1 · sage\/t1-c1-2 · candidate 1/);
   s.ok("run", "done", "R3", "--status", "done");
@@ -740,7 +740,7 @@ test("T266-LEAD-ONE: run add --role lead records a lead run, and a task has one 
   assert.equal(s.no("run", "add", "T1", "--role", "lead"), "sage: R1 is the running lead run of T1, and a task has one running lead. Finish R1 first (sage run done R1 --status done, blocked, question or failed).");
   assert.equal(rows(s.dir, "runs").length, 1, "the refused run is not recorded");
   assert.match(s.ok("run", "add", "T1", "--role", "implementer", "--branch", "claude/t1"), /^R2 running · implementer on T1/, "the lead's children still start");
-  s.ok("run", "done", "R1", "--status", "failed");
+  s.ok("run", "done", "R1", "--status", "failed", "--why", "stopped");
   assert.equal(s.ok("run", "add", "T1", "--role", "lead"), "R3 running · lead on T1", "a fresh lead starts after the old one ends");
 });
 
@@ -780,13 +780,13 @@ test("T952-AGENT-CAP, T1057: run add holds max_agents running runs of every role
   for (const t of ["T1", "T2", "T3"]) s.ok("run", "add", t, "--role", "implementer", "--branch", `claude/${t.toLowerCase()}`);
   s.ok("run", "add", "T1", "--role", "code-reviewer");
   s.ok("run", "add", "T6", "--role", "security-reviewer");
-  s.ok("run", "done", "R10", "--status", "failed");
+  s.ok("run", "done", "R10", "--status", "failed", "--why", "stopped");
   s.ok("run", "add", "T6", "--role", "pe");
   assert.equal(rows(s.dir, "runs").filter((r) => r.status === "running").length, 10);
   assert.match(s.ok("run", "add", "T2", "--role", "qa"), /^R12 is queued, place 1 · qa on T2 · model sonnet · the project runs 10 of its 10 agents\. Start its agent only after its admission: a run that ends admits the oldest queued run, and its agent must then start within 10 minutes\. To wait, run node \S+\/hooks\/wait\.mjs --slot R12 in the project's folder, as a Bash command of its own \(a chief in the background, a lead with the timeout 600000\)\. It ends when R12 is admitted\.$/);
   assert.deepEqual(rows(s.dir, "runs").filter((r) => r.status !== "running" && r.status !== "failed").map((r) => [r.id, r.status, r.admitted]), [["R12", "queued", ""]], "the run is recorded as queued, and the column admitted is in the file, empty, so that an older sage stops writing");
   assert.match(s.ok("status"), /^agents  12 runs · 10 running · 1 queued · /m);
-  assert.match(s.ok("run", "done", "R9", "--status", "failed"), /^R9 failed\nR12 admitted · qa on T2: start its agent within 10 minutes, or the run ends as failed$/);
+  assert.match(s.ok("run", "done", "R9", "--status", "failed", "--why", "stopped"), /^R9 failed\nR12 admitted · qa on T2: start its agent within 10 minutes, or the run ends as failed$/);
   assert.match(rows(s.dir, "runs").find((r) => r.id === "R12").admitted, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
   assert.match(s.ok("run", "add", "T3", "--role", "qa"), /^R13 is queued, place 1 · qa on T3/);
   const other = store(s.home);
@@ -923,7 +923,7 @@ test("#118 point 4: logbookView gives a task's one running lead run, nothing for
   assert.equal(leadRunFor("T1", s.project, env)?.id, "R3");
   const size = readFileSync(join(s.dir, "runs.tsv")).length;
   assert.throws(() => leadRunFor("T1", s.project, env, { max: size - 1 }), /\.tsv is over \d+ bytes/);
-  s.ok("run", "done", "R3", "--status", "failed");
+  s.ok("run", "done", "R3", "--status", "failed", "--why", "stopped");
   assert.equal(leadRunFor("T1", s.project, env), undefined, "an ended lead run");
   assert.equal(leadRunFor("T1", mkdtempSync(join(tmpdir(), "sage-none-")), env), undefined, "a project without a logbook");
 });
@@ -2540,7 +2540,7 @@ test("unknown-options: a command refuses an option that it does not take, and an
   assert.equal(s.no("verdict", "T1", "--sha", SHA, "--kind", "checks-pass", "--cycles", "2"), "sage: verdict takes no --cycles. Its options: --sha, --kind, --cycle, --pr, --run, --project.");
   assert.equal(s.no("merge-check", "--sha", SHA, "--cycle", "1"), "sage: merge-check takes no --cycle. Its options: --sha, --pr, --cycles, --head, --project.");
   assert.equal(s.no("task", "T1", "set", "state=briefed", "--branch", "b"), "sage: task takes no --branch. Its options: --why, --project.");
-  assert.equal(s.no("run", "done", "R1", "--role", "qa"), "sage: run done takes no --role. Its options: --status, --tokens, --report, --usage, --usage-source, --usage-evidence, --project.");
+  assert.equal(s.no("run", "done", "R1", "--role", "qa"), "sage: run done takes no --role. Its options: --status, --tokens, --report, --usage, --usage-source, --usage-evidence, --why, --project.");
   assert.equal(s.no("verdict", "T1", "--sha", SHA, "--kind", "checks-pass", "--pr"), "sage: --pr needs a value. A value that starts with -- goes after =: --pr=<value>.");
   assert.equal(s.no("task", "add", "--priority", "P2", "--size", "small", "--title", "--risk", "data"), "sage: --title needs a value. A value that starts with -- goes after =: --title=<value>.");
   const r = spawnSync("node", [TOOL, "status", "--project"], { encoding: "utf8", env: testEnv({ SAGE_HOME: s.home }) });
@@ -3278,10 +3278,10 @@ test("T346: a done review, QA or evidence-review run needs --tokens as a whole n
   assert.ok(rows(s.dir, "runs").slice(0, 5).every((r) => r.status === "running"), "no refused run ended");
   const big = 'sage: --tokens is a whole number from 1 to 12 digits, for example --tokens 52000; not "1234567890123". Nothing changed.';
   assert.equal(s.no("run", "done", "R1", "--status", "done", "--tokens", "1234567890123"), big, "13 digits is a typo, not a run's tokens");
-  assert.equal(s.no("run", "done", "R2", "--status", "failed", "--tokens", "abc"), 'sage: --tokens is a whole number from 1 to 12 digits, for example --tokens 52000; not "abc". Nothing changed.', "every status checks its --tokens");
+  assert.equal(s.no("run", "done", "R2", "--status", "failed", "--why", "stopped", "--tokens", "abc"), 'sage: --tokens is a whole number from 1 to 12 digits, for example --tokens 52000; not "abc". Nothing changed.', "every status checks its --tokens");
   assert.equal(s.no("run", "done", "R6", "--status", "done", "--tokens", "1e5"), 'sage: --tokens is a whole number from 1 to 12 digits, for example --tokens 52000; not "1e5". Nothing changed.');
   assert.equal(s.ok("run", "done", "R1", "--status", "done", "--tokens", "123456789012"), "R1 done");
-  assert.equal(s.ok("run", "done", "R2", "--status", "failed"), "R2 failed", "a failed run has no report to count");
+  assert.equal(s.ok("run", "done", "R2", "--status", "failed", "--why", "stopped"), "R2 failed", "a failed run has no report to count");
   assert.equal(s.ok("run", "done", "R3", "--status", "blocked", "--tokens", "900"), "R3 blocked");
   assert.equal(s.ok("run", "done", "R6", "--status", "done"), "R6 done", "an implementer gives tokens when it has them");
   assert.equal(s.ok("run", "done", "R7", "--status", "done"), "R7 done");
@@ -4613,7 +4613,7 @@ test("Balanced defaults cover every role and size without a config file", () => 
       if (["implementer", "designer", "arena-judge"].includes(role)) args.push("--branch", `sample/${task}-${role}`);
       const out = s.ok(...args);
       assert.ok(out.endsWith(` · model ${expected}`), `${role} on ${size}`);
-      s.ok("run", "done", out.split(" ")[0], "--status", "failed");
+      s.ok("run", "done", out.split(" ")[0], "--status", "failed", "--why", "stopped");
     }
   }
 });

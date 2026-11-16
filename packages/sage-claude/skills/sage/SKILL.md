@@ -36,12 +36,12 @@ Read `skills/sage/references/commands.md` for the full row of a command before y
 | `config name="<name>"` · `config archived=yes\|no` · `config start=sage-mode\|normal` · `config lint_offer=never\|ask` · `config commit_email=<email> commit_name="<name>"` | Sets a key of the project's own logbook, in `config.json` of its logbook folder (not the config for all projects). |
 | `task <T> set state=<state> [branch=<b>] [pr=<n>]` | Moves the task. |
 | `round <T> [--why "<reason>"]` | Starts a repair round on the open findings marked fix, also on low findings only, and names the roles to re-run on the repair's diff. |
-| `run add <T> --role <role> [--branch <b>] [--candidate <k>]` · `run done <R> --status done\|blocked\|question\|failed [--tokens <n>] [--report <path>]` | Records an agent run. |
+| `run add <T> --role <role> [--branch <b>] [--candidate <k>]` · `run done <R> --status done\|blocked\|question\|failed [--tokens <n>] [--report <path>] [--why "<reason>"]` | Records an agent run. `--why "<reason>"` is needed with `--status failed`: one line of at most 200 characters that the board shows. |
 | `finding add <T> --source <role> --severity high\|medium\|low --summary "<s>" [--key <K>] [--run <R>] [--class <class>]` | Records a finding. |
 | `finding triage <T> <K> fix\|dismiss\|ask [--reason "<r>"] [--proof <R>]` · `finding close <T> <K>` | Triage every finding; `--proof` names the proof check that reran it. Close a fix, also a moved finding, after a re-check confirms it. |
 | `finding move <T> <K> --to "<title>" [--size tiny\|small\|large]` · `finding move <T> <K> --into <T>` | Moves an open medium or low finding to a new follow-up task, or into an open task of this logbook. |
 | `verdict <T> --sha <sha> --kind <kind> [--cycle <n>] [--pr <n>] [--run <R>]` | Records a verdict on a head SHA. |
-| `gate add <T> --question "<q>" --options "<a\|b>" --recommend <a> [--default <a>]` · `gate answer <G> --option <n> --project <folder>` · `gate answer <G> --other-hex <hex> --project <folder>` | Parks a question for the user, with your recommendation and the default. |
+| `gate add <T> --question "<q>" --options "<a\|b>" --recommend <a> [--default <a>] [--run R<n>]` · `gate answer <G> --option <n> --project <folder>` · `gate answer <G> --other-hex <hex> --project <folder>` | Parks a question for the user, with your recommendation and the default. `--run` names the run of the task that asked it. |
 | `log <T\|-> "<decision>" --why "<reason>"` | Adds a line to the decision trail. |
 | `pages <T>` · `pages <T> record <file>` · `pages <T> record --run <R> --text <report>` | Makes (mode 700) and prints the folder where agents save the task's pages (research, designs, findings pages). |
 | `board [this\|all\|<project>\|<T>] [--view chat\|task\|status]` · `board --name-hex <hex>` | Prints the board: the chat board by default. |

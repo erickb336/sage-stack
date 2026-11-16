@@ -121,7 +121,7 @@ test("T483: each review or QA verdict that no kept report backs is refused, with
   assert.match(verdict("review-clean", both(`sage/t1-a, base ${SHA}, head ${OTHER}`)), /report is on 0123456, not on a1b2c3d/);
   assert.match(verdict("review-clean", both(`sage/t1-a ${OTHER} ${SHA}`)), /names 2 commits in BRANCH and none as its head/);
   const failed = s.ok("run", "add", "T1", "--role", "code-reviewer").split(" ")[0];
-  s.ok("run", "done", failed, "--status", "failed");
+  s.ok("run", "done", failed, "--status", "failed", "--why", "stopped");
   assert.match(verdict("review-clean", failed), new RegExp(`^sage: ${failed} ended as failed, so it backs no verdict\\. Run the review again under a new run`));
   const seen = s.reviewed("T1", "code-reviewer", reportFor("review-clean"), OTHER);
   assert.equal(verdict("review-clean", seen), `sage: ${seen}'s report is on 0123456, not on a1b2c3d: a verdict names the commit that its helper reviewed. Record it on ${OTHER}, or review a1b2c3d under a new run. Nothing changed.`);

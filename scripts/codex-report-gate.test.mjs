@@ -73,7 +73,7 @@ test("T483: the chief's review child keeps its report with the head that the gat
   const ok = (...args) => { const r = sage(...args); assert.equal(r.status, 0, r.stderr); return r.stdout.trim(); };
   ok("init");
   for (let k = 1; k <= 12; k++) ok("task", "add", "--priority", "P2", "--title", `t${k}`, "--size", "small");
-  for (let k = 1; k < 40; k++) ok("run", "done", ok("run", "add", "T1", "--role", "pe").split(" ")[0], "--status", "failed");
+  for (let k = 1; k < 40; k++) ok("run", "done", ok("run", "add", "T1", "--role", "pe").split(" ")[0], "--status", "failed", "--why", "stopped");
   ok("task", "T12", "set", "branch=codex/t12-a");
   const clean = "STATUS done\nRESULT CLEAN\nEVIDENCE npm test passed\nFINDINGS none\nQUESTIONS none\nNOT VERIFIED none\nBRANCH codex/t12-a";
   let threads = 0;
@@ -200,14 +200,14 @@ test("T585: an arena keeps the reports of its candidates and its judge, and a ca
     play(role.replaceAll("-", "_"), id, () => git("branch", "-q", "-f", "codex/t1-a", headB));
     assert.equal(kept(id).sha, base, role);
     git("branch", "-q", "-f", "codex/t1-a", headA);
-    ok("run", "done", id, "--status", "failed");
+    ok("run", "done", id, "--status", "failed", "--why", "stopped");
   }
   for (const role of ["code-reviewer", "qa"]) {
     const id = add(role, "--branch", "codex/t1-a"), before = git("rev-parse", "codex/t1");
     play(role.replaceAll("-", "_"), id, () => git("branch", "-q", "-f", "codex/t1", headB));
     assert.equal(kept(id).sha, "", role);
     git("branch", "-q", "-f", "codex/t1", before);
-    ok("run", "done", id, "--status", "failed");
+    ok("run", "done", id, "--status", "failed", "--why", "stopped");
   }
   const real = realpathSync(dir), here = { ...ENV, HOME: join(real, "home"), CODEX_HOME: join(real, "codex-home") };
   const digest = (text) => createHash("sha256").update(text, "utf8").digest("hex");

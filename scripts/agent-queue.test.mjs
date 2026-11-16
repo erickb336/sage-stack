@@ -72,7 +72,7 @@ test("T1057: a Claude chief and a Codex chief at the project's limit queue their
   w.hook({ hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
   assert.match(denied(w.hook(claudeSpawn("R5", "T1"))) ?? "", /^sage: R5 is queued, place 2 of 2: the project runs 3 of its 3 agents, so its agent does not start yet\. A run that ends admits the oldest queued run\. The hook tells you when it is admitted\. To wait, run node \S+\/hooks\/wait\.mjs --slot R5 in the project's folder, as a Bash command of its own in the background \(run_in_background true\)\. It ends when R5 is admitted\.$/);
 
-  assert.equal(w.claude("run", "done", "R1", "--status", "failed"), "R1 failed\nR4 admitted · qa on T2 · chief C2: start its agent within 10 minutes, or the run ends as failed", "the oldest queued run takes the place, also when it is the other chief's");
+  assert.equal(w.claude("run", "done", "R1", "--status", "failed", "--why", "stopped"), "R1 failed\nR4 admitted · qa on T2 · chief C2: start its agent within 10 minutes, or the run ends as failed", "the oldest queued run takes the place, also when it is the other chief's");
   assert.deepEqual([status(w, "R4"), status(w, "R5")], ["running", "queued"]);
   assert.equal(context(w.hook({ hook_event_name: "UserPromptSubmit", prompt: "what is next?" })), "", "the Claude chief gets no notice of the Codex chief's run");
 
@@ -85,7 +85,7 @@ test("T1057: a Claude chief and a Codex chief at the project's limit queue their
   briefHook({ hook_event_name: "PostToolUse", session_id: CODEX, cwd: w.project, tool_name: "collaborationspawn_agent", tool_input: { task_name: "sage_qa_t2_r4" } }, w.env);
   assert.deepEqual(queueOf(w.project, w.env).admitted, [], "the spawn marks the agent's start, so the lease no longer holds R4");
 
-  assert.match(w.codex("run", "done", "R2", "--status", "failed"), /\nR5 admitted · qa on T1 · chief C1: start its agent within 10 minutes/);
+  assert.match(w.codex("run", "done", "R2", "--status", "failed", "--why", "stopped"), /\nR5 admitted · qa on T1 · chief C1: start its agent within 10 minutes/);
   assert.match(context(w.hook({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "git status" }, tool_response: { stdout: "" } })),
     /^sage: R5 \(qa on T1\) is admitted from the queue: start its agent now, by \d\d:\d\d UTC, or the run ends as failed and loses its place\.$/, "the Claude chief hears at its next hook event");
   assert.equal(context(w.hook({ hook_event_name: "UserPromptSubmit", prompt: "and now?" })), "", "once");
@@ -107,7 +107,7 @@ test("T1057: a queued Claude chief is told once at its stop to wait in the backg
   assert.equal(w.hook({ hook_event_name: "Stop", last_assistant_message: "R4 waits.", stop_hook_active: true }), undefined, "the stop is blocked once");
   const wait = new Promise((done) => execFile("node", [WAIT, "--slot", "R4"], { cwd: w.project, env: { ...w.env, SAGE_WAIT_MS: "30000" }, timeout }, (error, stdout) => done({ error, stdout })));
   await new Promise((done) => setTimeout(done, 300));
-  w.claude("run", "done", "R2", "--status", "failed");
+  w.claude("run", "done", "R2", "--status", "failed", "--why", "stopped");
   const { error, stdout } = await wait;
   assert.equal(error, null);
   assert.match(stdout, /^R4 \(qa on T1\) is admitted: start its agent now, by \d\d:\d\d UTC, or the run ends as failed\.\n$/);
@@ -120,13 +120,13 @@ test("T1057: an admitted run whose agent does not start within 10 minutes ends a
   for (const task of ["T1", "T1", "T1"]) w.claude("run", "add", task, "--role", "qa");
   w.codex("run", "add", "T2", "--role", "qa");
   w.codex("run", "add", "T2", "--role", "qa");
-  assert.match(w.claude("run", "done", "R1", "--status", "failed"), /\nR4 admitted · qa on T2 · chief C2: /);
+  assert.match(w.claude("run", "done", "R1", "--status", "failed", "--why", "stopped"), /\nR4 admitted · qa on T2 · chief C2: /);
   const file = join(storeDir(w.project, w.env), "runs.tsv"), old = new Date(Date.now() - 11 * 60_000).toISOString().slice(0, 19) + "Z";
   const { cols } = w.runs(), at = cols.indexOf("admitted");
   writeFileSync(file, readFileSync(file, "utf8").split("\n").map((line) => line.startsWith("R4\t") ? line.split("\t").map((cell, i) => (i === at ? old : cell)).join("\t") : line).join("\n"));
   assert.deepEqual(queueOf(w.project, w.env).admitted, [], "a lapsed admission sends no notice");
-  assert.equal(w.claude("run", "done", "R2", "--status", "failed"), `R2 failed\nR4 failed: admitted at ${old.slice(11, 16)} UTC, its agent did not start within 10 minutes\nR5 admitted · qa on T2 · chief C2: start its agent within 10 minutes, or the run ends as failed`);
-  assert.deepEqual(w.runs().rows.map((r) => [r.id, r.status]), [["R1", "failed"], ["R2", "failed"], ["R3", "running"], ["R4", "failed"], ["R5", "running"]]);
+  assert.equal(w.claude("run", "done", "R2", "--status", "failed", "--why", "stopped"), `R2 failed\nR4 failed: admitted at ${old.slice(11, 16)} UTC, its agent did not start within 10 minutes\nR5 admitted · qa on T2 · chief C2: start its agent within 10 minutes, or the run ends as failed`);
+  assert.deepEqual(w.runs().rows.map((r) => [r.id, r.status, r.failure]), [["R1", "failed", "stopped"], ["R2", "failed", "stopped"], ["R3", "running", ""], ["R4", "failed", "its agent did not start within 10 minutes"], ["R5", "running", ""]], "T1124: the lapse writes its own reason, beside the chief's --why");
   assert.match(readFileSync(join(storeDir(w.project, w.env), "decisions.tsv"), "utf8"), /\tT2\tR4 failed: no agent started within 10 minutes of its admission\t/);
   return w.spawnCodex("sage_qa_t2_r4").then((out) => assert.equal(denied(out), `sage: R4 (qa on T2) was admitted at ${old.slice(11, 16)} UTC, and no agent started within 10 minutes, so it ended as failed and lost its place. Add a new run for this agent`));
 });
@@ -151,7 +151,7 @@ test("T1057: run add and run done racing in separate processes, from both provid
       const out = await Promise.all([
         ...Array.from({ length: 4 }, () => cli(CLAUDE_TOOL, "C1", "run", "add", "T1", "--role", "qa")),
         ...Array.from({ length: 4 }, () => cli(CODEX_TOOL, "C2", "run", "add", "T2", "--role", "qa")),
-        ...live.slice(0, 3).map((id) => w.runs().rows.find((r) => r.id === id).chief).map((chief, i) => cli(chief === "C1" ? CLAUDE_TOOL : CODEX_TOOL, chief, "run", "done", live[i], "--status", "failed")),
+        ...live.slice(0, 3).map((id) => w.runs().rows.find((r) => r.id === id).chief).map((chief, i) => cli(chief === "C1" ? CLAUDE_TOOL : CODEX_TOOL, chief, "run", "done", live[i], "--status", "failed", "--why", "stopped")),
       ]);
       for (const r of out) assert.equal(r.code, 0, r.stderr);
       const { rows } = w.runs(), running = rows.filter((r) => r.status === "running"), queued = rows.filter((r) => r.status === "queued");
@@ -179,7 +179,7 @@ test("T1057: an older runs.tsv without the admitted column still reads and takes
   w.codex("run", "add", "T2", "--role", "qa");
   assert.ok(w.runs().cols.includes("admitted"), "the first queued run writes the column, so that an older sage stops writing (F-T1057-2)");
   assert.equal(w.runs().rows.find((r) => r.id === "R4").admitted, "", "a queued run is not admitted yet");
-  w.claude("run", "done", "R2", "--status", "failed");
+  w.claude("run", "done", "R2", "--status", "failed", "--why", "stopped");
   const { cols: after, rows } = w.runs();
   assert.ok(after.includes("admitted"));
   assert.deepEqual(rows.map((r) => [r.id, r.admitted === "" ? "" : "time"]), [["R1", ""], ["R2", ""], ["R3", ""], ["R4", "time"]], "sparse: only the run that came from the queue has a value");
@@ -191,7 +191,7 @@ test("T1057: a sage without the admitted column refuses to write runs.tsv from t
   const plugin = join(w.base, "older");
   cpSync(fileURLToPath(new URL("../plugins/sage-codex", import.meta.url)), plugin, { recursive: true });
   const state = join(plugin, "core/state.mjs"), source = readFileSync(state, "utf8");
-  const older = source.replace("runs: [CHIEF_COLUMN, CHECKOUT_COLUMN, ADMITTED_COLUMN],", "runs: [CHIEF_COLUMN, CHECKOUT_COLUMN],");
+  const older = source.replace("runs: [CHIEF_COLUMN, CHECKOUT_COLUMN, ADMITTED_COLUMN, \"failure\"],", "runs: [CHIEF_COLUMN, CHECKOUT_COLUMN, \"failure\"],");
   assert.notEqual(older, source, "the fixture removes the column");
   writeFileSync(state, older);
   const { tool: old } = await import(pathToFileURL(join(plugin, "skills/sage/sage.mjs")).href);
@@ -202,7 +202,7 @@ test("T1057: a sage without the admitted column refuses to write runs.tsv from t
   const before = readFileSync(join(storeDir(w.project, w.env), "runs.tsv"), "utf8");
   assert.throws(() => run("run", "add", "T2", "--role", "qa"), /runs\.tsv has columns that this version of sage does not know \(admitted\).*Update the sage plugin/);
   assert.equal(readFileSync(join(storeDir(w.project, w.env), "runs.tsv"), "utf8"), before, "nothing changed");
-  assert.throws(() => run("run", "done", "R1", "--status", "failed"), /Update the sage plugin/, "an older run done would admit no one, so it is refused too");
+  assert.throws(() => run("run", "done", "R1", "--status", "failed", "--why", "stopped"), /Update the sage plugin/, "an older run done would admit no one, so it is refused too");
   assert.equal(readFileSync(join(storeDir(w.project, w.env), "runs.tsv"), "utf8"), before, "nothing changed");
   assert.match(old.sage(["status", "--project", w.project], w.env), /^agents  4 runs · 3 running · /m);
 });
@@ -233,7 +233,7 @@ const fullWithAdmission = (w) => {
   for (const task of ["T1", "T1", "T1"]) w.claude("run", "add", task, "--role", "qa");
   w.codex("run", "add", "T2", "--role", "qa");
   w.claude("run", "add", "T1", "--role", "qa");
-  assert.match(w.claude("run", "done", "R1", "--status", "failed"), /\nR4 admitted · qa on T2 · chief C2: /);
+  assert.match(w.claude("run", "done", "R1", "--status", "failed", "--why", "stopped"), /\nR4 admitted · qa on T2 · chief C2: /);
 };
 
 test("T1057 F-T1057-1: with no write after a lapse, wait --slot fails the lapsed admission and admits the waiting run; a wait on the lapsed run names the next step", async (t) => {
@@ -256,7 +256,7 @@ test("T1057 F-T1057-7: a helper started in the foreground keeps its run past the
   for (const task of ["T1", "T1", "T1"]) w.claude("run", "add", task, "--role", "qa");
   w.claude("run", "add", "T1", "--role", "qa");
   w.hook({ hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
-  assert.match(w.claude("run", "done", "R1", "--status", "failed"), /\nR4 admitted · qa on T1 · chief C1: /);
+  assert.match(w.claude("run", "done", "R1", "--status", "failed", "--why", "stopped"), /\nR4 admitted · qa on T1 · chief C1: /);
   const spawn = claudeSpawn("R4", "T1");
   assert.equal(spawn.tool_input.run_in_background, undefined, "a foreground spawn: its PostToolUse comes only when the helper ends");
   assert.equal(denied(w.hook(spawn)), undefined);
@@ -275,7 +275,7 @@ test("T1057 F-T1057-4: from the lease's end the hooks refuse the spawn, but the 
   assert.equal(status(w, "R4"), "running", "within the minute after the lease, the sweep leaves the run");
   assert.equal(markStart(w.project, "R4", w.env), true, "a hook that allowed the spawn just before the lease's end marks it now");
   backdate(w, "R4", 12 * 60_000);
-  assert.match(w.claude("run", "done", "R2", "--status", "failed"), /^R2 failed\nR5 admitted · qa on T1 · chief C1: [^\n]*$/);
+  assert.match(w.claude("run", "done", "R2", "--status", "failed", "--why", "stopped"), /^R2 failed\nR5 admitted · qa on T1 · chief C1: [^\n]*$/);
   assert.equal(status(w, "R4"), "running", "the sweep reads the mark and keeps the run");
 });
 
@@ -285,7 +285,7 @@ test("T1057 F-T1057-5: a queued lead run is not an ended lead run", (t) => {
   for (const task of ["T1", "T1", "T1"]) w.claude("run", "add", task, "--role", "qa");
   assert.match(w.claude("run", "add", "T1", "--role", "lead"), /^R4 is queued, place 1 · lead on T1/);
   assert.deepEqual(logbookView(w.project, w.env).endedLeadRuns().map((r) => r.id), []);
-  w.claude("run", "done", "R4", "--status", "failed");
+  w.claude("run", "done", "R4", "--status", "failed", "--why", "stopped");
   assert.deepEqual(logbookView(w.project, w.env).endedLeadRuns().map((r) => r.id), ["R4"]);
 });
 
@@ -330,7 +330,7 @@ test("T1057 F-T1057-23: when the spawn's PreToolUse wrote no start mark (the hoo
   shared(w);
   for (let i = 0; i < 4; i++) w.claude("run", "add", "T1", "--role", "qa");
   w.hook({ hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
-  assert.match(w.claude("run", "done", "R1", "--status", "failed"), /\nR4 admitted · qa on T1 · chief C1: /);
+  assert.match(w.claude("run", "done", "R1", "--status", "failed", "--why", "stopped"), /\nR4 admitted · qa on T1 · chief C1: /);
   const { tool_input } = claudeSpawn("R4", "T1"), post = { hook_event_name: "PostToolUse", tool_name: "Agent", tool_use_id: "tu-R4", tool_input, tool_response: { status: "async_launched" } };
   w.hook(post);
   assert.deepEqual(queueOf(w.project, w.env).admitted, [], "the PostToolUse marked the agent's start");
@@ -338,7 +338,7 @@ test("T1057 F-T1057-23: when the spawn's PreToolUse wrote no start mark (the hoo
   w.hook(post);
   assert.equal(readFileSync(mark, "utf8"), first, "a second event keeps the first mark");
   backdate(w, "R4", 12 * 60_000);
-  assert.match(w.claude("run", "done", "R2", "--status", "failed"), /^R2 failed$/, "the sweep keeps the working run");
+  assert.match(w.claude("run", "done", "R2", "--status", "failed", "--why", "stopped"), /^R2 failed$/, "the sweep keeps the working run");
   assert.equal(status(w, "R4"), "running");
 });
 
@@ -359,7 +359,7 @@ test("T1057 F-T1057-53, F-T1057-48, F-T1057-54: a lead started as the chief's fi
   assert.match(w.claude("run", "add", "T3", "--role", "lead"), /^R4 is queued, place 1 · lead on T3/);
   const lead = chiefSpawn("lead", "lead-T3", "lead-T3 build the form");
   assert.match(denied(w.hook(lead)) ?? "", /^sage: R4 is queued, place 1 of 1: the project runs 3 of its 3 agents, so its agent does not start yet\. A run that ends admits the oldest queued run\. The hook tells you when it is admitted\. To wait, run node \S+\/hooks\/wait\.mjs --slot R4 in the project's folder, as a Bash command of its own in the background \(run_in_background true\)\. It ends when R4 is admitted\.$/, "the queued refusal with its place, not a refusal that says to record the lead run (F-T1057-54)");
-  assert.match(w.codex("run", "done", "R2", "--status", "failed"), /\nR4 admitted · lead on T3 · chief C1: /);
+  assert.match(w.codex("run", "done", "R2", "--status", "failed", "--why", "stopped"), /\nR4 admitted · lead on T3 · chief C1: /);
   assert.equal(denied(w.hook(lead)), undefined, "the admitted lead starts");
   assert.ok(readFileSync(join(storeDir(w.project, w.env), "kept", "R4.start.json"), "utf8").includes('"run":"R4"'), "its allow wrote the start mark");
   assert.deepEqual(queueOf(w.project, w.env).admitted, []);
@@ -374,14 +374,14 @@ test("T1057 F-T1057-53: a chief's PE with no Run line is tied to its task's one 
   assert.match(w.claude("run", "add", "T3", "--role", "pe"), /^R4 is queued, place 1 · pe on T3/);
   const pe = chiefSpawn("pe", "pe-T3", "T3 check the plan");
   assert.match(denied(w.hook(pe)) ?? "", /^sage: R4 is queued, place 1 of 1: /);
-  w.codex("run", "done", "R2", "--status", "failed");
+  w.codex("run", "done", "R2", "--status", "failed", "--why", "stopped");
   assert.equal(denied(w.hook(pe)), undefined);
   assert.deepEqual(queueOf(w.project, w.env).admitted, [], "the PE's start marked R4");
 
   assert.match(w.claude("run", "add", "T3", "--role", "designer", "--branch", "a/1", "--candidate", "1"), /^R5 is queued, place 1 /);
   assert.match(w.claude("run", "add", "T3", "--role", "designer", "--branch", "a/2", "--candidate", "2"), /^R6 is queued, place 2 /);
-  w.claude("run", "done", "R1", "--status", "failed");
-  w.codex("run", "done", "R3", "--status", "failed");
+  w.claude("run", "done", "R1", "--status", "failed", "--why", "stopped");
+  w.codex("run", "done", "R3", "--status", "failed", "--why", "stopped");
   assert.deepEqual(queueOf(w.project, w.env).admitted.map((r) => r.id), ["R5", "R6"]);
   assert.equal(denied(w.hook(chiefSpawn("designer", "design-T3", "T3 design the form"))), undefined);
   assert.deepEqual(queueOf(w.project, w.env).admitted.map((r) => r.id), ["R5", "R6"], "two designer runs fit, so the hook does not guess");
@@ -395,7 +395,7 @@ test("T1057 F-T1057-41: a queued review or QA run of the task holds the merge, a
   assert.match(w.claude("run", "add", "T1", "--role", "qa"), /^R4 is queued, place 1 · qa on T1/);
   w.claude("verdict", "T1", "--sha", sha, "--kind", "checks-pass");
   assert.throws(() => w.claude("merge-check", "--sha", sha), /T1 has a review or QA run that still runs: R4 \(qa, queued\)/);
-  w.claude("run", "done", "R4", "--status", "failed");
+  w.claude("run", "done", "R4", "--status", "failed", "--why", "stopped");
   assert.match(w.claude("merge-check", "--sha", sha), /may merge/);
 });
 
@@ -405,7 +405,7 @@ test("T1057 F-T1057-47: a task with a queued lead run joins no milestone before 
   w.claude("task", "add", "--title", "pilot", "--size", "small", "--priority", "P2");
   assert.match(w.claude("run", "add", "T3", "--role", "lead"), /^R4 is queued, place 1 · lead on T3/);
   assert.throws(() => w.claude("milestone", "propose", "--name", "Queue", "--goal", "g", "--pilot", "T4", "--tasks", "T3"), /T3 has R4 \(lead\) queued, so it joins M1 only after the owner approves its breakdown/);
-  w.claude("run", "done", "R4", "--status", "failed");
+  w.claude("run", "done", "R4", "--status", "failed", "--why", "stopped");
   assert.match(w.claude("milestone", "propose", "--name", "Queue", "--goal", "g", "--pilot", "T4", "--tasks", "T3"), /M1/);
 });
 
@@ -422,7 +422,7 @@ test("T1062 F-T1062-4, F-T1062-7: an admitted run's clock starts at its admissio
   const queuedAt = new Date(Date.now() - 40 * 60_000).toISOString().slice(0, 19) + "Z";
   setColumn(w, "R4", "started", queuedAt);
   assert.equal(status(w, "R4"), "queued");
-  w.claude("run", "done", "R1", "--status", "failed");
+  w.claude("run", "done", "R1", "--status", "failed", "--why", "stopped");
   const r4 = w.runs().rows.find((r) => r.id === "R4");
   assert.equal(r4.status, "running");
   assert.notEqual(r4.started, queuedAt, "the 40 minutes in the queue are not agent time");
