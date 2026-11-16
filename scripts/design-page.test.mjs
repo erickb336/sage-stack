@@ -8,7 +8,7 @@ import { ROOT } from "./build.mjs";
 import { DESIGN_PARTS, designPageProblems } from "../packages/sage-core/design-page.mjs";
 
 const FIXTURES = join(ROOT, "scripts/fixtures/design-page");
-const OWNER = join(FIXTURES, "owner.html"), TABBED = join(FIXTURES, "tabbed-spec.html");
+const OWNER = join(FIXTURES, "owner.html"), UNLINKED = join(FIXTURES, "owner-unlinked.html"), TABBED = join(FIXTURES, "tabbed-spec.html");
 const owner = readFileSync(OWNER, "utf8"), t1135 = readFileSync(join(FIXTURES, "t1135-v1.html"), "utf8");
 const run = (script, page) => spawnSync(process.execPath, [script, page], { encoding: "utf8" });
 
@@ -29,6 +29,8 @@ const SWITCH = (control) => `a switch (${control}) is above "Under the hood": sh
 const HIDDEN = 'a hidden element is above "Under the hood": show every part with no click and no switch';
 const NO_DIAGRAM = 'no diagram: draw at least one state chart, architecture diagram or flow chart, as an <svg>, an <img> with alt text, a <figure>, an element with role="img" and a name (aria-label or aria-labelledby), or a <div> of <div> boxes with a name';
 const CODE = (name) => `<${name}> is above "Under the hood": move code and command output to part 10, "Under the hood"`;
+const PRIOR_ART = (n) => `part 4 "How it works" links to ${n} source${n === 1 ? "" : "s"} of its prior art: link at least 2 pages that you read, each in an <a href> with an http or https address`;
+const FOLLOWS = /<p class="based">[\s\S]*?<\/p>/;
 
 test("the owner's design page has the format: no problems, and the check prints a pass in Claude's and Codex's plugin", () => {
   assert.ok(owner.includes(".plan .ar::after,.plan .ar::before{display:none}"), "the owner page hides a decoration with a style rule");
@@ -36,8 +38,41 @@ test("the owner's design page has the format: no problems, and the check prints 
   for (const plugin of ["plugins/sage", "plugins/sage-codex"]) {
     const result = run(join(ROOT, plugin, "core/design-page.mjs"), OWNER);
     assert.equal(result.status, 0, `${plugin}: ${result.stdout}${result.stderr}`);
-    assert.match(result.stdout, /^✓ .*owner\.html: the design page has the ten parts in order/);
+    assert.match(result.stdout, /^✓ .*owner\.html: the design page has the ten parts in order, a diagram, 2 or more prior-art links/);
   }
+});
+
+test("the owner's page as it was approved, with no link in its prior art, fails in Claude's and Codex's plugin, and names the gap", () => {
+  const unlinked = readFileSync(UNLINKED, "utf8");
+  assert.match(unlinked, /Follows: SonarQube's "clean as you code"/, "the copy keeps the approved prior-art line");
+  assert.deepEqual(designPageProblems(unlinked), [PRIOR_ART(0)]);
+  for (const plugin of ["plugins/sage", "plugins/sage-codex"]) {
+    const result = run(join(ROOT, plugin, "core/design-page.mjs"), UNLINKED);
+    assert.equal(result.status, 1, `${plugin}: ${result.stdout}${result.stderr}`);
+    assert.ok(result.stdout.includes(PRIOR_ART(0)), `${plugin}: ${result.stdout}`);
+  }
+});
+
+test("only 2 or more different http or https links in part 4 pass: one link, one page twice, a local file, an anchor or a link in another part fail", () => {
+  const follows = (links) => {
+    assert.match(owner, FOLLOWS, "the owner page has its prior-art line");
+    return owner.replace(FOLLOWS, `<p class="based">Follows: ${links}</p>`);
+  };
+  const a = (href) => `<a href="${href}">a source</a>`;
+  const one = "https://example.com/one", two = "http://example.org/two";
+  assert.deepEqual(designPageProblems(follows(a(one) + a(two))), []);
+  assert.deepEqual(designPageProblems(follows(a(` ${one} `) + a(two.toUpperCase()))), [], "spaces around an address and its letter case do not matter");
+  assert.deepEqual(designPageProblems(follows(a(one))), [PRIOR_ART(1)]);
+  assert.deepEqual(designPageProblems(follows(a(one) + a(one))), [PRIOR_ART(1)], "one page linked twice is one source");
+  for (const local of ["rationale.md", "file:///tmp/page.html", "#how", "/docs/page.html", "mailto:a@example.com", "https://", "javascript:void(0)"]) {
+    const problems = designPageProblems(follows(a(one) + a(local)));
+    assert.ok(problems.includes(PRIOR_ART(1)), `${local}: ${problems.join("; ")}`);
+  }
+  assert.deepEqual(designPageProblems(follows(`${one} and ${two}, as text`)), [PRIOR_ART(0)], "an address in the text is not a link");
+  assert.deepEqual(designPageProblems(follows(`<span data-href="${one}">x</span>${a(two)}`)), [PRIOR_ART(1)], "only the href of an <a> counts");
+  const elsewhere = follows("SonarQube and Tricorder").replace(HOOD, `${HOOD}<p>${a(one)}${a(two)}</p>`);
+  assert.deepEqual(designPageProblems(elsewhere), [PRIOR_ART(0)], "links under another part do not count");
+  assert.deepEqual(designPageProblems(changed(HOW, "<h2>The design</h2>")), ['missing part 4 "How it works": no <h2> heading that starts with "How it works"'], "a missing part 4 is one problem, not two");
 });
 
 test("a page shaped like the old tabbed spec fails, and the message names each missing part, the tabs, the code and the missing diagram", () => {
@@ -215,15 +250,18 @@ test("role is a list of words: each word counts", () => {
     ['a tab (role="tablist") is above "Under the hood": show every part on one scrolling page, with no tabs']);
 });
 
-test("the T1135 design page passes, and its <svg role=\"img\"> named by aria-labelledby is a diagram on its own", () => {
+test("the T1135 design page passes once its headings use the part names and its prior art links 2 sources, and its <svg role=\"img\"> named by aria-labelledby is a diagram on its own", () => {
   const renamed = t1135.replace(">What the chief and agents do<", ">What the agents do<").replace(">Plan and cost<", ">Cost and plan<");
   assert.deepEqual(designPageProblems(t1135), [
     'missing part 6 "What the agents do": no <h2> heading that starts with "What the agents do"',
     'missing part 9 "Cost and plan": no <h2> heading that starts with "Cost and plan"',
-  ], "the page as the designer saved it names two parts in its own words");
-  assert.deepEqual(designPageProblems(renamed), []);
-  assert.ok(renamed.includes('role="img" aria-labelledby="sc-t sc-d"'), "the page has an svg named by aria-labelledby");
-  assert.deepEqual(designPageProblems(renamed.replace(/ aria-label="[^"]*"/g, "")), [], "the svg is the only diagram");
+    PRIOR_ART(0),
+  ], "the page as the designer saved it names two parts in its own words, and links no source of its prior art");
+  assert.deepEqual(designPageProblems(renamed), [PRIOR_ART(0)]);
+  const linked = renamed.replace("<b>Prior art.</b>", '<b>Prior art.</b> <a href="https://code.visualstudio.com/docs/getstarted/userinterface">VS Code</a>, <a href="https://slack.com/help/articles/213185307">Slack</a>.');
+  assert.deepEqual(designPageProblems(linked), []);
+  assert.ok(linked.includes('role="img" aria-labelledby="sc-t sc-d"'), "the page has an svg named by aria-labelledby");
+  assert.deepEqual(designPageProblems(linked.replace(/ aria-label="[^"]*"/g, "")), [], "the svg is the only diagram");
 });
 
 test("a picture named by aria-labelledby or an svg <title> is a diagram, and a name that points to no text is not a name", () => {

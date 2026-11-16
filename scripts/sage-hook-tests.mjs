@@ -7007,3 +7007,33 @@ test("T621 F-T621-11, T815: a heredoc body in a text flag of gh pr passes", () =
   for (const command of pass) assert.equal(denied(f.send(command)), undefined, command);
   assert.match(denied(f.send(`gh repo delete acme/project --body "${body}"`)) ?? "", /an agent runs only these gh commands/);
 });
+
+const pause = (s, active = true) => s.send({ hook_event_name: "SubagentStop", ...LEAD, stop_hook_active: active, last_assistant_message: "I'm waiting for the background CI wait to report." });
+
+test("T1133: a lead that ends its turn with no report, to wait for its background command, keeps its slot and writes again at the notice", () => {
+  const s = leadSession();
+  s.sage("run", "done", "R2", "--status", "done", "--tokens", "1");
+  const nudge = pause(s, false);
+  assert.equal(nudge?.decision, "block", "the first stop with no report gets the report check");
+  assert.equal(pause(s), undefined, "the lead's turn ends");
+  assert.equal(denied(stateRun(s, "round T1")), undefined, "at the notice, the lead writes the logbook again");
+  assert.equal(denied(stateRun(s, "run add T1 --role qa")), undefined, "and adds a run");
+  assert.match(denied(s.send(leadSpawn("second-lead", 1, { cwd: s.dir }))) ?? "", /a lead named lead-T1 already holds a slot/, "a second lead of T1 gets no slot while the first one waits");
+  assert.equal(s.send({ hook_event_name: "SubagentStop", ...LEAD, stop_hook_active: false, last_assistant_message: report("ready") }), undefined, "the lead ends with its report");
+  assert.match(denied(stateRun(s, "round T1")) ?? "", /this lead holds no bound lead slot/, "its report frees its slot");
+  assert.match(nudge.reason, /^sage: your report has no STATUS.*A lead that waits for its own background work may end its turn again/, "the report check tells a waiting lead that it may end its turn");
+});
+
+test("T1133: a lead that ends its turn with no report and never wakes frees its slot by the sage's stop, or by its lease once its lead run ends", () => {
+  for (const how of ["stop", "lease"]) {
+    const s = leadSession();
+    s.sage("run", "done", "R2", "--status", "done", "--tokens", "1");
+    assert.equal(pause(s), undefined, how);
+    s.sage("run", "done", "R1", "--status", "failed", "--why", "its agent stopped");
+    if (how === "stop") s.send(tool("TaskStop", { task_id: "lead-T1" }));
+    else ageSlots(s, 61);
+    s.sage("run", "add", "T1", "--role", "lead");
+    assert.equal(denied(s.send(leadSpawn("fresh-lead", 1, { cwd: s.dir }))), undefined, `${how}: a fresh lead of T1 starts`);
+    assert.match(denied(stateRun(s, "round T1")) ?? "", /this lead holds no bound lead slot/, `${how}: the old lead writes nothing`);
+  }
+});

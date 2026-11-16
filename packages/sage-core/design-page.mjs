@@ -3,6 +3,8 @@ import { fileURLToPath } from "node:url";
 
 export const DESIGN_PARTS = Object.freeze(["Title", "The problem", "After", "How it works", "What you will see", "What the agents do", "Rules", "Your choices", "Cost and plan", "Under the hood"]);
 const SAMPLE_PARTS = Object.freeze(["After", "What you will see"]);
+const PRIOR_ART_PART = "How it works";
+const FETCHED = /^https?:\/\/[^\s/]/;
 const TABS = new Set(["tab", "tablist", "tabpanel"]);
 const CODE = new Set(["pre", "code", "samp"]);
 const SWITCHES = new Set(["button", "input", "select", "textarea"]);
@@ -154,6 +156,13 @@ export function designPageProblems(html) {
     const index = DESIGN_PARTS.indexOf(part);
     if (places[index] !== undefined && !/\bsamples?\b/i.test(partText(list, places, index))) problems.push(`${label(index)} does not say "sample": label its invented data as sample`);
   }
+  const how = DESIGN_PARTS.indexOf(PRIOR_ART_PART);
+  if (places[how] !== undefined) {
+    const end = places.slice(how + 1).find((place) => place !== undefined) ?? list.length;
+    const links = new Set(list.slice(places[how], end).filter((token) => token.name === "a" && !token.closing)
+      .map((token) => (token.attributes.href ?? "").trim().toLowerCase()).filter((href) => FETCHED.test(href)));
+    if (links.size < 2) problems.push(`${label(how)} links to ${links.size} source${links.size === 1 ? "" : "s"} of its prior art: link at least 2 pages that you read, each in an <a href> with an http or https address`);
+  }
   return problems;
 }
 
@@ -163,7 +172,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.a
   let html;
   try { html = readFileSync(page, "utf8"); } catch (error) { console.error(`✗ ${page}: cannot read it (${error.code ?? error.message})`); process.exit(2); }
   const problems = designPageProblems(html);
-  if (!problems.length) { console.log(`✓ ${page}: the design page has the ten parts in order, a diagram, no script, no hidden content, no switch and no code above "Under the hood", and labelled sample data`); process.exit(0); }
+  if (!problems.length) { console.log(`✓ ${page}: the design page has the ten parts in order, a diagram, 2 or more prior-art links, no script, no hidden content, no switch and no code above "Under the hood", and labelled sample data`); process.exit(0); }
   console.log(`✗ ${page}: ${problems.length} problem${problems.length === 1 ? "" : "s"} with the design format (core/references/design-format.md):`);
   for (const problem of problems) console.log(`  - ${problem}`);
   process.exit(1);
