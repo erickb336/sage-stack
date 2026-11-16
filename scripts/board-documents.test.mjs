@@ -316,7 +316,7 @@ test("T1064 security: hostile Markdown and hostile logbook text render harmless:
 
 test("T1064 security: a link with an encoded, doubly encoded or mixed-case scheme, or a scheme split by whitespace or a control character, is refused like any outside link", t => {
   const w = world(t), hex = n => `%${n.toString(16).toUpperCase().padStart(2, "0")}`;
-  const bad = ["https%3A//x/../../../../../../pages/sample-app-abc123/T3/proto.html?scripts=1", "https%3a//x/../../app/task/abc?any=query", "https%253A//x/../../pages/sample-app-abc123/T3/proto.html",
+  const bad = ["https%3A//x/../../../../../../pages/sample-app-abc123/T3/proto.html?scripts=1", "https%3a//x/../../app/task/abc?any=query", "https%253A//x/../../../pages/sample-app-abc123/T3/proto.html",
     "HtTpS%3A//x/../proto.html", "hTTps%3a//x/..", "javascript%3Aalert(1)", "JaVaScRiPt%3aalert(1)", "javascript%253Aalert(1)", "javascript%25253Aalert(1)",
     "<java\tscript:alert(1)>", "< javascript:alert(1)>", "<\thttps%3A//x/../proto.html>", "%20https%3A//x/../proto.html",
     ...Array.from({ length: 32 }, (_, n) => [`java${hex(n)}script:alert(1)`, `${hex(n)}javascript:alert(1)`, `${hex(n)}https%3A//x/../proto.html`, `https%3A${hex(n)}//x/../proto.html`, `https:${hex(n)}//x/../proto.html`]).flat()];

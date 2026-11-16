@@ -194,11 +194,12 @@ const FENCE = "```";
 
 export const BOARD_PORT = 43123;
 export const PAGE_MAX = 16 * 1024 * 1024;
+export const PAGE_DEPTH = 4;
 export const PAGE_TYPES = Object.freeze({ html: "text/html; charset=utf-8", pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml", md: "text/plain; charset=utf-8", txt: "text/plain; charset=utf-8" });
 const PAGE_PART = /^(?!.*\.\.)[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}$/;
 export const pageType = (file) => {
   const parts = String(file).split("/"), type = /\.([a-z0-9]+)$/.exec(parts.at(-1))?.[1];
-  return parts.length <= 3 && parts.every((part) => PAGE_PART.test(part)) && Object.hasOwn(PAGE_TYPES, type) ? PAGE_TYPES[type] : null;
+  return parts.length <= PAGE_DEPTH && parts.every((part) => PAGE_PART.test(part)) && Object.hasOwn(PAGE_TYPES, type) ? PAGE_TYPES[type] : null;
 };
 export const pagePath = (logbook, task, file) => `/pages/${logbook}/${task}/${file}`;
 export const pageUrl = (logbook, task, file, port = BOARD_PORT) => `http://127.0.0.1:${port}${pagePath(logbook, task, file)}`;
