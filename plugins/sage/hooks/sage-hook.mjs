@@ -500,7 +500,6 @@ function moveCheck({ owner, repo, branch }) {
 const READS = { status: () => true, "merge-check": () => true, logbook: (pos) => pos[0] !== "repair", standing: (pos) => pos[0] !== "add", config: (pos) => !pos.length };
 const READ_FORM = "node <path to skills/sage/sage.mjs> <status, merge-check, logbook, standing or config> [--project <path>] (config without a key=value)";
 const PLAIN = /^[\w./=:@,+-]+(?:[ \t]+[\w./=:@,+-]+)*$/;
-const ONE_PLAIN_QUOTED_WHY = /(^| )--why(?: |=)(["'])([\w./=:@,+ -]*)\2(?= |$)/;
 const fields = (v) => (typeof v === "string" ? [v] : v && typeof v === "object" ? Object.values(v).flatMap(fields) : []);
 const fold = (text) => text.normalize("NFKC").toLowerCase();
 function rootsOf(strict) {
@@ -662,28 +661,16 @@ function optionsOf(args) {
   }
   return { pos, opt, twice };
 }
-function chiefStateWords(input) {
-  const command = String(input.tool_input?.command ?? "").replace(/\\\r?\n/g, " ").trim();
-  const quoted = [`node "${TOOL}" `, `node '${TOOL}' `].find((form) => command.startsWith(form));
-  let words;
-  if (quoted) words = command.slice(quoted.length).trim().split(/[ \t]+/);
-  else {
-    const [node, raw, ...rest] = command.split(/[ \t]+/), path = raw?.replace(/^(["'])(.+)\1$/, "$2");
-    if (node !== "node" || !path || !/(?:^|\/)skills\/sage\/sage\.mjs$/.test(path) || canonical(resolve(input.cwd ?? process.cwd(), path)) !== canonical(TOOL)) return undefined;
-    words = rest;
-  }
-  const line = words.join(" ").replace(ONE_PLAIN_QUOTED_WHY, "$1--why=_");
-  return line && PLAIN.test(line) ? line.split(" ") : undefined;
-}
 function chiefWriteWords(input) {
   let commands;
   try {
-    commands = core.shellCommands(String(input.tool_input?.command ?? ""));
+    commands = core.shellCommands(String(input.tool_input?.command ?? ""), { provenance: true });
   } catch {
     return undefined;
   }
   const [one, ...more] = commands.filter((c) => !c.host);
   if (!one || more.length) return undefined;
+  const literal = commands.length === 1 && one.wordLiterals.every(Boolean) && !one.redirects.length && !one.bodies.length && !one.heredoc;
   const env = { ...process.env }, words = [...one.words], set = (w) => (env[w.slice(0, w.indexOf("="))] = w.slice(w.indexOf("=") + 1));
   for (let k = 0; one.syntax[k]?.assignment; k++) set(words.shift());
   if (words[0] === "env") for (words.shift(); ; ) {
@@ -692,7 +679,7 @@ function chiefWriteWords(input) {
     else break;
   }
   const [node, path, ...rest] = words;
-  return node === "node" && /(?:^|\/)skills\/sage\/sage\.mjs$/.test(path) && canonical(resolve(input.cwd ?? process.cwd(), path)) === canonical(TOOL) ? { words: rest, env } : undefined;
+  return node === "node" && /(?:^|\/)skills\/sage\/sage\.mjs$/.test(path) && canonical(resolve(input.cwd ?? process.cwd(), path)) === canonical(TOOL) ? { words: rest, env, literal } : undefined;
 }
 function chiefIdProblem(input) {
   if (input.tool_name !== "Bash") return undefined;
@@ -711,11 +698,12 @@ function chiefIdProblem(input) {
 }
 function chiefEnded(input, slots) {
   try {
-    const words = chiefStateWords(input);
-    if (!words || words[0] !== "run") return;
+    const { words, env, literal } = chiefWriteWords(input) ?? {};
+    const plain = (w, k) => /^[\w./=:@,+-]+$/.test(w) || words[k - 1] === "--why" || w.startsWith("--why=");
+    if (!literal || words[0] !== "run" || !words.every(plain)) return;
     const { pos, opt } = optionsOf(words.slice(1));
     if (pos[0] !== "done" || !/^R[1-9]\d*$/.test(pos[1] ?? "")) return;
-    const view = logbookOf(opt.project ?? process.env.SAGE_PROJECT ?? input.cwd), run = view.row(pos[1]);
+    const view = logbookOf(opt.project ?? env.SAGE_PROJECT ?? input.cwd), run = view.row(pos[1]);
     if (!run || run.status === "running" || !TEAM.includes(run.role)) return;
     const leads = [view.leadRun(run.task), ...view.endedLeadRuns().filter((r) => r.task === run.task)].filter(Boolean);
     slots.endHelpers(leads.map((lead) => helperOf({ logbook: digest(view.dir), run: lead.id }, run.id)));

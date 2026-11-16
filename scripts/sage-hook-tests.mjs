@@ -6281,8 +6281,9 @@ test("T482 K3: a lead's slot holds through a 2-hour wait while its lead run runs
   assert.match(denied(stateRun(s, "round T1")) ?? "", /this lead holds no bound lead slot/, "an ended lead run's slot expires");
 });
 
-test("T482 K3 T371 F-T1124-16: the sage's run done of a helper run notes its stop, also with a quoted --why, so the lead may go on and end", () => {
-  for (const why of [undefined, ` "its agent stopped"`, ` 'its agent stopped'`, `="its agent stopped"`]) {
+test("T482 K3 T371 F-T1124-16 F-T1124-20: the sage's run done of a helper run notes its stop, also with a quoted free-text --why, so the lead may go on and end", () => {
+  const free = [` "the helper's agent stopped"`, ` "stopped (no report)"`, ` "its agent; stopped"`, ` "stopped [no report], see #12 | retry?"`, ` 'it said "no" & quit'`, `="it's done: 100% [ok]"`];
+  for (const why of [undefined, ` "its agent stopped"`, ` 'its agent stopped'`, `="its agent stopped"`, ...free]) {
     const s = leadSession();
     s.sage("run", "done", "R2", "--status", "done", "--tokens", "1");
     const run = liveHelper(s, "qa");
@@ -6293,8 +6294,9 @@ test("T482 K3 T371 F-T1124-16: the sage's run done of a helper run notes its sto
   }
 });
 
-test("F-T1124-16: a quoted --why with a shell character, or a second quoted value, notes no stop", () => {
-  for (const why of [` "its $(agent) stopped"`, ` "its agent stopped" --x "two words"`, ` "its agent; stopped"`]) {
+test("F-T1124-16 F-T1124-20: a --why with a shell expansion, a second command, or a second quoted value, notes no stop", () => {
+  const shell = [` "the helper's \`agent\` stopped"`, ` "the helper's $AGENT stopped"`, ` $'its agent stopped'`, ` "it's done" && echo x`, ` "it's done"; echo x`, ` "it's done"\necho x`];
+  for (const why of [` "its $(agent) stopped"`, ` "its agent stopped" --x "two words"`, ...shell]) {
     const s = leadSession();
     s.sage("run", "done", "R2", "--status", "done", "--tokens", "1");
     const run = liveHelper(s, "qa");
