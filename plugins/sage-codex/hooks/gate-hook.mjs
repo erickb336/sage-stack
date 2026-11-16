@@ -77,6 +77,16 @@ function ghProblem(command, cwd, env) {
   return run && NO_GH(run);
 }
 const childMayCall = (name, input) => CHILD_READS.has(name) || (name === "pages" && ["record", "run", "text"].every((key) => input[key] === undefined));
+const CHILD_PAGES_PROJECT = "sage: a child requests pages only from its assigned shared project. The project binding is missing, unreadable or belongs to another project. Ask the chief to check the assigned checkout.";
+
+function childPagesProject(caller, input, env) {
+  try {
+    if (!isAbsolute(caller.project ?? "") || !isAbsolute(input.project ?? "")) return CHILD_PAGES_PROJECT;
+    const assigned = tool.locate(caller.project, env), requested = tool.locate(input.project, env);
+    if (assigned.shared && requested.shared && assigned.dir === requested.dir) return undefined;
+  } catch {}
+  return CHILD_PAGES_PROJECT;
+}
 
 const leadBrief = ({ task_name: name }, own) => (TEAM.has(taskRole(String(name))) && `T${taskNumber(name)}` === own ? undefined : `sage: a lead records a brief only for the team of ${own}, not for ${JSON.stringify(name)}.`);
 const LEAD_SHELL = `sage: a lead records with the sage MCP tools (${[...tool.LEAD_COMMANDS, "brief"].map((command) => command.replaceAll(" ", "_")).join(", ")}), not from the shell. Use one of these, or put what the logbook needs in your report.`;
@@ -90,7 +100,10 @@ const UNREAD_LOGBOOK = (error) => `sage: the gate could not read the logbook for
 
 export function callerRefusal(caller, name, input, env = process.env) {
   if (caller.role === "chief") return undefined;
-  if (caller.role !== "lead" || CHILD_READS.has(name)) return childMayCall(name, input) ? undefined : CHILD_LOGBOOK;
+  if (caller.role !== "lead" || CHILD_READS.has(name)) {
+    if (!childMayCall(name, input)) return CHILD_LOGBOOK;
+    return name === "pages" ? childPagesProject(caller, input, env) : undefined;
+  }
   const own = caller.task, request = { ...input, command: name.replaceAll("_", " ") };
   if (name !== "brief" && !tool.LEAD_COMMANDS.includes(request.command)) return `sage: ${tool.leadProblem(undefined, { task: own }, request, input.project, env)}`;
   try {
@@ -159,9 +172,10 @@ const leadOf = (name) => {
   return { task: `T${task}`, ...(run ? { run: `R${run}` } : {}) };
 };
 const recordsAsLead = (t) => t.parts?.length === 2 && t.parts[0] === "root" && isLead(t.parts[1]);
-function callerOf(t, cwd) {
+function callerOf(t, cwd, name) {
   if (!t.child) return { role: "chief" };
-  return recordsAsLead(t) ? { role: "lead", ...leadOf(t.parts[1]), project: real(tool.projectRoot(cwd)) } : { role: "child" };
+  return recordsAsLead(t) ? { role: "lead", ...leadOf(t.parts[1]), project: real(tool.projectRoot(cwd)) }
+    : { role: "child", ...(name === "pages" ? { project: real(tool.projectRoot(cwd)) } : {}) };
 }
 function childSpawn(t, name, cwd, session, env) {
   const self = t.parts?.at(-1);
@@ -485,7 +499,7 @@ export async function gate(input, { mode = readMode, check = checkMerge, env = p
   }
   const sageTool = SAGE_TOOL.exec(f.tool);
   if (sageTool) {
-    const caller = callerOf(thread, f.cwd), why = callerRefusal(caller, sageTool[1], f.input, env);
+    const caller = callerOf(thread, f.cwd, sageTool[1]), why = callerRefusal(caller, sageTool[1], f.input, env);
     if (why) return refuse(thread, why);
     if (sageTool[1] === "report_compare") {
       const requested = typeof f.input.project === "string" && isAbsolute(f.input.project) ? real(tool.projectRoot(f.input.project)) : undefined;
