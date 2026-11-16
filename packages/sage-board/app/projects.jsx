@@ -11,7 +11,8 @@ export const projectOfKey = (projects, key) => projects.find(project => project.
 export function projectView(model, key) {
   const own = row => row.project === key, agents = model.agents.filter(own);
   return { ...model, archived: !!model.projects.find(project => project.key === key)?.archived, tasks: model.tasks.filter(own), needs: model.needs.filter(need => need.project === key || need.project === null), answered: model.answered.filter(own),
-    milestones: model.milestones.filter(own), hiddenDone: model.hiddenDone[key] ?? 0, chiefs: model.chiefs.filter(own), agents, stuck: agents.reduce((n, book) => n + book.look, 0) };
+    milestones: model.milestones.filter(own), hiddenDone: model.hiddenDone[key] ?? 0, chiefs: model.chiefs.filter(own), agents, stuck: agents.reduce((n, book) => n + book.look, 0),
+    others: model.projects.filter(project => project.key !== key && project.list === "needs") };
 }
 
 function useMenu() {
@@ -81,17 +82,19 @@ export function Picker({ projects, current, page, now }) {
   );
 }
 
-export function Signal({ projects, current }) {
+export const othersLine = others => `${plural(others.length, "other project needs", "other projects need")} you`;
+export const projectHref = project => `#?project=${encodeURIComponent(project.key)}`;
+
+export function Signal({ others }) {
   const [open, setOpen, box] = useMenu();
-  const others = projects.filter(project => project.key !== current?.key && project.list === "needs");
   if (!others.length) return null;
   return (
     <span className="projects" ref={box}>
-      <button type="button" className="signal" aria-expanded={open} onClick={() => setOpen(!open)}>{plural(others.length, "other project needs", "other projects need")} you</button>
+      <button type="button" className="signal" aria-expanded={open} onClick={() => setOpen(!open)}>{othersLine(others)}</button>
       {open && (
         <div className="menu pick-menu" role="dialog" aria-label="Other projects that need you">
           <ul>{others.map(project => (
-            <li key={project.key}><a href={`#?project=${encodeURIComponent(project.key)}`} data-project={project.key}><b>{project.name}</b><span className="need">{project.needs} {project.needs === 1 ? "needs" : "need"} you</span></a></li>
+            <li key={project.key}><a href={projectHref(project)} data-project={project.key}><b>{project.name}</b><span className="need">{project.needs} {project.needs === 1 ? "needs" : "need"} you</span></a></li>
           ))}</ul>
         </div>
       )}

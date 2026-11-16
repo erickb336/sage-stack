@@ -156,6 +156,7 @@ Every task has a priority (P0 to P3). An older open task with none shows "no pri
 Each task has one page, at `/app/#task?key=<task key>`. The Overview, Tasks, Agents and Pull requests pages open it. The browser's Back returns to the same place on the page that you came from, and a click with Cmd (Ctrl on Windows and Linux) opens it in a new tab. From the top, the page shows:
 
 - the title, the state word, the priority, size, step and chief, and the agents at work now;
+- for each failed run with no later run of the same role, while the task is open: "Failed run", the reason and where it comes from (the run's failure line, else the RESULT of its kept report, else the chief's "R12 failed:" decision, else "No reason recorded"), and a link to its report;
 - "About this task": Milestone, Before and after ("Comes after" and "Needed by"), Goal, Why, Criteria, Status and Cost, then the links to the brief, the reports, the pull request and the milestone;
 - the tabs Artifacts, Log and Decisions. Artifacts lists the task's pages folder, the briefs and reports of its runs, and its design versions; each opens in the [reader](#the-question-view-and-the-reader).
 
@@ -183,7 +184,7 @@ The Agents page (`/app/#agents`) shows every agent of the project that runs now,
 - the chief's own runs, one row for each task, and its queued runs with their place in the queue;
 - a timeline with one lane for each agent, with its glyph.
 
-A click on a card's title, on "About" or on an agent opens the task page. A run that ended shows "done", "stopped · failed" or "stopped · blocked", and a queued run shows its place, for example "waiting · 1st in the queue".
+A click on a card's title, on "About" or on an agent opens the task page. A run that ended shows "done", "stopped · failed" or "stopped · blocked", and a queued run shows its place, for example "waiting · 1st in the queue". A failed run shows "Reason:" and its reason, from the same sources as on the task page.
 
 | State | Shown when |
 | --- | --- |
@@ -207,11 +208,32 @@ The Pull requests page (`/app/#pull-requests`) groups the tasks with a PR by the
 
 <img alt="The question view of G4, with SAMPLE DATA: the question, its chief and task, then each answer as a card with its next step and its cost, the chief's pick first." src="../assets/board-question.png" width="100%">
 
-A click on a question in Needs you opens the question view (`/app/#question?key=<gate key>`): the full question as the chief kept it, then each answer as a card, with the chief's pick first. With a paired browser, you pick an answer and Send it here ([Act from the board](#act-from-the-board)). "Read the full question" opens it in the reader.
+A click on a question in Needs you opens the question view (`/app/#question?key=<gate key>`): the full question as the chief kept it, the question's default (for example "If you do not answer: C1 takes A"), then each answer as a card, with the chief's pick first. With a paired browser, you pick an answer and Send it here ([Act from the board](#act-from-the-board)). "Read the full question" opens it in the reader.
+
+**Material** is beside the answers: what you may need to read before you answer, at most 8 items, in this order:
+
+1. **Named:** the pages that the question names. A page of another task in the same logbook opens too. A page of a task that the board does not have in that logbook (for example a task of the other logbook of the same repository) shows a note instead.
+2. **Task pages:** the design of the question's task, the prototype of its newest version, then its Markdown pages, newest first. Pages of the tasks that it waits for are not listed.
+3. **Asking run:** the report and the brief of the run that asked the question. For an older question with no run recorded, the newest designer, pe or investigate run of the task, and it says so.
+
+A click on an item opens it in place, and the answers move beside it, so you can answer while you read:
+
+- "‹ The question" goes back, and "Open full page" opens the item in a new tab.
+- When a page shows one answer, "See answer A in …" under that answer opens it.
+- With more than 8 items, "All of T10's pages" opens the task's Artifacts.
+- After you send, "Needs you · 1 left: G6 from C2" opens the next question. When this project has no question left but another project has, the line says so, for example "Nothing else waits in sample-app · 1 other project needs you: other-app", and opens that project.
+
+Each item opens in a frame that cannot act for the board:
+
+- A reader page runs no script. A link to another reader page of the same task opens in the frame. Every other link (a board page, a prototype, the pages index, another site) opens in a new tab, so the question view and your picked answer stay.
+- A design prototype runs its own scripts in a sandbox, below one warning line. They cannot read the board, its storage or cookies, call the board's API or move the board's window.
+- A picture shows as a picture.
+
+The report of the run that asked shows "This became G4." at its top, with a link to the question.
 
 <img alt="The reader with a question of the sample data, with SAMPLE DATA: Where, Approve and Choice, each under its short label, then the answers." src="../assets/board-reader.png" width="100%">
 
-The reader (`/read/...`) shows what the agents made as plain pages of the board, each with a back link to where you came from: a brief, a report, a Markdown page with its contents list and its pictures, a design (one version, or two side by side), an arena (the candidates, the scores and the judge's final), and a question. It runs no script.
+The reader (`/read/...`) shows what the agents made as plain pages of the board, each with a back link to where you came from: a brief, a report, a Markdown page with its contents list and its pictures, a design (one version, or two side by side), an arena (the candidates, the scores and the judge's final), and a question. It runs no script. Its question page says "Answer on the board or in the chat", with a link to the question view.
 
 A page says "not written yet" while its run runs, "not kept" for a run older than the kept briefs, and "gone" for a recorded page that is no longer in the pages folder. The [board service guide](../../packages/sage-board/README.md#the-reader-for-agent-documents-t1064) gives its routes and its safety rules.
 
@@ -220,6 +242,8 @@ A page says "not written yet" while its run runs, "not kept" for a run older tha
 <img alt="The question view at the width of a phone, 390 pixels, with SAMPLE DATA: the menu moves above the page, and the answers stack in one column." src="../assets/board-narrow.png" width="40%">
 
 The board is for a desktop window from 1024 px wide. A narrower window still works: below 900 px, the menu moves above the page, and the cards and the answers stack in one column.
+
+In the question view below 900 px, the material goes under the answers; while an item is open, a bar at the bottom of the window keeps "‹ Question", a button for each answer and Send. The bar also shows the result of Send: the answer that the logbook recorded, or the reason that the board refused it.
 
 The board is for this Mac only: it has no phone or remote access.
 

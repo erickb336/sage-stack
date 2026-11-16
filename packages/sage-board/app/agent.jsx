@@ -47,7 +47,7 @@ export const StateBadge = ({ run }) => <span className={`badge ${badgeOf(run)}`}
 
 export const AgentRing = ({ run, now, small }) => <Ring ring={ringOf(run)} small={small} label={small ? undefined : `${run.role}, ${stateText(run)}${run.status === "queued" ? "" : `, ${age(run, now)}`}`}><Glyph role={run.role} /></Ring>;
 export function AgentTile({ run, now, task = false }) {
-  const queued = run.status === "queued", note = !queued && run.why && (run.look || run.state === "long");
+  const queued = run.status === "queued", failed = run.status === "failed", note = failed ? `Reason: ${run.why ?? "No reason recorded."}` : !queued && run.why && (run.look || run.state === "long") && run.why;
   return (
     <a className={`ag${queued ? " queued" : run.status === "running" ? "" : " ended"}`} href={taskLink(run.task.key)} data-task={run.task.key} data-run={run.id}>
       <AgentRing run={run} now={now} />
@@ -56,7 +56,7 @@ export function AgentTile({ run, now, task = false }) {
         <span className="r2"><StateBadge run={run} /><span className="num">{queued ? `waits ${age(run, now)}` : `${age(run, now)}${run.tokens === null || run.tokens === undefined ? "" : ` · ${tokens(run.tokens)}`}`}</span></span>
         {task && <span className="tline">{run.task.id} · {run.task.title}</span>}
         {queued ? <span className="mdl">queued {clock(run.started)} · {ordinal(run.place ?? 0)} in line</span> : <span className="mdl">{run.model ?? "model not recorded"}</span>}
-        {note && <span className={`awhy${run.look ? " look" : ""}`}>{run.why}</span>}
+        {note && <span className={`awhy${run.look || failed ? " look" : ""}`}>{note}</span>}
       </span>
     </a>
   );

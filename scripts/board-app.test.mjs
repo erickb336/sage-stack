@@ -82,7 +82,7 @@ test("T1054: /app/ serves the shell under a CSP with no inline code, no eval and
   const { base } = await board(t);
   const shell = await fetch(`${base}/app/`), html = await shell.text(), policy = shell.headers.get("content-security-policy");
   assert.equal(shell.status, 200);
-  assert.equal(policy, `default-src 'none'; script-src ${base}/app/; style-src ${base}/app/; connect-src 'self'; img-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'`);
+  assert.equal(policy, `default-src 'none'; script-src ${base}/app/; style-src ${base}/app/; connect-src 'self'; img-src 'self'; frame-src ${base}/read/ ${base}/pages/; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'`, "T1121: frames only for the reader and the pages folder");
   assert.doesNotMatch(html, /<script>|<style>|\son[a-z]+=/i, "no inline script, style or handler");
   const manifest = JSON.parse(readFileSync(join(ROOT, "plugins/sage/board/app/manifest.json"), "utf8"));
   for (const [part, type] of [["script", "text/javascript"], ["style", "text/css"], ["vendor", "text/javascript"], ["graph", "text/javascript"]]) {
