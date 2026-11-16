@@ -841,12 +841,13 @@ test("only the chief records the logbook: a child's sage tool that writes is den
     ["run_done", { run: "R1", status: "done" }], ["round", { task: "T1" }], ["log", { task: "T1", decision: "x", why: "y" }], ["gate_add", { task: "T1", question: "q", options: "a|b", recommend: "a" }],
     ["finding_move", { task: "T1", key: "F-T1-1", to: "x" }], ["init", {}], ["pages", { task: "T1", record: "/p/page.html" }],
     ["pages", { task: "T1", run: "R1", text: "STATUS done" }], ["pages", { task: "T1", text: "STATUS done" }], ["unknown_tool", {}]];
-  const reads = [["status", {}], ["standing", {}], ["merge_check", { sha: SHA }], ["pages", { task: "T1" }]];
+  const reads = [["status", {}], ["standing", {}], ["merge_check", { sha: SHA }]];
   for (const mode of [{ sage: false }, { sage: true, autopilot: true }]) {
     const g = fixed(mode);
     for (const extra of [CHILD, { agent_id: "" }, { ...CHILD, transcript_path: "/none.jsonl" }]) {
       assert.deepEqual(await Promise.all(writes.map(([name, args]) => g.run(mcp(name, args, extra)).then(denied))), writes.map(() => LOGBOOK), JSON.stringify(mode));
       assert.deepEqual(await Promise.all(reads.map(([name, args]) => g.run(mcp(name, args, extra)))), reads.map(() => undefined));
+      assert.match(denied(await g.run(mcp("pages", { task: "T1" }, extra))) ?? "", /assigned shared project/, "pages needs a verified shared binding");
     }
     assert.deepEqual(await Promise.all(writes.map(([name, args]) => g.run(mcp(name, args)))), writes.map(() => undefined), "the chief records the logbook");
   }
@@ -856,6 +857,31 @@ test("only the chief records the logbook: a child's sage tool that writes is den
   assert.equal(w.send(mcp("verdict", { task: "T1", kind: "qa-pass", sha: SHA })), undefined);
   const names = ["mcp__sage__verdict", "mcp__sage__gate_answer", "mcp__sage__brief", "spawn_agent", "collaborationspawn_agent", "Bash", "apply_patch", "mcp__github__create_issue", "exec_command", "wait_agent"];
   assert.deepEqual(names.filter((name) => gateMatcher().test(name)), names.slice(0, 7));
+});
+
+test("T1110: child pages require the assigned shared project and preserve that identity in the proof", async t => {
+  const a = world(t), b = world(t), { takeProof } = await import(HOOK);
+  a.env.SAGE_SHARED_HOME = b.env.SAGE_SHARED_HOME = join(a.dir, "shared");
+  for (const w of [a, b]) {
+    codexTool.sage(["link", "--separate", "--project", w.project], w.env);
+    codexTool.sage(["task", "add", "--title", "same id", "--size", "small", "--priority", "P2", "--project", w.project, "--chief", codexTool.chiefFor(w.project, base.session_id, w.env)], w.env);
+  }
+  const child = a.child("/root/sage_implementer_t1_r1"), meta = { callId: "call_1", sessionId: base.session_id };
+  const call = project => gate(mcp("pages", { project, task: "T1" }, { ...child, cwd: a.project }), { env: a.env });
+  assert.match(denied(await call(b.project)) ?? "", /assigned shared project/);
+  assert.equal(takeProof(meta, "pages", a.env), null, "a refused project receives no proof");
+  assert.equal(await call(a.project), undefined);
+  assert.equal(takeProof(meta, "pages", a.env)?.project, a.project, "the server receives the assigned checkout");
+  const linked = join(a.dir, "linked");
+  assert.equal(spawnSync("git", ["-C", a.project, "worktree", "add", "-q", "--detach", linked], { env: a.env }).status, 0);
+  codexTool.sage(["link", "--to", codexTool.storeDir(a.project, a.env).split("/").at(-1), "--project", linked], a.env);
+  assert.equal(await call(linked), undefined, "a verified worktree shares the assigned logbook");
+  takeProof(meta, "pages", a.env);
+  const absent = join(a.dir, "unbound"); mkdirSync(absent);
+  assert.match(denied(await call(absent)) ?? "", /assigned shared project/);
+  assert.match(denied(await gate(mcp("pages", { project: a.project, task: "T1" }, { ...child, cwd: absent }), { env: a.env })) ?? "", /assigned shared project/);
+  writeFileSync(join(a.env.SAGE_SHARED_HOME, "bindings.tsv"), "damaged\n");
+  assert.match(denied(await call(a.project)) ?? "", /assigned shared project/);
 });
 
 test("a role agent starts no agents, in any mode, and a thread under a read-only role at any part of its agent path is read-only (R1664-3)", async (t) => {

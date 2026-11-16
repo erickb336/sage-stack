@@ -109,6 +109,45 @@ test("a shared logbook through the server: the root's session is one chief, a le
   assert.match((await s.call("task_add", { title: "third", size: "small", priority: "P2" })).error, /^sage: .*chiefs\.tsv is damaged, so sage cannot tell which chief owns a task/, "F-T604-18: the tool gives the real cause");
 });
 
+test("T1110: child pages reject another shared project before creating its directory, also at the server", async t => {
+  const shared = realpathSync(mkdtempSync(join(tmpdir(), "sage-pages-project-")));
+  t.after(() => rmSync(shared, { recursive: true, force: true }));
+  const a = await connect(t, { SAGE_SHARED_HOME: shared }), b = await connect(t, { SAGE_SHARED_HOME: shared });
+  for (const s of [a, b]) {
+    await s.call("link", { separate: true });
+    await s.call("task_add", { title: "same id", size: "small", priority: "P2" });
+  }
+  const { tool } = await import(pathToFileURL(join(a.dir, "plugin/skills/sage/sage.mjs")).href);
+  const child = { agent: "/root/sage_implementer_t1_r1" };
+  const foreignPages = join(a.env.SAGE_WORKTREES, basename(tool.storeDir(b.project, a.env)), "pages", "T1");
+  assert.equal(existsSync(foreignPages), false);
+  const wrong = await a.call("pages", { project: b.project, task: "T1" }, child);
+  assert.match(wrong.denied ?? "", /assigned shared project/);
+  assert.equal(existsSync(foreignPages), false, "the gate refuses before the foreign pages directory exists");
+  const own = await a.call("pages", { task: "T1" }, child);
+  assert.equal(typeof own, "string"); assert.equal(existsSync(own.trim()), true);
+  a.writeProof("pages", "foreign", { role: "child", project: a.project });
+  const server = await a.call("pages", { project: b.project, task: "T1" }, { gate: false, callId: "foreign" });
+  assert.match(server.error ?? "", /assigned shared project/);
+  assert.equal(existsSync(foreignPages), false, "the server independently refuses before directory creation");
+  for (const [id, caller] of [["missing", { role: "child" }], ["unbound", { role: "child", project: a.dir }]]) {
+    a.writeProof("pages", id, caller);
+    assert.match((await a.call("pages", { task: "T1" }, { gate: false, callId: id })).error ?? "", /assigned shared project/);
+  }
+  execFileSync("git", ["-C", a.project, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "start"], { env: a.env });
+  const linked = join(a.dir, "linked");
+  execFileSync("git", ["-C", a.project, "worktree", "add", "-q", "--detach", linked], { env: a.env });
+  await a.call("link", { project: linked, to: basename(tool.storeDir(a.project, a.env)) });
+  assert.equal(await a.call("pages", { project: linked, task: "T1" }, child), own);
+  for (const extra of [{ record: "/page" }, { run: "R1" }, { text: "report" }]) {
+    a.writeProof("pages", "write", { role: "child", project: a.project });
+    assert.match((await a.call("pages", { task: "T1", ...extra }, { gate: false, callId: "write" })).error ?? "", /only the chief records/);
+  }
+  a.writeProof("pages", "damaged", { role: "child", project: a.project });
+  writeFileSync(join(shared, "bindings.tsv"), "damaged\n");
+  assert.match((await a.call("pages", { task: "T1" }, { gate: false, callId: "damaged" })).error ?? "", /assigned shared project/);
+});
+
 test("T893: a Codex chief abandons, through task_set with why, a task with no owning chief that came in the move from the Claude logbook; any other change still needs the claim", async (t) => {
   const shared = realpathSync(mkdtempSync(join(tmpdir(), "sage-state-mcp-abandon-")));
   t.after(() => rmSync(shared, { recursive: true, force: true }));
