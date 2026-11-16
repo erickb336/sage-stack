@@ -121,7 +121,7 @@ test("T921: each board phrase gives the chief the board note in Codex, in any mo
   const off = session(), on = session();
   for (const m of S_ON) await on.prompt(m);
   const board = (scope) => [
-    `sage: the owner asked for the board. ${ESCALATED}First run, as a command of its own: node "${BOARD_CLI}" board --ensure --link`,
+    `sage: the owner asked for the board. ${ESCALATED}First run, as a command of its own: node "${BOARD_CLI}" board --ensure --link --project '${scratch}'`,
     `It starts the local board server on this Mac when it is not running, and prints one line: the board's address, or why the server is not running. Then run: node "${STATE_CLI}" board ${scope} --project '${scratch}' --view chat`,
   ].join("\n");
   const read = (kind, command) => [`sage: the owner asked for ${kind}. Run: node "${STATE_CLI}" ${command}`, "Print its output word for word as the start of your reply"].join("\n");
@@ -154,7 +154,7 @@ test("T921: the gate lets the chief run both commands of the board note, and lea
   const note = contextOf(await session().prompt("show board"));
   const ensure = /First run, as a command of its own: (.+)$/m.exec(note)?.[1];
   const chat = /Then run: (.+)$/m.exec(note)?.[1];
-  assert.equal(ensure, `node "${BOARD_CLI}" board --ensure --link`);
+  assert.equal(ensure, `node "${BOARD_CLI}" board --ensure --link --project '${scratch}'`, "T1135: the link names the chat's project");
   assert.ok(existsSync(BOARD_CLI), "the plugin carries the board command that the note names");
   const event = { session_id: "019a0000-0000-7000-8000-00000000921a", turn_id: "t1", transcript_path: null, cwd: scratch, model: "m", permission_mode: "default", tool_use_id: "call_1" };
   for (const sage of [true, false]) {

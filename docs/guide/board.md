@@ -1,6 +1,6 @@
 # The board
 
-The board is a view of every project's logbook: what needs you, where each milestone and task stands, the agents that run now, and the pull requests. This page is the user guide to the board.
+The board is a view of your projects' logbooks, one project at a time: what needs you, where each milestone and task stands, the agents that run now, and the pull requests. This page is the user guide to the board.
 
 The board has two views:
 
@@ -15,7 +15,7 @@ Every screenshot on this page shows sample data, made by `scripts/board-shots.mj
 
 ## Ask for the board
 
-The chat view shows the tasks in the project's logbook: its shared logbook, or else the logbook of the tool that you use (Claude or Codex). The browser view shows the logbooks in its config: by default, the Claude and the Codex logbooks and the [shared logbooks](#a-shared-project-on-the-board).
+The chat view shows the tasks in the project's logbook: its shared logbook, or else the logbook of the tool that you use (Claude or Codex). The browser view reads the logbooks in its config: by default, the Claude and the Codex logbooks and the [shared logbooks](#a-shared-project-on-the-board). It shows [one project at a time](#one-project-at-a-time), and the link in the chief's reply opens it on the project of that chat.
 
 | Say | You see |
 | --- | --- |
@@ -83,13 +83,26 @@ The board in the browser answers seven questions. Each answer is at most two cli
 | What changed since I looked | 0 | The counts at the end of the Overview. |
 | Whether each chief runs, and whether autopilot is on | 0 | The chief chips under the top bar. |
 
+## One project at a time
+
+Each page of the board in the browser shows one project: the Overview, Tasks, Agents and Pull requests. No page mixes the rows of two projects, and there is no view of all projects.
+
+- **The project that opens:** the link from `show board` names the project of that chat, so the board opens on it, in Claude and in Codex. With no project in the link, the board opens on the project that you looked at last in this browser. A name in the address that is not a logbook folder opens that last project too.
+- **The address:** it keeps the project, for example `/app/#tasks?project=sage-43265b`. A reload keeps the project, and Back returns to the project before.
+- **The picker:** click the project's name at the start of the top bar. Projects that need you come first, then the others by their last work. A row says "2 need you", "1 agent · 5 min ago" or how long ago the last work was.
+- **Older:** a project with no work for 30 days folds into the Older list by itself, also when it has open tasks. A project with a question that waits for you never folds. An Older project opens like any other, and it comes back to the top list when work starts.
+- **Work:** a run, a decision, a question asked or answered, or a merge. A project with no task uses the time of its decisions.
+- **Archived:** a project that you archived is in the Archived list, and its name has the mark "archived". Its pages still open, with its tasks, its questions and its agents; the board takes no answer for it.
+- **The signal:** "2 other projects need you" in the top bar counts the other projects with a question for you. Older and archived projects never count. A click lists them, and a click on one opens its Overview, with its Needs you.
+
 ## The Overview
 
 <img alt="The Overview of the board, with SAMPLE DATA: the chief chips under the top bar, Needs you with two items, the Milestones card by priority, and the counts of the last 24 hours." src="../assets/board-dark.png" width="100%">
 
 The address of the board opens the Overview. From the top:
 
-- **The top bar:** the counts of agents and leads against the project's limits, for example "Agents 8 of 20 · C1 4 · C2 4 · 3 waiting" and "Leads 4 of 5". A count turns amber at its limit, and a click opens the Agents page.
+- **The top bar:** the [picker and the signal](#one-project-at-a-time), then the counts of agents and leads against this project's limits, for example "Agents 8 of 10 · C1 4 · C2 4 · 3 waiting" and "Leads 4 of 5". A count turns amber at its limit, and a click opens the Agents page.
+- **All projects:** with more than one project, "12 in progress in all projects" counts the running agents of every project. The board does not read Claude's total cap of agents for all projects, so it shows no limit for that count.
 - **The time and the theme:** "Live · read 10:56" gives the time of the last read. The board is dark until you choose the light theme with the switch, and it keeps your choice in this browser.
 - **The chief chips:** one chip for each chief, Claude and Codex alike, with a green dot for a live chief, a yellow dot for a chief that waits for your answer, a ring for a stopped chief, and "autopilot on" or "autopilot off". A click on a chip shows only that chief's work, on each page; "All chiefs" shows all again.
 - **Needs you:** each open question and each problem, oldest first, with its chief, its task and when it was asked. A click on a question opens the [question view](#the-question-view-and-the-reader).
@@ -137,7 +150,7 @@ A part with no data shows "unknown" and the reason, for example "The logbook kee
 
 <img alt="The Agents page of the board, with SAMPLE DATA: a box for each chief, each running lead as a card with its helpers, and the queued runs." src="../assets/board-agents.png" width="100%">
 
-The Agents page (`/app/#agents`) shows every agent that runs now, in all projects, for Claude and Codex. It only reads. The page shows:
+The Agents page (`/app/#agents`) shows every agent of the project that runs now, for Claude and Codex. It only reads. The page shows:
 
 - the seats: one square for each running agent, grouped by chief, then the free seats, the limit mark and the queued runs as dashed squares;
 - each chief under its C1 or C2 tile, Claude and Codex alike, and a stopped chief as stopped, with the open tasks that it owns;
@@ -205,8 +218,9 @@ The first answer wins. When you answer in a chat or on a card first, the board s
 
 The chief makes the link with `board --ensure --link`:
 
-- The link has the form `http://127.0.0.1:<port>/app/#pair=<key>`. The key is 256 random bits. It is after the `#`, so the browser never sends it in a request line, a log or a referrer.
-- The board takes the key out of the address bar and the history at once, then sends it once. The server keeps only its hash, in `pair-link.json` in the board's state folder.
+- The link has the form `http://127.0.0.1:<port>/app/#pair=<key>&project=<folder>`. The key is 256 random bits. It is after the `#`, so the browser never sends it in a request line, a log or a referrer.
+- The folder is the logbook folder of the chat's project. The command finds it from the chat's folder (`--project`) and writes nothing; the link has no path.
+- The board takes the key out of the address bar and the history at once, keeps the project, then sends the key once. The server keeps only its hash, in `pair-link.json` in the board's state folder.
 - A link pairs one browser, once, within 10 minutes. A new link ends the older one.
 - The hooks refuse `--link` from an agent: only the chief runs it, and the chief puts the link in the chat text only, never in a file, a message page or a brief.
 

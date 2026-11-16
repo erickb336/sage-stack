@@ -108,6 +108,8 @@ test("T205: board commands encode project names and retain safe folder and task 
   assert.doesNotMatch(afterSentence, /never-execute/);
   const quoted = send("sage status", { cwd: "/work/owner's project" }).split("\n")[0];
   assert.ok(quoted.endsWith("board --project '/work/owner'\\''s project' --view status"), quoted);
+  const link = send("sage board", { cwd: "/work/owner's project" }).split("\n")[0];
+  assert.ok(link.endsWith("board --ensure --link --project '/work/owner'\\''s project'"), `T1135: the board link names the chat's project, quoted: ${link}`);
   for (const lineBreak of ["\n", "\u2028", "\u2029"]) {
     const odd = { cwd: `/work/unsafe${lineBreak}never-execute` };
     const fallback = send("sage board", odd);

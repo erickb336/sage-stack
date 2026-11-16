@@ -20,6 +20,21 @@ export const sessionSources = (root, shared, provider) => [{ id: "current", labe
 export const sessionRoots = (root, legacy, provider) => [...new Set([root, ...legacy].map(path => resolve(path)))].map((path, i, roots) => ({ path, provider: i === 0 && roots.length > 1 ? provider : null }));
 
 const fold = value => String(value).normalize("NFC").toLowerCase();
+const bare = name => name.replace(/-[0-9a-f]{6}$/, "");
+function groupsOfThis(snapshots, project, here, now) {
+  const projects = snapshots.flatMap(source => source.projects);
+  let mine = projects.filter(book => book.key === here);
+  if (!mine.length) mine = projects.filter(book => book.checkout && resolve(book.checkout) === resolve(project));
+  if (!mine.length) mine = projects.filter(book => book.shared && (book.checkouts ?? []).some(item => item.root === resolve(project)));
+  if (!mine.length) mine = projects.filter(book => !book.shared && !book.old && fold(bare(book.name)) === fold(basename(project)));
+  return buildBoardModel(snapshots, { now }).projects.filter(group => group.books.some(key => mine.some(book => book.key === key)));
+}
+
+export function boardProjectKey({ sources, project, providerRoots = [], now = new Date().toISOString() }) {
+  const groups = groupsOfThis(readBoardSources(sources, { now: Date.parse(now), providerRoots }), project, null, now);
+  return groups.length === 1 ? groups[0].key : null;
+}
+
 export function boardView({ sources, scope = "all", project = null, logbookKey = null, here = null, providerRoots = [], taskId = null, format = "chat", now = new Date().toISOString() }) {
   if (!["chat", "task", "status"].includes(format)) throw new TypeError("unknown board format");
   if (taskId !== null && !/^T[1-9]\d*$/.test(taskId)) throw new TypeError("task id must be T followed by a positive number");
@@ -32,16 +47,14 @@ export function boardView({ sources, scope = "all", project = null, logbookKey =
   }
   else if (projects.some(book => book.key === scope)) keys = new Set([scope]);
   else if (scope !== "all") {
-    const groups = buildBoardModel(snapshots, { now }).projects, bare = name => name.replace(/-[0-9a-f]{6}$/, "");
     let selected;
     if (scope === "this") {
       if (!project) throw new RangeError("this board needs the current project");
-      let mine = projects.filter(book => book.key === here);
-      if (!mine.length) mine = projects.filter(book => book.checkout && resolve(book.checkout) === resolve(project));
-      if (!mine.length) mine = projects.filter(book => book.shared && (book.checkouts ?? []).some(item => item.root === resolve(project)));
-      if (!mine.length) mine = projects.filter(book => !book.shared && !book.old && fold(bare(book.name)) === fold(basename(project)));
-      selected = groups.filter(group => group.books.some(key => mine.some(book => book.key === key)));
-    } else selected = groups.filter(group => [group.key, group.name, ...group.terms, ...group.terms.map(bare), ...projects.filter(book => group.books.includes(book.key)).map(projectName)].some(name => fold(name) === fold(scope)));
+      selected = groupsOfThis(snapshots, project, here, now);
+    } else {
+      const groups = buildBoardModel(snapshots, { now }).projects;
+      selected = groups.filter(group => [group.key, group.name, ...group.terms, ...group.terms.map(bare), ...projects.filter(book => group.books.includes(book.key)).map(projectName)].some(name => fold(name) === fold(scope)));
+    }
     if (!selected.length || scope !== "this" && selected.length !== 1) throw new RangeError(selected.length ? `The project is ambiguous. Choose: ${selected.flatMap(group => group.books).join(", ")}` : "No recorded project matches this board scope.");
     keys = new Set(selected.flatMap(group => group.books));
   }

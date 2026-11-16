@@ -170,6 +170,25 @@ test("T1125: ensure --link gives the board's address with a one-time pairing lin
   } finally { await stop(dir, port); }
 });
 
+test("T1135: ensure --project names the chat's project in the link, by its logbook folder, read only; a folder with no logbook gives the link with no project", async (t) => {
+  const { dir, env } = scratch(t);
+  const port = await freePort(), checkout = join(dir, "work", "recipes"), logbook = join(dir, "home", ".claude", "sage", "recipes-1a2b3c");
+  mkdirSync(checkout, { recursive: true }); mkdirSync(logbook, { recursive: true });
+  writeFileSync(join(logbook, "checkout.txt"), `${checkout}\n`);
+  writeFileSync(join(logbook, "tasks.tsv"), "id\ttitle\tsize\trisk\troute\tstate\tbranch\tpr\tround\tkeys\thold\textra\n");
+  const before = readdirSync(logbook).sort();
+  try {
+    const linked = await board(CLI, ["--ensure", "--link", "--port", String(port), "--project", checkout], env);
+    assert.equal(linked.status, 0, linked.stderr);
+    assert.match(linked.stdout, new RegExp(`^Sage board started: http://127\\.0\\.0\\.1:${port}/app/#pair=[A-Za-z0-9_-]{43}&project=recipes-1a2b3c · only on this Mac\\.`));
+    assert.equal((await board(CLI, ["--ensure", "--project", checkout], env)).stdout, `Sage board is running: http://127.0.0.1:${port}/app/#project=recipes-1a2b3c · only on this Mac.\n`, "without --link, the address opens the project");
+    assert.equal((await board(CLI, ["--ensure", "--project", join(dir, "work", "elsewhere")], env)).stdout, `Sage board is running: http://127.0.0.1:${port}/ · only on this Mac.\n`, "no logbook names that folder, so the link names no project");
+    assert.deepEqual(readdirSync(logbook).sort(), before, "the lookup writes nothing in the logbook");
+    const relative = await board(CLI, ["--ensure", "--project", "work/recipes"], env);
+    assert.deepEqual([relative.status, relative.stderr], [1, "sage board: use a bounded absolute path without control characters\n"]);
+  } finally { await stop(dir, port); }
+});
+
 test("T216: ensure gives one line when another program holds the port, and starts nothing", async (t) => {
   const { dir, env, config } = scratch(t);
   const other = createHttpServer((request, response) => response.end("another program\n"));
