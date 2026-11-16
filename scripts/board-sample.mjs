@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, utimesSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
@@ -6,7 +7,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { fileURLToPath } from "node:url";
 
 const TABLES = {
-  tasks: ["id", "title", "size", "risk", "route", "state", "branch", "pr", "round", "keys", "hold", "extra", "priority", "kind"],
+  tasks: ["id", "title", "size", "risk", "route", "state", "branch", "pr", "round", "keys", "hold", "extra", "priority", "kind", "waits"],
   runs: ["id", "task", "role", "round", "candidate", "branch", "status", "tokens", "report", "started", "ended", "model"],
   findings: ["task", "key", "round", "source", "severity", "summary", "triage", "reason", "status"],
   ledger: ["task", "pr", "sha", "kind", "cycle", "run", "at"],
@@ -65,7 +66,8 @@ export function writeSampleLogbooks(folder, { now = new Date().toISOString(), en
   const backlog = list => ({ tasks: list.map(item => item[0]), decisions: list.map(item => item[1]) });
   const merge = (...parts) => parts.reduce((all, part) => Object.fromEntries(Object.keys(TABLES).map(name => [name, [...(all[name] ?? []), ...(part[name] ?? [])]])), {});
 
-  const head = sha("sample head 1"), old = sha("sample head 0"), fixed = sha("sample head 2");
+  const head = sha("sample head 1"), old = sha("sample head 0"), fixed = sha("sample head 2"), red = sha("sample head 96");
+  const carried = carriedCheckout(join(folder, "checkouts", "sage"));
   const claudeSage = merge(
     backlog([
       framed("T310", "Sample: a priority column in the tasks table", "P1", "logbook", 30),
@@ -85,6 +87,13 @@ export function writeSampleLogbooks(folder, { now = new Date().toISOString(), en
         task("T303", "Sample: retry the carrier poll", "verified", { pr: "41", branch: "sage/t303-sample", priority: "P1", kind: "bug-fix" }),
         task("T304", "Sample: build the agenda import", "building", { pr: "", branch: "sage/t304-sample", priority: "P2", kind: "ui" }),
         task("T205", "Sample: the task board", "merged", { pr: "90", branch: "sage/t205-sample", kind: "ui" }),
+        task("T206", "Sample: a merged PR whose clean cycle carried over a clean merge of main", "merged", { pr: "95", branch: "sage/t206-sample", kind: "ui" }),
+        task("T207", "Sample: a merged task with a failed run", "merged", { pr: "97", branch: "sage/t207-sample", kind: "ui" }),
+        task("T208", "Sample: an abandoned task with a failed lead", "abandoned", { kind: "orchestration" }),
+        task("T209", "Sample: a task whose failed run ran again", "building", { branch: "sage/t209-sample", priority: "P2", kind: "ui" }),
+        task("T210", "Sample: a task whose failed run did not run again", "building", { branch: "sage/t210-sample", priority: "P1", kind: "bug-fix" }),
+        task("T211", "Sample: a task that waits for an abandoned task", "framed", { priority: "P2", kind: "ui", waits: "T208" }),
+        task("T212", "Sample: a PR whose checks failed", "reviewing", { pr: "96", branch: "sage/t212-sample", priority: "P1", kind: "bug-fix" }),
       ],
       runs: [
         { id: "R201", task: "T301", role: "implementer", round: "0", status: "done", tokens: "48000", started: ago(9), ended: ago(7) },
@@ -98,6 +107,12 @@ export function writeSampleLogbooks(folder, { now = new Date().toISOString(), en
         { id: "R221", task: "T303", role: "code-reviewer", round: "0", status: "done", tokens: "8000", started: ago(18), ended: ago(17.5) },
         { id: "R222", task: "T303", role: "qa", round: "0", status: "done", tokens: "7000", started: ago(18), ended: ago(17) },
         { id: "R230", task: "T304", role: "implementer", round: "0", status: "running", tokens: "", started: ago(0.7) },
+        { id: "R250", task: "T207", role: "implementer", round: "0", status: "failed", started: ago(5), ended: ago(4) },
+        { id: "R251", task: "T208", role: "lead", round: "0", status: "failed", started: ago(6), ended: ago(5) },
+        { id: "R252", task: "T209", role: "implementer", round: "0", status: "failed", started: ago(3), ended: ago(2.5) },
+        { id: "R253", task: "T209", role: "implementer", round: "0", status: "running", started: ago(0.5) },
+        { id: "R254", task: "T210", role: "implementer", round: "0", status: "failed", started: ago(2), ended: ago(1.5) },
+        { id: "R255", task: "T212", role: "implementer", round: "0", status: "done", tokens: "12000", started: ago(4), ended: ago(3) },
         ...Array.from({ length: 7 }, (_, i) => ({ id: `R${180 + i}`, task: "T205", role: i % 2 ? "code-reviewer" : "implementer", round: "0", status: "done", tokens: String(10000 + i * 1000), started: ago(150 - i), ended: ago(149.5 - i) })),
       ],
       ledger: [
@@ -109,6 +124,9 @@ export function writeSampleLogbooks(folder, { now = new Date().toISOString(), en
         { task: "T303", pr: "41", sha: fixed, kind: "checks-pass", cycle: "1", run: "", at: ago(18) },
         { task: "T303", pr: "41", sha: fixed, kind: "review-clean", cycle: "1", run: "R221", at: ago(17.5) },
         { task: "T303", pr: "41", sha: fixed, kind: "qa-pass", cycle: "1", run: "R222", at: ago(17) },
+        ...["checks-pass", "review-clean", "qa-pass"].map(kind => ({ task: "T206", pr: "95", sha: carried.reviewed, kind, cycle: "1", run: "", at: ago(12) })),
+        { task: "T206", pr: "95", sha: carried.merged, kind: "checks-pass", cycle: "1", run: "", at: ago(11) },
+        { task: "T212", pr: "96", sha: red, kind: "checks-fail", cycle: "1", run: "", at: ago(2.5) },
       ],
       findings: [
         { task: "T302", key: "F-T302-1", round: "0", source: "code-reviewer", severity: "high", summary: "Sample: the search drops accents", triage: "fix", status: "open" },
@@ -122,6 +140,10 @@ export function writeSampleLogbooks(folder, { now = new Date().toISOString(), en
       ],
       decisions: [
         { at: ago(140), task: "T205", decision: "state merged", why: "sample" },
+        { at: ago(10), task: "T206", decision: "state merged", why: "sample" },
+        { at: ago(3.5), task: "T207", decision: "state merged", why: "sample" },
+        { at: ago(4.5), task: "T208", decision: "state abandoned", why: "sample" },
+        { at: ago(1.5), task: "T210", decision: "R254 failed: sample: the agent stopped with no report", why: "sample" },
         { at: ago(2), task: "T305", decision: "state awaiting-you", why: "sample" },
         { at: ago(0.7), task: "T304", decision: "state building", why: "sample" },
       ],
@@ -149,6 +171,28 @@ export function writeSampleLogbooks(folder, { now = new Date().toISOString(), en
   repo({ folder: "recipes-app", origin: "sample-owner/recipes", books: { claude: { tasks: [task("T8", "Sample: scale a recipe", "framed", { kind: "optimization" })], decisions: [{ at: ago(21 * 24), task: "T8", decision: "task framed", why: "sample" }] } } });
   hookNotes(join(folder, "claude"), at);
   return sources;
+}
+
+function carriedCheckout(path) {
+  mkdirSync(path, { recursive: true });
+  const env = { PATH: process.env.PATH, HOME: path, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
+  const git = (...args) => execFileSync("git", ["-C", path, "-c", "user.name=sample", "-c", "user.email=sample@example.invalid", "-c", "commit.gpgsign=false", ...args], { env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  const commit = (files, message) => {
+    for (const [name, text] of Object.entries(files)) writeFileSync(join(path, name), text);
+    git("add", "-A");
+    git("commit", "-q", "-m", message);
+    return git("rev-parse", "HEAD");
+  };
+  git("init", "-q", "-b", "main");
+  commit({ "a.txt": "1\n2\n3\n4\n5\n6\n7\n8\n9\n" }, "sample base");
+  git("checkout", "-q", "-b", "sage/t206-sample");
+  const reviewed = commit({ "src.js": "x\n", "a.txt": "1p\n2\n3\n4\n5\n6\n7\n8\n9\n" }, "sample: the reviewed head");
+  git("checkout", "-q", "main");
+  commit({ "other.js": "m\n", "a.txt": "1\n2\n3\n4\n5\n6\n7\n8\n9m\n" }, "sample: main moves on");
+  git("update-ref", "refs/remotes/origin/main", "main");
+  git("checkout", "-q", "sage/t206-sample");
+  git("merge", "-q", "--no-ff", "--no-edit", "main");
+  return { reviewed, merged: git("rev-parse", "HEAD") };
 }
 
 function hookNotes(root, at) {
@@ -185,6 +229,7 @@ function hookNotes(root, at) {
   note(`stopped-${lead}.R242`, 14);
   slot(["project-sage", "role-sage_implementer", "run-R213", `bound-${sha256("R213")}`], 2);
   slot(["project-sage", "role-sage_implementer", "run-R230", `bound-${sha256("R230")}`], 5);
+  slot(["project-sage", "role-sage_implementer", "run-R253", `bound-${sha256("R253")}`], 3);
   addRuns("product-demos", [
     { id: "R50", task: "T41", role: "code-reviewer", round: "0", status: "running", started: iso(18), model: "opus" },
     { id: "R51", task: "T41", role: "qa", round: "0", status: "running", started: iso(17), model: "sonnet" },

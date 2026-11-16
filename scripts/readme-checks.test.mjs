@@ -190,7 +190,7 @@ test("the Codex install line names a GitHub remote, as docs/guide/codex.md does 
 
 test("the board image's alt text names the Overview and its parts as the sample shows them (T467-3, T770)", () => {
   const alt = realReadme().match(/<img alt="The Overview of the board[^"]*"/)[0];
-  assert.match(alt, /SAMPLE DATA: the chief chips under the top bar, Needs you with three items, the Milestones card by priority/);
+  assert.match(alt, /SAMPLE DATA: the chief chips under the top bar, Needs you with two items, the Milestones card by priority/);
   assert.doesNotMatch(alt, /columns|card of the Backlog/);
 });
 

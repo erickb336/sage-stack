@@ -117,7 +117,7 @@ for (const width of WIDTHS) {
       await click(page.locator('nav a[href="#pull-requests"]').first());
       await page.locator("main h1", { hasText: "Pull requests" }).waitFor();
       const groups = await page.locator("main h2").allTextContents();
-      for (const group of ["Needs you", "In review", "Ready to merge", "Waiting for another task", "Merged recently"]) assert.ok(groups.includes(group), `${group}: ${groups.join(" | ")}`);
+      for (const group of ["In review", "Ready to merge", "Waiting for another task", "Merged recently"]) assert.ok(groups.includes(group), `${group}: ${groups.join(" | ")}`);
       await click(page.locator("main button", { hasText: /^Graph$/ }));
       await page.locator("section.graph .g-title", { hasText: "Sample sync build" }).first().waitFor();
     });
@@ -129,7 +129,7 @@ for (const width of WIDTHS) {
       const counts = page.locator("section.counts");
       assert.match(await counts.locator("h2").textContent(), /In the last 24 hours|Since you looked/);
       assert.match(await counts.textContent(), /\d+\s*Merged/);
-      assert.match(await counts.textContent(), /\d+\s*failed/);
+      assert.match(await counts.textContent(), /\d+\s*With a problem flag/);
     });
     assert.equal(clicks, 0);
   });

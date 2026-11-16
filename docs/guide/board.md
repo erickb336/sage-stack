@@ -85,7 +85,7 @@ The board in the browser answers seven questions. Each answer is at most two cli
 
 ## The Overview
 
-<img alt="The Overview of the board, with SAMPLE DATA: the chief chips under the top bar, Needs you with three items, the Milestones card by priority, and the counts of the last 24 hours." src="../assets/board-dark.png" width="100%">
+<img alt="The Overview of the board, with SAMPLE DATA: the chief chips under the top bar, Needs you with two items, the Milestones card by priority, and the counts of the last 24 hours." src="../assets/board-dark.png" width="100%">
 
 The address of the board opens the Overview. From the top:
 
@@ -94,11 +94,11 @@ The address of the board opens the Overview. From the top:
 - **The chief chips:** one chip for each chief, Claude and Codex alike, with a green dot for a live chief, a yellow dot for a chief that waits for your answer, a ring for a stopped chief, and "autopilot on" or "autopilot off". A click on a chip shows only that chief's work, on each page; "All chiefs" shows all again.
 - **Needs you:** each open question and each problem, oldest first, with its chief, its task and when it was asked. A click on a question opens the [question view](#the-question-view-and-the-reader).
 - **Milestones:** each milestone by the top priority of its open tasks, with its state word, its goal, its progress bar ("2 of 9 merged") and its pilot. A click opens the Tasks page at that milestone.
-- **Since you looked** (with a paired browser), or **In the last 24 hours**: the tasks merged, the runs that failed or whose agent is silent for 30 minutes, and the tasks added.
+- **Since you looked** (with a paired browser), or **In the last 24 hours**: the tasks merged, the runs "with a problem flag", and the tasks added. A run has a problem flag when its agent is silent for 30 minutes or stopped, or when it failed in the last 24 hours, its task is still open, and no later run of the same role started. A click on "With a problem flag" opens the Agents page, which uses the same label.
 
 Needs you also has items that no task holds: a stuck milestone, a breakdown gate that the logbook lost, a milestone that tasks name but the logbook does not have, a table or a logbook that the board cannot read, and an open move gate ([the move](using-sage.md#move-an-existing-project)). Each item says why and what to do.
 
-When the merge check refuses a PR's head, the chief must fix it: the task stays "in progress", its Merge step shows "! in progress · blocked", and it is not in Needs you.
+When the merge check refuses a PR's head, or the checks or QA failed on it, the chief must fix it: the task stays "in progress" with the reason (for example "Checks failed on the recorded PR head; the chief repairs it."), and it is not in Needs you.
 
 ## Tasks
 
@@ -160,7 +160,7 @@ The page reads files only: the logbooks, the hook's agent slots and helper notes
 
 ## Pull requests
 
-<img alt="The Pull requests page of the board, with SAMPLE DATA: the List and Graph switch, then the groups Needs you, In review, Repairing, Ready to merge, Waiting for another task and Merged recently." src="../assets/board-prs.png" width="100%">
+<img alt="The Pull requests page of the board, with SAMPLE DATA: the List and Graph switch, then the groups In review, Repairing, Ready to merge, Waiting for another task and Merged recently." src="../assets/board-prs.png" width="100%">
 
 The Pull requests page (`/app/#pull-requests`) groups the tasks with a PR by the next action: Needs you, Building, In review, Repairing, Ready to merge, Waiting for another task, and Merged recently (the last 7 days). Each row shows the PR number (a link to GitHub when the logbook names the repository), the title, the chief tag, the milestone, "may conflict", the clean cycles, the CI state from the ledger ("CI passes", "CI fails" or "CI not known") and the open findings ("1 open · medium"). The board never asks GitHub.
 

@@ -32,7 +32,7 @@ test("T1063: each PR row carries its GitHub link, clean cycles, CI state from th
   const row = rows(t);
   assert.deepEqual(pick(row("T5")), { word: "in progress", prUrl: `${REPOSITORY}/pull/14`, ci: "pass", cycles: { required: 1, clean: 1, reviews: true }, why: null }, "verified, the merge check passes and autopilot is on: ready to merge");
   assert.deepEqual(pick(row("T3")), { word: "in progress", prUrl: `${REPOSITORY}/pull/12`, ci: "pass", cycles: { required: 1, clean: 0, reviews: true }, why: null }, "in review: CI passes, QA still runs");
-  assert.deepEqual(pick(row("T8")), { word: "needs you", prUrl: `${REPOSITORY}/pull/17`, ci: "fail", cycles: { required: 1, clean: 0, reviews: true }, why: "Checks failed on the recorded PR head." });
+  assert.deepEqual(pick(row("T8")), { word: "in progress", prUrl: `${REPOSITORY}/pull/17`, ci: "fail", cycles: { required: 1, clean: 0, reviews: true }, why: "Checks failed on the recorded PR head; the chief repairs it." });
   assert.equal(row("T6").ci, null, "no checks verdict on the PR's head: CI is not known, not passing");
   assert.equal(row("T7").ci, null, "repairing: the ledger has no verdict on a new head yet");
   assert.equal(row("T7").prUrl, null, "no PR record names its repository, so the board makes no link");
@@ -63,7 +63,7 @@ test("T1081: a later checks pass on the same head, in another cycle, clears the 
   const row = rows(t, logbook => editTable(logbook, "ledger", list => [...list, verdict("T8", "17", "f".repeat(40), "checks-pass", "2", "2026-11-13T11:00:00.000Z")]));
   assert.deepEqual({ ci: row("T8").ci, why: row("T8").why, word: row("T8").word }, { ci: "pass", why: null, word: "in progress" });
   const failing = rows(t);
-  assert.deepEqual({ ci: failing("T8").ci, word: failing("T8").word }, { ci: "fail", word: "needs you" }, "without the later pass, the failure still needs you");
+  assert.deepEqual({ ci: failing("T8").ci, word: failing("T8").word, why: failing("T8").why }, { ci: "fail", word: "in progress", why: "Checks failed on the recorded PR head; the chief repairs it." }, "without the later pass, the failure stays: the chief repairs it, so it is in progress, not Needs you (T1120 S8)");
 });
 
 test("T1081: a merged task counts every clean cycle that the ledger records, also when the configured count is lower now", t => {

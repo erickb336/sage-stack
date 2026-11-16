@@ -51,13 +51,14 @@ test("review steps use the recorded current head and run role, with inferred wor
 });
 
 
-test("same-second later clean verdict clears the owner failure; later failure restores it", () => {
+test("same-second later clean verdict clears the chief's repair; later failure restores it, outside Needs you (T1120 S8)", () => {
   const records = [observation("pr", { number: 12, head, state: "open" })];
   const failed = { task: "T1", pr: "12", sha: head, kind: "qa-fail", cycle: "1", at: now };
   const clean = { ...failed, kind: "qa-pass" };
   const make = ledger => buildBoardModel([source("one", [task("T1", "reviewing", { pr: "12" })], { ledger }, records)], { now }).tasks[0];
-  assert.equal(make([failed, clean]).reasons.some(reason => reason.kind === "qa-fail"), false);
-  assert.equal(make([clean, failed]).reasons.some(reason => reason.kind === "qa-fail"), true);
+  assert.equal(make([failed, clean]).problems.some(reason => reason.kind === "qa-fail"), false);
+  assert.equal(make([clean, failed]).problems.some(reason => reason.kind === "qa-fail"), true);
+  assert.deepEqual(make([clean, failed]).reasons, [], "a failed QA is the chief's repair, not a question for the owner");
 });
 
 test("T294: a qa-fail that the merge check no longer refuses is not an owner failure; one that it refuses still is", () => {
@@ -141,7 +142,8 @@ test("T218 N2: with no PR observation, the newest ledger head for the task's PR 
     ["checks done", "code-review done", "security-review running", "qa failed"],
     ["checks done", "code-review pending", "security-review pending", "qa pending"],
   ]);
-  assert.ok(t1.reasons.some(r => r.text === "QA failed on the recorded PR head."));
+  assert.ok(t1.problems.some(r => r.text === "QA failed on the recorded PR head; the chief repairs it."));
+  assert.ok(!t1.reasons.some(r => r.kind === "qa-fail"));
   const t2 = model.tasks.find(x => x.id === "T2");
   assert.equal(t2.currentHead, null);
   assert.deepEqual(t2.cycles[0].steps.map(s => s.status), ["unknown", "unknown", "unknown"]);
@@ -214,7 +216,7 @@ test("T218 F-T218-3: after a repair pushes a new head, the old head's verdicts f
   assert.equal(logbook(t, repairing).tasks[0].currentHead, null);
   const same = logbook(t, tables("0")).tasks[0];
   assert.equal(same.currentHead, head);
-  assert.deepEqual(same.reasons.map(r => r.text), ["QA failed on the recorded PR head."]);
+  assert.deepEqual([same.reasons, same.problems.map(r => r.text)], [[], ["QA failed on the recorded PR head; the chief repairs it."]]);
 });
 
 const sha = digit => digit.repeat(40);
@@ -224,11 +226,11 @@ test("T218 F-T218-17: a repairing task whose PR observation still names the old,
   const records = [observation("pr", { number: 30, head: sha("7"), state: "open" })];
   const model = (state, round) => buildBoardModel([source("one", [task("T1", state, { pr: "30", round })], { runs, ledger }, records)], { now });
   const before = model("reviewing", "0");
-  assert.deepEqual(before.tasks[0].reasons.map(r => r.text), ["QA failed on the recorded PR head."]);
-  assert.equal(before.counts.needsOwner, 1);
+  assert.deepEqual([before.tasks[0].reasons, before.tasks[0].problems.map(r => r.text)], [[], ["QA failed on the recorded PR head; the chief repairs it."]]);
+  assert.equal(before.counts.needsOwner, 0);
   const repairing = model("repairing", "1");
   assert.equal(repairing.tasks[0].currentHead, sha("7"));
-  assert.deepEqual(repairing.tasks[0].reasons, []);
+  assert.deepEqual([repairing.tasks[0].reasons, repairing.tasks[0].problems], [[], []]);
   assert.equal(repairing.counts.needsOwner, 0);
   assert.deepEqual(repairing.tasks[0].cycles[0].steps.map(s => `${s.role} ${s.status}`), ["checks pending", "code-review pending", "qa pending"]);
 });

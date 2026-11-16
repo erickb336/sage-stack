@@ -51,7 +51,8 @@ export const WORDS = ["not started", "waiting", "needs you", "in progress", "don
 export const URGENCY = ["needs you", "in progress", "waiting", "not started", "done", "stopped"];
 export const FLAGS = ["failed", "blocked", "may be stuck", "running long", "run still open"];
 export const UNKNOWN = "unknown";
-export const MARKS = { "not started": "○", waiting: "⧗", "needs you": "?", "in progress": "▶", done: "✓", stopped: "■", problem: "!", unknown: "◌", milestone: "◫", release: "◎", offer: "⇄" };
+export const MARKS = { "not started": "○", waiting: "⧗", "needs you": "?", "in progress": "▶", done: "✓", stopped: "■", problem: "!", unknown: "◌", milestone: "◫", release: "◎", offer: "⇄", "cannot start": "⊘" };
+export const FLAGGED = "with a problem flag";
 export const KINDS = { design: ["◇", "Design"], ui: ["▢", "UI"], orchestration: ["⋈", "Orchestration"], optimization: ["↗", "Optimization"], "bug-fix": ["✱", "Bug fix"], logbook: ["≡", "Logbook"], docs: ["¶", "Docs"], security: ["▲", "Security"], providers: ["⊞", "Providers"], checks: ["⊨", "Checks"] };
 
 const each = (keys, word) => Object.fromEntries(keys.map(key => [key, [word]]));

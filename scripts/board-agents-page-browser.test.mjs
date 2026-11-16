@@ -175,7 +175,7 @@ test("T1062 F-T1062-13: 'need a look' equals the Overview's Stuck count, and a f
   assert.equal(await r25.locator(".acard-h .badge.look").textContent(), "! 1 helper with a problem flag", "the lead card is marked");
   assert.match(await r25.locator('a.ag[data-run="R27"]').textContent(), /^!ux-reviewerR27stopped · failed/, "the failed helper is a row, not hidden in the ended list, with the table's word and flag (F-T1096-1, F-T1096-7)");
   const failed = box(page, "C1").locator('section.acard.own[aria-label="Failed in the last 24 hours"]');
-  assert.deepEqual(await failed.locator("a.ag .r1").allTextContents(), ["implementerR1"], "a failed run with no running lead shows too");
+  assert.deepEqual(await failed.locator("a.ag .r1").allTextContents(), ["designerR1"], "a failed run with no running lead shows too");
   assert.deepEqual(problems, []);
 });
 
@@ -259,16 +259,15 @@ test("F-T1062-22, F-T1062-24, F-T1062-32: each chief's count is the same in the 
   assert.deepEqual(top, boxes, "each chief's running count is the same in both places");
   assert.deepEqual(top, { C1: 7, C2: 3 });
   const r20 = box(page, "C1").locator("section.acard", { has: page.locator('[data-run="R20"]') });
-  assert.equal(await r20.locator(".acard-h .badge.look").textContent(), "! 30 helpers with a problem flag", "the lead counts every failed helper");
-  assert.equal(await r20.locator("a.ag.ended .badge.failed").count(), 20, "20 failed helpers are rows");
-  assert.equal(await r20.locator("p.more-done").textContent(), "and 10 more failed");
+  assert.equal(await r20.locator(".acard-h .badge.look").count(), 0, "T1120 S3: each of the 30 failed qa helpers has a later qa run (R24), so none has a problem flag");
+  assert.equal(await r20.locator("p.more-done").count(), 0, "no failed helper hides behind 'more'");
   const long = page.locator('a.ag[data-run="R22"] .badge');
   assert.deepEqual([await long.textContent(), await long.getAttribute("class")], ["in progress · running long", "badge running"], "running long is calm: it does not need a look");
   assert.equal(await page.locator('a.ag[data-run="R22"] .awhy').getAttribute("class"), "awhy", "and so is its note");
   const looks = await page.locator('.agents-kpis .kpi[data-count="look"] .n').textContent();
-  assert.equal(Number(looks), 4 + 1 + 30, "the base 4, R38 and the 30 failed helpers");
+  assert.equal(Number(looks), 4 + 1, "the base 4 and R38; T1120 S3: not the 30 failed helpers that ran again");
   const marked = await page.locator("main [data-run]").evaluateAll(list => list.filter(mark => /\b(look|failed)\b/.test((mark.closest(".acard-h") ?? mark).querySelector(".badge").className)).length);
-  assert.equal(marked, Number(looks) - 10, "each counted row, and nothing else, has the look colour; 10 hide behind 'and 10 more failed'");
+  assert.equal(marked, Number(looks), "each counted row, and nothing else, has the look colour");
   await shoot(page, "agents-round2-dark.png");
   assert.deepEqual(problems, []);
 });
