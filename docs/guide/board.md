@@ -128,10 +128,12 @@ The address of the board opens the Overview. From the top:
 - **The top bar:** the [picker and the signal](#one-project-at-a-time), then the counts of agents and leads against this project's limits, for example "Agents 8 of 10 · C1 4 · C2 4 · 3 waiting" and "Leads 4 of 5". A count turns amber at its limit, and a click opens the Agents page.
 - **All projects:** with more than one project, "12 in progress in all projects" counts the running agents of every project. The board does not read Claude's total cap of agents for all projects, so it shows no limit for that count.
 - **The time and the theme:** "Live · read 10:56" gives the time of the last read. The board is dark until you choose the light theme with the switch, and it keeps your choice in this browser.
-- **The chief chips:** one chip for each chief, Claude and Codex alike, with a green dot for a live chief, a yellow dot for a chief that waits for your answer, a ring for a stopped chief, and "autopilot on" or "autopilot off". A click on a chip shows only that chief's work, on each page; "All chiefs" shows all again.
+- **The chief chips:** one chip for each chief, Claude and Codex alike, with a green dot for a live chief, a yellow dot for a chief that waits for your answer, a ring for a stopped chief, and "autopilot on" or "autopilot off". A click on a chip shows only that chief's work, on each page; "All chiefs" shows all again. In a window narrower than 760 px, the chips fold into one chip with each chief's id and dot; a tap shows them all.
 - **Needs you:** each open question and each problem, oldest first, with its chief, its task and when it was asked. A click on a question opens the [question view](#the-question-view-and-the-reader).
-- **Milestones:** each milestone by the top priority of its open tasks, with its state word, its goal, its progress bar ("2 of 9 merged") and its pilot. A click opens the Tasks page at that milestone.
-- **Since you looked**, or **In the last 24 hours** on the first visit in a browser, or **In the last 7 days** after a longer absence: the tasks merged, the runs "with a problem flag", and the tasks added. A run has a problem flag when its agent is silent for 30 minutes or stopped, or when it failed in the last 24 hours, its task is still open, and no later run of the same role started. A click on "With a problem flag" opens the Agents page, which uses the same label.
+- **Milestones:** each milestone by the top priority of its open tasks, with its state word, its goal, its progress bar ("2 of 9 merged") and its pilot. A click opens the Tasks page with only that milestone's tasks; "Show all tasks" shows the rest again.
+- **Since you looked**, or **In the last 24 hours** on the first visit in a browser, or **In the last 7 days** after a longer absence: the tasks merged, the runs "with a problem flag", and the tasks added. A run has a problem flag when its agent is silent for 30 minutes or stopped, or when it failed in the last 24 hours, its task is still open, and no later run of the same role started. A click on "Merged" opens those tasks on the Tasks page, newest first; a click on "With a problem flag" opens the Agents page, which uses the same label.
+
+When the board has no project yet, the Overview shows one card, "Start your first task", with the three first steps: start a chief in the project, ask for a change, and come back to the board.
 
 Needs you also has items that no task holds: a stuck milestone, a breakdown gate that the logbook lost, a milestone that tasks name but the logbook does not have, a table or a logbook that the board cannot read, and an open move gate ([the move](using-sage.md#move-an-existing-project)). Each item says why and what to do.
 
@@ -141,7 +143,7 @@ When the merge check refuses a PR's head, or the checks or QA failed on it, the 
 
 <img alt="The Tasks page of the board, with SAMPLE DATA: the Group by switch, then the tasks of each milestone, one row for each task with its priority, title, kind, state word, chief and step." src="../assets/board-tasks.png" width="100%">
 
-The Tasks page lists every task, grouped by milestone (the default), priority, chief or state. Filters show one chief, provider, priority, kind or state. A click on a row opens the task page.
+The Tasks page lists every task, grouped by milestone (the default), priority, chief or state, and sorted by priority (the default) or newest first. Filters show one chief, provider, priority, kind or state. A click on a row opens the task page, and each page of the board opens at its top.
 
 - Each row shows the priority, the title, the kind, the state word, the chief tag (id and provider), the step that runs now, the PR and the age.
 - "may conflict" shows when another chief's open branch changes the same file.
@@ -156,9 +158,15 @@ Every task has a priority (P0 to P3). An older open task with none shows "no pri
 Each task has one page, at `/app/#task?key=<task key>`. The Overview, Tasks, Agents and Pull requests pages open it. The browser's Back returns to the same place on the page that you came from, and a click with Cmd (Ctrl on Windows and Linux) opens it in a new tab. From the top, the page shows:
 
 - the title, the state word, the priority, size, step and chief, and the agents at work now;
-- for each failed run with no later run of the same role, while the task is open: "Failed run", the reason and where it comes from (the run's failure line, else the RESULT of its kept report, else the chief's "R12 failed:" decision, else "No reason recorded"), and a link to its report;
-- "About this task": Milestone, Before and after ("Comes after" and "Needed by"), Goal, Why, Criteria, Status and Cost, then the links to the brief, the reports, the pull request and the milestone;
-- the tabs Artifacts, Log and Decisions. Artifacts lists the task's pages folder, the briefs and reports of its runs, and its design versions; each opens in the [reader](#the-question-view-and-the-reader).
+- the tabs About, Artifacts, Log and Decisions. About opens first.
+
+About shows, in this order:
+
+- for a merged task, "What changed for you": the "What changes for users" part of its PR's description, which the logbook keeps when the task merges; else the RESULT of its newest lead's report, labelled; else "The board has no text for this change";
+- for each failed run with no later run of the same role, while the task is open: "Failed run", the reason and where it comes from (the run's failure line, else the RESULT of its kept report, else the chief's "R12 failed:" decision, else "No reason recorded"), and a link to its report when the logbook keeps one;
+- Milestone, Before and after ("Comes after" and "Needed by"), Goal, Why, Criteria, Status and Cost, then the links to the brief, the reports, the pull request and the milestone. A task that stopped shows no step as "now".
+
+Artifacts lists the task's pages folder, the briefs and reports of its runs, and its design versions; each opens in the [reader](#the-question-view-and-the-reader). A run shows a Brief or a Report link only when the logbook keeps that file; else "No brief", "No report", or "Report when it ends" for a run that runs.
 
 | Part | Where it comes from |
 | --- | --- |
@@ -261,6 +269,7 @@ With a paired browser, you act from the Overview:
 | Archive the project | 2: Archive project (at the foot), then Archive. Or 3 from the picker | `config archived=yes` in each logbook of the project ([Archive a project](#archive-a-project)). |
 | Restore an archived project | 1: Restore, in the banner or in the picker's Archived list | `config archived=no` in each logbook of the project. |
 | See what changed since you looked | 0 | Nothing on the Mac: each browser keeps the time when you last left the board (the tab closed, or hidden for 5 minutes). A reload keeps the counts. |
+| Stop the board | 2: Stop the board (at the foot of the side bar), then Stop the board in the question that it asks | Nothing in a logbook: the board server closes for every browser, and the chiefs and their agents keep working. To open it again, type `show board` in a chief's chat. A browser that is not paired shows "Ask the chief to stop the board." |
 
 The first answer wins. When you answer in a chat or on a card first, the board shows where and when, for example "Answered first in C2's chat at 14:51", and a later board answer is not recorded.
 

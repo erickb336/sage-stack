@@ -391,3 +391,37 @@ test("T1064: the server serves the reader script-free under the sandbox policy, 
   const { port: barePort } = await bare.start(), missing = await get(`http://127.0.0.1:${barePort}`, readerUrl(KEY("T3"), "brief", "R7"));
   assert.deepEqual([missing.status, missing.body], [503, "The reader's Markdown renderer is not in this copy of the board. Run the board from the sage plugin, or run npm ci and npm run build.\n"], "a copy of the board without its built renderer still starts, and says why it has no reader");
 });
+
+function addRows(logbook, table, rows) {
+  const file = join(logbook, `${table}.tsv`), columns = readFileSync(file, "utf8").split("\n")[0].split("\t");
+  writeFileSync(file, readFileSync(file, "utf8") + rows.map(row => columns.map(column => row[column] ?? "").join("\t")).join("\n") + "\n");
+}
+
+test("T1126: the task panel says which runs have a brief or a report, the same as the reader; a merged task gives the PR's text for users, else the newest lead's RESULT, else none", async t => {
+  const w = world(t), port = await freePort(), base = `http://127.0.0.1:${port}`;
+  const at = hours => new Date(Date.parse(NOW) - hours * 3_600_000).toISOString();
+  addRows(w.logbook, "runs", [
+    { id: "R80", task: "T20", role: "lead", round: "0", status: "done", started: at(9), ended: at(8) },
+    { id: "R81", task: "T21", role: "lead", round: "0", status: "done", started: at(9), ended: at(8) },
+    { id: "R82", task: "T21", role: "lead", round: "0", status: "done", started: at(7), ended: at(6) },
+    { id: "R83", task: "T1", role: "lead", round: "0", status: "done", started: at(7), ended: at(6) },
+  ]);
+  mkdirSync(join(w.logbook, "for-users"), { recursive: true });
+  writeFileSync(join(w.logbook, "for-users", "T1.md"), "- Each install gets the same files.\n");
+  writeFileSync(join(w.logbook, "reports", "R80.md"), "STATUS done\nRESULT ready. Sign-in shows one message\n  when a session ends.\nEVIDENCE none\n");
+  writeFileSync(join(w.logbook, "reports", "R81.md"), "STATUS done\nRESULT an older lead's result\n");
+  writeFileSync(join(w.logbook, "reports", "R83.md"), "STATUS done\nRESULT the lead's result, which the PR's text replaces\n");
+  const server = createBoardServer({ sources: w.sources, port, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [] });
+  t.after(() => server.close());
+  await server.start();
+  const panel = async id => JSON.parse((await get(base, `/app/task/${Buffer.from(KEY(id)).toString("base64url")}`)).body);
+  const limits = await panel("T3");
+  assert.deepEqual(Object.fromEntries(limits.runs.map(run => [run.id, [run.brief, run.report]])), { R5: [false, true], R6: [true, false], R7: [true, false], R4: [false, false] });
+  for (const run of limits.runs) for (const kind of ["brief", "report"]) {
+    assert.equal(run[kind], !/Not kept\.|Not written yet\./.test(read(w, "T3", kind, run.id).text), `${run.id}'s ${kind}: a link shows only where the reader has the document`);
+  }
+  assert.equal(limits.change, undefined, "an open task has no change part");
+  assert.deepEqual((await panel("T1")).change, { from: "pr", text: "- Each install gets the same files." });
+  assert.deepEqual((await panel("T20")).change, { from: "lead", run: "R80", text: "ready. Sign-in shows one message\nwhen a session ends." });
+  assert.equal((await panel("T21")).change, null, "the newest lead R82 has no report, and an older lead's RESULT is not shown in its place");
+});

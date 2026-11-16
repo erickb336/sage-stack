@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { dirname, join, posix } from "node:path";
-import { BRIEF_FIELDS, LONG_WIDTH, chiefName, prName, runWord, PAGE_MAX, REPORT_FIELDS, WIDTH, briefSections, fieldsOf, frameLines, pageFile, pageTaskFolder, pageType, readReport, taskPanel } from "../sage-core/index.mjs";
+import { BRIEF_FIELDS, LONG_WIDTH, chiefName, prName, runWord, PAGE_MAX, REPORT_FIELDS, WIDTH, briefSections, fieldsOf, frameLines, keptUsersText, pageFile, pageTaskFolder, pageType, readReport, taskPanel } from "../sage-core/index.mjs";
 
 const marksShown = text => String(text ?? "").replace(/\p{Cf}/gu, c => `[U+${c.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}]`);
 const TEXT_MAX = 1 << 20, MD_MAX = 2 << 20, VERSIONS_MAX = 30, SHOTS_MAX = 8;
@@ -30,6 +30,25 @@ export function readBrief(dir, taskId, run) {
     if (kept !== undefined) { text = JSON.parse(kept)?.text; from = codex; if (typeof text !== "string") throw unread("The file has no brief text."); }
   } catch (error) { problem = whyUnread(error); text = undefined; }
   return { text, problem, from };
+}
+
+export function readRunReport(dir, folder, task, run) {
+  let text = dir ? readText(join(dir, "reports", `${run.id}.md`)) : undefined, from = "reports";
+  if (text === undefined && folder && pageFile(folder, `${run.id}-report.md`)) { text = pageFile(folder, `${run.id}-report.md`, true).bytes.toString("utf8"); from = "page"; }
+  if (text === undefined && dir) { const kept = readJson(join(dir, "kept", `${run.id}.json`)); if (kept?.task === task.id && kept.run === run.id && typeof kept.text === "string") { text = kept.text; from = "kept"; } }
+  return { text, from };
+}
+const shown = read => { try { return read(); } catch { return true; } };
+export const runFiles = (dir, folder, task, run) => ({ brief: shown(() => { const { text, problem } = readBrief(dir, task.id, run); return text !== undefined || !!problem; }), report: shown(() => readRunReport(dir, folder, task, run).text !== undefined) });
+
+export function changeText(dir, folder, task, runs) {
+  const users = keptUsersText(dir, task.id);
+  if (users) return { from: "pr", text: users };
+  const lead = runs.filter(item => item.role === "lead").sort((a, b) => (Date.parse(b.started) || 0) - (Date.parse(a.started) || 0))[0];
+  let text;
+  try { text = lead && readRunReport(dir, folder, task, lead).text; } catch {}
+  const result = text && fieldsOf(text, REPORT_FIELDS).find(field => field.name === "RESULT"), said = result && dedent([result.rest, ...result.lines].join("\n")).trim();
+  return said ? { from: "lead", run: lead.id, text: said } : null;
 }
 
 const CHECKERS = ["qa", "code-reviewer", "security-reviewer", "ux-reviewer", "evidence-review"];
@@ -292,9 +311,8 @@ export function readerPage({ model, configured, url, origin, render }) {
       if (!run) return runMissing();
       let text, from, problem;
       try {
-        text = dir ? readText(join(dir, "reports", `${run.id}.md`)) : undefined; from = `reports/${run.id}.md in the logbook`;
-        if (text === undefined && folder && pageFile(folder, `${run.id}-report.md`)) { text = pageFile(folder, `${run.id}-report.md`, true).bytes.toString("utf8"); from = `<a href="${esc(pagesBase)}${esc(run.id)}-report.md">Open the file</a>`; }
-        if (text === undefined && dir) { const kept = readJson(join(dir, "kept", `${run.id}.json`)); if (kept?.task === task.id && kept.run === run.id && typeof kept.text === "string") { text = kept.text; from = `kept/${run.id}.json in the logbook (a review's kept report)`; } }
+        ({ text, from } = readRunReport(dir, folder, task, run));
+        from = { reports: `reports/${run.id}.md in the logbook`, page: `<a href="${esc(pagesBase)}${esc(run.id)}-report.md">Open the file</a>`, kept: `kept/${run.id}.json in the logbook (a review's kept report)` }[from];
       } catch (error) { problem = whyUnread(error); }
       const became = (task.gateRows ?? []).filter(gate => gate.run === run.id).map(gate => note(`<b>This became ${esc(gate.id)}.</b> The run asked it in its QUESTIONS field: ${esc(firstLine(gate.question))} <a href="${esc(questionHref(task, gate.id))}">Open ${esc(gate.id)}</a>`, gate.answer ? "" : "need")).join("");
       const ran = run.ended ? `${when(run.started, model.at)}–${when(run.ended, model.at)}` : `${when(run.started, model.at)}–`;

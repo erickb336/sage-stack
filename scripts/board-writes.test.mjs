@@ -393,6 +393,33 @@ test("F-T1059-52, F-T1059-28: the real board process answers a clear 500 and sta
   }
 });
 
+test("T1126: Stop from a paired browser closes the real board process: its port is free and its board.pid is gone; a browser that is not paired and a page on another port cannot stop it", async t => {
+  const w = await board(t);
+  const config = join(w.base, "serve", "board.json"), port = await freePort();
+  await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify([{ id: "shared", path: w.env.SAGE_SHARED_HOME }])], { output: () => {}, env: w.env });
+  const child = spawn(process.execPath, [TEST_CHILD, CLI, "board", "--serve", "--config", config], { env: w.env, stdio: ["ignore", "ignore", "pipe", "ipc"] });
+  const closed = new Promise(done => child.once("exit", done));
+  try {
+    await waitFor(async () => (await call(port, "/app/", { method: "GET" }).catch(() => null))?.status === 200, "the board process listens");
+    assert.ok(existsSync(join(w.base, "serve", "board.pid")), "the running board keeps its board.pid");
+    const own = { ...w.own, Origin: `http://127.0.0.1:${port}` };
+    assert.equal((await call(port, "/api/stop", { headers: own, body: {} })).status, 401, "a browser that is not paired cannot stop the board");
+    assert.equal((await call(port, "/api/stop", { headers: { ...own, Origin: `http://127.0.0.1:${port + 1}` }, body: {} })).status, 403, "a page on another port cannot stop the board");
+    assert.equal((await call(port, "/app/", { method: "GET" })).status, 200, "the board still runs after both refusals");
+    const lines = [];
+    await runBoardCli(["board", "--pair", "--config", config], { output: line => lines.push(line), env: w.env, input: { isTTY: true } });
+    const paired = await call(port, "/api/pair", { headers: own, body: { code: /Pairing code: (\S+)/.exec(lines.join("\n"))[1] } });
+    const stopped = await call(port, "/api/stop", { headers: { ...own, Cookie: paired.headers["set-cookie"][0].split(";")[0], "X-Sage-Token": paired.json.token }, body: {} });
+    assert.equal(stopped.status, 200, stopped.text);
+    assert.match(stopped.json.text, /^The board stopped\. To start it again, type show board in a chief's chat\.$/);
+    await waitFor(async () => (await call(port, "/app/", { method: "GET" }).catch(error => error.code)) === "ECONNREFUSED", "the port is free");
+    await waitFor(() => !existsSync(join(w.base, "serve", "board.pid")), "board.pid is gone");
+  } finally {
+    if (child.connected) child.send({ kind: "close-tree" }, () => {});
+    await closed;
+  }
+});
+
 test("F-T1059-46: a shadow sage_board cookie that comes first does not hide the paired cookie after it", async t => {
   const w = await board(t), p = await pair(w);
   const shadow = `sage_board=${"B".repeat(43)}`;

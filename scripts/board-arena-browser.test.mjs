@@ -30,7 +30,7 @@ test("task links reach arena-only, mixed and artifact-free arenas without changi
     await board.start();
     browser = await chromium.launch({ headless: true, ...(process.env.BOARD_BROWSER_PATH ? { executablePath: process.env.BOARD_BROWSER_PATH } : {}) });
     const page = await browser.newPage();
-    const origin = `http://127.0.0.1:${port}`, task = `${origin}/app/#task?key=${encodeURIComponent(ARENA_KEY)}`;
+    const origin = `http://127.0.0.1:${port}`, task = `${origin}/app/#task?key=${encodeURIComponent(ARENA_KEY)}&tab=artifacts`;
     const isTask = url => url.origin === origin && url.pathname === "/app/" && url.hash.startsWith("#task?")
       && new URLSearchParams(url.hash.slice(6)).get("key") === ARENA_KEY;
     const shot = async name => {

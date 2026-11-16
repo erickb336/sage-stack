@@ -81,9 +81,10 @@ test("T1061, T1064, T1059: J2 and J3 are within two clicks of the Overview, and 
   assert.match(page.url(), /#task\?key=shared%2Fsample-app-abc123%2FT3$/, "T1083: a row opens the task's own page");
   assert.deepEqual(await page.locator(".trail li").evaluateAll(steps => steps.map(step => [step.className, step.firstChild.textContent, step.querySelector(".sr").textContent])), [["done", "build", " (done)"], ["done", "reviews", " (done)"], ["now", "QA", " (now)"]], "T1083 F-T1083-7: the trail names the route's steps; the code review is done and QA runs, each with its word for a screen reader");
   assert.match(await page.locator(".about-s p.now").first().textContent(), /^In progress: 0 of 1 review cycle passed\./);
+  await page.getByRole("tab", { name: /^Artifacts/ }).click();
   const made = await page.locator("#tab-panel .files a").allTextContents();
-  assert.deepEqual(made.filter(text => !["Brief", "Report"].includes(text)), ["limits-design.html", "notes.md", "Limits design note", "R5 · code-reviewer · done"], "J3: what its agents made");
-  assert.equal(made.filter(text => text === "Brief").length, 3, "a brief and a report link for each of T3's three runs");
+  assert.deepEqual(made.filter(text => !["Brief", "Report"].includes(text)), ["limits-design.html", "notes.md", "Limits design note", "R5 · code-reviewer · done"], "J3: what its agents made, one tab further (T1126: About is the first tab)");
+  assert.deepEqual(await page.locator('#tab-panel h4:text-is("Briefs and reports") + ul > li').evaluateAll(list => list.map(item => [item.firstChild.textContent, [...item.querySelectorAll("a")].map(a => a.textContent).join(" ")])), [["R5 · code-reviewer", "Report"], ["R6 · qa", "Brief"], ["R7 · implementer", ""]], "T1126 S16: a Brief or Report link only where the logbook keeps one");
   assert.equal(await page.getByRole("link", { name: "limits-design.html" }).getAttribute("href"), "/pages/sample-app-abc123/T3/limits-design.html");
   assert.match(await page.getByRole("link", { name: "notes.md" }).getAttribute("href"), /^\/read\/[\w-]+\/page\/notes\.md$/, "a Markdown page opens in the reader");
   assert.match(await page.locator("#tab-panel").textContent(), /R5 · code-reviewer · done.*CLEAN\. The limits change is correct\..*sage_qa_t3_r6\.json/);
@@ -91,7 +92,7 @@ test("T1061, T1064, T1059: J2 and J3 are within two clicks of the Overview, and 
   clicks = 0;
   await page.goto(`${base}/app/`);
   await click(page.getByRole("link", { name: /^Tasks/ }));
-  await click(page.getByRole("button", { name: "Priority" }));
+  await click(page.getByRole("button", { name: "Priority", exact: true }));
   assert.equal(clicks, 2, "J2: tasks by priority");
   await settles(() => groupTitles(page), ["P0", "P1", "P2"]);
 
@@ -229,14 +230,15 @@ test("T1061, T1083: the task page opens from the keyboard, its tabs move with th
   await page.keyboard.press("Enter");
   await taskTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
   assert.equal(await page.evaluate(() => document.activeElement.tagName), "H1", "the focus moves to the page's title");
-  await page.getByRole("tab", { name: /Artifacts/ }).focus();
+  await page.getByRole("tab", { name: /Artifacts/ }).click();
   await page.keyboard.press("ArrowRight");
   assert.equal(await page.evaluate(() => document.activeElement.textContent), "Log 8");
   assert.equal(await page.getByRole("tab", { name: /Log/ }).getAttribute("aria-selected"), "true");
   await page.keyboard.press("End");
   assert.equal(await page.evaluate(() => document.activeElement.textContent), "Decisions 1", "End goes to the last tab (F-T1080-21)");
   await page.keyboard.press("Home");
-  assert.equal(await page.evaluate(() => document.activeElement.textContent), "Artifacts 7", "Home goes to the first tab");
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), "About", "Home goes to the first tab");
+  await page.keyboard.press("ArrowRight");
   await page.keyboard.press("ArrowRight");
   assert.match(await page.locator("#tab-panel").textContent(), /qa started/);
   assert.match(page.url(), /&tab=log$/, "the tab is in the address");
@@ -259,6 +261,7 @@ test("T1061 (F-T1061-1): markup, quotes, newlines and javascript: links in agent
   const panel = page.locator(".taskpage");
   assert.match(await panel.textContent(), /sage\/t50-<b>bold<\/b>/, "the branch name is text");
   assert.deepEqual(await panel.locator(".callout code").allTextContents(), ["<script>window.hacked=3</script>\\nsrc/evil\\u202egnp\\u009b.js", "src/a\\u061cb\\u2060c\\u00add\\u180ee\\u{e0001}f.js", "javascript:window.hacked=4", "src/shared.js"], "a path shows its newline, its right-to-left override, its C1 control and every other invisible or format character, also outside the BMP, as escapes");
+  await page.getByRole("tab", { name: /Artifacts/ }).click();
   assert.match(await panel.locator("#tab-panel").textContent(), /sage_x_t50_r9 <img src=x onerror=window\.hacked=9>\.json/);
   assert.match(await panel.locator("#tab-panel").textContent(), /<img src=x onerror="window\.hacked=6">label/);
   await page.getByRole("tab", { name: /Log/ }).click();

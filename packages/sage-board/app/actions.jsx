@@ -96,6 +96,38 @@ export function PairBox({ id = "pair-h" }) {
   );
 }
 
+const stop = { at: null, listeners: new Set() };
+export const useStopped = () => useShared(stop.listeners, () => stop.at);
+const AGAIN = "To open it again, type show board in a chief's chat.";
+export function StopBoard() {
+  const writes = useAccess(), [asking, setAsking] = useState(false), [said, setSaid] = useState(null), cancel = useRef(null);
+  useEffect(() => {
+    if (!asking) return;
+    cancel.current?.focus();
+    const key = event => { if (event.key === "Escape") setAsking(false); };
+    addEventListener("keydown", key);
+    return () => removeEventListener("keydown", key);
+  }, [asking]);
+  if (writes !== "paired") return <p>Ask the chief to stop the board.</p>;
+  const send = async () => {
+    const result = await post("stop", {});
+    setSaid(result); setAsking(false);
+    if (result.ok) { stop.at = new Date().toISOString(); stop.listeners.forEach(fn => fn()); }
+  };
+  return <>
+    <button type="button" className="btn" onClick={() => setAsking(true)}>Stop the board</button>
+    {said && !said.ok && <p className="refused" role="alert">{said.text}</p>}
+    {asking && <div className="scrim"><div className="card stop-ask" role="dialog" aria-modal="true" aria-labelledby="stop-h">
+      <h2 id="stop-h">Stop the board?</h2>
+      <p>The board stops on this Mac for every browser. The chiefs and their agents keep working. {AGAIN}</p>
+      <p className="row-btns"><button type="button" className="btn" ref={cancel} onClick={() => setAsking(false)}>Cancel</button><button type="button" className="btn primary" onClick={send}>Stop the board</button></p>
+    </div></div>}
+  </>;
+}
+export const Stopped = ({ at }) => (
+  <main className="stopped-page"><section className="card" role="status"><h1>The board stopped</h1><p>You stopped it at {clock(at)}. The chiefs and their agents keep working.</p><p>{AGAIN} You can close this tab.</p></section></main>
+);
+
 const SEEN_KEY = "board-seen", AWAY_MS = 5 * 60_000;
 const keep = (name, value) => { try { if (value !== undefined) window[name].setItem(SEEN_KEY, value); return window[name].getItem(SEEN_KEY); } catch { return null; } };
 const seen = { previous: keep("sessionStorage") ?? keep("localStorage") ?? "", listeners: new Set() };
@@ -142,7 +174,7 @@ function ChiefMenu({ chief, onFilter, close }) {
 }
 
 export function ChiefChips({ chiefs, filter, setFilter }) {
-  const [open, setOpen] = useState(null);
+  const [open, setOpen] = useState(null), [unfolded, setUnfolded] = useState(false);
   useEffect(() => {
     if (!open) return;
     const key = event => { if (event.key === "Escape") setOpen(null); };
@@ -151,7 +183,10 @@ export function ChiefChips({ chiefs, filter, setFilter }) {
   }, [open]);
   if (!chiefs.length) return null;
   return (
-    <div className="chips" role="group" aria-label="Chiefs">
+    <div className={`chips${unfolded ? " unfolded" : ""}`} role="group" aria-label="Chiefs">
+      <button type="button" className="chip fold" aria-expanded={unfolded} onClick={() => setUnfolded(!unfolded)}>
+        {chiefs.map(chief => <span key={chief.key}><span className={`dot ${dot(chief)}`} aria-hidden="true" />{chief.id} · <span className="state">{dot(chief) === "live" && chief.autopilot !== null ? `autopilot ${chief.autopilot ? "on" : "off"}` : STATE[dot(chief)]}</span> </span>)}{unfolded ? "▴" : "▾"}
+      </button>
       <button type="button" className="chip all" aria-pressed={!filter} onClick={() => setFilter(null)}>All chiefs</button>
       {chiefs.map(chief => (
         <span className="chip-wrap" key={chief.key}>

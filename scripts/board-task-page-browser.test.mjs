@@ -108,7 +108,7 @@ test("T1083: the task page shows each part from the logbook and the brief, in on
   await page.getByRole("tab", { name: /Log/ }).click();
   assert.match(page.url(), /&tab=log$/);
   await page.reload();
-  await page.locator(".about-card").waitFor();
+  await page.locator("#tab-panel .log").waitFor();
   assert.equal(await page.getByRole("tab", { name: /Log/ }).getAttribute("aria-selected"), "true", "a reload keeps the tab");
   await shoot(page, "task-T2-dark-1440.png");
   assert.deepEqual(problems, []);

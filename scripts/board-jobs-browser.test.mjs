@@ -93,9 +93,9 @@ for (const width of WIDTHS) {
       await page.locator("main h1", { hasText: "Tasks" }).waitFor();
       await click(page.locator(`a.row[href="#task?key=${encodeURIComponent(KEY("T3"))}"]`));
       await page.locator(".taskpage h1", { hasText: "Sample shared limits" }).waitFor();
-      assert.deepEqual((await page.locator(".taskpage [role=tab]").allTextContents()).map(text => text.replace(/\s*\d+$/, "")), ["Artifacts", "Log", "Decisions"]);
+      assert.deepEqual((await page.locator(".taskpage [role=tab]").allTextContents()).map(text => text.replace(/\s*\d*$/, "")), ["About", "Artifacts", "Log", "Decisions"]);
       await page.locator(".taskpage").getByText("Build", { exact: false }).first().waitFor();
-      await page.locator("#tab-panel").getByText("Limits design note").first().waitFor();
+      assert.match(await page.getByRole("tab", { name: /^Artifacts/ }).textContent(), /^Artifacts [1-9]\d*$/, "T1126: About is the first tab; the Artifacts tab counts what the agents made, one click away");
     });
     assert.equal(clicks, 2);
   });
@@ -136,11 +136,17 @@ for (const width of WIDTHS) {
 
   test(`J7 at ${width} px: each chief's chip says whether it runs and whether its autopilot is on, with no click`, async t => {
     const clicks = await walk(t, "J7", width, async page => {
+      if (width < 760) {
+        const fold = page.locator(".chips .chip.fold");
+        assert.match(await fold.textContent(), /^C1 · autopilot on C2 · autopilot off ▾$/, "T1126 S14: on a phone the folded chip still says each chief's state");
+        assert.equal(await fold.locator(".dot.live").count(), 2, "both chiefs run");
+        return;
+      }
       const chips = await page.locator(".chips button.chip[data-chief]").allTextContents();
       assert.equal(chips.length, 2, chips.join(" | "));
       assert.ok(chips.some(text => /Claude · C1/.test(text) && /autopilot on/.test(text)), chips.join(" | "));
       assert.ok(chips.some(text => /Codex · C2/.test(text) && /autopilot off/.test(text)), chips.join(" | "));
-      assert.equal(await page.locator(".chips .dot.live").count(), 2, "both chiefs run");
+      assert.equal(await page.locator(".chips button.chip[data-chief] .dot.live").count(), 2, "both chiefs run");
     });
     assert.equal(clicks, 0);
   });

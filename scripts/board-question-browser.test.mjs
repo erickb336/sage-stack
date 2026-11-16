@@ -295,7 +295,7 @@ test("T1121 S7: a failed run's recorded reason shows on its task page and on the
   const note = page.locator(".failed-run");
   await note.waitFor();
   assert.match(await note.textContent(), new RegExp(`^Failed runpe R2 failed\\. "${why}"From the run's failure line, `));
-  assert.equal(await note.getByRole("link", { name: "Open the report of R2" }).count(), 1);
+  assert.equal(await note.getByRole("link", { name: "Open the report of R2" }).count(), 0, "T1126 S16: R2 kept no report, so no link leads to Not kept");
   await w.shot("task-failed");
   await page.goto(`${w.origin}/app/#agents`);
   const tile = page.locator('[data-run="R2"]');
