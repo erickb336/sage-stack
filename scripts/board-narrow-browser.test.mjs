@@ -48,6 +48,7 @@ const PAGES = [
   ["tasks", "/app/#tasks", ".row", ".row .text"],
   ["pull-requests", "/app/#pull-requests", ".prow", ".prow .ttl"],
   ["agents", "/app/#agents", ".chief-box", ".acard .ttl, .queue .ttl, .lane-l > span:last-child"],
+  ["stats", "/app/#stats", ".chart", ".chart h2, .stat-tiles .l"],
   ["task", `/app/#task?key=${encodeURIComponent(KEY("T2"))}`, ".about-card", ".taskpage h1"],
 ];
 
