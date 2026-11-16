@@ -2,7 +2,8 @@ import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import fs, { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { test } from "node:test";
@@ -24,19 +25,20 @@ const ADD = ["--size", "small", "--priority", "P2"];
 const QA = ["--source", "qa", "--severity", "medium", "--summary", "a problem", "--run", "R1", "--class", "other"];
 const NO_CHIEF = /a command with no chief only reads: add --chief/;
 
-function scratch(t) {
+function scratch(t, keepSageHome = false) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "sage-chiefs-")));
   t.after(() => rmSync(base, { recursive: true, force: true }));
   const env = { ...process.env, HOME: join(base, "home"), CLAUDE_CONFIG_DIR: join(base, "claude"), CODEX_HOME: join(base, "codex"), SAGE_SHARED_HOME: join(base, "shared"), SAGE_WORKTREES: join(base, "worktrees"), SAGE_TEST_PIDS: "{}" };
-  delete env.SAGE_HOME;
+  if (keepSageHome) env.SAGE_HOME = join(base, "sage");
+  else delete env.SAGE_HOME;
   const project = join(base, "project");
   mkdirSync(project);
   execFileSync("git", ["init", "-q", "-b", "main", project]);
   execFileSync("git", ["-C", project, "commit", "-q", "--allow-empty", "-m", "first"], { env: gitEnv });
   return { base, env, project };
 }
-function world(t, own, other) {
-  const w = scratch(t);
+function world(t, own, other, keepSageHome = false) {
+  const w = scratch(t, keepSageHome);
   own.sage(["link", "--separate", "--project", w.project], w.env);
   const dir = own.storeDir(w.project, w.env);
   const chief = own.chiefFor(w.project, "session-a", w.env), rival = other.chiefFor(w.project, "session-b", w.env);
@@ -59,6 +61,41 @@ function versionOf(project, env, id) {
 function setCells(dir, table, match, column, value) {
   const file = join(dir, `${table}.tsv`), [head, ...lines] = readFileSync(file, "utf8").split("\n"), k = head.split("\t").indexOf(column);
   writeFileSync(file, [head, ...lines.map((l) => (l && match(l) ? l.split("\t").with(k, value).join("\t") : l))].join("\n"));
+}
+function interruptUnclaim(t, w, release, table = "tasks", after = true) {
+  const rename = fs.renameSync, decisions = w.cells("decisions"), chief = row(w.cells("tasks"), "T1").chief;
+  let hit = false;
+  t.mock.method(fs, "renameSync", (...args) => {
+    if (!hit && String(args[1]) === join(w.dir, `${table}.tsv`)) {
+      if (after) rename(...args);
+      hit = true;
+      throw Object.assign(Error("Injected unclaim stop"), { code: "EIO" });
+    }
+    return rename(...args);
+  });
+  syncBuiltinESMExports();
+  try {
+    assert.throws(release, /Injected unclaim stop/);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+  assert.equal(hit, true, `the fault ran ${after ? "after" : "before"} publication of ${table}`);
+  assert.equal(row(w.cells("tasks"), "T1").chief ?? "", table === "tasks" && after ? "" : chief);
+  if (table === "decisions" && !after) assert.equal(w.cells("decisions"), decisions);
+  else assert.equal(codex.read(w.dir, "decisions").at(-1).decision, `T1 unclaimed by ${chief}`, "reclaim authority precedes an empty chief");
+  t.diagnostic(JSON.stringify({ interrupted: true, table, after, chief: row(w.cells("tasks"), "T1").chief, decisions: codex.read(w.dir, "decisions") }));
+}
+function refusesInterruptedClaim(t, w, claimant) {
+  const before = w.tables(), version = w.version();
+  let error, result;
+  try { result = claimant("claim", "T1", "--version", version); } catch (caught) { error = caught; }
+  t.diagnostic(JSON.stringify({ version, result, error: error?.message, chief: row(w.cells("tasks"), "T1").chief, decisions: codex.read(w.dir, "decisions") }));
+  assert.ok(error, "claim after interrupted release must refuse without an owner gate");
+  assert.match(error.message, /takeover gate/, "a current-version claim must refuse for ownership, not staleness");
+  assert.equal(w.tables(), before, "the refused claim preserves ownership and all decisions");
+  assert.throws(() => claimant("claim", "T1", "--version", w.version()), /takeover gate/);
+  assert.equal(w.tables(), before, "a repeated refusal changes nothing");
 }
 const pairs = [["Claude", claude, codex], ["Codex", codex, claude]];
 const asked = (from, to, title, runs, offered = false) => `Hand T1 from C1 (${from}) to C2 (${to})? Runs that end as failed: ${runs}. Approve: C2 owns T1.${runs === "none" ? "" : " Each of those runs ends as failed, and work that it did not report may be lost."} C1 can no longer write T1. The answer clears an open offer. The branch keeps its name. ${to === "claude" && from !== "claude" ? "The verdicts stay, and C2 runs one fresh cycle on its head before it merges." : "The verdicts on its head still count."} Decline: ${offered ? "C1 stays the owning chief, and the offer to C2 ends" : "nothing changes, and C1 stays the owning chief"}. Title of T1: ${title}`;
@@ -383,13 +420,81 @@ for (const [name, own, other] of pairs) {
     assert.throws(() => w.owner("task", "T1", "set", "title=y"), /T1 belongs to chief C2/);
   });
 
-  const transfer = (t) => {
-    const w = world(t, own, other);
+  const transfer = (t, keepSageHome = false) => {
+    const w = world(t, own, other, keepSageHome);
     w.owner("task", "add", "--title", "a", ...ADD);
     const version = () => versionOf(w.project, w.env, "T1");
     const offer = () => JSON.parse(row(w.cells("tasks"), "T1").offer);
     return { ...w, version, offer, answer: (...args) => other.sage(["gate", "answer", ...args, "--project", w.project], w.env) };
   };
+
+  test(`T1132 ${name}: completed release permits only the former owner's explicit current-version reclaim`, (t) => {
+    const w = transfer(t, true);
+    const ownedVersion = w.version();
+    w.owner("unclaim", "T1");
+    assert.equal(row(w.cells("tasks"), "T1").chief ?? "", "");
+    assert.match(w.cells("decisions"), /T1 unclaimed by C1/);
+    const before = w.tables();
+    assert.throws(() => w.intruder("claim", "T1", "--version", w.version()), /takeover gate/);
+    assert.throws(() => w.owner("claim", "T1", "--version", ownedVersion), /out of date/);
+    assert.equal(w.tables(), before);
+    assert.equal(w.owner("claim", "T1", "--version", w.version()), "T1 claimed · chief C1");
+    assert.equal(row(w.cells("tasks"), "T1").chief, "C1");
+  });
+
+  test(`T1132 ${name}: interrupted first release cannot authorize another chief's current-version claim`, (t) => {
+    const w = transfer(t, true);
+    assert.equal(row(w.cells("tasks"), "T1").adoption, "");
+    assert.deepEqual(codex.read(w.dir, "decisions").map(({ decision }) => decision), ["task added"], "no previous release or adoption");
+    interruptUnclaim(t, w, () => w.owner("unclaim", "T1"));
+    refusesInterruptedClaim(t, w, w.intruder);
+    assert.equal(w.owner("claim", "T1", "--version", w.version()), "T1 claimed · chief C1");
+    w.owner("unclaim", "T1");
+    assert.equal(codex.read(w.dir, "decisions").filter(d => d.decision === "T1 unclaimed by C1").length, 2, "a later release records its own decision");
+  });
+
+  const releasedThenTaken = (t) => {
+    const w = transfer(t, true);
+    w.owner("unclaim", "T1");
+    assert.match(w.intruder("gate", "replace", "T1", "--to", "C2"), /^G1 open/);
+    assert.equal(w.answer("G1", "--option", "1"), "G1 answered · approve · T1 chief C2");
+    assert.equal(row(w.cells("tasks"), "T1").chief, "C2");
+    assert.equal(row(w.cells("gates"), "G1").answer, "approve");
+    return w;
+  };
+
+  test(`T1132 ${name}: an old release gives no claim while the later owner still owns the task`, (t) => {
+    const w = releasedThenTaken(t), before = w.tables();
+    assert.throws(() => w.owner("claim", "T1", "--version", w.version()), /T1 belongs to chief C2, so it takes no claim/);
+    assert.equal(w.tables(), before);
+  });
+
+  test(`T1132 ${name}: an old release cannot authorize a claim after the later owner's interrupted release`, (t) => {
+    const w = releasedThenTaken(t);
+    assert.match(w.cells("decisions"), /T1 unclaimed by C1/);
+    assert.doesNotMatch(w.cells("decisions"), /T1 unclaimed by C2/);
+    interruptUnclaim(t, w, () => w.intruder("unclaim", "T1"));
+    refusesInterruptedClaim(t, w, w.owner);
+    assert.equal(w.intruder("claim", "T1", "--version", w.version()), "T1 claimed · chief C2");
+  });
+
+  for (const [table, after] of [["decisions", false], ["decisions", true], ["tasks", false]]) {
+    test(`T1132 ${name}: release retry after a stop ${after ? "after" : "before"} ${table} publication preserves authority once`, (t) => {
+      const w = releasedThenTaken(t);
+      interruptUnclaim(t, w, () => w.intruder("unclaim", "T1"), table, after);
+      const before = w.tables();
+      assert.throws(() => w.owner("claim", "T1", "--version", w.version()), /T1 belongs to chief C2/);
+      assert.equal(w.tables(), before, "the earlier owner takes nothing during the interrupted release");
+      assert.match(w.intruder("unclaim", "T1"), /unclaimed/);
+      assert.equal(row(w.cells("tasks"), "T1").chief ?? "", "");
+      assert.equal(codex.read(w.dir, "decisions").filter(d => d.decision === "T1 unclaimed by C2").length, 1, "the retry records the release once");
+      const released = w.tables();
+      assert.throws(() => w.intruder("unclaim", "T1"), /no owning chief/);
+      assert.equal(w.tables(), released, "another release attempt changes nothing");
+      refusesInterruptedClaim(t, w, w.owner);
+      assert.equal(w.intruder("claim", "T1", "--version", w.version()), "T1 claimed · chief C2");
+    });
+  }
 
   test(`${name}: offer: the owning chief names one other chief, stays the owner, and active runs go on; each refusal changes nothing`, (t) => {
     const w = transfer(t);
