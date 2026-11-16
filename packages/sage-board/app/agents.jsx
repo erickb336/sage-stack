@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { AgentRing, AgentTile, Glyph, Ring, StateBadge, age, clock, span, tokens } from "./agent.jsx";
 import { chiefState, chiefSub, ofChief, readLink, taskLink } from "./task.jsx";
-import { MARKS, OBJECTS, chiefName, runWord, shown } from "../../sage-core/state-words.mjs";
+import { FLAGGED, MARKS, OBJECTS, chiefName, runWord, shown } from "../../sage-core/state-words.mjs";
 
 const MIN = 60_000, SEATS_MAX = 30;
 const LEGEND = [["running", "running"], ["done", "done"], ["question", "question"], ["failed", "failed"], ["look", "stuck"], ["queued", "queued"]].map(([bar, state]) => [bar, shown(OBJECTS.agent.states[state]).text + (bar === "look" ? `, or ${shown(OBJECTS.agent.states.stop).text}` : "")]);
@@ -66,7 +66,7 @@ function LeadCard({ lead, helpers, queued, more, now, step }) {
         <AgentRing run={lead} now={now} />
         <div className="lt">
           <Title task={lead.task} run={lead} />
-          <span className="sub"><span className="mono">lead · {lead.id}</span> <StateBadge run={lead} />{step && <span> · {step}</span>}{look > 0 && <span className="badge look">{MARKS.problem} {plural(look, "helper")} with a problem flag</span>}</span>
+          <span className="sub"><span className="mono">lead · {lead.id}</span> <StateBadge run={lead} />{step && <span> · {step}</span>}{look > 0 && <span className="badge look">{MARKS.problem} {plural(look, "helper")} {FLAGGED}</span>}</span>
         </div>
         <div className="tot"><b>{age(lead, now)}</b><span>{tok(tokensOf(mine))} · with helpers</span></div>
         <About task={lead.task} />
@@ -258,7 +258,7 @@ function Book({ book, model, chief, now, many }) {
           <div className={`kpi${full ? " full" : ""}`} data-count="agents"><div className="l">agents {RUN}{limitNote(book.running, book.limit)}</div><div className="n">{book.running} <span>of {book.limit}</span></div></div>
           <div className={`kpi${leads ? " full" : ""}`} data-count="leads"><div className="l">leads{limitNote(book.leads, book.leadLimit)}</div><div className="n">{book.leads} <span>of {book.leadLimit}</span></div></div>
           <div className={`kpi${book.queued ? " full" : ""}`} data-count="queued"><div className="l">{WAIT}</div><div className="n">{book.queued}</div></div>
-          <div className={`kpi${book.look ? " look" : ""}`} data-count="look"><div className="l">{MARKS.problem} with a problem flag</div><div className="n">{book.look}</div></div>
+          <div className={`kpi${book.look ? " look" : ""}`} data-count="look"><div className="l">{MARKS.problem} {FLAGGED}</div><div className="n">{book.look}</div></div>
         </div>
       </div>
       {boxes.length ? boxes.map(({ chief: item, runs }) => <ChiefBox key={item.key} chief={item} runs={runs} failedMore={book.failedMore} tasks={model.tasks} now={now} />)

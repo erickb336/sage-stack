@@ -3,7 +3,7 @@ import { GroupIcon } from "./icons.jsx";
 import { ago } from "./overview.jsx";
 import { ChiefDot, chiefName, controlsShown, ofChief, taskLink } from "./task.jsx";
 import { useNow } from "./use-model.js";
-import { UNKNOWN, prName } from "../../sage-core/state-words.mjs";
+import { MARKS, UNKNOWN, prName } from "../../sage-core/state-words.mjs";
 
 const RECENT_DAYS = 7, DAY = 86_400_000, VIEW_KEY = "board-pr-view";
 const GROUPS = [
@@ -42,7 +42,8 @@ const plural = (n, one) => `${n} ${one}${n === 1 ? "" : "s"}`;
 function cyclesText({ cycles }, group) {
   if (!cycles.reviews) return "No review step";
   if (cycles.clean === null) return `Clean cycles ${UNKNOWN} · ${cycles.required} needed`;
-  return group === "merged" ? plural(cycles.clean, "clean cycle") : `${cycles.clean} of ${cycles.required} clean cycles`;
+  const carried = cycles.carriedFrom ? ` · carried from ${cycles.carriedFrom.slice(0, 7)}` : "";
+  return `${group === "merged" ? plural(cycles.clean, "clean cycle") : `${cycles.clean} of ${cycles.required} clean cycles`}${carried}`;
 }
 const findingsText = ({ findings }) => findings.open ? `${findings.open} open · ${findings.worst}` : `0 open${findings.closed ? ` · ${findings.closed} closed` : ""}`;
 
@@ -68,7 +69,7 @@ function Row({ task, group, now, prs, many }) {
           {task.pr && !task.prUrl && <span>No GitHub link: the logbook names no repository for this PR.</span>}
         </p>
         {task.why && <p className={`why ${group}`}>{controlsShown(task.why)}</p>}
-        {task.waits && <p className="waits">{controlsShown(task.waits)}</p>}
+        {task.waits && <p className={`waits${task.cannotStart ? " never" : ""}`}>{task.cannotStart && <span aria-hidden="true">{MARKS["cannot start"]} </span>}{controlsShown(task.waits)}</p>}
       </div>
       <div className="facts">
         <span className="cyc">{task.pr && cyclesText(task, group)}</span>

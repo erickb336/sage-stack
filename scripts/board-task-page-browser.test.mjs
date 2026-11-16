@@ -163,7 +163,7 @@ async function openPage(t, base, id, title) {
 test("T1083: a field with no data says unknown and why, never a blank", async t => {
   const base = await board(t);
   const cases = [
-    ["T40", "Sample crash fix", { Goal: "unknown · The logbook keeps no brief of R25: sage keeps briefs only for newer runs.", Why: /^unknown · The logbook keeps no request for this task/, Criteria: "unknown · The logbook keeps no brief of R25: sage keeps briefs only for newer runs." }, /of an unknown budget: the brief is not read/],
+    ["T40", "Sample crash fix", { Goal: "unknown · The logbook keeps no brief of R25: sage keeps briefs only for newer runs.", Criteria: "unknown · The logbook keeps no brief of R25: sage keeps briefs only for newer runs." }, /of an unknown budget: the brief is not read/],
     ["T4", "Sample queue", { Goal: "unknown · No agent has run on this task yet, so there is no brief.", Criteria: "unknown · No agent has run on this task yet, so there is no brief." }, /Agent time: unknown · no run of this task has a start timeTokens: unknown · no run of this task recorded its tokens/],
   ];
   for (const [id, title, parts, cost] of cases) {
@@ -174,6 +174,7 @@ test("T1083: a field with no data says unknown and why, never a blank", async t 
       const shown = await aboutPart(page, label).locator(".unk").textContent();
       if (text instanceof RegExp) assert.match(shown, text, `${id} ${label}`); else assert.equal(shown, text, `${id} ${label}`);
     }
+    assert.equal(await aboutPart(page, "Why").locator("p").textContent(), "Not recorded. The chief did not record your request for this task.", `${id}: T1120 S20: plain words, no state-tool command`);
     assert.match(await aboutPart(page, "Cost").textContent(), cost, `${id}: the cost says why`);
     const blank = await page.locator(".about-s").evaluateAll(list => list.filter(part => part.textContent.trim() === part.querySelector("h3").textContent.trim()).length);
     assert.equal(blank, 0, `${id}: no part is empty`);

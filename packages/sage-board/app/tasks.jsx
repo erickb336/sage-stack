@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ago } from "./overview.jsx";
 import { ChiefDot, chiefName, controlsShown, ofChief, taskLink } from "./task.jsx";
 import { useNow } from "./use-model.js";
-import { OBJECTS, STEPS, UNKNOWN, URGENCY as WORDS, prName, shown } from "../../sage-core/state-words.mjs";
+import { MARKS, OBJECTS, STEPS, UNKNOWN, URGENCY as WORDS, prName, shown } from "../../sage-core/state-words.mjs";
 
 const PRIORITIES = ["P0", "P1", "P2", "P3"];
 const ENDED_WORDS = ["done", "stopped"];
@@ -40,7 +40,7 @@ function Row({ task, at, many }) {
           {many && <span className="kind">{task.project}</span>}
           {task.kind && <span className="kind">{task.kind}</span>}
           {shown.length > 0 && <span className="badge warn" title={more ? `May conflict with ${task.conflicts.map(other => other.id).join(", ")}` : undefined}>may conflict · {shown.map(other => other.id).join(", ")}{more > 0 && ` +${more}`}</span>}
-          {task.waits && !task.ended && <span className="badge" title={task.waits}>waits</span>}
+          {task.waits && !task.ended && <span className={`badge${task.cannotStart ? " warn" : ""}`} title={task.waits}>{task.cannotStart ? `${MARKS["cannot start"]} cannot start` : "waits"}</span>}
         </span>
         <span className="mono id">{task.id}</span>
         <span className={`badge word ${(task.word ?? UNKNOWN).replace(" ", "-")}`}>{task.word ?? UNKNOWN}</span>
