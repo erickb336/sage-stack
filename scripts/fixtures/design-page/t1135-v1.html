@@ -1,0 +1,860 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projects on the board: one at a time, put away, picked up again</title>
+<style>
+:root{
+  --bg:#fafafa;--card:#fff;--card-2:#f7f7f8;--line:#e4e4e7;--line-2:#d4d4d8;
+  --text:#18181b;--muted:#52525b;--faint:#63636d;--accent:#4f46e5;--accent-fill:#eef0ff;
+  --done:#136c34;--done-fill:#e8f5ec;--need:#8f5106;--need-fill:#fdf3e1;--fail:#b91c1c;--fail-fill:#fdecec;--run:#1d4ed8;
+  --font:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text)}
+body{font:16px/1.55 var(--font);-webkit-font-smoothing:antialiased;font-feature-settings:"tnum" 1}
+main{max-width:1160px;margin:0 auto;padding:40px 24px 64px}
+.prose{max-width:760px}
+h1{font-size:32px;line-height:1.2;margin:0 0 10px;letter-spacing:-.015em}
+h2{font-size:22px;margin:0 0 6px;letter-spacing:-.01em}
+h3{font-size:16px;margin:0 0 8px}
+p{margin:0 0 10px}
+section.part{margin-top:56px;padding-top:28px;border-top:1px solid var(--line)}
+.num{display:inline-block;min-width:28px;margin-right:6px;color:var(--faint);font-weight:500}
+.lead{font-size:19px;color:var(--muted);max-width:800px}
+.lbl{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin:0 0 2px}
+.tag{display:inline-block;font-size:11.5px;font-weight:600;padding:1px 8px;border-radius:999px;vertical-align:2px;margin-left:6px;letter-spacing:.02em}
+.tag.real{background:var(--done-fill);color:var(--done)}
+.tag.sample{background:var(--need-fill);color:var(--need)}
+.tag.rec{background:var(--accent-fill);color:var(--accent)}
+.small{font-size:13.5px;color:var(--muted)}
+.pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:14px;align-items:start}
+.cap{font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+.note{font-size:13.5px;color:var(--muted);margin-top:8px}
+.steps-in{border-left:3px solid var(--accent);background:var(--accent-fill);padding:6px 10px;border-radius:0 8px 8px 0;font-size:13.5px;margin-top:8px}
+.steps-in b{display:block;font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--accent)}
+
+.days{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:14px}
+.days .rowd{display:grid;grid-template-columns:96px minmax(0,1fr) 120px;gap:10px;align-items:center;padding:3px 0;font-size:13.5px}
+.days .nm{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.days .tr{position:relative;height:16px;background:linear-gradient(90deg,transparent calc(33.3% - 1px),var(--line-2) calc(33.3% - 1px),var(--line-2) 33.3%,transparent 33.3%,transparent calc(71.4% - 1px),var(--line-2) calc(71.4% - 1px),var(--line-2) 71.4%,transparent 71.4%)}
+.days .b{position:absolute;left:0;top:3px;height:10px;border-radius:0 4px 4px 0;background:#8b8fa3;min-width:4px}
+.days .b.on{background:var(--accent)}
+.days .b.fold{background:repeating-linear-gradient(135deg,#b7b9c4 0 4px,#e3e4ea 4px 8px);border:1px dashed #9a9cab}
+.days .open{color:var(--muted);font-size:12.5px;white-space:nowrap}
+.days .axis{display:grid;grid-template-columns:96px minmax(0,1fr) 120px;gap:10px;font-size:11.5px;color:var(--faint);margin-top:6px}
+.days .ticks{position:relative;height:16px}
+.days .ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.days .ticks span:first-child{transform:none}
+.days .ticks span:last-child{transform:translateX(-100%)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--muted);margin-top:10px}
+.legend i{display:inline-block;width:14px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+
+.bd{--bg:#09090b;--card:#111114;--card-2:#17171b;--hover:#1b1b20;--line:#222228;--line-2:#2e2e36;--text:#ededf0;--muted:#a3a3ad;--faint:#8e8e98;--accent:#9aa2ff;--accent-fill:#1c1f3d;--need:#fbbf24;--need-fill:#241d0b;--done:#4ade80;--fail:#fb7f7f;--fail-fill:#2a1414;--run:#6aa8ff;
+  background:var(--bg);color:var(--text);border-radius:12px;border:1px solid #2e2e36;overflow:hidden;font-size:13.5px;line-height:1.5;min-width:0}
+.bd .top{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;min-height:40px;padding:6px 12px;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--muted)}
+.bd .top .gr{flex:1}
+.bd .proj{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line-2);border-radius:8px;padding:2px 8px;color:var(--text);font-weight:500;background:var(--card)}
+.bd .proj .car{color:var(--faint);font-size:10px}
+.bd .proj.open{border-color:var(--accent)}
+.bd .crumb b{color:var(--text);font-weight:500}
+.bd .sig{color:var(--need);border:1px solid var(--need);background:var(--need-fill);border-radius:999px;padding:0 8px;font-size:12px;white-space:nowrap}
+.bd .lnk{color:var(--muted);text-decoration:underline;text-underline-offset:2px}
+.bd .lim{white-space:nowrap}.bd .lim b{color:var(--text);font-weight:500}
+.bd .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--faint);flex:none}
+.bd .dot.ok{background:var(--done)}.bd .dot.run{background:var(--run)}.bd .dot.need{background:var(--need)}.bd .dot.hollow{background:none;box-shadow:inset 0 0 0 1.5px var(--faint)}
+.bd .body{padding:10px}
+.bd h4{margin:0 0 2px;font-size:15px}
+.bd .ph{color:var(--muted);font-size:12.5px;margin:0 0 8px}
+.bd .card{background:var(--card);border:1px solid var(--line);border-radius:10px;margin-bottom:10px}
+.bd .card:last-child{margin-bottom:0}
+.bd .ch{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);font-weight:600;font-size:13px}
+.bd .ch .gr{flex:1}.bd .ch .h{font-weight:400;color:var(--faint);font-size:12px}
+.bd .badge{font-size:11.5px;padding:0 7px;border-radius:999px;border:1px solid var(--line-2);color:var(--muted);font-weight:500;white-space:nowrap}
+.bd .badge.need{color:var(--need);background:var(--need-fill);border-color:var(--need)}
+.bd .badge.run{color:var(--run);border-color:var(--run)}
+.bd .badge.ok{color:var(--done);border-color:var(--done)}
+.bd .badge.stop{color:var(--fail);border-color:var(--fail)}
+.bd .badge.arch{color:var(--accent);border-color:var(--accent);background:var(--accent-fill)}
+.bd ul{list-style:none;margin:0;padding:0}
+.bd .li{display:grid;grid-template-columns:8px minmax(0,1fr) auto;gap:10px;align-items:start;padding:8px 12px;border-bottom:1px solid var(--line)}
+.bd .li:last-child{border-bottom:0}
+.bd .li .dot{margin-top:7px}
+.bd .q{font-weight:500;overflow-wrap:anywhere}
+.bd .meta{font-size:12px;color:var(--muted);margin-top:2px;display:flex;flex-wrap:wrap;gap:2px 10px}
+.bd .pt{color:var(--accent)}
+.bd .r{font-size:12px;color:var(--faint);white-space:nowrap;text-align:right}
+.bd .kp{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+.bd .kp>div{padding:8px 12px;border-right:1px solid var(--line)}.bd .kp>div:last-child{border-right:0}
+.bd .kp .n{font-size:20px;font-weight:600;line-height:1.1}.bd .kp .l{font-size:12px;color:var(--muted)}
+.bd .btn{display:inline-block;font-size:12px;padding:3px 10px;border-radius:7px;border:1px solid var(--line-2);background:var(--card-2);color:var(--text);white-space:nowrap}
+.bd .btn.p{background:var(--text);color:var(--bg);border-color:var(--text)}
+.bd .btn.ghost{background:none;color:var(--muted)}
+.bd .btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.bd .empty{padding:14px 12px;color:var(--muted)}
+.bd .ban{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--accent);background:var(--accent-fill);border-radius:10px;padding:10px 12px;margin-bottom:10px}
+.bd .ban.fail{border-color:var(--fail);background:var(--fail-fill)}
+.bd .ban.need{border-color:var(--need);background:var(--need-fill)}
+.bd .ban .ic{flex:none;width:16px;height:16px;border-radius:4px;border:1.5px solid currentColor;color:var(--accent);margin-top:2px}
+.bd .ban.fail .ic{color:var(--fail)}.bd .ban.need .ic{color:var(--need)}
+.bd .ban .t{min-width:0}
+.bd .muted{color:var(--muted)}.bd .faint{color:var(--faint)}.bd .warn{color:var(--need)}.bd .bad{color:var(--fail)}.bd .ok{color:var(--done)}
+.bd .sec{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);padding:8px 12px 4px}
+.bd .pk{display:grid;grid-template-columns:8px minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 12px}
+.bd .pk.cur{background:var(--hover);box-shadow:inset 3px 0 0 var(--accent)}
+.bd .pk .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bd .pk .rt{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--faint);white-space:nowrap}
+.bd .fold{display:flex;justify-content:space-between;gap:8px;padding:7px 12px;border-top:1px solid var(--line);color:var(--muted);font-size:12.5px}
+.bd .find{margin:8px 12px 4px;border:1px solid var(--line-2);border-radius:7px;padding:3px 8px;color:var(--faint);font-size:12.5px}
+.bd .dlg{background:var(--card);border:1px solid var(--line-2);border-radius:12px;padding:14px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+.bd .dlg h5{margin:0 0 6px;font-size:15px}
+.bd .dlg p{margin:0 0 8px;font-size:13px;color:var(--muted)}
+.bd .dlg .w{border-left:3px solid var(--need);padding:4px 9px;margin:0 0 6px;font-size:12.5px;color:var(--text)}
+.bd .kept{display:flex;flex-wrap:wrap;gap:4px 6px;margin:0 0 10px}
+.bd .tb{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:7px 12px;border-bottom:1px solid var(--line)}
+.bd .tb:last-child{border-bottom:0}
+.bd .tb .s{font-size:12px;color:var(--muted);grid-column:1 / -1}
+.bd .msk{height:10px;border-radius:5px;background:var(--line-2);margin:10px 12px}
+.bd .msk.s{width:55%}
+
+.chat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;font-size:14px;min-width:0}
+.chat .who{font-size:11.5px;font-weight:600;color:var(--faint);letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px}
+.chat .me{background:#f1f1f3;border-radius:10px;padding:6px 10px;margin:0 0 10px auto;width:fit-content;max-width:90%}
+.chat .msg p{margin:0 0 6px}
+.chat .msg a{color:var(--accent)}
+
+.bd .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.bd .grid2 .card{margin:0}
+.bd .vb{display:flex;align-items:flex-end;gap:6px;height:110px;padding:10px 12px 0;border-bottom:1px solid var(--line-2);margin:0 12px}
+.bd .vb div{flex:1;background:var(--accent);border-radius:4px 4px 0 0;position:relative;min-height:2px}
+.bd .vb div span{position:absolute;top:-17px;left:0;right:0;text-align:center;font-size:11px;color:var(--muted)}
+.bd .vx{display:flex;gap:6px;margin:4px 12px 0;padding:0 12px;font-size:10.5px;color:var(--faint)}
+.bd .vx span{flex:1;text-align:center;white-space:nowrap}
+.bd .ax{font-size:11px;color:var(--faint);padding:4px 12px 10px}
+.bd .hb{padding:8px 12px 10px}
+.bd .hb .rw{display:grid;grid-template-columns:132px minmax(0,1fr) 54px;gap:8px;align-items:center;font-size:12px;padding:2px 0}
+.bd .hb .rw .n{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bd .hb .rw .v{color:var(--text);text-align:right}
+.bd .hb .rw i{display:block;height:9px;border-radius:0 4px 4px 0;background:var(--accent)}
+.bd .tiles{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:0;background:var(--card);border:1px solid var(--line);border-radius:10px;margin-bottom:10px}
+.bd .tiles>div{padding:8px 12px;border-right:1px solid var(--line)}
+.bd .tiles>div:last-child{border-right:0}
+.bd .tiles .n{font-size:19px;font-weight:600;line-height:1.15}
+.bd .tiles .l{font-size:11.5px;color:var(--muted)}
+.bd .nr{border:1px dashed var(--line-2);border-radius:10px;padding:8px 12px;font-size:12.5px;color:var(--muted)}
+
+.surface{margin-top:34px}
+.states{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:10px;align-items:start}
+.states.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.states.one{grid-template-columns:minmax(0,1fr)}
+.state{display:flex;flex-direction:column;min-width:0}
+.state .sn{font-size:13px;color:var(--muted);margin-top:6px}
+
+.chartwrap{display:grid;grid-template-columns:minmax(0,500px) minmax(0,1fr);gap:28px;margin-top:16px;align-items:start}
+.chartwrap svg{width:100%;height:auto;display:block;background:var(--card);border:1px solid var(--line);border-radius:12px}
+.sts{display:grid;gap:10px}
+.sts div{border-left:3px solid var(--line-2);padding-left:12px}
+.sts div.u{border-color:var(--accent)}
+.sts p{margin:0;font-size:15px}
+.flow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:30px;margin:16px 0 0}
+.box{background:var(--card);border:1.5px solid var(--line-2);border-radius:12px;padding:12px 14px;position:relative}
+.box.you{border-color:var(--accent)}
+.box .st{font-size:12px;color:var(--faint);font-weight:600;letter-spacing:.05em;text-transform:uppercase}
+.box .nm{font-size:16px;font-weight:650;margin:2px 0 4px}
+.box p{font-size:14px;color:var(--muted);margin:0}
+.flow .box:not(:last-child)::after{content:"";position:absolute;right:-24px;top:50%;width:18px;height:2px;background:var(--faint)}
+.flow .box:not(:last-child)::before{content:"";position:absolute;right:-25px;top:calc(50% - 5px);border:6px solid transparent;border-left:7px solid var(--faint);border-right:0}
+.based{font-size:14px;color:var(--muted);margin-top:14px;max-width:900px}
+
+.agents{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 28px;margin-top:12px}
+.agents div{border-left:3px solid var(--line-2);padding-left:12px}
+.agents p{margin:0}
+.rules{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 20px;margin-top:12px}
+.rules div{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+.rules p{margin:0;font-size:15px}
+.rules .q{font-size:12px;font-weight:600;color:var(--need);letter-spacing:.04em;text-transform:uppercase}
+
+.qq{margin-top:26px}
+.opts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:8px}
+.opt{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:14.5px}
+.opt.rec{border:2px solid var(--accent);background:#fbfbff}
+.opt .h{font-weight:650;margin-bottom:4px}
+.opt .rmark{display:inline-block;font-size:11.5px;font-weight:700;color:#fff;background:var(--accent);padding:1px 8px;border-radius:999px;margin-bottom:6px}
+.opt p{margin:0 0 6px}
+.opt .k{font-size:11.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);margin-top:8px}
+.dec{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:10px}
+.dec div{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-size:14.5px}
+
+.plan{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px 30px;margin-top:14px;align-items:stretch}
+.pr{background:var(--card);border:1.5px solid var(--line-2);border-radius:12px;padding:12px 14px;position:relative;font-size:14px}
+.pr .nm{font-weight:650;font-size:15.5px}
+.pr .c{color:var(--muted);font-size:13px;margin-top:4px}
+.pr .w{font-size:12.5px;color:var(--accent);margin-top:6px}
+.tot{display:flex;flex-wrap:wrap;gap:12px;margin-top:18px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:170px}
+.stat .n{font-size:22px;font-weight:650;line-height:1.15}
+.stat .t{font-size:13px;color:var(--muted)}
+.under{font-size:14.5px;color:var(--muted);max-width:860px}
+.ref{font-size:12px;color:var(--faint);margin-top:28px}
+
+@media (max-width:1100px){.states{grid-template-columns:repeat(2,minmax(0,1fr))}.dec{grid-template-columns:repeat(2,minmax(0,1fr))}.flow{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:900px){
+  main{padding:24px 16px 48px}
+  h1{font-size:26px}
+  .lead{font-size:17px}
+  .pair,.states,.states.two,.agents,.rules,.opts,.dec,.chartwrap{grid-template-columns:minmax(0,1fr)}
+  .flow{grid-template-columns:minmax(0,1fr);gap:26px}
+  .flow .box:not(:last-child)::after{right:auto;left:50%;top:auto;bottom:-20px;width:2px;height:14px}
+  .flow .box:not(:last-child)::before{right:auto;left:calc(50% - 5px);top:auto;bottom:-25px;border:6px solid transparent;border-top:7px solid var(--faint);border-bottom:0}
+  .plan{grid-template-columns:minmax(0,1fr);gap:12px}
+  .days .rowd,.days .axis{grid-template-columns:70px minmax(0,1fr) 78px}
+  .bd .grid2{grid-template-columns:minmax(0,1fr)}
+  .bd .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .bd .tiles>div:nth-child(2n){border-right:0}
+  .bd .tiles>div{border-bottom:1px solid var(--line)}
+}
+</style>
+</head>
+<body>
+<main>
+
+<header class="prose" style="max-width:860px">
+  <p class="lbl">Design for your review</p>
+  <h1>Projects on the board: one at a time, put away, picked up again</h1>
+  <p class="lead">What changes for you: the board opens on the project of your chat and shows only that project. Projects you do not use fold away by themselves. You can archive a project and later restore it exactly where it was.</p>
+  <p class="small">Read in one scroll; nothing needs a click. <span class="tag real">real</span> marks numbers read from the logbooks on this Mac. <span class="tag sample">sample</span> marks invented data that shows a screen. <span class="tag rec">my recommendation</span> marks a choice that waits for your yes.</p>
+</header>
+
+<section class="part" id="problem">
+  <div class="prose">
+    <h2><span class="num">2</span>The problem</h2>
+    <p class="lbl">Mixed pages</p>
+    <p>Today the board opens on all projects at once. Overview, Tasks, Agents and Pull requests mix the rows of every project. You cannot look at one project only.</p>
+  </div>
+  <div class="pair">
+    <div>
+      <p class="cap">Today's Overview <span class="tag sample">sample</span></p>
+      <div class="bd">
+        <div class="top"><span class="crumb">All projects / <b>Overview</b></span><span class="gr"></span><span class="lim">Agents <b>7 running</b> in 3 projects</span><span><span class="dot ok"></span> Live</span></div>
+        <div class="body">
+          <div class="card">
+            <div class="ch">Needs you <span class="badge need">4</span><span class="gr"></span><span class="h">Oldest first</span></div>
+            <ul>
+              <li class="li"><span class="dot need"></span><div><div class="q">Keep the old export format?</div><div class="meta"><span class="pt">recipe-box</span><span>asked 6 days ago</span></div></div><span></span></li>
+              <li class="li"><span class="dot need"></span><div><div class="q">Which pairing link wording?</div><div class="meta"><span class="pt">sage</span><span>asked 2 h ago</span></div></div><span></span></li>
+              <li class="li"><span class="dot need"></span><div><div class="q">Sort photos by place or by date?</div><div class="meta"><span class="pt">photo-sorter</span><span>asked 1 h ago</span></div></div><span></span></li>
+              <li class="li"><span class="dot need"></span><div><div class="q">Merge the stats task now?</div><div class="meta"><span class="pt">sage</span><span>asked 20 min ago</span></div></div><span></span></li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="ch">Milestones <span class="gr"></span><span class="h">7 milestones</span></div>
+            <ul>
+              <li class="li"><span class="dot run"></span><div><div class="q">Board feel</div><div class="meta"><span class="pt">sage</span><span>4 of 7 merged</span></div></div><span></span></li>
+              <li class="li"><span class="dot run"></span><div><div class="q">Shopping lists</div><div class="meta"><span class="pt">recipe-box</span><span>1 of 5 merged</span></div></div><span></span></li>
+              <li class="li"><span class="dot"></span><div><div class="q">Face groups</div><div class="meta"><span class="pt">photo-sorter</span><span>0 of 3 merged</span></div></div><span></span></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <p class="note">Each row needs a project tag. Your focus moves between projects at every line.</p>
+    </div>
+    <div>
+      <p class="cap">The projects on this Mac today <span class="tag real">real</span></p>
+      <div class="days" aria-label="Days since each project's logbook last changed">
+        <div class="rowd"><span class="nm">sage</span><span class="tr"><span class="b on" style="width:1%"></span></span><span class="open">170 open tasks</span></div>
+        <div class="rowd"><span class="nm">Project B</span><span class="tr"><span class="b on" style="width:1%"></span></span><span class="open">10 open tasks</span></div>
+        <div class="rowd"><span class="nm">Project C</span><span class="tr"><span class="b on" style="width:21.4%"></span></span><span class="open">0 open tasks</span></div>
+        <div class="rowd"><span class="nm">Project D</span><span class="tr"><span class="b on" style="width:21.4%"></span></span><span class="open">14 open tasks</span></div>
+        <div class="rowd"><span class="nm">Project E</span><span class="tr"><span class="b" style="width:64.3%"></span></span><span class="open">76 open tasks</span></div>
+        <div class="rowd"><span class="nm">Project F</span><span class="tr"><span class="b" style="width:69%"></span></span><span class="open">60 open tasks</span></div>
+        <div class="rowd"><span class="nm">Project G</span><span class="tr"><span class="b" style="width:97.6%"></span></span><span class="open">1 open task</span></div>
+        <div class="rowd"><span class="nm">Project H</span><span class="tr"><span class="b" style="width:100%"></span></span><span class="open">15 open tasks</span></div>
+        <div class="rowd"><span class="nm">Project I</span><span class="tr"><span class="b" style="width:100%"></span></span><span class="open">2 open tasks</span></div>
+        <div class="rowd"><span class="nm">Project J</span><span class="tr"><span class="b" style="width:100%"></span></span><span class="open">17 open tasks</span></div>
+        <div class="axis"><span></span><span class="ticks"><span style="left:0">0</span><span style="left:33.3%">14</span><span style="left:71.4%">30</span><span style="left:100%">42 days</span></span><span></span></div>
+        <p class="note" style="margin-bottom:0">Days since each logbook last changed. Names other than sage are left out.</p>
+      </div>
+      <p class="note"><b>10 projects, and nothing ever leaves the list.</b> 4 saw work in the last 14 days. 4 saw none for 41 days or more. 9 of the 10 still have open tasks, so a rule that waits for "no open task" would fold none of them.</p>
+    </div>
+  </div>
+</section>
+
+<section class="part" id="after">
+  <div class="prose">
+    <h2><span class="num">3</span>After</h2>
+    <p class="lbl">One focus</p>
+    <p>The same moment with the design. The board shows one project. The picker names the project, and one small signal tells you when another project needs you.</p>
+  </div>
+  <div class="pair">
+    <div>
+      <p class="cap">The Overview of sage <span class="tag sample">sample</span></p>
+      <div class="bd">
+        <div class="top"><span class="proj"><span class="dot ok"></span>sage <span class="car">▼</span></span><span class="sig">2 other projects need you</span><span class="lnk">Stats</span><span class="gr"></span><span class="lim">Agents <b>7 of 20</b> · all projects</span></div>
+        <div class="body">
+          <h4>Overview</h4><p class="ph">What changed in sage, what needs you, and where each milestone stands.</p>
+          <div class="card">
+            <div class="ch">Needs you <span class="badge need">2</span><span class="gr"></span><span class="h">Oldest first</span></div>
+            <ul>
+              <li class="li"><span class="dot need"></span><div><div class="q">Which pairing link wording?</div><div class="meta"><span>asked 2 h ago</span></div></div><span></span></li>
+              <li class="li"><span class="dot need"></span><div><div class="q">Merge the stats task now?</div><div class="meta"><span>asked 20 min ago</span></div></div><span></span></li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="ch">Milestones<span class="gr"></span><span class="h">2 milestones</span></div>
+            <ul><li class="li"><span class="dot run"></span><div><div class="q">Board feel</div><div class="meta"><span>4 of 7 merged</span><span>2 in progress</span></div></div><span></span></li></ul>
+          </div>
+        </div>
+      </div>
+      <div class="steps-in"><b>The design steps in</b>The link from your chat names the project. No row needs a project tag. The other two questions wait behind the signal.</div>
+    </div>
+    <div>
+      <p class="cap">The same projects in the picker <span class="tag real">real data, rule applied</span></p>
+      <div class="days" aria-label="The same projects with the fold rule">
+        <div class="rowd"><span class="nm">sage</span><span class="tr"><span class="b on" style="width:1%"></span></span><span class="open">shown</span></div>
+        <div class="rowd"><span class="nm">Project B</span><span class="tr"><span class="b on" style="width:1%"></span></span><span class="open">shown</span></div>
+        <div class="rowd"><span class="nm">Project C</span><span class="tr"><span class="b on" style="width:21.4%"></span></span><span class="open">shown</span></div>
+        <div class="rowd"><span class="nm">Project D</span><span class="tr"><span class="b on" style="width:21.4%"></span></span><span class="open">shown</span></div>
+        <div class="rowd"><span class="nm">Project E</span><span class="tr"><span class="b" style="width:64.3%"></span></span><span class="open">shown, quiet</span></div>
+        <div class="rowd"><span class="nm">Project F</span><span class="tr"><span class="b" style="width:69%"></span></span><span class="open">shown, quiet</span></div>
+        <div class="rowd"><span class="nm">Project G</span><span class="tr"><span class="b fold" style="width:97.6%"></span></span><span class="open">Older</span></div>
+        <div class="rowd"><span class="nm">Project H</span><span class="tr"><span class="b fold" style="width:100%"></span></span><span class="open">Older</span></div>
+        <div class="rowd"><span class="nm">Project I</span><span class="tr"><span class="b fold" style="width:100%"></span></span><span class="open">Older</span></div>
+        <div class="rowd"><span class="nm">Project J</span><span class="tr"><span class="b fold" style="width:100%"></span></span><span class="open">Older</span></div>
+        <div class="axis"><span></span><span class="ticks"><span style="left:0">0</span><span style="left:33.3%">14</span><span style="left:71.4%">30</span><span style="left:100%">42 days</span></span><span></span></div>
+        <div class="legend"><span><i style="background:#4f46e5"></i>active</span><span><i style="background:#8b8fa3"></i>quiet, still shown</span><span><i style="background:repeating-linear-gradient(135deg,#b7b9c4 0 4px,#e3e4ea 4px 8px);border:1px dashed #9a9cab"></i>folded into Older</span></div>
+      </div>
+      <div class="steps-in"><b>The design steps in</b>After 30 days with no work, a project folds into the Older list by itself, open tasks or not. Your picker shows 6 projects, not 10. Archive is your own act and puts a project away for good.</div>
+    </div>
+  </div>
+</section>
+
+<section class="part" id="how">
+  <div class="prose">
+    <h2><span class="num">4</span>How it works</h2>
+    <p class="lbl">States</p>
+    <p>A project is in one of five states. Time and work move it by itself between the first four lists. Only you archive and restore.</p>
+  </div>
+  <div class="chartwrap">
+    <svg viewBox="0 0 460 590" role="img" aria-labelledby="sc-t sc-d" font-family="ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif">
+      <title id="sc-t">The states of a project</title>
+      <desc id="sc-d">Active, Quiet and Restored show in the picker. Older is folded. Archived is put away. Arrows show the events that move a project.</desc>
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#63636d"/></marker>
+        <marker id="au" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#4f46e5"/></marker>
+      </defs>
+      <text x="16" y="24" font-size="14" font-weight="700" fill="#18181b">The states of a project</text>
+      <rect x="12" y="40" width="436" height="236" rx="12" fill="none" stroke="#9a9cab" stroke-width="1.5" stroke-dasharray="6 5"/>
+      <text x="24" y="60" font-size="12" font-weight="700" fill="#63636d" letter-spacing=".5">SHOWN IN THE PICKER</text>
+      <rect x="30" y="76" width="130" height="50" rx="12" fill="#eef0ff" stroke="#4f46e5" stroke-width="1.5"/>
+      <text x="95" y="106" font-size="15" font-weight="650" fill="#18181b" text-anchor="middle">Restored</text>
+      <rect x="290" y="76" width="140" height="50" rx="12" fill="#fff" stroke="#52525b" stroke-width="1.5"/>
+      <text x="360" y="106" font-size="15" font-weight="650" fill="#18181b" text-anchor="middle">Active</text>
+      <rect x="290" y="206" width="140" height="50" rx="12" fill="#fff" stroke="#52525b" stroke-width="1.5"/>
+      <text x="360" y="236" font-size="15" font-weight="650" fill="#18181b" text-anchor="middle">Quiet</text>
+      <line x1="160" y1="101" x2="288" y2="101" stroke="#63636d" stroke-width="1.6" marker-end="url(#ah)"/>
+      <text x="224" y="93" font-size="13" fill="#3f3f46" text-anchor="middle">you open it, or</text>
+      <text x="224" y="118" font-size="13" fill="#3f3f46" text-anchor="middle">work starts</text>
+      <line x1="330" y1="126" x2="330" y2="204" stroke="#63636d" stroke-width="1.6" marker-end="url(#ah)"/>
+      <text x="324" y="160" font-size="13" fill="#3f3f46" text-anchor="end">14 days</text>
+      <text x="324" y="175" font-size="13" fill="#3f3f46" text-anchor="end">with no work</text>
+      <line x1="392" y1="206" x2="392" y2="128" stroke="#63636d" stroke-width="1.6" marker-end="url(#ah)"/>
+      <text x="398" y="160" font-size="13" fill="#3f3f46">work</text>
+      <text x="398" y="175" font-size="13" fill="#3f3f46">starts</text>
+      <rect x="272" y="364" width="176" height="122" rx="12" fill="none" stroke="#9a9cab" stroke-width="1.5" stroke-dasharray="6 5"/>
+      <text x="284" y="476" font-size="12" font-weight="700" fill="#63636d" letter-spacing=".5">OLDER LIST · FOLDED</text>
+      <rect x="290" y="396" width="140" height="50" rx="12" fill="#fff" stroke="#52525b" stroke-width="1.5"/>
+      <text x="360" y="426" font-size="15" font-weight="650" fill="#18181b" text-anchor="middle">Older</text>
+      <line x1="330" y1="256" x2="330" y2="394" stroke="#63636d" stroke-width="1.6" marker-end="url(#ah)"/>
+      <text x="324" y="346" font-size="13" fill="#3f3f46" text-anchor="end">30 days</text>
+      <text x="324" y="361" font-size="13" fill="#3f3f46" text-anchor="end">with no work</text>
+      <path d="M430 421 H440 V101 H432" fill="none" stroke="#63636d" stroke-width="1.6" marker-end="url(#ah)"/>
+      <text x="436" y="316" font-size="13" fill="#3f3f46" text-anchor="end">work</text>
+      <text x="436" y="331" font-size="13" fill="#3f3f46" text-anchor="end">starts</text>
+      <rect x="12" y="364" width="166" height="122" rx="12" fill="none" stroke="#9a9cab" stroke-width="1.5" stroke-dasharray="6 5"/>
+      <text x="24" y="476" font-size="12" font-weight="700" fill="#63636d" letter-spacing=".5">ARCHIVED LIST</text>
+      <rect x="30" y="396" width="130" height="50" rx="12" fill="#fff" stroke="#4f46e5" stroke-width="1.5"/>
+      <text x="95" y="426" font-size="15" font-weight="650" fill="#18181b" text-anchor="middle">Archived</text>
+      <line x1="290" y1="421" x2="162" y2="421" stroke="#4f46e5" stroke-width="1.8" marker-end="url(#au)"/>
+      <text x="225" y="413" font-size="13" fill="#4f46e5" text-anchor="middle">you archive</text>
+      <line x1="145" y1="276" x2="145" y2="394" stroke="#4f46e5" stroke-width="1.8" marker-end="url(#au)"/>
+      <text x="151" y="300" font-size="13" fill="#4f46e5">you archive</text>
+      <text x="151" y="315" font-size="13" fill="#4f46e5">(any shown state)</text>
+      <line x1="60" y1="396" x2="60" y2="128" stroke="#4f46e5" stroke-width="1.8" marker-end="url(#au)"/>
+      <text x="66" y="200" font-size="13" fill="#4f46e5">you restore</text>
+      <text x="16" y="516" font-size="12" font-weight="700" fill="#18181b">Key</text>
+      <line x1="16" y1="534" x2="52" y2="534" stroke="#63636d" stroke-width="1.6" marker-end="url(#ah)"/>
+      <text x="60" y="538" font-size="13" fill="#3f3f46">by itself: time or work</text>
+      <line x1="230" y1="534" x2="266" y2="534" stroke="#4f46e5" stroke-width="1.8" marker-end="url(#au)"/>
+      <text x="274" y="538" font-size="13" fill="#3f3f46">by you: board or chat</text>
+      <rect x="16" y="552" width="26" height="16" rx="4" fill="none" stroke="#9a9cab" stroke-dasharray="4 3"/>
+      <text x="50" y="564" font-size="13" fill="#3f3f46">a list in the picker</text>
+      <text x="200" y="564" font-size="12" fill="#63636d">Left out: the tasks inside a project.</text>
+    </svg>
+    <div class="sts">
+      <div><p class="lbl">Active</p><p>Work in the last 14 days: a run, a task added, a question answered or a merge.</p></div>
+      <div><p class="lbl">Quiet</p><p>No work for 14 days. It stays in the picker, lower down, with "3 weeks ago" beside it.</p></div>
+      <div><p class="lbl">Older</p><p>No work for 30 days. It folds into the Older list by itself and comes back when work starts.</p></div>
+      <div class="u"><p class="lbl">Archived</p><p>You put it away. The chief starts nothing in it. The logbook stays whole.</p></div>
+      <div class="u"><p class="lbl">Restored</p><p>You brought it back. The board shows "Welcome back" until you open it or work starts.</p></div>
+      <p class="small" style="margin-top:4px">Nothing in any state deletes a logbook.</p>
+    </div>
+  </div>
+
+  <p class="lbl" style="margin-top:34px">Come back to an archived project</p>
+  <div class="flow">
+    <div class="box"><div class="st">1 · Chat</div><div class="nm">Ask for the board</div><p>In the project's chat, Claude or Codex, ask for the board. The chief replies with a link.</p></div>
+    <div class="box"><div class="st">2 · Board</div><div class="nm">The archived page</div><p>The board opens on that project, with the Archived banner. From another project: picker, then Archived.</p></div>
+    <div class="box you"><div class="st">3 · You</div><div class="nm">Restore</div><p>Click Restore in a paired browser. Or ask the chief in the chat to restore it.</p></div>
+    <div class="box"><div class="st">4 · Board</div><div class="nm">Welcome back</div><p>See where each task stood, what waits for you, and the next step.</p></div>
+    <div class="box you"><div class="st">5 · Chat</div><div class="nm">Pick up</div><p>Ask the chief to go on. It starts at the next step that the welcome back names.</p></div>
+  </div>
+  <p class="based"><b>Prior art.</b> The picker follows the recent-projects list of code editors (VS Code, JetBrains): most recent first, old ones out of the way. Archive follows Slack channels and GitHub repositories: an archived one stays whole, shows a banner and comes back with one action. Linear differs: it archives by itself after a set time. Sage only folds by itself, because archive also stops new work, and that stays your choice.</p>
+</section>
+
+<section class="part" id="see">
+  <div class="prose">
+    <h2><span class="num">5</span>What you will see <span class="tag sample">sample</span></h2>
+    <p>The board's own dark style. Each surface shows its states side by side. All data is sample data.</p>
+  </div>
+
+  <div class="surface">
+    <h3>The project picker</h3>
+    <p class="small">Click the project name in the top bar. Projects that need you come first, then by last work.</p>
+    <div class="states">
+      <div class="state"><div class="cap">Few projects</div>
+        <div class="bd">
+          <div class="top"><span class="proj open"><span class="dot ok"></span>sage <span class="car">▲</span></span><span class="lnk">Stats</span></div>
+          <div class="sec">Projects</div>
+          <div class="pk cur"><span class="dot ok"></span><span class="nm">sage</span><span class="rt"><span class="badge need">2 need you</span></span></div>
+          <div class="pk"><span class="dot ok"></span><span class="nm">photo-sorter</span><span class="rt">1 agent · 5 min ago</span></div>
+          <div class="pk"><span class="dot hollow"></span><span class="nm">invoice-kit</span><span class="rt">3 weeks ago</span></div>
+        </div>
+        <p class="sn">Nothing folded. No Older or Archived list shows when it is empty.</p>
+      </div>
+      <div class="state"><div class="cap">Many, Older folded</div>
+        <div class="bd">
+          <div class="top"><span class="proj open"><span class="dot ok"></span>sage <span class="car">▲</span></span><span class="sig">2 other projects need you</span></div>
+          <div class="find">Find a project</div>
+          <div class="sec">Projects</div>
+          <div class="pk"><span class="dot need"></span><span class="nm">recipe-box</span><span class="rt"><span class="badge need">1 needs you</span></span></div>
+          <div class="pk"><span class="dot need"></span><span class="nm">photo-sorter</span><span class="rt"><span class="badge need">1 needs you</span></span></div>
+          <div class="pk cur"><span class="dot ok"></span><span class="nm">sage</span><span class="rt">4 agents · now</span></div>
+          <div class="pk"><span class="dot ok"></span><span class="nm">garden-log</span><span class="rt">2 days ago</span></div>
+          <div class="pk"><span class="dot hollow"></span><span class="nm">trail-map</span><span class="rt">3 weeks ago</span></div>
+          <div class="fold"><span>▸ Older · 4 projects</span><span>no work for 30 days</span></div>
+          <div class="fold"><span>▸ Archived · 2 projects</span><span>put away by you</span></div>
+        </div>
+        <p class="sn">The find field shows at 8 or more projects.</p>
+      </div>
+      <div class="state"><div class="cap">Older opened</div>
+        <div class="bd">
+          <div class="top"><span class="proj open"><span class="dot ok"></span>sage <span class="car">▲</span></span></div>
+          <div class="fold" style="border-top:0"><span>▾ Older · 4 projects</span><span>no work for 30 days</span></div>
+          <div class="pk"><span class="dot hollow"></span><span class="nm">budget-cli</span><span class="rt">41 days ago · 15 open</span></div>
+          <div class="pk"><span class="dot hollow"></span><span class="nm">word-quiz</span><span class="rt">42 days ago · 2 open</span></div>
+          <div class="pk" style="background:#1b1b20"><span class="dot hollow"></span><span class="nm">home-wiki</span><span class="rt"><span class="btn">Archive</span></span></div>
+          <div class="pk"><span class="dot hollow"></span><span class="nm">plant-timer</span><span class="rt">2 months ago · 1 open</span></div>
+        </div>
+        <p class="sn">Archive shows on the row under the pointer. An Older project opens like any other.</p>
+      </div>
+      <div class="state"><div class="cap">Archived list</div>
+        <div class="bd">
+          <div class="top"><span class="proj open"><span class="dot ok"></span>sage <span class="car">▲</span></span></div>
+          <div class="fold" style="border-top:0"><span>▾ Archived · 2 projects</span><span>put away by you</span></div>
+          <div class="pk"><span class="dot hollow"></span><span class="nm">recipe-box-v1</span><span class="rt">since 12 Aug · <span class="btn">Restore</span></span></div>
+          <div class="pk"><span class="dot hollow"></span><span class="nm">old-notes</span><span class="rt">since 3 Jun · <span class="btn">Restore</span></span></div>
+        </div>
+        <p class="sn">Click a name to look inside an archived project. Restore brings it back to the top list.</p>
+      </div>
+      <div class="state"><div class="cap">Empty: no project yet</div>
+        <div class="bd">
+          <div class="top"><span class="proj open">No project <span class="car">▲</span></span></div>
+          <div class="empty">No project yet. Turn sage mode on in the chat of a repository. The project shows here after its first task.</div>
+        </div>
+        <p class="sn">The first run of sage on this Mac.</p>
+      </div>
+      <div class="state"><div class="cap">Empty: all archived</div>
+        <div class="bd">
+          <div class="top"><span class="proj open">No project in use <span class="car">▲</span></span></div>
+          <div class="empty">Every project is archived. Restore one below, or start sage mode in a repository.</div>
+          <div class="fold"><span>▾ Archived · 3 projects</span><span></span></div>
+          <div class="pk"><span class="dot hollow"></span><span class="nm">sage</span><span class="rt"><span class="btn">Restore</span></span></div>
+        </div>
+        <p class="sn">You archived the last project. The board still opens.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="surface">
+    <h3>Overview: one project's focus, and the switch</h3>
+    <p class="small">Every page shows the one project in the picker. The signal in the top bar opens the Needs you of the project that asked.</p>
+    <div class="states">
+      <div class="state"><div class="cap">Normal: sage</div>
+        <div class="bd">
+          <div class="top"><span class="proj"><span class="dot ok"></span>sage <span class="car">▼</span></span><span class="sig">2 other projects need you</span><span class="lnk">Stats</span></div>
+          <div class="body">
+            <div class="card"><div class="ch">Needs you <span class="badge need">2</span></div>
+              <ul><li class="li"><span class="dot need"></span><div><div class="q">Which pairing link wording?</div><div class="meta">asked 2 h ago</div></div><span></span></li></ul></div>
+            <div class="card"><div class="ch">In progress<span class="gr"></span><span class="h">3 tasks</span></div>
+              <ul><li class="li"><span class="dot run"></span><div><div class="q">Stats page</div><div class="meta">review · cycle 1 of 2</div></div><span></span></li>
+                  <li class="li"><span class="dot run"></span><div><div class="q">Archive writes</div><div class="meta">build</div></div><span></span></li></ul></div>
+            <div class="card"><div class="ch">Agents<span class="gr"></span><span class="h">4 here · 7 in all projects</span></div></div>
+            <div class="card"><div class="ch">Since you looked</div>
+              <div class="kp"><div><div class="n">3</div><div class="l">merged</div></div><div><div class="n">0</div><div class="l">stopped</div></div><div><div class="n">2</div><div class="l">new tasks</div></div></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="state"><div class="cap">Switch: you click the signal</div>
+        <div class="bd">
+          <div class="top"><span class="proj open"><span class="dot ok"></span>sage <span class="car">▲</span></span><span class="sig">2 other projects need you</span></div>
+          <div class="sec">Need you</div>
+          <div class="pk"><span class="dot need"></span><span class="nm">recipe-box</span><span class="rt"><span class="badge need">1 question · 6 days</span></span></div>
+          <div class="pk"><span class="dot need"></span><span class="nm">photo-sorter</span><span class="rt"><span class="badge need">1 question · 1 h</span></span></div>
+          <div class="empty" style="padding-top:6px">Click one to open its Needs you. This list shows names and counts only.</div>
+        </div>
+      </div>
+      <div class="state"><div class="cap">After the switch: recipe-box</div>
+        <div class="bd">
+          <div class="top"><span class="proj"><span class="dot need"></span>recipe-box <span class="car">▼</span></span><span class="sig">1 other project needs you</span></div>
+          <div class="body">
+            <div class="card" style="border-color:#fbbf24"><div class="ch">Needs you <span class="badge need">1</span></div>
+              <ul><li class="li"><span class="dot need"></span><div><div class="q">Keep the old export format?</div><div class="meta">Recommended: <b>keep it for one release</b> · asked 6 days ago</div></div><span></span></li></ul></div>
+            <div class="card"><div class="ch">Milestones</div><ul><li class="li"><span class="dot run"></span><div><div class="q">Shopping lists</div><div class="meta">1 of 5 merged</div></div><span></span></li></ul></div>
+          </div>
+        </div>
+        <p class="sn">The address keeps the project, so Back returns to sage.</p>
+      </div>
+      <div class="state"><div class="cap">Loading</div>
+        <div class="bd">
+          <div class="top"><span class="proj"><span class="dot"></span>photo-sorter <span class="car">▼</span></span></div>
+          <div class="body"><p class="muted" style="margin:6px 2px 10px">Reading the logbook of photo-sorter.</p><div class="card"><div class="msk"></div><div class="msk s"></div></div></div>
+        </div>
+      </div>
+      <div class="state"><div class="cap">Failure</div>
+        <div class="bd">
+          <div class="top"><span class="proj"><span class="dot"></span>photo-sorter <span class="car">▼</span></span></div>
+          <div class="body"><div class="ban fail"><span class="ic"></span><div class="t"><b>The board cannot read the logbook of photo-sorter.</b> <span class="muted">Other projects are fine. It reads again when the logbook changes.</span></div></div></div>
+        </div>
+      </div>
+      <div class="state"><div class="cap">Opened from a chat</div>
+        <div class="bd">
+          <div class="top"><span class="proj"><span class="dot ok"></span>garden-log <span class="car">▼</span></span><span class="lnk">Stats</span></div>
+          <div class="body"><p class="muted" style="margin:4px 2px">The chat of garden-log sent the link, so the board opens on garden-log, not on the last project you looked at.</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="surface">
+    <h3>The Archive confirm</h3>
+    <p class="small">From the picker row or the project's Overview ("Archive project", at the foot of the page).</p>
+    <div class="states">
+      <div class="state"><div class="cap">Nothing running</div>
+        <div class="bd"><div class="body"><div class="dlg">
+          <h5>Archive recipe-box?</h5>
+          <p>It moves to the Archived list. The chief starts nothing in it. Restore brings it back where it was.</p>
+          <div class="kept"><span class="badge">24 tasks</span><span class="badge">3 milestones</span><span class="badge">61 findings</span><span class="badge">9 answers</span><span class="badge">12 pages</span></div>
+          <p>The logbook keeps all of it.</p>
+          <div class="btns"><span class="btn p">Archive</span><span class="btn ghost">Cancel</span></div>
+        </div></div></div>
+      </div>
+      <div class="state"><div class="cap">Agents run, PRs open</div>
+        <div class="bd"><div class="body"><div class="dlg">
+          <h5>Archive photo-sorter?</h5>
+          <div class="w">2 agents run now. Each finishes its current run. Then the chief starts nothing new.</div>
+          <div class="w">2 pull requests stay open on GitHub. Nothing closes or merges them.</div>
+          <div class="w">1 question waits for you. It waits in the archive.</div>
+          <div class="btns"><span class="btn p">Archive</span><span class="btn ghost">Cancel</span></div>
+        </div></div></div>
+        <p class="sn">My recommendation; see choice 2 in part 8.</p>
+      </div>
+      <div class="state"><div class="cap">Browser not paired</div>
+        <div class="bd"><div class="body"><div class="dlg">
+          <h5>Archive recipe-box?</h5>
+          <p>This browser cannot write to the logbook yet.</p>
+          <div class="btns"><span class="btn">Pair this browser</span><span class="btn ghost">Cancel</span></div>
+          <p style="margin-top:8px">Or ask the chief in the chat to archive recipe-box.</p>
+        </div></div></div>
+      </div>
+      <div class="state"><div class="cap">Success</div>
+        <div class="bd"><div class="body"><div class="ban"><span class="ic"></span><div class="t"><b>recipe-box is archived.</b> <span class="muted">It is in the Archived list.</span> <span class="btn" style="margin-left:4px">Undo</span></div></div></div></div>
+        <p class="sn">Undo shows for 10 seconds. After that, use Restore.</p>
+      </div>
+      <div class="state"><div class="cap">Failure</div>
+        <div class="bd"><div class="body"><div class="ban fail"><span class="ic"></span><div class="t"><b>Archive did not save.</b> <span class="muted">The logbook of recipe-box refused the write: the logbook is busy. Nothing changed. Try again.</span></div></div></div></div>
+      </div>
+      <div class="state"><div class="cap">Correction: two logbooks</div>
+        <div class="bd"><div class="body"><div class="ban need"><span class="ic"></span><div class="t"><b>Archived in 1 of 2 logbooks.</b> <span class="muted">The Codex logbook of recipe-box did not save. The project stays shown until both agree.</span> <span class="btn" style="margin-left:4px">Try again</span></div></div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="surface">
+    <h3>An archived project's pages</h3>
+    <p class="small">You can open every page of an archived project. The banner says so on each page; answers and other writes wait until Restore.</p>
+    <div class="states">
+      <div class="state"><div class="cap">Archived Overview</div>
+        <div class="bd">
+          <div class="top"><span class="proj"><span class="dot hollow"></span>recipe-box <span class="badge arch">archived</span> <span class="car">▼</span></span></div>
+          <div class="body">
+            <div class="ban"><span class="ic"></span><div class="t"><b>Archived on 12 Aug, 3 months ago.</b> <span class="muted">Nothing runs here. The logbook is whole.</span><div class="btns"><span class="btn p">Restore</span></div></div></div>
+            <div class="card"><div class="ch">Needs you <span class="badge">1 waits</span></div><ul><li class="li"><span class="dot"></span><div><div class="q faint">Keep the old export format?</div><div class="meta">Restore to answer</div></div><span></span></li></ul></div>
+          </div>
+        </div>
+      </div>
+      <div class="state"><div class="cap">Your chat's project is archived</div>
+        <div class="bd">
+          <div class="top"><span class="proj"><span class="dot hollow"></span>recipe-box <span class="badge arch">archived</span> <span class="car">▼</span></span></div>
+          <div class="body"><div class="ban"><span class="ic"></span><div class="t"><b>The chat that sent this link works in recipe-box, and recipe-box is archived.</b> <span class="muted">Restore it here, or ask the chief.</span><div class="btns"><span class="btn p">Restore</span></div></div></div></div>
+        </div>
+      </div>
+      <div class="state"><div class="cap">Restoring, then failure</div>
+        <div class="bd">
+          <div class="body"><div class="ban"><span class="ic"></span><div class="t"><b>Restoring recipe-box.</b> <span class="muted">Writing to its logbook.</span></div></div>
+          <div class="ban fail"><span class="ic"></span><div class="t"><b>Restore did not save.</b> <span class="muted">Nothing changed. Try again, or ask the chief.</span></div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="surface">
+    <h3>Welcome back, after Restore</h3>
+    <p class="small">At the top of the Overview, until you close it or work starts. The tasks keep the states they had on the day you archived.</p>
+    <div class="states">
+      <div class="state" style="grid-column:span 2"><div class="cap">Normal</div>
+        <div class="bd"><div class="body">
+          <div class="card" style="border-color:#9aa2ff">
+            <div class="ch">Welcome back to recipe-box<span class="gr"></span><span class="h">archived 12 Aug · restored now</span></div>
+            <div class="sec">Where it stood</div>
+            <div class="tb"><span class="q">Import recipes from a file</span><span class="badge need">needs you</span><span class="s">Review cycle 1 of 2 was clean. Pull request open.</span></div>
+            <div class="tb"><span class="q">Shopping list</span><span class="badge stop">stopped</span><span class="s">The build ended when you archived. The chief runs the build again from its last commit.</span></div>
+            <div class="tb"><span class="q">Print a recipe</span><span class="badge">waiting</span><span class="s">Waits for "Shopping list".</span></div>
+            <div class="tb"><span class="q">Dark theme, and 2 more</span><span class="badge">not started</span><span class="s">Framed, with no run yet.</span></div>
+            <div class="sec">What waits for you</div>
+            <div class="tb"><span class="q">Keep the old export format?</span><span class="btn">Answer</span></div>
+            <div class="tb"><span class="q">main moved 38 commits since 12 Aug</span><span></span><span class="s">2 pull requests need a merge of main and fresh checks. The chief does this first.</span></div>
+            <div class="sec">Next step</div>
+            <div class="tb"><span class="q">Ask the chief in the chat of recipe-box to go on.</span><span></span><span class="s">It merges main into the 2 pull requests, then runs the build of "Shopping list" again.</span></div>
+            <div class="btns" style="padding:0 12px 12px"><span class="btn ghost">Close</span></div>
+          </div>
+        </div></div>
+      </div>
+      <div class="state"><div class="cap">Nothing open</div>
+        <div class="bd"><div class="body">
+          <div class="card" style="border-color:#9aa2ff">
+            <div class="ch">Welcome back to old-notes</div>
+            <div class="empty">Every task was done when you archived. Nothing waits for you. Ask the chief for new work when you want it.</div>
+          </div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="surface">
+    <h3>In the chat, Claude and Codex alike</h3>
+    <div class="states">
+      <div class="state"><div class="cap">Ask for the board</div>
+        <div class="chat"><div class="me">show board</div><div class="who">Chief</div><div class="msg"><p>Board · garden-log: <a>open the board</a></p></div></div>
+        <p class="sn">The link names the project of this chat.</p>
+      </div>
+      <div class="state"><div class="cap">Archive and restore by chat</div>
+        <div class="chat"><div class="me">archive recipe-box</div><div class="who">Chief</div><div class="msg"><p>recipe-box is archived. Its logbook stays whole: 24 tasks, 1 question that waits for you. Ask me or use the board to restore it.</p></div></div>
+      </div>
+      <div class="state"><div class="cap">New request in an archived project</div>
+        <div class="chat"><div class="me">add a print button</div><div class="who">Chief</div><div class="msg"><p>recipe-box was archived on 12 Aug. I restored it to take your request. First I merge main into its 2 open pull requests.</p></div></div>
+        <p class="sn">My recommendation; see choice 3 in part 8.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="surface">
+    <h3>Stats: numbers for all projects</h3>
+    <p class="small">The Stats link sits next to the picker. Stats shows numbers and charts only, never a task list. Project pages stay one project's focus.</p>
+    <div class="states one">
+      <div class="state"><div class="cap">Normal · last 8 weeks</div>
+        <div class="bd">
+          <div class="top"><span class="proj"><span class="dot ok"></span>sage <span class="car">▼</span></span><span class="crumb">/ <b>Stats · all projects</b></span><span class="gr"></span><span class="lim">Last 8 weeks</span></div>
+          <div class="body">
+            <div class="tiles">
+              <div><div class="n">42</div><div class="l">pull requests merged</div></div>
+              <div><div class="n">318</div><div class="l">open tasks</div></div>
+              <div><div class="n">212 h</div><div class="l">agent time</div></div>
+              <div><div class="n">96 M</div><div class="l">tokens</div></div>
+              <div><div class="n">5</div><div class="l">questions wait for you</div></div>
+              <div><div class="n">1</div><div class="l">median repair rounds per pull request</div></div>
+            </div>
+            <div class="grid2">
+              <div class="card"><div class="ch">Merged pull requests per week<span class="gr"></span><span class="h">all projects</span></div>
+                <div class="vb" style="margin-top:14px"><div style="height:27%"><span>3</span></div><div style="height:45%"><span>5</span></div><div style="height:36%"><span>4</span></div><div style="height:64%"><span>7</span></div><div style="height:55%"><span>6</span></div><div style="height:27%"><span>3</span></div><div style="height:73%"><span>8</span></div><div style="height:55%"><span>6</span></div></div>
+                <div class="vx"><span>21 Sep</span><span>28</span><span>5 Oct</span><span>12</span><span>19</span><span>26</span><span>2 Nov</span><span>9</span></div>
+                <div class="ax">Pull requests, by week (week starts Monday)</div></div>
+              <div class="card"><div class="ch">Merged pull requests by project</div>
+                <div class="hb">
+                  <div class="rw"><span class="n">sage</span><span><i style="width:100%"></i></span><span class="v">26</span></div>
+                  <div class="rw"><span class="n">photo-sorter</span><span><i style="width:31%"></i></span><span class="v">8</span></div>
+                  <div class="rw"><span class="n">recipe-box</span><span><i style="width:15%"></i></span><span class="v">4</span></div>
+                  <div class="rw"><span class="n">garden-log</span><span><i style="width:12%"></i></span><span class="v">3</span></div>
+                  <div class="rw"><span class="n">4 others</span><span><i style="width:4%"></i></span><span class="v">1</span></div>
+                </div></div>
+              <div class="card"><div class="ch">Agent time per week<span class="gr"></span><span class="h">hours</span></div>
+                <div class="vb" style="margin-top:14px"><div style="height:30%"><span>16</span></div><div style="height:38%"><span>20</span></div><div style="height:34%"><span>18</span></div><div style="height:57%"><span>30</span></div><div style="height:50%"><span>26</span></div><div style="height:31%"><span>16</span></div><div style="height:88%"><span>46</span></div><div style="height:77%"><span>40</span></div></div>
+                <div class="vx"><span>21 Sep</span><span>28</span><span>5 Oct</span><span>12</span><span>19</span><span>26</span><span>2 Nov</span><span>9</span></div>
+                <div class="ax">Hours of agent runs, by week</div></div>
+              <div class="card"><div class="ch">Tokens per week<span class="gr"></span><span class="h">millions</span></div>
+                <div class="vb" style="margin-top:14px"><div style="height:29%"><span>7</span></div><div style="height:38%"><span>9</span></div><div style="height:33%"><span>8</span></div><div style="height:54%"><span>13</span></div><div style="height:46%"><span>11</span></div><div style="height:29%"><span>7</span></div><div style="height:92%"><span>22</span></div><div style="height:79%"><span>19</span></div></div>
+                <div class="vx"><span>21 Sep</span><span>28</span><span>5 Oct</span><span>12</span><span>19</span><span>26</span><span>2 Nov</span><span>9</span></div>
+                <div class="ax">Million tokens, by week. Runs with no token count are left out.</div></div>
+              <div class="card"><div class="ch">Agent time and tokens by project</div>
+                <div class="hb">
+                  <div class="rw"><span class="n">sage</span><span><i style="width:100%"></i></span><span class="v">151 h</span></div>
+                  <div class="rw"><span class="n">photo-sorter</span><span><i style="width:21%"></i></span><span class="v">32 h</span></div>
+                  <div class="rw"><span class="n">recipe-box</span><span><i style="width:11%"></i></span><span class="v">17 h</span></div>
+                  <div class="rw"><span class="n">garden-log</span><span><i style="width:8%"></i></span><span class="v">12 h</span></div>
+                </div>
+                <div class="ax">Agent time in hours. Tokens: sage 71 M, photo-sorter 14 M, recipe-box 6 M, garden-log 5 M.</div></div>
+              <div class="card"><div class="ch">Open tasks by state<span class="gr"></span><span class="h">all projects</span></div>
+                <div class="hb">
+                  <div class="rw"><span class="n">not started</span><span><i style="width:100%"></i></span><span class="v">271</span></div>
+                  <div class="rw"><span class="n">waiting</span><span><i style="width:9%"></i></span><span class="v">24</span></div>
+                  <div class="rw"><span class="n">in progress</span><span><i style="width:5%"></i></span><span class="v">14</span></div>
+                  <div class="rw"><span class="n">needs you</span><span><i style="width:2%"></i></span><span class="v">5</span></div>
+                  <div class="rw"><span class="n">stopped</span><span><i style="width:2%"></i></span><span class="v">4</span></div>
+                </div></div>
+              <div class="card"><div class="ch">Repair rounds per pull request<span class="gr"></span><span class="h">merged, last 8 weeks</span></div>
+                <div class="vb" style="margin-top:14px"><div style="height:43%"><span>15</span></div><div style="height:91%"><span>18</span></div><div style="height:34%"><span>6</span></div><div style="height:17%"><span>3</span></div></div>
+                <div class="vx"><span>0</span><span>1</span><span>2</span><span>3 or more</span></div>
+                <div class="ax">Count of pull requests, by repair rounds</div></div>
+              <div class="card"><div class="ch">Questions that wait for you</div>
+                <div class="hb">
+                  <div class="rw"><span class="n">sage</span><span><i style="width:100%"></i></span><span class="v">2</span></div>
+                  <div class="rw"><span class="n">recipe-box</span><span><i style="width:50%"></i></span><span class="v">1</span></div>
+                  <div class="rw"><span class="n">photo-sorter</span><span><i style="width:50%"></i></span><span class="v">1</span></div>
+                  <div class="rw"><span class="n">old-notes (archived)</span><span><i style="width:50%"></i></span><span class="v">1</span></div>
+                </div></div>
+            </div>
+            <div class="nr" style="margin-top:10px"><b>Not recorded yet:</b> money spent and your own time. The logbooks do not keep them, so Stats does not guess them.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="states">
+      <div class="state"><div class="cap">Empty</div>
+        <div class="bd"><div class="top"><span class="crumb"><b>Stats · all projects</b></span></div><div class="empty">No numbers yet. Stats starts when a project records its first run.</div></div>
+      </div>
+      <div class="state"><div class="cap">Loading</div>
+        <div class="bd"><div class="top"><span class="crumb"><b>Stats · all projects</b></span></div><div class="body"><p class="muted" style="margin:4px 2px 8px">Reading 8 logbooks.</p><div class="card"><div class="msk"></div><div class="msk s"></div></div></div></div>
+      </div>
+      <div class="state"><div class="cap">Part failed</div>
+        <div class="bd"><div class="top"><span class="crumb"><b>Stats · all projects</b></span></div><div class="body"><div class="ban need"><span class="ic"></span><div class="t"><b>1 of 8 logbooks could not be read.</b> <span class="muted">The totals leave out garden-log and say so.</span></div></div></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="part" id="agents">
+  <div class="prose"><h2><span class="num">6</span>What the chief and agents do</h2></div>
+  <div class="agents">
+    <div><p class="lbl">Chief</p><p>Puts the chat's project in every board link it sends.</p></div>
+    <div><p class="lbl">Chief</p><p>Archives or restores a project when you ask in the chat, with the same write as the board.</p></div>
+    <div><p class="lbl">Chief</p><p>In an archived project, starts no run and merges nothing.</p></div>
+    <div><p class="lbl">Chief</p><p>On a restore, reads the welcome back and starts at its next step when you say go on.</p></div>
+    <div><p class="lbl">Agents</p><p>A run that is going when you archive finishes and reports as usual.</p></div>
+    <div><p class="lbl">Board</p><p>Shows one project, folds quiet ones and counts agents across all projects.</p></div>
+    <div><p class="lbl">Codex chief</p><p>Does all of the above in the same way, from the same logbook.</p></div>
+  </div>
+</section>
+
+<section class="part" id="rules">
+  <div class="prose"><h2><span class="num">7</span>Rules and edge cases</h2></div>
+  <div class="rules">
+    <div><p class="lbl">Open</p><p>The board opens on the project of the chat that sent the link. With no project in the link, it opens on the last project you looked at.</p></div>
+    <div><p class="lbl">One project</p><p>Overview, Tasks, Agents and Pull requests show one project only. No page lists another project's tasks. There is no "All projects" view.</p></div>
+    <div><p class="lbl">Agent count</p><p>The top bar counts agents in all projects, against the shared limit of 20, and says "all projects".</p></div>
+    <div><p class="lbl">Signal</p><p>"N other projects need you" counts shown projects with an open question. Older and archived projects do not count.</p></div>
+    <div><p class="lbl">Fold</p><p>After 30 days with no work, a project folds into Older, open tasks or not. Any new work brings it back. My recommendation; see choice 1.</p></div>
+    <div><p class="lbl">Keep</p><p>Archive changes one setting. It keeps every task, state, finding, review, answer and page. Nothing deletes a logbook.</p></div>
+    <div><p class="lbl">Running agents</p><p>Archive lets running agents finish their run. Then the chief starts nothing new. My recommendation; see choice 2.</p></div>
+    <div><p class="lbl">Pull requests</p><p>Open pull requests stay open on GitHub. Nothing merges in an archived project, also with autopilot on.</p></div>
+    <div><p class="lbl">Claude and Codex</p><p>The archive setting lives in the logbook. Both apps read it, so a project archived in one is archived in the other.</p></div>
+    <div><p class="lbl">Two clones</p><p>Two clones of one repository are one project in the picker. Archive and Restore write to every logbook of that repository.</p></div>
+    <div><p class="lbl">Your chat's project</p><p>If the chat's project is archived, the board still opens on it, with the banner and Restore.</p></div>
+    <div><p class="lbl">Last project</p><p>You can archive the last project. The board then shows the "all archived" picker.</p></div>
+    <div><p class="lbl">Writes</p><p>Archive and Restore need a paired browser, like the board's other writes. Without one, the confirm offers pairing or the chat.</p></div>
+    <div><p class="lbl">Stats</p><p>Stats counts all projects, archived ones too, and marks them. It never shows a number that the logbooks do not hold.</p></div>
+  </div>
+</section>
+
+<section class="part" id="choices">
+  <div class="prose">
+    <h2><span class="num">8</span>Your choices</h2>
+    <p class="lbl">Already decided, as my recommendation</p>
+    <p>These four follow your words. Say no to any of them if they are wrong.</p>
+  </div>
+  <div class="dec">
+    <div><span class="tag rec">my recommendation</span><p style="margin-top:6px">The board opens on one project. No "All projects" view.</p></div>
+    <div><span class="tag rec">my recommendation</span><p style="margin-top:6px">Quiet projects fold into Older by themselves.</p></div>
+    <div><span class="tag rec">my recommendation</span><p style="margin-top:6px">Archive and Restore on the board and by chat.</p></div>
+    <div><span class="tag rec">my recommendation</span><p style="margin-top:6px">Nothing deletes a logbook.</p></div>
+  </div>
+
+  <div class="qq">
+    <p class="lbl">Question 1 · default: the recommendation</p>
+    <h3>When does a quiet project fold into Older?</h3>
+    <div class="opts">
+      <div class="opt rec"><span class="rmark">Recommended</span><div class="h">30 days with no work, open tasks or not</div><p class="k">Next</p><p>4 of your 10 projects fold today. Each comes back when work starts.</p><p class="k">Cost</p><p>None extra. An Older project's open tasks still show inside it.</p></div>
+      <div class="opt"><div class="h">30 days and no open task</div><p class="k">Next</p><p>The rule from the request. It folds none of your 10 projects today.</p><p class="k">Cost</p><p>The list keeps growing; you archive by hand.</p></div>
+      <div class="opt"><div class="h">Never by itself</div><p class="k">Next</p><p>Only Archive takes a project out of the list.</p><p class="k">Cost</p><p>10 rows today, more each month.</p></div>
+    </div>
+  </div>
+  <div class="qq">
+    <p class="lbl">Question 2 · default: the recommendation</p>
+    <h3>You archive a project while its agents run. What happens?</h3>
+    <div class="opts">
+      <div class="opt rec"><span class="rmark">Recommended</span><div class="h">They finish, then nothing new starts</div><p class="k">Next</p><p>Archive works at once. Each run reports as usual, and the logbook keeps it.</p><p class="k">Cost</p><p>The running agents spend their tokens to the end.</p></div>
+      <div class="opt"><div class="h">Archive waits until they end</div><p class="k">Next</p><p>The confirm says "Archive when the 2 agents end".</p><p class="k">Cost</p><p>One more waiting state on the board.</p></div>
+      <div class="opt"><div class="h">Stop them now</div><p class="k">Next</p><p>The chief stops the runs; their tasks show "stopped".</p><p class="k">Cost</p><p>Work in flight is lost; a restore runs it again.</p></div>
+    </div>
+  </div>
+  <div class="qq">
+    <p class="lbl">Question 3 · default: the recommendation</p>
+    <h3>You ask for new work in the chat of an archived project. What does the chief do?</h3>
+    <div class="opts">
+      <div class="opt rec"><span class="rmark">Recommended</span><div class="h">Restore it and say so</div><p class="k">Next</p><p>One line in the reply names the restore. The work starts.</p><p class="k">Cost</p><p>None. You can archive it again in one step.</p></div>
+      <div class="opt"><div class="h">Ask you first</div><p class="k">Next</p><p>The chief asks "Restore recipe-box?" and waits.</p><p class="k">Cost</p><p>One more question for an answer that is almost always yes.</p></div>
+      <div class="opt"><div class="h">Refuse until you restore</div><p class="k">Next</p><p>The chief says the project is archived and does nothing.</p><p class="k">Cost</p><p>One more step for you every time.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="part" id="plan">
+  <div class="prose">
+    <h2><span class="num">9</span>Plan and cost</h2>
+    <p>Four pull requests. The first one comes first; the next two can run side by side; the chat part comes last.</p>
+  </div>
+  <div class="plan">
+    <div class="pr"><div class="nm">1 · One project at a time</div><div class="c">The project in the link, the picker with Older, the signal, the agent count label. "All projects" goes.</div><div class="w">First</div></div>
+    <div class="pr"><div class="nm">2 · Archive and Restore</div><div class="c">The board writes, the confirm, the banner, the welcome back. The chief starts nothing in an archived project.</div><div class="w">After 1</div></div>
+    <div class="pr"><div class="nm">3 · Stats</div><div class="c">The cross-project numbers and charts, from what the logbooks hold.</div><div class="w">After 1, beside 2</div></div>
+    <div class="pr"><div class="nm">4 · The chat side</div><div class="c">The link in Claude and Codex, archive and restore by chat, restore on a new request.</div><div class="w">After 2</div></div>
+  </div>
+  <div class="tot">
+    <div class="stat"><div class="n">10 to 22 h</div><div class="t">agent time in all, the 4 pull requests</div></div>
+    <div class="stat"><div class="n">6 to 14 M</div><div class="t">tokens in all</div></div>
+    <div class="stat"><div class="n">25 to 45 min</div><div class="t">human time: this page, 3 answers, 4 board checks</div></div>
+  </div>
+  <p class="under" style="margin-top:12px"><b>Basis</b> <span class="tag real">real</span>: the last 8 merged board tasks in the sage logbook. Each lead ran 0.7 to 5.8 h, and each task used 0.5 to 2.7 M tokens (one outlier used 21.7 M). I gave each of the 4 pull requests 2.5 to 5.5 h and 1.5 to 3.5 M tokens. The range does not cover an outlier like that one.</p>
+</section>
+
+<section class="part" id="hood">
+  <div class="prose">
+    <h2><span class="num">10</span>Under the hood</h2>
+    <p class="under">For engineers. Much of the data is there already. The board model sorts projects into the lists needs, active (14 days), idle and archived, and the state tool's project setting <code>archived</code> folds a project. The model counts a project as archived only when every logbook of its repository says so. This design adds an Older list (30 days), puts the project key in the board link and the address, filters each page by that key, and adds one paired write that sets <code>archived</code> on every logbook of the repository. The chief's run start and merge check read the setting. Stats reads runs (start, end, tokens), tasks (state, rounds), merges and open questions; money and human time are not in the logbooks. The real numbers on this page come from the logbook folders on this Mac on 16 Nov 2026: the last file change of each folder (an upper bound for the day of the last work) and the open tasks in each task list. No engineering check ran on this design yet.</p>
+    <p class="ref">Ref: T1135 · R4554 · design v1</p>
+  </div>
+</section>
+
+</main>
+</body>
+</html>

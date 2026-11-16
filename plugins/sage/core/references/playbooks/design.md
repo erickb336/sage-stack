@@ -2,15 +2,16 @@
 
 The chief reads this playbook at the moment that its line in the chief's text names, and follows its five parts. In the owner's moment, the recommendation comes first, and the message says what happens with no answer before it asks; the presentation skill has the shape of each message kind. The logbook records the answer (the gate's answer, or `sage log`), and the task's next brief starts with it, in DECISIONS. Teach the idea of the last part in one short paragraph, the first time that the owner meets it.
 
-1. **How the chief knows:** the task changes what a user sees: a screen, a message or a word in the product.
-2. **Agents prepare:** the designer, then the PE check.
-   - 2 or 3 options behind one switch, each with a label.
-   - Every state: empty, loading, error and success.
+1. **How the chief knows:** the task changes what a user sees or meets: a screen, a message, a word in the product, or a process that the owner takes part in.
+2. **Agents prepare:** the designer (or an arena), then the PE check. The brief names the sage plugin's folder, so that the designer reads the design format, `core/references/design-format.md`, and runs its check, `core/design-page.mjs`. The design is one page in that format:
+   - The ten parts in order: the real story, the story after the change, how it works, what the owner will see, what the agents do, the rules, the owner's choices, the cost and plan, and last, under the hood.
+   - The diagrams that fit the design: a state chart for how a thing moves between states, an architecture diagram for parts and links, a flow chart for steps and decisions. Each one in the presentation skill's picture rules, and readable with no click.
+   - Every state side by side: empty, loading, error and success. For a process design, the surfaces that the owner meets.
    - Sample data, labelled as sample.
-   - The cost of each option.
+   - 2 or 3 options for each open choice, and the cost of each option.
    - The prior art: 2 or 3 existing products or tools, and the one that each option follows, or how and why it differs.
    - The cases that the design does not decide (see **Undecided case**, `undecided-case.md`).
-3. **The owner's moment:** message kind `design`, with a page. The options side by side, one picture each, what changes for the owner, and the cost. The recommendation is first.
+3. **The owner's moment:** message kind `design`, with the design page as its page. Before you send it, run the design check on the page: a page that fails goes back to the designer. The message says what changes for the owner, the options and the cost. The recommendation is first.
    - Answers: pick A, B or C, or pick one and mark the parts of the others to keep.
    - If the owner does not answer: nothing is built. Other tasks go on.
 4. **After the answer:** the gate's answer records the pick. The pick and the dropped options stay in the task's pages folder. The task moves to the build, and the UX review compares the build with the pick.

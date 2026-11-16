@@ -387,7 +387,7 @@ Codex uses the same model keys as Claude Code (`model.<role>`, `model.<role>.<si
 
 The public `role.mjs pe` and `role.mjs designer` helpers use the shared role contracts. PE changes nothing.
 
-The designer writes the scoped prototype and screenshots in its assigned branch, worktree and artifact paths. Both roles keep their existing read access and configuration, logbook, spawn and message restrictions.
+The designer writes the scoped design page, in the [design format](using-sage.md#a-design-page), and its screenshots in its assigned branch, worktree and artifact paths. Both roles keep their existing read access and configuration, logbook, spawn and message restrictions.
 
 The chief follows designer → PE → the owner's answer on the design → build. A design waits for your approval when it changes what you see or data that you keep; an internal shape goes ahead as recommended when you do not answer.
 
