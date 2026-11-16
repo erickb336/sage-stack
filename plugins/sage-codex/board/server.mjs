@@ -373,6 +373,8 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     const book = LOGBOOK.exec(body.logbook ?? ""), source = book && configured.find(item => item.id === book[1]);
     const argv = Object.hasOwn(JOBS, name) && JOBS[name](body);
     if (!argv || !source || !model?.sources.some(item => item.id === source.id && item.shared)) return reply(400, { problem: "The board cannot send this write: it names no question, task or chief of a shared logbook." });
+    const shelved = model.projects?.find(project => project.archived && project.logbooks.includes(body.logbook));
+    if (shelved) return reply(409, { ok: false, text: `${shelved.name} is archived, so the board records no answer or other write for it. Restore it first, or answer in the chief's chat. Nothing changed.` });
     const done = await write({ shared: source.path, folder: book[2], argv });
     return reply(done.pending ? 202 : done.code ? 409 : 200, { ok: !done.code, ...(done.pending && { pending: true }), text: withoutPaths(String(done.text).replace(/^sage: /, "")) });
   }
@@ -382,14 +384,14 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     const shared = configured.find(item => model?.sources.some(source => source.id === item.id && source.shared))?.path ?? sharedRoot();
     const jobs = (project?.logbooks ?? []).map(logbook => {
       const book = LOGBOOK.exec(logbook), source = book && configured.find(item => item.id === book[1]);
-      return source && { shared, folder: book[2], argv, ...(source.path !== shared && { root: source.path }) };
+      return source && { shared, folder: book[2], argv, ...(source.path !== shared && { root: source.path }), label: source.provider ? source.label ?? source.provider : "shared" };
     });
     if (!jobs.length || !jobs.every(Boolean)) return [400, { problem: "The board cannot send this write: it names no project of this board. Nothing changed." }];
     const done = [];
-    for (const job of jobs) done.push(await write(job));
+    for (const { label, ...job } of jobs) done.push({ label, ...await write(job) });
     const landed = done.filter(item => !item.code).length, failed = done.find(item => item.code), text = item => withoutPaths(String(item.text).replace(/^sage: /, ""));
     if (!failed) return [200, { ok: true, logbooks: jobs.length, text: text(done.at(-1)).split("\n").at(-1) }];
-    return [failed.pending ? 202 : 409, { ok: false, logbooks: jobs.length, landed, ...(failed.pending && { pending: true }), text: text(failed) }];
+    return [failed.pending ? 202 : 409, { ok: false, logbooks: jobs.length, landed, failed: done.filter(item => item.code).map(item => item.label), ...(failed.pending && { pending: true }), text: text(failed) }];
   }
 
   function serveActions(request, response, fail) {

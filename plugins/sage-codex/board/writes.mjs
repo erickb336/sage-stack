@@ -22,11 +22,20 @@ function checkouts(shared, folder) {
 }
 
 function toldCheckout(dir) {
+  let told = "";
   try {
     const file = join(dir, "checkout.txt"), stat = lstatSync(file);
-    const told = stat.isFile() && stat.size <= 65536 ? readFileSync(file, "utf8").trim() : "";
-    return isAbsolute(told) ? [realpathSync(told)] : [];
-  } catch { return []; }
+    if (stat.isFile() && stat.size <= 65536) told = readFileSync(file, "utf8").trim();
+  } catch {}
+  if (!isAbsolute(told)) return { unnamed: true, at: [] };
+  try { return { at: [realpathSync(told)] }; } catch { return { at: [] }; }
+}
+
+function refusal({ unnamed, at }, argv) {
+  const cause = unnamed ? "This logbook does not name its checkout, so the board cannot check that the write reaches this project's own logbook."
+    : at.length ? "The checkout that this logbook names uses another logbook now, so the board does not write this one."
+    : "No checkout of this project is on this Mac, so the board cannot write its logbook.";
+  return `${cause} ${archiveCommand(argv) ? `Ask the chief in this project's own chat to ${argv[1] === "archived=yes" ? "archive" : "restore"} it` : "Answer in the chief's chat"}.`;
 }
 
 export function ownerWrite({ shared, folder, argv, root = null }, env = process.env) {
@@ -35,8 +44,9 @@ export function ownerWrite({ shared, folder, argv, root = null }, env = process.
   const settings = { ...env, SAGE_SHARED_HOME: shared, ...(root !== null && { SAGE_HOME: root }) };
   const tool = createStateTool({ defaultRoot: () => root ?? join(shared, ".board-has-no-provider-root") });
   const dir = join(root ?? shared, folder);
-  const project = (root === null ? checkouts(shared, folder) : toldCheckout(dir)).find(at => { try { return tool.locate(at, settings).dir === dir; } catch { return false; } });
-  if (!project) return { code: 1, text: `No checkout of this project is on this Mac, so the board cannot write its logbook. ${archiveCommand(argv) ? "Ask the chief in the project's chat" : "Answer in the chief's chat"}.` };
+  const found = root === null ? { at: checkouts(shared, folder) } : toldCheckout(dir);
+  const project = found.at.find(at => { try { return tool.locate(at, settings).dir === dir; } catch { return false; } });
+  if (!project) return { code: 1, text: refusal(found, argv) };
   const done = tool.command([...argv, "--project", project], settings);
   if (done.code !== 2) return done;
   console.error(done.text);

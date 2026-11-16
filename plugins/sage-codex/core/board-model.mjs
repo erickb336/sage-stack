@@ -392,17 +392,18 @@ const DAY_MS = 86400000, ACTIVE_DAYS = 14, OLDER_DAYS = 30;
 const bookTimes = project => [...(project.tables.decisions ?? NONE).map(row => row.at), ...(project.tables.gates ?? NONE).flatMap(gate => [gate.at, boardAnswer(gate)?.at])].map(time).filter(at => at !== null);
 const ARCHIVE_ROWS = ["project archived", "project restored"];
 function archiveFacts(books, tasks) {
-  let archivedAt = null, restoredAt = null, restored = true;
+  let archivedAt = null, restoredAt = null, restored = true, archives = 0;
   for (const { project } of books) {
     const rows = (project.tables.decisions ?? NONE).filter(row => !row.task && ARCHIVE_ROWS.includes(row.decision) && time(row.at) !== null);
     for (const row of rows) if (row.decision === ARCHIVE_ROWS[0]) archivedAt = Math.max(archivedAt ?? 0, time(row.at)); else restoredAt = Math.max(restoredAt ?? 0, time(row.at));
     if (rows.length && rows.at(-1).decision === ARCHIVE_ROWS[0]) restored = false;
+    archives = Math.max(archives, rows.filter(row => row.decision === ARCHIVE_ROWS[0]).length);
   }
   if (!restored) restoredAt = null;
   const iso = at => at === null ? null : new Date(at).toISOString();
   const count = name => books.reduce((n, { project }) => n + (project.tables[name] ?? NONE).filter(row => name !== "gates" || row.answer).length, 0);
   return { logbooks: books.map(book => book.project.key), kept: { milestones: count("milestones"), findings: count("findings"), answers: count("gates") },
-    archivedAt: iso(archivedAt), restoredAt: iso(restoredAt), workSinceRestore: restoredAt !== null && tasks.some(task => task.runs.some(run => time(run.started) >= restoredAt)) };
+    archives, archivedAt: iso(archivedAt), restoredAt: iso(restoredAt), workSinceRestore: restoredAt !== null && tasks.some(task => task.runs.some(run => time(run.started) >= restoredAt)) };
 }
 const listOf = (archived, needsOwner, last, at) => archived ? "archived" : needsOwner ? "needs" : last && at - last > OLDER_DAYS * DAY_MS ? "older" : last && at - last <= ACTIVE_DAYS * DAY_MS ? "active" : "quiet";
 const repoPath = url => githubRepository(url)?.slice("https://github.com/".length) ?? null;

@@ -1,31 +1,50 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { linkProject, post, useAccess } from "./actions.jsx";
+import { PairBox, linkProject, post, useAccess } from "./actions.jsx";
 import { AlertIcon } from "./icons.jsx";
 import { ago, plural } from "./overview.jsx";
 import { questionLink, taskLink } from "./task.jsx";
 
 const UNDO_MS = 10_000, CLOSED_KEY = "board-welcome-closed";
-let state = { asking: null, busy: null, note: null };
+let state = { asking: null, opener: null, busy: null, note: null, undone: null };
 const listeners = new Set();
 const set = change => { state = { ...state, ...change }; listeners.forEach(fn => fn()); };
 const useArchive = () => useSyncExternalStore(fn => { listeners.add(fn); return () => listeners.delete(fn); }, () => state);
 let undoTimer;
 
-export const askArchive = key => set({ asking: key, note: null });
+export const askArchive = key => { set({ asking: key, note: null, opener: document.activeElement }); scrollTo(0, 0); };
 export const day = at => new Date(at).toLocaleDateString([], { day: "numeric", month: "short" });
+const cancel = () => {
+  const { opener } = state;
+  set({ asking: null, note: null, opener: null });
+  (opener?.isConnected ? opener : document.querySelector("header .picker"))?.focus();
+};
 
-async function send(kind, project) {
+const logbookNames = (labels = []) => labels.length ? `The ${labels.join(" and ")} ${labels.length === 1 ? "logbook" : "logbooks"}` : "A logbook";
+
+async function send(kind, project, { undo = false } = {}) {
   if (state.busy) return;
   clearTimeout(undoTimer);
-  set({ busy: project.key, note: null });
-  const result = await post(kind, { project: project.key }), { landed = 0, logbooks = 1, pending } = result.json;
-  const done = kind === "archive" ? "Archived" : "Restored";
+  set({ busy: project.key, note: null, undone: undo ? project.key : null });
+  const result = await post(kind, { project: project.key }), { landed = 0, logbooks = 1, failed, pending } = result.json;
+  const word = kind === "archive" ? "Archive" : "Restore";
   const note = result.ok ? (kind === "archive" ? { kind: "archived", project } : null)
     : pending ? { kind: "pending", project, text: result.text }
-    : landed ? { kind: "partial", project, again: kind, text: `${done} in ${landed} of ${logbooks} logbooks. ${result.text} The board shows ${project.name} as ${kind === "archive" ? "not archived" : "archived"} until every logbook agrees.` }
-    : { kind: "failed", project, again: kind, text: result.text, head: `${kind === "archive" ? "Archive" : "Restore"} did not save.` };
-  set({ busy: null, asking: result.ok || kind !== "archive" ? null : state.asking, note });
+    : landed ? { kind: "partial", project, again: kind, head: `${kind === "archive" ? "Archived" : "Restored"} in ${landed} of ${logbooks} logbooks.`,
+      text: `${logbookNames(failed)} of ${project.name} did not save. ${result.text} The board shows ${project.name} as ${kind === "archive" ? "not archived" : "archived"} until ${logbooks === 2 ? "both agree" : "every logbook agrees"}.` }
+    : { kind: "failed", project, again: kind, text: result.text, head: `${word} did not save.` };
+  const stays = !result.ok && !landed && kind === "archive" && state.asking === project.key;
+  set({ busy: null, asking: stays ? state.asking : null, note, ...(stays || { opener: null }), ...(undo && !result.ok && { undone: null }) });
   if (note?.kind === "archived") undoTimer = setTimeout(() => state.note === note && set({ note: null }), UNDO_MS);
+}
+
+function trap(event) {
+  if (event.key === "Escape") { event.preventDefault(); if (!state.busy) cancel(); return; }
+  if (event.key !== "Tab") return;
+  const all = [...event.currentTarget.querySelectorAll("a[href], button:not(:disabled), input:not(:disabled), [tabindex='0']")];
+  const [first, last] = [all[0], all.at(-1)];
+  if (!first) return;
+  if (event.shiftKey && (document.activeElement === first || !all.includes(document.activeElement))) { event.preventDefault(); last.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
 }
 
 export function RestoreButton({ project, primary }) {
@@ -41,7 +60,7 @@ function Kept({ project }) {
 
 function Confirm({ project, tasks }) {
   const { busy, note } = useArchive(), writes = useAccess(), heading = useRef(null);
-  useEffect(() => { heading.current?.focus(); }, [project.key]);
+  useEffect(() => { heading.current?.focus({ preventScroll: true }); }, [project.key, writes]);
   const prs = tasks.filter(task => task.project === project.key && task.pr && !task.ended).length;
   const warnings = [
     project.agents > 0 && `${plural(project.agents, "agent runs", "agents run")} now. Each finishes its current run. Then the chief starts nothing new.`,
@@ -50,18 +69,18 @@ function Confirm({ project, tasks }) {
   ].filter(Boolean);
   const failed = note?.project.key === project.key && note.again === "archive" ? note : null;
   return (
-    <section className="card confirm" role="dialog" aria-labelledby="archive-h" data-confirm={project.key}>
+    <section className="card confirm" role="dialog" aria-modal="true" aria-labelledby="archive-h" data-confirm={project.key} onKeyDown={trap}>
       <h2 id="archive-h" ref={heading} tabIndex={-1}>Archive {project.name}?</h2>
       {writes !== "paired" ? <>
-        <p>This browser cannot write to the logbook yet. Pair it with the box on the Overview, then archive here.</p>
-        <p className="hint">Or ask the chief in the chat to archive {project.name}.</p>
-        <p className="row-btns"><a className="btn primary" href={`#?project=${encodeURIComponent(project.key)}`} onClick={() => setTimeout(() => document.getElementById("pair-h")?.scrollIntoView({ block: "center" }))}>Pair this browser</a><button type="button" className="btn" onClick={() => set({ asking: null })}>Cancel</button></p>
+        <p>This browser cannot write to the logbook yet. Pair it here, then archive. Or ask the chief in the chat to archive {project.name}.</p>
+        <PairBox id="archive-pair-h" />
+        <p className="row-btns"><button type="button" className="btn" onClick={cancel}>Cancel</button></p>
       </> : <>
         <p>It moves to the Archived list. The chief starts nothing in it. Restore brings it back where it was.</p>
         <Kept project={project} />
         {warnings.map(text => <p key={text} className="warn" role="note"><AlertIcon />{text}</p>)}
         {busy === project.key ? <p role="status">Archiving {project.name}. Writing to its logbook.</p>
-          : <p className="row-btns"><button type="button" className="btn primary" disabled={!!busy} onClick={() => send("archive", project)}>Archive</button><button type="button" className="btn" onClick={() => set({ asking: null, note: null })}>Cancel</button></p>}
+          : <p className="row-btns"><button type="button" className="btn primary" disabled={!!busy} onClick={() => send("archive", project)}>{failed ? "Try again" : "Archive"}</button><button type="button" className="btn" onClick={cancel}>Cancel</button></p>}
         {failed && <p className="refused" role="alert">{failed.head && <b>{failed.head} </b>}{failed.text}</p>}
       </>}
     </section>
@@ -69,13 +88,14 @@ function Confirm({ project, tasks }) {
 }
 
 function Note({ note }) {
-  const { project } = note;
+  const { project } = note, button = useRef(null);
+  useEffect(() => { button.current?.focus(); }, [note]);
   if (note.kind === "archived") return (
-    <div className="banner" role="status"><div><b>{project.name} is archived.</b> It is in the Archived list. <button type="button" className="btn" onClick={() => send("restore", project)}>Undo</button></div></div>
+    <div className="banner" role="status"><div><b>{project.name} is archived.</b> It is in the Archived list. <button type="button" className="btn" ref={button} onClick={() => send("restore", project, { undo: true })}>Undo</button></div></div>
   );
   return (
     <div className={`banner ${note.kind === "pending" ? "" : "fail"}`} role="alert"><AlertIcon />
-      <div>{note.head && <b>{note.head} </b>}{note.text}{note.again && <> <button type="button" className="btn" onClick={() => send(note.again, project)}>Try again</button></>}</div>
+      <div>{note.head && <b>{note.head} </b>}{note.text}{note.again && <> <button type="button" className="btn" ref={button} onClick={() => send(note.again, project)}>Try again</button></>}</div>
     </div>
   );
 }
@@ -95,7 +115,9 @@ function Banner({ project, projects, now }) {
 }
 
 export function ArchiveLayer({ all, current, now }) {
-  const { asking, note } = useArchive(), project = all.projects.find(item => item.key === asking);
+  const { asking, note, undone } = useArchive(), project = all.projects.find(item => item.key === asking);
+  const back = undone && all.projects.find(item => item.key === undone);
+  useEffect(() => { if (back?.welcome && !back.archived) { closeWelcome(back); set({ undone: null }); } }, [back?.welcome, back?.archived]);
   return <>
     {project && <Confirm project={project} tasks={all.tasks} />}
     {note && !(note.again === "archive" && asking) && <Note note={note} />}
@@ -105,16 +127,17 @@ export function ArchiveLayer({ all, current, now }) {
 
 export function ArchiveFoot({ project }) {
   if (!project || project.archived) return null;
-  return <p className="archive-foot"><button type="button" className="btn" onClick={() => { askArchive(project.key); scrollTo(0, 0); }}>Archive project</button> <span className="hint">Puts {project.name} away. You can restore it.</span></p>;
+  return <p className="archive-foot"><button type="button" className="btn" onClick={() => askArchive(project.key)}>Archive project</button> <span className="hint">Puts {project.name} away. You can restore it.</span></p>;
 }
 
-const closedKey = project => `${project.key} ${project.welcome}`;
+const closedKey = project => `${project.key} ${project.archives}`;
 const closedList = () => { try { return JSON.parse(localStorage.getItem(CLOSED_KEY) ?? "[]"); } catch { return []; } };
+const closeWelcome = project => { try { localStorage.setItem(CLOSED_KEY, JSON.stringify([...closedList(), closedKey(project)].slice(-20))); } catch {} };
 
 export function WelcomeBack({ project, model, now }) {
-  const [closed, setClosed] = useState(() => closedList().includes(closedKey(project)));
-  if (!project.welcome || closed) return null;
-  const close = () => { setClosed(true); try { localStorage.setItem(CLOSED_KEY, JSON.stringify([...closedList(), closedKey(project)].slice(-20))); } catch {} };
+  const [, setClosed] = useState(false), { undone } = useArchive();
+  if (!project.welcome || undone === project.key || closedList().includes(closedKey(project))) return null;
+  const close = () => { closeWelcome(project); setClosed(true); };
   const open = model.tasks.filter(task => !task.ended), prs = open.filter(task => task.pr).length, needs = model.needs.filter(need => need.project === project.key);
   return (
     <section className="card welcome" aria-labelledby="welcome-h">

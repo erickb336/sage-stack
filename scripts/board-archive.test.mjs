@@ -136,6 +136,7 @@ test("T1137: a paired browser archives and restores a shared, a Claude-only and 
     assert.ok(Date.parse(projectOf(all, name).archivedAt) > 0, "the board reads the archive date from the decisions row");
     assert.equal(projectOf(all, name).welcome, null);
     assert.deepEqual(projectOf(all, name).kept, { tasks: 1, milestones: 0, findings: 0, answers: 0 });
+    assert.equal(projectOf(all, name).archives, 1, "the board counts each archive, so each restore has its own Welcome back");
 
     const restored = await call(w.port, "/api/restore", { headers, body: { project: key } });
     assert.equal(restored.status, 200, restored.text);
@@ -183,23 +184,25 @@ test("T1137: a provider write reaches only the logbook that its checkout locates
     assert.match(done.text, /only the owner's commands|only to archive or restore/);
   }
 
+  const UNNAMED = /^This logbook does not name its checkout, so the board cannot check that the write reaches this project's own logbook\. Ask the chief in this project's own chat to archive it\.$/;
+  const OTHER = /^The checkout that this logbook names uses another logbook now, so the board does not write this one\./;
   const stray = join(claudeRoot, "stray-abc123");
   mkdirSync(stray);
   writeFileSync(join(stray, "tasks.tsv"), "id\ttitle\n");
   writeFileSync(join(stray, "checkout.txt"), `${w.checkouts.harbor}\n`);
-  assert.match(write("stray-abc123").text, /No checkout of this project is on this Mac/, "a folder whose checkout locates another logbook is refused");
+  assert.match(write("stray-abc123").text, OTHER, "a folder whose checkout locates another logbook is refused, and the refusal says so");
   assert.equal(configOf(w.dirs.harbor).archived, undefined, "the other project's logbook stays as it was");
   assert.equal(existsSync(join(stray, "config.json")), false);
 
   rmSync(join(stray, "checkout.txt"));
   symlinkSync(join(w.dirs.harbor, "checkout.txt"), join(stray, "checkout.txt"));
-  assert.match(write("stray-abc123").text, /No checkout/, "a checkout.txt that is a link is refused");
+  assert.match(write("stray-abc123").text, UNNAMED, "a checkout.txt that is a link is refused");
 
-  assert.match(write(harbor, ["config", "archived=yes"], join(w.env.CODEX_HOME, "sage")).text, /No checkout/, "the folder of a Claude logbook under the Codex root is refused");
-  assert.match(write(basename(w.dirs.lantern)).text, /No checkout/, "a shared project's folder under a provider root is refused");
+  assert.match(write(harbor, ["config", "archived=yes"], join(w.env.CODEX_HOME, "sage")).text, UNNAMED, "the folder of a Claude logbook under the Codex root is refused");
+  assert.match(write(basename(w.dirs.lantern)).text, UNNAMED, "a shared project's folder under a provider root is refused");
 
   writeFileSync(join(w.dirs.harbor, "moved.json"), "{}\n");
-  assert.match(write(harbor).text, /No checkout/, "a logbook that moved to the shared root is an old copy, and the board does not write it");
+  assert.match(write(harbor).text, OTHER, "a logbook that moved to the shared root is an old copy, and the board does not write it");
   rmSync(join(w.dirs.harbor, "moved.json"));
   assert.equal(configOf(w.dirs.harbor).archived, undefined);
 
@@ -237,7 +240,48 @@ test("T1137: a project with a Claude and a Codex logbook archives in both; when 
   writeFileSync(join(twin, "config.json"), "{}\n");
   const partial = await call(w.port, "/api/archive", { headers, body: { project: key } });
   assert.equal(partial.status, 409, partial.text);
-  assert.deepEqual([partial.json.ok, partial.json.landed, partial.json.logbooks], [false, 1, 2]);
+  assert.deepEqual([partial.json.ok, partial.json.landed, partial.json.logbooks, partial.json.failed], [false, 1, 2, ["Codex"]], "F-T1137-7: the reply names the logbook that did not save");
   assert.match(partial.json.text, /not a regular file/);
   assert.equal(configOf(twin).archived, true, "the Claude logbook landed");
+});
+
+test("F-T1137-2: a provider logbook without checkout.txt is refused with its true cause and the chat route; a checkout that is gone keeps the old text", async t => {
+  const w = await world(t), headers = await pair(w), shared = w.env.SAGE_SHARED_HOME, claudeRoot = join(w.env.CLAUDE_CONFIG_DIR, "sage"), harbor = basename(w.dirs.harbor);
+  const told = readFileSync(join(w.dirs.harbor, "checkout.txt"), "utf8");
+  rmSync(join(w.dirs.harbor, "checkout.txt"));
+  const all = await until(w, all => projectOf(all, "harbor"), "the board shows harbor"), key = projectOf(all, "harbor").key;
+  const refused = await call(w.port, "/api/archive", { headers, body: { project: key } });
+  assert.equal(refused.status, 409, refused.text);
+  assert.equal(refused.json.text, "This logbook does not name its checkout, so the board cannot check that the write reaches this project's own logbook. Ask the chief in this project's own chat to archive it.");
+  assert.doesNotMatch(refused.json.text, /No checkout of this project is on this Mac/, "the checkout is on this Mac: only the logbook does not name it");
+  assert.equal(configOf(w.dirs.harbor).archived, undefined, "the refusal stays: nothing changed");
+  assert.match(ownerWrite({ shared, folder: harbor, argv: ["config", "archived=no"], root: claudeRoot }, w.env).text, /Ask the chief in this project's own chat to restore it\.$/, "a restore names the restore");
+
+  writeFileSync(join(w.dirs.harbor, "checkout.txt"), `${join(w.base, "gone")}\n`);
+  assert.equal(ownerWrite({ shared, folder: harbor, argv: ["config", "archived=yes"], root: claudeRoot }, w.env).text,
+    "No checkout of this project is on this Mac, so the board cannot write its logbook. Ask the chief in this project's own chat to archive it.", "a checkout that is gone keeps the old text, where it is true");
+  writeFileSync(join(w.dirs.harbor, "checkout.txt"), told);
+  assert.equal((await call(w.port, "/api/archive", { headers, body: { project: key } })).status, 200, "with its checkout.txt back, the board archives harbor");
+});
+
+test("F-T1137-12: the server records no answer or other write for an archived project, and records it again after Restore", async t => {
+  const w = await world(t), headers = await pair(w);
+  claude.sage(["gate", "add", "T1", "--question", "Keep the sample format?", "--options", "keep|drop", "--recommend", "keep", "--project", w.checkouts.lantern, "--chief", "C1"], w.own);
+  let all = await until(w, all => all.needs?.some(need => need.gate === "G1" && need.digest), "the board shows G1");
+  const key = projectOf(all, "lantern").key, need = all.needs.find(item => item.gate === "G1");
+  const body = { logbook: need.logbook, gate: "G1", option: 1, digest: need.digest };
+  assert.equal((await call(w.port, "/api/archive", { headers, body: { project: key } })).status, 200);
+  await until(w, all => projectOf(all, "lantern").archived, "lantern shows archived");
+  const gates = () => readFileSync(join(w.dirs.lantern, "gates.tsv"), "utf8");
+  const before = gates();
+  for (const [job, write] of [["answer", body], ["undo", { logbook: need.logbook, gate: "G1" }], ["name", { logbook: need.logbook, chief: "C1", name: "Sample" }]]) {
+    const refused = await call(w.port, `/api/${job}`, { headers, body: write });
+    assert.equal(refused.status, 409, `${job}: ${refused.text}`);
+    assert.equal(refused.json.text, "lantern is archived, so the board records no answer or other write for it. Restore it first, or answer in the chief's chat. Nothing changed.");
+  }
+  assert.equal(gates(), before, "the answer did not reach the logbook");
+  assert.equal((await call(w.port, "/api/restore", { headers, body: { project: key } })).status, 200);
+  await until(w, all => !projectOf(all, "lantern").archived, "lantern shows restored");
+  const answered = await call(w.port, "/api/answer", { headers, body });
+  assert.equal(answered.status, 200, answered.text);
 });

@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { after, before, test } from "node:test";
 import * as claude from "../plugins/sage/skills/sage/sage.mjs";
+import { tool as codex } from "../plugins/sage-codex/skills/sage/sage.mjs";
 import { runBoardCli } from "../plugins/sage/board/cli.mjs";
 import { startLink } from "../plugins/sage/board/access.mjs";
 import { createBoardServer, loadBoardApp } from "../plugins/sage/board/server.mjs";
@@ -38,7 +39,7 @@ function repository(base, name) {
   return realpathSync(path);
 }
 
-async function openBoard(t) {
+async function openBoard(t, { viewport = { width: 1440, height: 1000 } } = {}) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-archive-browser-")));
   const saved = { ...process.env };
   const fakes = join(base, "fakes");
@@ -63,13 +64,19 @@ async function openBoard(t) {
     claude.sage(["task", "add", "--title", `Sample ${name} task`, "--size", "small", "--priority", "P2", "--project", path], inClaude);
     dirs[name] = claude.storeDir(path, inClaude);
   }
-  const sources = [{ id: "claude", label: "Claude", provider: "claude", path: inClaude.SAGE_HOME }, { id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }];
+  const meadow = repository(base, "meadow"), inCodex = { ...env, SAGE_HOME: join(env.CODEX_HOME, "sage") };
+  codex.sage(["init", "--project", meadow], inCodex);
+  codex.sage(["task", "add", "--title", "Sample meadow task", "--size", "small", "--priority", "P2", "--project", meadow], inCodex);
+  claude.sage(["init", "--project", meadow], inClaude);
+  dirs.meadow = codex.storeDir(meadow, inCodex);
+  dirs.meadowClaude = claude.storeDir(meadow, inClaude);
+  const sources = [{ id: "claude", label: "Claude", provider: "claude", path: inClaude.SAGE_HOME }, { id: "codex", label: "Codex", provider: "codex", path: inCodex.SAGE_HOME }, { id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }];
   const config = join(base, "home", ".config", "sage-board", "board.json"), port = await freePort();
   await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify(sources)], { output: () => {}, env });
   const stateDir = join(base, "home", ".config", "sage-board", "state");
   const server = createBoardServer({ sources, port, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair" });
   await server.start();
-  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, colorScheme: "dark", timezoneId: "America/New_York" });
+  const context = await browser.newContext({ viewport, colorScheme: "dark", timezoneId: "America/New_York" });
   t.after(async () => {
     await context.close(); await server.close();
     for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
@@ -92,6 +99,14 @@ async function openBoard(t) {
 }
 
 const picker = page => page.locator("header .picker");
+const focused = page => page.evaluate(() => { const at = document.activeElement; return { text: at?.textContent?.trim().slice(0, 60), inDialog: !!at?.closest("[role=dialog]"), tag: at?.tagName }; });
+const contrast = locator => locator.evaluate(element => {
+  const { color, backgroundColor } = getComputedStyle(element);
+  const lum = rgb => { const [r, g, b] = rgb.match(/[\d.]+/g).slice(0, 3).map(n => { const c = Number(n) / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+  const [a, b] = [lum(color), lum(backgroundColor)].sort((x, y) => y - x);
+  return (a + 0.05) / (b + 0.05);
+});
+const clear = (page, selector) => page.evaluate(selector => document.querySelector(selector).getBoundingClientRect().top - document.querySelector("header.top").getBoundingClientRect().bottom, selector);
 async function pick(page, name) {
   if (!await page.locator(".pick-menu").count()) await picker(page).click();
   const row = page.locator(".pick-menu .pick-row", { has: page.locator(`b:text-is("${name}")`) });
@@ -115,27 +130,48 @@ test("T1137: Archive from the picker asks first, names what the logbook keeps an
   await row.getByRole("button", { name: "Archive lantern" }).click();
   const confirm = page.getByRole("dialog", { name: "Archive lantern?" });
   await confirm.waitFor();
-  assert.match(await confirm.textContent(), /This browser cannot write to the logbook yet\..*Or ask the chief in the chat to archive lantern\./s);
+  assert.equal(await confirm.getAttribute("aria-modal"), "true", "F-T1137-6: the confirm is a modal dialog");
+  assert.deepEqual(await focused(page), { text: "Archive lantern?", inDialog: true, tag: "H2" }, "F-T1137-6: focus moves into the confirm when it opens");
+  assert.match(await confirm.textContent(), /This browser cannot write to the logbook yet\. Pair it here, then archive\. Or ask the chief in the chat to archive lantern\./);
   assert.equal(await confirm.getByRole("button", { name: "Archive", exact: true }).count(), 0, "an unpaired browser gets no Archive button");
+  for (let i = 0; i < 8; i++) {
+    await page.keyboard.press(i % 3 ? "Tab" : "Shift+Tab");
+    assert.equal((await focused(page)).inDialog, true, `F-T1137-6: Tab ${i + 1} stays inside the confirm`);
+  }
   await w.shot("t1137-confirm-unpaired");
-  await confirm.getByRole("link", { name: "Pair this browser" }).click();
-  await page.getByPlaceholder("ABCD-EFGH").fill(await w.code());
-  await page.getByRole("button", { name: "Pair", exact: true }).click();
+  await page.keyboard.press("Escape");
+  await confirm.waitFor({ state: "detached" });
+  assert.match((await focused(page)).text, /^lantern/, "F-T1137-6: Escape closes the confirm, and focus goes back to the picker that opened it");
+
+  await page.getByRole("button", { name: "Archive project" }).click();
+  await confirm.waitFor();
+  await confirm.getByPlaceholder("ABCD-EFGH").fill(await w.code());
+  await confirm.getByRole("button", { name: "Pair", exact: true }).click();
   await confirm.getByText("It moves to the Archived list.").waitFor();
+  assert.deepEqual(await focused(page), { text: "Archive lantern?", inDialog: true, tag: "H2" }, "F-T1137-6: after pairing in the confirm, focus is in its paired form");
   const text = await confirm.textContent();
   for (const part of ["2 tasks", "0 milestones", "The logbook keeps all of it.", "1 pull request stays open on GitHub. Nothing closes or merges them.", "1 question waits for you. It waits in the archive."]) assert.ok(text.includes(part), `the confirm says ${part}: ${text}`);
   assert.ok(!text.includes("agents run now"), "no agent runs, so the confirm names none");
+  const archiveButton = confirm.getByRole("button", { name: "Archive", exact: true });
+  await archiveButton.hover();
+  assert.ok(await contrast(archiveButton) >= 4.5, `F-T1137-5: the hovered primary button is readable in the dark theme (${await contrast(archiveButton)})`);
   await w.shot("t1137-confirm");
   await confirm.getByRole("button", { name: "Cancel" }).click();
   assert.equal(w.archived("lantern"), false, "Cancel writes nothing");
+  assert.equal((await focused(page)).text, "Archive project", "F-T1137-6: Cancel returns focus to the button that opened the confirm");
 
   await page.getByRole("button", { name: "Archive project" }).click();
   await confirm.getByRole("button", { name: "Archive", exact: true }).click();
   await page.getByText("lantern is archived.").waitFor();
   assert.equal(w.archived("lantern"), true);
+  assert.equal((await focused(page)).text, "Undo", "focus moves to Undo when the confirm closes");
   const banner = page.locator(".banner.archived");
   await banner.waitFor();
   assert.match(await banner.textContent(), /^Archived on (?:\w+ \d+|\d+ \w+), just now\. Nothing runs here\. The logbook is whole\./);
+  const needs = page.locator("section", { has: page.getByRole("heading", { name: "Needs you" }) });
+  const needsText = await needs.textContent();
+  for (const part of ["1 waits", "answers wait until Restore", "Restore to answer"]) assert.ok(needsText.includes(part), `F-T1137-9: the Needs you card of an archived project says ${part}: ${needsText}`);
+  assert.ok(!needsText.includes("open a question to answer it here"), "F-T1137-9: the Needs you card does not offer an answer that waits");
   await w.shot("t1137-archived");
   await page.goto(`${w.origin}/app/#tasks?project=${basename(w.dirs.lantern)}`);
   await banner.waitFor();
@@ -144,9 +180,19 @@ test("T1137: Archive from the picker asks first, names what the logbook keeps an
   await banner.waitFor({ state: "detached" });
   assert.equal(w.archived("lantern"), false, "Undo restores the project");
 
-  await page.goto(`${w.origin}/app/#?project=${basename(w.dirs.lantern)}`);
   const welcome = page.locator(".welcome");
+  await page.goto(`${w.origin}/app/#?project=${basename(w.dirs.lantern)}`);
+  await needs.waitFor();
+  assert.equal(await welcome.count(), 0, "F-T1137-3: Undo opens no Welcome back");
+  await page.reload();
+  await needs.waitFor();
+  assert.equal(await welcome.count(), 0, "F-T1137-3: Undo opens no Welcome back, also after a reload");
+
+  await page.getByRole("button", { name: "Archive project" }).click();
+  await confirm.getByRole("button", { name: "Archive", exact: true }).click();
+  await banner.getByRole("button", { name: "Restore" }).click();
   await welcome.waitFor();
+  assert.equal(w.archived("lantern"), false, "Restore restores the project");
   const words = await welcome.textContent();
   for (const part of ["Welcome back to lantern", "Where it stood", "T1 · Sample import recipes", "T2 · Sample print a recipe", "What waits for you", "Keep the old export format?",
     "1 pull request is open. Main may have moved since you archived, so it may need a merge of main and fresh checks. The chief checks this first.", "Ask the chief in the chat of lantern to go on."]) assert.ok(words.includes(part), `Welcome back says ${part}: ${words}`);
@@ -187,4 +233,43 @@ test("T1137: Archive from the picker asks first, names what the logbook keeps an
   assert.equal(w.archived("quarry"), false, "a browser paired by the chat's link restores the chat's project");
   assert.match(await fresh.locator(".welcome").textContent(), /T1 · Sample quarry task/);
   assert.deepEqual(w.problems, []);
+});
+
+test("T1137 at 390 px: the confirm and the notes clear the header; a partial archive names the logbook that did not save and tries again", async t => {
+  const w = await openBoard(t, { viewport: { width: 390, height: 844 } }), { page } = w;
+  await page.goto(`${w.origin}/app/#?project=${basename(w.dirs.meadow)}`);
+  await page.getByRole("heading", { name: "Overview", level: 1 }).waitFor();
+  await page.getByPlaceholder("ABCD-EFGH").fill(await w.code());
+  await page.getByRole("button", { name: "Pair", exact: true }).click();
+  await page.getByRole("button", { name: "Archive project" }).waitFor();
+  await page.locator("button.theme").click();
+  await page.evaluate(() => scrollTo(0, document.body.scrollHeight));
+
+  const row = await pick(page, "meadow");
+  await row.getByRole("button", { name: "Archive meadow" }).click();
+  const confirm = page.getByRole("dialog", { name: "Archive meadow?" });
+  await confirm.waitFor();
+  assert.ok(await clear(page, ".confirm") >= 0, `F-T1137-8: the header does not cover the confirm (${await clear(page, ".confirm")} px)`);
+  const archiveButton = confirm.getByRole("button", { name: "Archive", exact: true });
+  await archiveButton.hover();
+  assert.ok(await contrast(archiveButton) >= 4.5, `F-T1137-5: the hovered primary button is readable in the light theme (${await contrast(archiveButton)})`);
+
+  rmSync(join(w.dirs.meadow, "config.json"), { force: true });
+  mkdirSync(join(w.dirs.meadow, "config.json"));
+  await archiveButton.click();
+  const partial = page.locator(".banner.fail");
+  await partial.waitFor();
+  assert.match(await partial.textContent(), /^Archived in 1 of 2 logbooks\. The Codex logbook of meadow did not save\. .+ The board shows meadow as not archived until both agree\. Try again$/, "F-T1137-7: the partial note names the logbook that did not save");
+  assert.equal((await focused(page)).text, "Try again", "F-T1137-11: the partial note has Try again, with focus on it");
+  assert.ok(await clear(page, ".banner.fail") >= 0, "F-T1137-8: the header does not cover the partial note");
+  await w.shot("t1137-partial-390");
+  assert.equal(w.archived("meadowClaude"), true, "the Claude logbook of meadow landed");
+
+  rmSync(join(w.dirs.meadow, "config.json"), { recursive: true });
+  await partial.getByRole("button", { name: "Try again" }).click();
+  await page.getByText("meadow is archived.").waitFor();
+  assert.equal(w.archived("meadow"), true, "Try again archives the logbook that did not save");
+  assert.ok(await clear(page, ".banner") >= 0, `F-T1137-8: the header does not cover the Undo note (${await clear(page, ".banner")} px)`);
+  await w.shot("t1137-undo-390");
+  assert.deepEqual(w.problems.filter(problem => !/status of 409/.test(problem)), []);
 });
