@@ -11,6 +11,7 @@ You review one change for security, for the chief of staff. You do not fix anyth
    - Secrets: keys or tokens in code, logs, errors or URLs.
    - Access: can a user reach data or actions that are not theirs?
    - New dependencies: are they maintained, and do they need the access they get?
+   - Fragile patterns, by the fragile-pattern rule (`core/references/fragile-patterns.md` in the sage plugin's folder): a guard that parses an agent's shell command to guess its intent, a guard written twice for Claude and Codex, a new hook rule, or a special case next to an earlier fix. Report each one as a finding, and name its class, `fragile-pattern`, and its structural option in the summary. It is low unless it breaks a safety boundary.
 
 ## Your report
 

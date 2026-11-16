@@ -5,7 +5,7 @@ import { basename, join } from "node:path";
 export const PRIORITIES = ["P0", "P1", "P2", "P3"];
 export const PRIORITY_SCALE = "A task needs a priority: P0 the owner's current focus and what blocks it; P1 next: function or safety bugs, work in flight, pre-pilot items; P2 later: polish, hardening lows, follow-ups; P3 parked but kept.";
 export const TASK_KINDS = ["design", "ui", "orchestration", "optimization", "bug-fix", "logbook", "docs", "security", "providers", "checks"];
-export const FINDING_CLASSES = ["state-edge", "speed", "copy", "layout", "security", "other"];
+export const FINDING_CLASSES = ["state-edge", "speed", "copy", "layout", "security", "fragile-pattern", "other"];
 export const NAME_MAX = 60;
 export const TASK_ADDED = "task added";
 export function boardAnswer(gate) {
