@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { when } from "./use-model.js";
 import { UNKNOWN, chiefName, runWord } from "../../sage-core/state-words.mjs";
 import { chiefState, chiefSub, encodeKey, taskLink } from "./task.jsx";
@@ -9,12 +9,14 @@ const on = document.querySelector('meta[name="sage-writes"]')?.content === "on";
 const PAIR_COMMAND = document.querySelector('meta[name="sage-pair"]')?.content ?? "";
 const access = { writes: !on ? "off" : stored.get() ? "paired" : "unpaired" };
 const listeners = new Set();
+const useShared = (set, read) => useSyncExternalStore(fn => { set.add(fn); return () => set.delete(fn); }, read);
 const setAccess = writes => { access.writes = writes; listeners.forEach(fn => fn()); };
 addEventListener("storage", event => { if (on && (event.key === TOKEN_KEY || event.key === null)) setAccess(stored.get() ? "paired" : "unpaired"); });
 const link = /^#pair=([\w-]{1,64})$/.exec(location.hash)?.[1];
 if (link) history.replaceState(null, "", location.pathname + location.search);
-const linkNote = { outcome: link && on ? "loading" : null, listeners: new Set() };
-const setNote = (outcome, detail) => { Object.assign(linkNote, { outcome, detail }); linkNote.listeners.forEach(fn => fn()); };
+let linkNote = { outcome: link && on ? "loading" : null };
+const noteListeners = new Set();
+const setNote = (outcome, detail) => { linkNote = { outcome, detail }; noteListeners.forEach(fn => fn()); };
 if (linkNote.outcome) post("pair", { link }).then(({ json, text }) => {
   if (json.token) { stored.set(json.token); setAccess("paired"); }
   setNote(json.outcome ?? "error", json.at ?? text);
@@ -25,11 +27,7 @@ const clocks = text => String(text).replace(/\b\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d
 export const chiefOf = (chiefs, logbook, id) => chiefs.find(chief => chief.logbook === logbook && chief.id === id) ?? null;
 export const chiefLabel = (chiefs, logbook, id) => { const chief = chiefOf(chiefs, logbook, id); return chief ? `${chiefName(chief.id, chief.provider)} · ${chiefSub(chief)}` : id ?? "the chief"; };
 
-export function useAccess() {
-  const [state, setState] = useState(access.writes);
-  useEffect(() => { const changed = () => setState(access.writes); listeners.add(changed); return () => listeners.delete(changed); }, []);
-  return state;
-}
+export const useAccess = () => useShared(listeners, () => access.writes);
 
 export async function post(path, body) {
   try {
@@ -55,9 +53,7 @@ const NOTES = {
   error: ["refused", text => `The board could not pair this browser: ${text}`],
 };
 export function PairNote() {
-  const [, render] = useState(0), [unpaired, setUnpaired] = useState(null);
-  useEffect(() => { const changed = () => render(n => n + 1); linkNote.listeners.add(changed); return () => linkNote.listeners.delete(changed); }, []);
-  const { outcome, detail } = linkNote;
+  const [unpaired, setUnpaired] = useState(null), { outcome, detail } = useShared(noteListeners, () => linkNote);
   if (!outcome) return null;
   const [kind, text] = NOTES[outcome] ?? NOTES.error;
   const unpair = async () => { const result = await post("unpair", {}); if (result.ok) { stored.set(""); setAccess("unpaired"); } setUnpaired(result); };
@@ -109,11 +105,7 @@ document.addEventListener("visibilitychange", () => {
   clearTimeout(timer);
   if (away) { seen.previous = keep("sessionStorage", away); away = null; seen.listeners.forEach(fn => fn()); }
 });
-export function useSeen() {
-  const [previous, setPrevious] = useState(seen.previous || null);
-  useEffect(() => { const changed = () => setPrevious(seen.previous || null); seen.listeners.add(changed); return () => seen.listeners.delete(changed); }, []);
-  return previous;
-}
+export const useSeen = () => useShared(seen.listeners, () => seen.previous || null);
 
 const dot = chief => chief.stopped ? "stopped" : chief.waitsForOwner ? "waits" : chief.stopped === false ? "live" : "unknown";
 const STATE = { live: chiefState("live"), stopped: chiefState("stopped"), waits: chiefState("waits"), unknown: UNKNOWN };
