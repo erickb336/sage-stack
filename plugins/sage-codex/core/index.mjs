@@ -22,6 +22,7 @@ export { askingRun, commitIdentity, FINDING_CLASSES, PRIORITIES, PRIORITY_SCALE,
 export { readActions, readBoardSources, readHookNotes } from "./board-reader.mjs";
 export { AGENT_QUIET_MS, buildBoardModel } from "./board-model.mjs";
 export { boardOverview, taskPanel } from "./board-overview.mjs";
+export { boardStats } from "./board-stats.mjs";
 export { chiefName, prName, runWord, taskWord, milestoneWord, releaseWord } from "./state-words.mjs";
 export { renderBoardText, renderTaskText, renderBoardStatus } from "./board-render.mjs";
 export { boardProjectKey, boardView, landingRule } from "./board-view.mjs";

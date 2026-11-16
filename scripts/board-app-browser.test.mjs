@@ -108,14 +108,14 @@ test("T1054: text and controls meet AA contrast in the dark and the light theme,
 test("T1054: the keyboard reaches each page link and the theme switch in order, with a visible focus ring", async t => {
   const { page } = await open(t);
   const reached = [];
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 9; i++) {
     await page.keyboard.press("Tab");
     reached.push(await page.evaluate(() => {
       const element = document.activeElement, style = getComputedStyle(element);
       return { name: element.getAttribute("aria-label") ?? element.textContent.trim(), ring: `${style.outlineStyle} ${style.outlineWidth}` };
     }));
   }
-  assert.deepEqual(reached.map(item => item.name), ["Overview2", "Tasks6", "Agents1", "Pull requests1", "sample-app ▾", "Agents 1 of 10 · no chief 1", "Leads 0 of 5", "Switch to the light theme"]);
+  assert.deepEqual(reached.map(item => item.name), ["Overview2", "Tasks6", "Agents1", "Pull requests1", "Stats", "sample-app ▾", "Agents 1 of 10 · no chief 1", "Leads 0 of 5", "Switch to the light theme"]);
   for (const item of reached) assert.equal(item.ring, "solid 2px", item.name);
   await page.keyboard.press("Enter");
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), "light", "Enter on the theme switch flips it");
@@ -287,4 +287,29 @@ test("T1135 F-T1135-6: Esc closes the project picker and the signal, and the foc
     assert.equal(await page.locator(".pick-menu").count(), 0);
     assert.equal(await button.evaluate(element => element === document.activeElement), true, await button.textContent());
   }
+});
+
+test("T1138: Stats in the left column shows all projects or one, with a table for each chart, in AA contrast, and changes no other page", async t => {
+  const { page, problems } = await open(t, { edit: fourProjects });
+  await page.locator(".nav a", { hasText: "Stats" }).click();
+  await page.locator(".chart").first().waitFor();
+  const pick = page.getByLabel("Show");
+  assert.deepEqual(await pick.locator("option").allTextContents(), ["All projects", "garden-log", "sample-app", "old-notes", "put-away (archived)"], "every project in the picker's order, archived ones marked");
+  const tiles = async () => Object.fromEntries((await page.locator(".stat-tiles .kpi").evaluateAll(items => items.map(item => [item.querySelector(".l").textContent, item.querySelector(".n").textContent]))));
+  const all = await tiles();
+  assert.equal(all["open tasks"], "19", "6 open tasks in each of 3 copies of the sample, and 1 in old-notes");
+  assert.deepEqual([all["money spent"], all["your own time"]], ["not recorded yet", "not recorded yet"]);
+  assert.equal(await page.locator(".chart").count(), 8);
+  assert.match(await page.locator("table.sr").first().textContent(), /^Merged pull requests per week\. .*week of /, "a screen reader gets each chart as a table");
+  await pick.selectOption({ label: "old-notes" });
+  await until(() => hash(page).then(text => new URLSearchParams(text.split("?")[1]).get("show")), "old-notes-bbbbbb");
+  await until(() => tiles().then(item => item["open tasks"]), "1");
+  assert.equal(await page.locator(".chart").count(), 5, "one project has no by-project charts");
+  for (const theme of ["dark", "light"]) {
+    if (theme === "light") await page.getByRole("button", { name: "Switch to the light theme" }).click();
+    assert.deepEqual((await page.evaluate(measureContrast)).filter(item => item.ratio < item.need), [], `${theme}: every text meets AA`);
+  }
+  await page.locator(".nav a", { hasText: "Tasks" }).click();
+  await until(() => page.locator(".stat-tiles").count(), 0);
+  assert.deepEqual(problems, []);
 });

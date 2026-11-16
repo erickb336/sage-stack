@@ -85,7 +85,7 @@ The board in the browser answers seven questions. Each answer is at most two cli
 
 ## One project at a time
 
-Each page of the board in the browser shows one project: the Overview, Tasks, Agents and Pull requests. No page mixes the rows of two projects, and there is no view of all projects.
+Each page of the board in the browser shows one project: the Overview, Tasks, Agents and Pull requests. No page mixes the rows of two projects. Only [Stats](#stats) counts all projects, and it shows numbers and charts, never a task list.
 
 - **The project that opens:** the link from `show board` names the project of that chat, so the board opens on it, in Claude and in Codex. A chat in a subfolder or a linked worktree of the checkout opens the same project, and the link from `show board for sage-bot` opens `sage-bot`, as the chat board does.
 - **No project in the link:** after `show board for all`, or from a folder of no project, the board opens on the project that you looked at last in this browser. A name in the address that the board does not show opens that last project too, with a short notice that names it.
@@ -203,6 +203,30 @@ The page reads files only: the logbooks, the hook's agent slots and helper notes
 The Pull requests page (`/app/#pull-requests`) groups the tasks with a PR by the next action: Needs you, Building, In review, Repairing, Ready to merge, Waiting for another task, and Merged recently (the last 7 days). Each row shows the PR number (a link to GitHub when the logbook names the repository), the title, the chief tag, the milestone, "may conflict", the clean cycles, the CI state from the ledger ("CI passes", "CI fails" or "CI not known") and the open findings ("1 open · medium"). The board never asks GitHub.
 
 **Graph** draws each PR and each task that waits for another one in columns: an arrow from A to B means that B waits for A. A dashed link joins two tasks that may conflict, and a loop of waits shows one link that goes back, marked "loop". The page keeps the List or Graph choice in this browser.
+
+## Stats
+
+Stats (`/app/#stats`) is the last link in the left column. It shows numbers and charts from the logbooks on this Mac, and never a task list.
+
+The **Show** list at the top picks **All projects** (the default) or one project; archived projects count too, with the mark "(archived)". The address keeps the choice, for example `/app/#stats?show=sage-43265b`.
+
+| Number | What it counts |
+| --- | --- |
+| Pull requests merged | Tasks merged in the last 8 weeks, per week (weeks start on Monday, UTC), and by project. |
+| Open tasks | Open tasks now, by their state word: not started, waiting, needs you, in progress. |
+| Need you | Questions and merges that wait for you now, by project; the same count as the picker. |
+| Agent time | Hours from the start to the end of each ended run, per week and by project. A run that still runs does not count yet. |
+| Tokens | The token counts of the runs, per week and by project. A run with no count is left out, and the tile says how many. |
+| Repair rounds | The repair rounds of each pull request merged in the last 8 weeks: 0, 1, 2, 3 or more, and the median. |
+| Money spent, your own time | "not recorded yet": the logbooks do not keep them, so Stats does not guess them. |
+
+Each chart has a table with the same numbers for a screen reader, and a bar shows its number when you point at it.
+
+- **Loading:** Stats says how many logbooks it reads.
+- **Empty:** with no task in any logbook, it says "No numbers yet".
+- **Part failed:** when a logbook cannot be read, a banner names it, and the numbers count the other logbooks.
+
+The board reads Stats from the logbooks when the page asks for it, not on each live update.
 
 ## The question view and the reader
 

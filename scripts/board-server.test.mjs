@@ -1,7 +1,7 @@
 import "./test-env.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import fs, { appendFileSync, linkSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import fs, { appendFileSync, chmodSync, linkSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { request } from "node:http";
 import { createServer } from "node:net";
@@ -526,4 +526,23 @@ test("T1100: GET /api/actions/R<n> gives a known run's last 20 actions, and refu
   const hard = await get(url("R1")); assert.equal(hard.status, 403, "a hard link to a file outside the logbook"); assert.doesNotMatch(hard.body, /sample-99/);
   rmSync(join(f.project, "actions"), { recursive: true }); symlinkSync(outside, join(f.project, "actions"));
   const folder = await get(url("R1")); assert.equal(folder.status, 403, "a linked actions folder"); assert.doesNotMatch(folder.body, /sample-99/);
+});
+
+test("T1138: GET /app/stats gives the numbers of all projects or of one, names a logbook that it cannot read, and refuses other queries", async t => {
+  const f = await fixture(t, { before: project => writeFileSync(join(project, "runs.tsv"), `${HEADERS.runs.replaceAll(" ", "\t")}\nR1\tT1\timplementer\t0\t\t\tdone\t5000\t\t2020-01-01T00:00:00Z\t${new Date().toISOString()}\n`) });
+  const get = async path => { const reply = await read(f, path); return { ...reply, json: reply.status === 200 ? JSON.parse(reply.body) : null }; };
+  const all = await get("/app/stats");
+  assert.equal(all.status, 200); assert.match(all.headers["content-type"], /^application\/json/);
+  assert.deepEqual([all.json.project, all.json.total.open, all.json.total.tokens, all.json.total.runs, all.json.gaps], [null, 1, 5000, 1, []]);
+  const one = await get("/app/stats?project=project-abcdef");
+  assert.deepEqual([one.status, one.json.project, one.json.projects.map(row => row.key)], [200, "project-abcdef", ["project-abcdef"]]);
+  for (const [path, status] of [["/app/stats?project=other-abcdef", 404], ["/app/stats?project=", 404], ["/app/stats?project=a&project=b", 400], ["/app/stats?logbook=x", 400]]) assert.equal((await get(path)).status, status, path);
+  assert.equal((await read(f, "/app/stats", { rawHeaders: ["Host", "attacker.test"] })).status, 403);
+  assert.equal((await read(f, "/app/stats", { method: "POST" })).status, 405);
+  chmodSync(join(f.project, "runs.tsv"), 0);
+  appendFileSync(join(f.project, "tasks.tsv"), row("Sample new task", "T3"));
+  let gaps = [];
+  for (let i = 0; i < 100 && !gaps.length; i++) { await new Promise(done => setTimeout(done, 100)); gaps = (await get("/app/stats")).json.gaps; }
+  assert.deepEqual(gaps, [{ project: "project-abcdef", what: "the Sample source logbook of project-abcdef" }], "the stats read the new logbook, not the board's last good copy");
+  assert.equal((await get("/app/stats")).json.total.open, 2, "the rest still counts, with the new task");
 });
