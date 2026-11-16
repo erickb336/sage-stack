@@ -51,7 +51,7 @@ const switchOnly = (bytes) => {
   return text.includes(SWITCH_SCRIPT) && !/^(?:\xfe\xff|\xff\xfe)/.test(text) && !/http-equiv|srcdoc/i.test(text.replaceAll(OWN_TAG, ""));
 };
 
-function listPages(folder) {
+export function listPages(folder) {
   const pages = [];
   let seen = 0, more = false;
   for (const queue = [""]; queue.length && !more;) {
@@ -127,6 +127,15 @@ function keptReport(file) {
   try { const stat = lstatSync(file); return stat.isFile() && stat.size <= KEPT_FILE_MAX ? JSON.parse(readFileSync(file, "utf8")) : null; } catch { return null; }
 }
 const RUN = /(?:^|[^a-z0-9])(r[1-9]\d*)(?![0-9])/gi;
+const resultOf = data => fieldsOf(data.text, REPORT_FIELDS).find(item => item.name === "RESULT")?.rest.slice(0, 300) || null;
+
+export function failureOf({ dir, task, run }) {
+  if (run.failure) return { text: String(run.failure).slice(0, 300), from: "failure" };
+  const data = dir && /^R[1-9]\d*$/.test(run.id) ? keptReport(join(dir, "kept", `${run.id}.json`)) : null, result = data?.task === task.id && data.run === run.id && typeof data.text === "string" ? resultOf(data) : null;
+  if (result) return { text: result, from: "report" };
+  const decision = (task.decisionRows ?? []).findLast(row => String(row.decision ?? "").startsWith(`${run.id} failed: `))?.decision.slice(`${run.id} failed: `.length);
+  return decision ? { text: decision.slice(0, 300), from: "decision" } : null;
+}
 
 export function taskFiles({ dir, logbook, task, runs }) {
   const folder = pageTaskFolder(logbook, task), ids = new Set(runs.map(run => run.id));

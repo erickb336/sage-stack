@@ -5,7 +5,8 @@ import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AGENT_QUIET_MS, readActions, readHookNotes, readBoardSources, buildBoardModel, boardOverview, taskPanel, landingRule, pageTaskFolder, BOARD_PORT } from "../sage-core/index.mjs";
 import { COOKIE, boardAccess, readJson } from "./access.mjs";
-import { pagesRequest, servePages, taskFiles } from "./pages.mjs";
+import { gateMaterial } from "./material.mjs";
+import { failureOf, pagesRequest, servePages, taskFiles } from "./pages.mjs";
 import { briefAbout, designSummary, logbookDir, readerPage, recordedPages } from "./reader.mjs";
 import { writeInWorker, writesEnded } from "./writes.mjs";
 
@@ -68,7 +69,7 @@ export function loadBoardApp(dir = APP_DIR) {
 }
 
 function appPolicy(origin) {
-  return `default-src 'none'; script-src ${origin}/app/; style-src ${origin}/app/; connect-src 'self'; img-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'`;
+  return `default-src 'none'; script-src ${origin}/app/; style-src ${origin}/app/; connect-src 'self'; img-src 'self'; frame-src ${origin}/read/ ${origin}/pages/; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'`;
 }
 
 const forwarded = name => name === "forwarded" || name.startsWith("x-forwarded-");
@@ -311,6 +312,10 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     else if (!next.diagnostics.length) model = lastGood ? { ...lastGood, stale: false, changing: changing.map(item => ({ project: item.project, at: lastGood.at })) } : { ...next, stale: false };
     else model = { ...(lastGood ?? next), stale: true, diagnostics: next.diagnostics, changing };
     overview = boardOverview(model);
+    for (const book of overview.agents) for (const run of book.runs) if (run.status === "failed") {
+      const task = model.tasks.find(item => item.key === run.task.key), row = task?.runs.find(item => item.id === run.id);
+      if (row) run.why = failureOf({ dir: logbookDir(configured, task), task, run: row })?.text ?? null;
+    }
     const known = activity;
     activity = new Map();
     for (const row of agentRows(model)) if (row.logbook && row.runId) {
@@ -400,7 +405,8 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     return { key, id, logbook, task: { key: task.key, id: task.id, title: task.title }, project: task.projectName, question: String(gate.question ?? ""), options: String(gate.options ?? "").split("|").map(option => option.trim()).filter(Boolean),
       recommendation: gate.recommendation || null, default: gate.default || null, at: gate.at || null, answer: gate.answer || null, answered: answered && { at: String(answered.at ?? ""), via: String(answered.via ?? ""), answer: answered.answer == null ? null : String(answered.answer) },
       picked: picked && { at: String(picked.at ?? ""), chief: String(picked.chief ?? "") }, digest: need?.digest ?? null, owner: (gate.kind === "replace" && gate.chief) || task.owner?.id || gate.chief || null, takeover: gate.kind === "replace", text: need?.text ?? null,
-      message: kept?.message?.kind === "question" ? kept.message : null };
+      message: kept?.message?.kind === "question" ? kept.message : null, run: /^R[1-9]\d*$/.test(gate.run ?? "") ? gate.run : null,
+      material: gateMaterial({ model, task, gate, message: kept?.message?.kind === "question" ? kept.message : null }) };
   }
 
   function serveApp(request, response, fail) {
@@ -423,7 +429,8 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
         if (!panel) return fail(404, "This task is not on the board.");
         const task = model.tasks.find(item => item.key === key), dir = logbookDir(configured, task);
         const files = { ...taskFiles({ dir, logbook: panel.logbook, task: task.id, runs: panel.runs }), designs: designSummary(panel.logbook, task.id), recorded: recordedPages(task, pageTaskFolder(panel.logbook, task.id)) };
-        const body = Buffer.from(JSON.stringify({ ...panel, files, brief: briefAbout(dir, task, panel.runs) }));
+        const runs = panel.runs.map(run => run.status === "failed" ? { ...run, failure: failureOf({ dir, task, run: task.runs.find(item => item.id === run.id) }) } : run);
+        const body = Buffer.from(JSON.stringify({ ...panel, runs, files, brief: briefAbout(dir, task, panel.runs) }));
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Content-Length": body.length });
         return response.end(request.method === "HEAD" ? undefined : body);
       } catch { return fail(503, "The board snapshot is unavailable."); }

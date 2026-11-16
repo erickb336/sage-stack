@@ -17,6 +17,8 @@ function dedent(text) {
   return [first.trim(), ...rest.map(line => line.slice(Number.isFinite(indent) ? indent : 0))].join("\n").trim();
 }
 const firstLine = text => String(text ?? "").trim().split(/\r?\n/)[0] ?? "";
+export const headingId = text => `h-${String(text).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "part"}`;
+const questionHref = (task, gate) => `/app/#question?key=${encodeURIComponent(`${task.project}/${gate}`)}`;
 
 export function readBrief(dir, taskId, run) {
   const codex = /^[a-z-]+$/.test(run.role) ? `sage_${run.role.replaceAll("-", "_")}_${taskId.toLowerCase()}_${run.id.toLowerCase()}.json` : null;
@@ -117,17 +119,17 @@ export function parseReaderUrl(url) {
   if (kind === "page" && !(/^[\w./-]+$/.test(arg ?? "") && /\.md$/.test(arg) && pageType(arg))) return null;
   const params = new URLSearchParams(query), pick = (name, test) => test.test(params.get(name) ?? "") ? params.get(name) : null;
   return { key, kind, arg, theme: pick("theme", /^light$/) ?? "dark", back: pick("back", /^q-G[1-9]\d*$/) ?? "tasks",
-    open: pick("open", /^(?:all|none)$/), view: pick("view", /^compare$/) ?? "today", v: pick("v", NAME), a: pick("a", NAME), b: pick("b", NAME) };
+    open: pick("open", /^(?:all|none)$/), view: pick("view", /^compare$/) ?? "today", v: pick("v", NAME), a: pick("a", NAME), b: pick("b", NAME), in: pick("in", /^board$/) };
 }
 
 export function readerUrl(key, kind, arg, view = {}) {
   const params = new URLSearchParams();
-  for (const name of ["theme", "back", "open", "view", "v", "a", "b"]) if (view[name] && !(name === "theme" && view[name] === "dark") && !(name === "back" && view[name] === "tasks") && !(name === "view" && view[name] === "today")) params.set(name, view[name]);
+  for (const name of ["theme", "back", "open", "view", "v", "a", "b", "in"]) if (view[name] && !(name === "theme" && view[name] === "dark") && !(name === "back" && view[name] === "tasks") && !(name === "view" && view[name] === "today")) params.set(name, view[name]);
   const query = params.toString();
   return `/read/${b64(key)}/${kind}${arg ? `/${arg}` : ""}${query ? `?${query}` : ""}`;
 }
 
-function designVersions(folder) {
+export function designVersions(folder) {
   const root = folder && join(folder, "designs");
   return folderNames(root).filter(name => NAME.test(name) && !name.startsWith(".")).slice(0, VERSIONS_MAX).flatMap(name => {
     const dir = join(root, name);
@@ -202,22 +204,24 @@ details{border:1px solid var(--line);border-radius:12px;background:var(--card);m
 table.scores{border-collapse:collapse;width:100%;margin:0 0 24px}.scores th,.scores td{border-bottom:1px solid var(--line);padding:8px 10px;text-align:left}.scores svg{width:60px;height:6px;margin-right:8px;vertical-align:middle}.scores .t{fill:var(--line-2)}.scores .v{fill:var(--accent)}
 h2.sec{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:22px 0 10px}.answer{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:14px 18px;margin:0 0 12px}.answer.pick{border-color:var(--accent)}.answer dl{margin:8px 0 0}.answer dt{font-weight:600;margin:8px 0 2px}.answer dd{margin:0}h3.sub{font-size:15px;font-weight:600;margin:18px 0 10px}
 .skel{border:1px solid var(--line);border-radius:12px;padding:24px;display:grid;gap:18px}.skel i{display:block;height:28px;border-radius:8px;background:var(--line)}.skel i:nth-child(3n){height:120px}.skel:has(~ .ready){display:none}
-.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+.inb main{max-width:none;padding:14px 18px 32px}.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}@media (prefers-reduced-motion:reduce){*{transition:none!important}}
 @media (max-width:720px){main{padding:16px 16px 48px}.top{height:auto;min-height:52px;flex-wrap:wrap;padding:8px 16px}.cols,.doc,.pair{grid-template-columns:minmax(0,1fr)}summary{flex-wrap:wrap;gap:2px 12px}.fname{min-width:0}.body{padding:0 16px 14px}pre.md{overflow-x:auto}}`;
 const STYLE_HASH = `'sha256-${createHash("sha256").update(CSS).digest("base64")}'`;
 
-export function readerPolicy(origin, logbook, taskId) {
+export function readerPolicy(origin, logbook, taskId, framed = false) {
   const pictures = origin && logbook && taskId ? `${origin}/pages/${logbook}/${taskId}/` : "'none'";
-  return `sandbox allow-same-origin; default-src 'none'; script-src 'none'; style-src ${STYLE_HASH}; img-src ${pictures}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+  return `sandbox allow-same-origin; default-src 'none'; script-src 'none'; style-src ${STYLE_HASH}; img-src ${pictures}; base-uri 'none'; form-action 'none'; frame-ancestors ${framed ? "'self'" : "'none'"}`;
 }
 
 function frame(view, { project, title, crumb, back, file, state }) {
   const flip = { ...view, theme: view.theme === "light" ? "dark" : "light" };
-  return `<!doctype html><html lang="en" data-theme="${view.theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>${esc(title)} · sage board</title><style>${CSS}</style></head><body>
-<header class="top"><a href="/app/">sage board</a><span aria-hidden="true">/</span><span>${esc(project)}</span><span aria-hidden="true">/</span><b>${esc(crumb)}</b><span class="grow"></span><span>${esc(state)}</span><a class="btn" href="${esc(readerUrl(view.key, view.kind, view.arg, flip))}">Switch to the ${flip.theme} theme</a></header>
-<main><nav class="where" aria-label="Where"><a class="back" href="${esc(back.href)}">&#8592; ${esc(back.text)}</a><span>${esc(back.where)}</span><span class="grow"></span>${file ?? ""}</nav>
+  return `<!doctype html><html lang="en" data-theme="${view.theme}"${view.in ? ' class="inb"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>${esc(title)} · sage board</title><style>${CSS}</style></head><body>
+${view.in ? "" : `<header class="top"><a href="/app/">sage board</a><span aria-hidden="true">/</span><span>${esc(project)}</span><span aria-hidden="true">/</span><b>${esc(crumb)}</b><span class="grow"></span><span>${esc(state)}</span><a class="btn" href="${esc(readerUrl(view.key, view.kind, view.arg, flip))}">Switch to the ${flip.theme} theme</a></header>
+`}<main><nav class="where" aria-label="Where">${view.in ? "" : `<a class="back" href="${esc(back.href)}">&#8592; ${esc(back.text)}</a><span>${esc(back.where)}</span>`}<span class="grow"></span>${file ?? ""}</nav>
 <div class="skel" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>`;
 }
+const linksOut = html => html.replace(/<a\b([^>]*?) href="([^"]*)"/g, (all, attrs, href) => href.startsWith("#") || href.includes("in=board") ? all
+  : `<a${attrs} ${/^https:/i.test(href) ? 'target="_blank" rel="noopener noreferrer"' : 'target="_top"'} href="${href}"`);
 
 const END = "</main></body></html>\n";
 const facts = items => `<dl class="facts">${items.filter(Boolean).map(([name, value]) => `<div><dt>${esc(name)}</dt><dd>${value}</dd></div>`).join("")}</dl>`;
@@ -234,7 +238,7 @@ export function readerPage({ model, configured, url, origin, render }) {
   const back = question ? { href: readerUrl(view.key, "question", question, { theme: view.theme }), text: `Back to ${question}`, where: `Overview / Needs you / ${question}` }
     : view.kind === "question" ? { href: "/app/#", text: "Back to Needs you", where: `Overview / Needs you / ${view.arg}` }
     : { href: `/app/#task?key=${encodeURIComponent(view.key)}`, text: `Back to ${task.id}`, where: `${task.id} · ${task.title} / Artifacts` };
-  const link = (kind, arg, extra = {}) => readerUrl(view.key, kind, arg, { theme: view.theme, back: view.back, ...extra });
+  const link = (kind, arg, extra = {}) => readerUrl(view.key, kind, arg, { theme: view.theme, back: view.back, ...(view.in && kind === view.kind && arg === view.arg && { in: view.in }), ...extra });
   const staleNote = model.stale ? note(`<b>The board cannot read the logbook now.</b> This is the copy that it read at ${esc(when(model.at, model.at))}.`, "fail") : "";
   const state = model.stale ? `Not updated since ${when(model.at, model.at)}` : `Read ${when(model.at, model.at)} · reload to read again`;
   const run = RUN.test(view.arg ?? "") ? task.runs.find(item => item.id === view.arg) : null;
@@ -290,6 +294,7 @@ export function readerPage({ model, configured, url, origin, render }) {
         if (text === undefined && folder && pageFile(folder, `${run.id}-report.md`)) { text = pageFile(folder, `${run.id}-report.md`, true).bytes.toString("utf8"); from = `<a href="${esc(pagesBase)}${esc(run.id)}-report.md">Open the file</a>`; }
         if (text === undefined && dir) { const kept = readJson(join(dir, "kept", `${run.id}.json`)); if (kept?.task === task.id && kept.run === run.id && typeof kept.text === "string") { text = kept.text; from = `kept/${run.id}.json in the logbook (a review's kept report)`; } }
       } catch (error) { problem = whyUnread(error); }
+      const became = (task.gateRows ?? []).filter(gate => gate.run === run.id).map(gate => note(`<b>This became ${esc(gate.id)}.</b> The run asked it in its QUESTIONS field: ${esc(firstLine(gate.question))} <a href="${esc(questionHref(task, gate.id))}">Open ${esc(gate.id)}</a>`, gate.answer ? "" : "need")).join("");
       const ran = run.ended ? `${when(run.started, model.at)}–${when(run.ended, model.at)}` : `${when(run.started, model.at)}–`;
       const fields = text === undefined ? [] : fieldsOf(text, REPORT_FIELDS), of = name => { const item = fields.find(entry => entry.name === name); return item ? dedent([item.rest, ...item.lines].join("\n")) : ""; };
       const status = /^(done|blocked|question)\b/i.exec(of("STATUS"))?.[1].toLowerCase() ?? null;
@@ -298,13 +303,13 @@ export function readerPage({ model, configured, url, origin, render }) {
       if (problem) return { crumb: run.id, title: `Report of ${run.id}`, head, body: note(`<b>The board cannot read this report.</b> ${esc(problem)}`, "fail") };
       if (text === undefined) return run.status === "running"
         ? { crumb: run.id, title: `Report of ${run.id}`, head, body: note(`<b>Not written yet.</b> ${esc(run.role)} ${esc(run.id)} runs (${minutes(run.started, model.at)} min). The board shows the report when the run ends; reload this page then.`, "need") }
-        : { crumb: run.id, title: `Report of ${run.id}`, head, body: note(`<b>Not kept.</b> The logbook keeps no report of ${esc(run.id)}. sage keeps reports only for newer runs and for reviews; this run is older, or its report was not kept.`) };
+        : { crumb: run.id, title: `Report of ${run.id}`, head, body: became + note(`<b>Not kept.</b> The logbook keeps no report of ${esc(run.id)}. sage keeps reports only for newer runs and for reviews; this run is older, or its report was not kept.`) };
       const result = of("RESULT"), findings = readReport(text).findings;
       const runRows = (task.findings ?? []).filter(entry => entry.run === run.id || String(entry.key).startsWith(`${run.id}-`));
       const stateOf = row => row.movedTo ? `moved to ${row.movedTo}` : row.status || row.triage || "";
       const lead = firstLine(result);
       const findingRows = findings.map(item => `<div class="finding"><span><span class="pill ${item.severity}">${item.severity}</span></span><span class="mono">${esc(item.key)}</span><span>${esc(item.summary)}</span>${item.details.length ? `<span class="det">${esc(item.details.join("\n"))}</span>` : ""}</div>`).join("");
-      const body = `<section class="result" aria-label="RESULT"><span class="fname">RESULT</span><p class="lead">${esc(lead || "No RESULT")}</p><div class="md">${markdown(result.split(/\r?\n/).slice(1).join("\n")).html}</div></section>${openBar}${
+      const body = `${became}<section class="result" aria-label="RESULT"><span class="fname">RESULT</span><p class="lead">${esc(lead || "No RESULT")}</p><div class="md">${markdown(result.split(/\r?\n/).slice(1).join("\n")).html}</div></section>${openBar}${
         findings.length ? `<details${view.open !== "none" ? " open" : ""}><summary><span class="fname">FINDINGS</span><span class="first">${findings.length} ${findings.length === 1 ? "finding" : "findings"}</span></summary><div class="body">${findingRows}</div></details>` : field("FINDINGS", of("FINDINGS"), view.open !== "none")}<h2 class="sec">In the logbook</h2>${runRows.length
           ? `<p class="muted">The logbook's own record of these findings, with their states:</p><table class="scores"><thead><tr><th scope="col">Finding</th><th scope="col">Severity</th><th scope="col">Summary</th><th scope="col">State</th></tr></thead><tbody>${runRows.map(row => `<tr><td class="mono">${esc(row.key)}</td><td>${esc(row.severity || "not recorded")}</td><td>${esc(row.summary || "not recorded")}</td><td>${esc(stateOf(row) || "not recorded")}</td></tr>`).join("")}</tbody></table>`
           : `<p class="muted">The logbook has no finding of ${esc(run.id)}.</p>`}${
@@ -410,7 +415,8 @@ ${decisions.length ? decisions.map(gate => `<div class="decision"><p><b>${esc(ga
         return `${batch ? "" : `<h2 class="sec">Answers</h2>`}${muted(table?.caption)}${ordered.map((row, i) => `<section class="answer${i === 0 && pickIndex >= 0 ? " pick" : ""}"><h3>${text(String(row[0]))}${i === 0 && pickIndex >= 0 ? ` <span class="pill grafted">${esc(ownerId)}'s pick</span>` : ""}${gate.answer && same(row[0], gate.answer) ? ` <span class="pill done">Your answer</span>` : ""}</h3>${row.length > 1 ? `<dl>${row.slice(1).map((cell, k) => `<dt>${text(table.head[k + 1])}</dt><dd>${text(cell)}</dd>`).join("")}</dl>` : ""}</section>`).join("")}`;
       };
       const readMore = [`<li>${taskA(`Task ${task.id}`)} · ${esc(task.title)}</li>`, ...pagesOf.filter(block => typeof block.file === "string").map(block => {
-        const where = block.task === task.id && pageType(block.file) ? (block.file.endsWith(".md") ? link("page", block.file, { back: `q-${gate.id}` }) : pagesBase + block.file) : null;
+        const owner = (block.task ?? task.id) === task.id ? task : model.tasks.find(item => item.project === task.project && item.id === block.task), at = typeof block.part === "string" ? `#${headingId(block.part)}` : "";
+        const where = owner && pageType(block.file) ? (block.file.endsWith(".md") ? (owner === task ? link("page", block.file, { back: `q-${gate.id}` }) : readerUrl(owner.key, "page", block.file, { theme: view.theme })) + at : `/pages/${panel.logbook}/${owner.id}/${block.file}`) : null;
         return `<li>${where ? `<a href="${esc(where)}">${text(block.title)}</a>` : `${text(block.title)} <span class="faint">(in ${text(block.task)}'s pages folder)</span>`}</li>`;
       })];
       const summary = designSummary(panel.logbook, task.id);
@@ -418,15 +424,15 @@ ${decisions.length ? decisions.map(gate => `<div class="decision"><p><b>${esc(ga
       const status = gate.answer ? note(`<b>Answered: ${esc(gate.answer)}.</b> The first answer wins; to change it, tell the chief in its chat.`) : "";
       const head = `<p class="muted">${esc(owner)} · <span class="mono">${esc(gate.id)}</span> · asked ${esc(when(gate.at, model.at) + ago(gate.at, model.at))} · ${taskLink} · ${esc(task.title)}</p>`;
       const body = `${status}${message ? "" : note(`<b>Not kept.</b> The logbook keeps no full message of ${esc(gate.id)} (sage keeps the full message only for newer questions that the chief asks with a message). The board shows its question and options only.`)}
-${blocks.map(render).join("")}<h2 class="sec">Links</h2><ul>${readMore.join("")}</ul>${gate.answer ? "" : note(`This page only reads. Answer in ${esc(ownerId)}'s chat.`)}`;
+${blocks.map(render).join("")}<h2 class="sec">Links</h2><ul>${readMore.join("")}</ul>${gate.answer ? "" : note(`<b>Answer on the board or in the chat.</b> The first answer wins. <a class="btn" href="${esc(questionHref(task, gate.id))}">Answer on the board</a>`)}`;
       return { crumb: gate.id, title: message?.title ?? firstLine(gate.question), head, body, raw: true };
     },
   };
 
   const page = pages[view.kind]();
-  const policy = readerPolicy(origin, panel.logbook, task.id);
+  const policy = readerPolicy(origin, panel.logbook, task.id, !!view.in);
   const top = frame(view, { project: task.projectName, title: page.title, crumb: view.kind === "question" ? "Overview" : "Tasks", back, file: page.file, state });
   const kind = { brief: "Brief", report: "Report", page: "Markdown page", design: "Design", arena: "Arena", question: "Question" }[view.kind];
   const rest = `<div class="ready">${staleNote}<p class="kind">${kind}</p><h1>${esc(page.title)}</h1>${page.raw ? page.head : page.head ? facts(page.head) : ""}${page.side ? `<div class="cols"><div>${page.body}</div>${page.side}</div>` : page.body}</div>${END}`;
-  return { policy, top, rest };
+  return view.in ? { policy, top: linksOut(top), rest: linksOut(rest) } : { policy, top, rest };
 }
