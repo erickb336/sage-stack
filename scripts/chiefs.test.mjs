@@ -1785,3 +1785,21 @@ for (const [name, own, other] of pairs) {
     assert.equal(row(w.cells("tasks"), "T1").round, "1");
   });
 }
+
+for (const [name, own, other] of pairs) {
+  test(`${name}: T1136 R3: config archived= alone is the owner's act: no chief needed, either chief may, a lead may not; other keys with it still need a chief`, (t) => {
+    const w = world(t, own, other);
+    w.owner("task", "add", "--title", "a", ...ADD);
+    w.owner("task", "T1", "set", "state=briefed");
+    w.owner("run", "add", "T1", "--role", "lead");
+    assert.deepEqual(["archived=yes", "archived=no"].map((kv) => writerClass("config", [kv]).kind), ["owner", "owner"]);
+    assert.deepEqual([writerClass("config", ["archived=yes", "name=x"]).kind, writerClass("config", ["name=x"]).kind], ["any", "any"]);
+    const before = w.tables();
+    assert.throws(() => w.lead("R1", "config", "archived=yes"), /"config" is not on a lead's list/);
+    assert.throws(() => w.nobody("config", "archived=yes", "name=x"), NO_CHIEF);
+    assert.equal(w.tables(), before, "a refused archive writes nothing");
+    assert.match(w.nobody("config", "archived=yes"), /^name= archived=yes start=normal\nArchived: /);
+    assert.match(w.intruder("config", "archived=no"), /^name= archived=no start=normal\nRestored: /, "the other chief writes the owner's restore too");
+    assert.deepEqual(w.cells("decisions").trim().split("\n").slice(-2).map((line) => line.split("\t").slice(1, 3)), [["", "project archived"], ["", "project restored"]]);
+  });
+}

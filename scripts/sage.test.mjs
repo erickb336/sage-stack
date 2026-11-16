@@ -4418,9 +4418,9 @@ test("T314: config name= and archived= set one logbook's own config.json, never 
   assert.equal(s.ok("config", "name=seacc (Council Record)"), "name=seacc (Council Record) archived=no start=normal");
   assert.deepEqual(JSON.parse(readFileSync(own, "utf8")), { name: "seacc (Council Record)" });
   assert.equal(existsSync(all), false, "the config for all projects is not written");
-  assert.equal(s.ok("config", "archived=yes"), "name=seacc (Council Record) archived=yes start=normal");
+  assert.equal(s.ok("config", "archived=yes"), "name=seacc (Council Record) archived=yes start=normal\nArchived: the project starts no agent and merges nothing; agents that run now finish, and their reports, findings and verdicts still record. To restore it: sage config archived=no.");
   writeFileSync(own, JSON.stringify({ ...JSON.parse(readFileSync(own, "utf8")), later: 1 }));
-  assert.equal(s.ok("config", "name=", "archived=no"), "name= archived=no start=normal", "name= alone removes the name");
+  assert.equal(s.ok("config", "name=", "archived=no"), "name= archived=no start=normal\nRestored: the project takes new tasks and runs, and the merge check judges its commits again.", "name= alone removes the name");
   assert.deepEqual(JSON.parse(readFileSync(own, "utf8")), { later: 1 });
   const sixty = "n".repeat(60);
   assert.equal(s.ok("config", `name=${sixty}`), `name=${sixty} archived=no start=normal`, "60 characters is the most");

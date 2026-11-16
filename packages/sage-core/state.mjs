@@ -551,6 +551,10 @@ const leaseEnd = (run) => Date.parse(run.admitted) + ADMIT_LEASE_MS;
 const SWEEP_GRACE_MS = 60_000;
 const utc = (at) => `${at.slice(11, 16)} UTC`;
 const lapsedOf = (dir, runs, at) => runs.filter((r) => awaiting(dir, r) && leaseEnd(r) + SWEEP_GRACE_MS <= at);
+const archivedIn = (dir) => savedIn(dir).archived === true;
+const ARCHIVE_FAILURE = "the project was archived";
+const RESTORE = "restore it first with sage config archived=no, tell the owner in one line that you restored it";
+const archivedBar = (what, then) => `this project is archived, so it takes no ${what}: an archived project starts no agent and merges nothing. If the owner asked for new work here, ${RESTORE}, then ${then}. A lead does not restore a project: report blocked to your chief. Nothing changed.`;
 function admit(dir, project, env, runs) {
   const stamp = now(), notes = [], lapsed = lapsedOf(dir, runs, Date.parse(stamp));
   for (const r of lapsed) {
@@ -559,7 +563,7 @@ function admit(dir, project, env, runs) {
   }
   if (lapsed.length) write(dir, "decisions", [...read(dir, "decisions"), ...lapsed.map((r) => ({ at: stamp, task: r.task, decision: `${r.id} failed: ${LAPSED}`, why: "an admitted run keeps its place for 10 minutes; the next queued run takes it" }))]);
   let count = runningOf(runs).length;
-  const cap = projectCap(dir, project, env);
+  const cap = archivedIn(dir) ? 0 : projectCap(dir, project, env);
   for (const r of queueOrder(runs)) {
     if (count++ >= cap) break;
     Object.assign(r, { status: "running", admitted: stamp, started: stamp });
@@ -599,6 +603,7 @@ function chiefQueue(project, native, env = process.env) {
 }
 function queueProblem(project, id, env = process.env) {
   const q = queueOf(project, env), waiting = q.queued.find((r) => r.id === id), lapsed = q.lapsed.find((r) => r.id === id);
+  if (archivedIn(q.dir)) return `this project is archived, so no agent starts, also not for ${id}. If the owner asked for new work here, ${RESTORE}, then add a new run.`;
   if (waiting) return `${id} is queued, place ${waiting.place} of ${q.queued.length}: the project runs ${q.running} of its ${q.limit} agents, so its agent does not start yet. A run that ends admits the oldest queued run.`;
   if (lapsed) return `${id} (${lapsed.role} on ${lapsed.task}) was admitted at ${utc(lapsed.admitted)}, and no agent started within ${ADMIT_LEASE_MS / 60_000} minutes, so it ${lapsed.ended ? "ended as failed and lost its place" : "lost its place and ends as failed"}. Add a new run for this agent.`;
   return undefined;
@@ -609,7 +614,7 @@ function pendingRun(project, task, role, env = process.env) {
 }
 function markStart(project, id, env = process.env) {
   const dir = storeDir(project, env), run = read(dir, "runs").find((r) => r.id === id);
-  if (!run || !awaiting(dir, run)) return false;
+  if (!run || !awaiting(dir, run) || archivedIn(dir)) return false;
   mkdirSync(join(dir, "kept"), { recursive: true, mode: 0o700 });
   try { writeFileSync(startMark(dir, id), JSON.stringify({ run: id, at: now() }), { flag: "wx", mode: 0o600 }); } catch (e) { if (e.code !== "EEXIST") throw e; }
   return true;
@@ -2209,7 +2214,7 @@ function judgeMerge(sha, env, { cycles, pr, readOnly, head, project, locked, ses
       if (head !== undefined && ofPr.size) absent.push(...tasks.filter((t) => !ofPr.has(t.id) && owns(t.id)).map((t) => ({ name: `${visible(dir)} ${t.id}`, how: how(t.id) })));
       const graph = waitGraph(tasks, book ? rowsOf(book.milestones) : [], book ? rowsOf(book.gates) : [], decisions);
       const chief = basename(dir) !== mine ? undefined : merger ?? (session !== undefined ? chiefFor(project, session, env) : undefined);
-      const lint = lintNeed(gitOf(dir));
+      const lint = lintNeed(gitOf(dir)), shut = archivedIn(dir);
       const checked =[...new Set([...rows.map((r) => r.task), ...ofPr])].map((id) => {
         const task = byId.get(id), carry = carryOver(gitOf(dir), task, sha, ledgerOf.get(id) ?? []), own = carry.rows;
         const held = task?.state === "held" && { ok: false, reason: `${id} is held: only the sage moves a held task, and it does not merge until then.` };
@@ -2222,7 +2227,8 @@ function judgeMerge(sha, env, { cycles, pr, readOnly, head, project, locked, ses
         const since = verdict.ok && task && takenAt(decisionsOf.get(id) ?? []), older = since && olderThan(since, runsOf.get(id) ?? []);
         const fresh = since && !cleanCycles(task, own.filter((r) => !older(r))) && { ok: false, reason: `${id} came from a chief of another provider through a takeover gate (${since}), so the cycles before that do not merge it alone: ${takeoverCycle ? takeoverCycle(id) : "its owning chief runs one cycle of its reviews and QA on this SHA, and records each verdict"}.` };
         const notOwn = chief && task && liveBar(dir, task, chief), owner = notOwn && { ok: false, reason: notOwn };
-        return { dir, id, ofPr: ofPr.has(id), owns: owns(id), back: !owns(id) && back(id), own: own.length, ...verdict, ...fresh, ...busy, ...arena, ...held, ...owner };
+        const archived = shut && { ok: false, reason: `${id} is in an archived project, so it does not merge: an archived project merges nothing. When the owner asks for work here again, ${RESTORE}, then check again.` };
+        return { dir, id, ofPr: ofPr.has(id), owns: owns(id), back: !owns(id) && back(id), own: own.length, ...verdict, ...fresh, ...busy, ...arena, ...held, ...owner, ...archived };
       });
       const here = new Map(checked.map((r) => [r.id, r]));
       const samePr = (a, b) => (pr ? !!(here.get(a.id)?.ofPr && here.get(b.id)?.ofPr) : !!a.pr && prNumber(a.pr) === prNumber(b.pr));
@@ -2249,7 +2255,7 @@ function judgeMerge(sha, env, { cycles, pr, readOnly, head, project, locked, ses
       };
       return checked.map((r) => {
         const task = byId.get(r.id), open = task ? unmetWaits(task, graph, (u) => passes(task, u)) : [];
-        if (!open.length || task.state === "held") return r;
+        if (shut || !open.length || task.state === "held") return r;
         const milestone = open.some((w) => w.milestone), same = open.some((w) => !w.milestone && !w.pilot);
         const when = milestone ? until(open) : `${open.length === 1 ? "that task is" : "each of them is"} merged or concluded`;
         const after = when && `: it merges after ${when}${same ? `, or ${milestone ? "each such task passes" : "passes"} in this same merge on the same PR` : ""}`;
@@ -2459,10 +2465,21 @@ function logbookConfig(dir, pairs) {
     else if (k === "start") set.start = v === START_SAGE_MODE ? v : v === "normal" ? undefined : refuse(`start is ${START_SAGE_MODE} or normal, not "${visible(v)}". Nothing changed.`);
     else set.archived = v === "yes" ? true : v === "no" ? undefined : refuse(`archived is yes or no, not "${visible(v)}". Nothing changed.`);
   }
-  const next = { ...logbookJson(dir), ...set };
+  const was = logbookJson(dir), next = { ...was, ...set };
   for (const k of Object.keys(set)) if (set[k] === undefined) delete next[k];
   swap(join(dir, "config.json"), JSON.stringify(next, null, 2) + "\n");
-  return `name=${visible(typeof next.name === "string" ? next.name : "")} archived=${next.archived === true ? "yes" : "no"} start=${next.start === START_SAGE_MODE ? START_SAGE_MODE : "normal"}${next.lint_offer === "never" ? " lint_offer=never" : ""}${next.commit_email ? ` commit_email=${visible(next.commit_email)}` : ""}${next.commit_name ? ` commit_name=${visible(next.commit_name)}` : ""}`;
+  const line = `name=${visible(typeof next.name === "string" ? next.name : "")} archived=${next.archived === true ? "yes" : "no"} start=${next.start === START_SAGE_MODE ? START_SAGE_MODE : "normal"}${next.lint_offer === "never" ? " lint_offer=never" : ""}${next.commit_email ? ` commit_email=${visible(next.commit_email)}` : ""}${next.commit_name ? ` commit_name=${visible(next.commit_name)}` : ""}`;
+  return Object.hasOwn(set, "archived") ? [line, archiveChange(dir, was.archived === true, set.archived === true)].join("\n") : line;
+}
+function archiveChange(dir, was, archiving) {
+  if (was === archiving) return `The project ${was ? "is archived already" : "is not archived"}, so archived=${was ? "yes" : "no"} changes nothing.`;
+  const at = now(), runs = read(dir, "runs"), ended = archiving ? runs.filter((r) => r.status === "queued" || awaiting(dir, r)) : [];
+  for (const r of ended) Object.assign(r, { status: "failed", ended: at, failure: ARCHIVE_FAILURE });
+  if (ended.length) write(dir, "runs", runs);
+  const named = ended.map((r) => `${r.id} (${r.role} on ${r.task})`).join(", ");
+  write(dir, "decisions", [...read(dir, "decisions"), { at, task: "", decision: `project ${archiving ? "archived" : "restored"}`, why: `config archived=${archiving ? "yes" : "no"}${ended.length ? `; ended as failed: ${ended.map((r) => r.id).join(", ")}` : ""}` }]);
+  if (!archiving) return "Restored: the project takes new tasks and runs, and the merge check judges its commits again.";
+  return `Archived: the project starts no agent and merges nothing; agents that run now finish, and their reports, findings and verdicts still record.${ended.length ? ` Ended as failed, because ${ARCHIVE_FAILURE}: ${named}.` : ""} To restore it: sage config archived=no.`;
 }
 
 
@@ -3167,6 +3184,7 @@ function act(cmd, pos, opt, dir, env, skip, project) {
     }
     case "task": {
       if (sub === "add") {
+        if (archivedIn(dir)) refuse(archivedBar("new task", "add the task again"));
         const size = need(opt.size, "--size");
         if (!SIZES[size]) refuse(`size is one of ${Object.keys(SIZES).join(", ")}`);
         const risk = list(opt.risk);
@@ -3331,6 +3349,7 @@ function act(cmd, pos, opt, dir, env, skip, project) {
     case "run": {
       const runs = read(dir, "runs");
       if (sub === "add") {
+        if (archivedIn(dir)) refuse(archivedBar("new run", "add the run again"));
         const { task } = taskOf(dir, need(id, "the task id"));
         notHeld(task, "run add");
         const role = cell(need(opt.role, "--role")).toLowerCase();
