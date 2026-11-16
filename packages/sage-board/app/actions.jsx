@@ -15,6 +15,7 @@ const setAccess = writes => { access.writes = writes; listeners.forEach(fn => fn
 addEventListener("storage", event => { if (on && (event.key === TOKEN_KEY || event.key === null)) setAccess(stored.get() ? "paired" : "unpaired"); });
 const [, link, project] = /^#pair=([\w-]{1,64})(?:&project=([^&]*))?$/.exec(location.hash) ?? [];
 if (link) history.replaceState(null, "", `${location.pathname}${location.search}${PROJECT.test(project ?? "") ? `#?project=${project}` : ""}`);
+export const linkProject = link && PROJECT.test(project ?? "") ? project : null;
 let linkNote = { outcome: link && on ? "loading" : null };
 const noteListeners = new Set();
 const setNote = (outcome, detail) => { linkNote = { outcome, detail }; noteListeners.forEach(fn => fn()); };
@@ -67,7 +68,7 @@ export function PairNote() {
   );
 }
 
-export function PairBox() {
+export function PairBox({ id = "pair-h" }) {
   const writes = useAccess(), [code, setCode] = useState(""), [problem, setProblem] = useState(null), [copied, setCopied] = useState(null);
   if (writes === "paired") return null;
   if (writes === "off") return <p className="note">This board only reads. Answer in the chief's chat, or stop this board and ask for it again.</p>;
@@ -79,8 +80,8 @@ export function PairBox() {
     else setProblem(result.text);
   };
   return (
-    <form className="card pair" onSubmit={pair} aria-labelledby="pair-h">
-      <h2 id="pair-h">Pair this browser to act from the board</h2>
+    <form className="card pair" onSubmit={pair} aria-labelledby={id}>
+      <h2 id={id}>Pair this browser to act from the board</h2>
       <p className="hint">You do this once for each browser. Until then, the board only reads. Type show board in a chief's chat, and click the link that it sends: one click opens the board and pairs this browser.</p>
       <div className="pair-step">
         <p className="lbl">No chat open? Pair with a Terminal code</p>

@@ -3,7 +3,7 @@ import { lstatSync, readFileSync, readdirSync, watch } from "node:fs";
 import { createServer } from "node:http";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AGENT_QUIET_MS, readActions, readHookNotes, readBoardSources, buildBoardModel, boardOverview, taskPanel, landingRule, pageTaskFolder, BOARD_PORT } from "../core/index.mjs";
+import { AGENT_QUIET_MS, readActions, readHookNotes, readBoardSources, buildBoardModel, boardOverview, taskPanel, landingRule, pageTaskFolder, sharedRoot, BOARD_PORT } from "../core/index.mjs";
 import { COOKIE, boardAccess, readJson } from "./access.mjs";
 import { gateMaterial } from "./material.mjs";
 import { failureOf, pagesRequest, servePages, taskFiles } from "./pages.mjs";
@@ -78,6 +78,7 @@ const BODY_MAX = 16 * 1024;
 const PAIR_AGAIN = "To pair it, type show board in a chief's chat, and click the link that it sends; or use the Terminal code of the pairing card.";
 const HEADERS_MAX = 64 * 1024;
 const GATE = /^G[1-9]\d*$/, TASK = /^T[1-9]\d*$/, CHIEF = /^C[1-9]\d*$/, LOGBOOK = /^([A-Za-z0-9_-]{1,80})\/([a-z0-9-]+-[0-9a-f]{6})$/;
+const ARCHIVE_JOBS = { archive: ["config", "archived=yes"], restore: ["config", "archived=no"] };
 const JOBS = {
   answer: body => GATE.test(body.gate) && Number.isInteger(body.option) && body.option >= 1 && body.option <= 99 && /^[0-9a-f]{16}$/.test(body.digest ?? "") && ["gate", "answer", body.gate, "--via", "board", "--option", String(body.option), "--seen", body.digest],
   undo: body => GATE.test(body.gate) && ["gate", "undo", body.gate],
@@ -373,11 +374,29 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     if (!browser) return reply(401, { problem: `This browser is not paired with the board. ${PAIR_AGAIN}` });
     if (!fits) return reply(403, { problem: `This page does not have this browser's pairing token. ${PAIR_AGAIN}` });
     if (name === "name" && /^\s*-/.test(body.name ?? "")) return reply(400, { problem: "A chief's name cannot start with \"-\", because the state tool would read it as an option. Start it with a letter or a digit. Nothing changed." });
+    if (Object.hasOwn(ARCHIVE_JOBS, name)) return reply(...await archiveWrite(body.project, ARCHIVE_JOBS[name]));
     const book = LOGBOOK.exec(body.logbook ?? ""), source = book && configured.find(item => item.id === book[1]);
     const argv = Object.hasOwn(JOBS, name) && JOBS[name](body);
     if (!argv || !source || !model?.sources.some(item => item.id === source.id && item.shared)) return reply(400, { problem: "The board cannot send this write: it names no question, task or chief of a shared logbook." });
+    const shelved = model.projects?.find(project => project.archived && project.logbooks.includes(body.logbook));
+    if (shelved) return reply(409, { ok: false, text: `${shelved.name} is archived, so the board records no answer or other write for it. Restore it first, or answer in the chief's chat. Nothing changed.` });
     const done = await write({ shared: source.path, folder: book[2], argv });
     return reply(done.pending ? 202 : done.code ? 409 : 200, { ok: !done.code, ...(done.pending && { pending: true }), text: withoutPaths(String(done.text).replace(/^sage: /, "")) });
+  }
+
+  async function archiveWrite(key, argv) {
+    const project = typeof key === "string" && model?.projects?.find(item => item.key === key);
+    const shared = configured.find(item => model?.sources.some(source => source.id === item.id && source.shared))?.path ?? sharedRoot();
+    const jobs = (project?.logbooks ?? []).map(logbook => {
+      const book = LOGBOOK.exec(logbook), source = book && configured.find(item => item.id === book[1]);
+      return source && { shared, folder: book[2], argv, ...(source.path !== shared && { root: source.path }), label: source.provider ? source.label ?? source.provider : "shared" };
+    });
+    if (!jobs.length || !jobs.every(Boolean)) return [400, { problem: "The board cannot send this write: it names no project of this board. Nothing changed." }];
+    const done = [];
+    for (const { label, ...job } of jobs) done.push({ label, ...await write(job) });
+    const landed = done.filter(item => !item.code).length, failed = done.find(item => item.code), text = item => withoutPaths(String(item.text).replace(/^sage: /, ""));
+    if (!failed) return [200, { ok: true, logbooks: jobs.length, text: text(done.at(-1)).split("\n").at(-1) }];
+    return [failed.pending ? 202 : 409, { ok: false, logbooks: jobs.length, landed, failed: done.filter(item => item.code).map(item => item.label), ...(failed.pending && { pending: true }), text: text(failed) }];
   }
 
   function serveActions(request, response, fail) {

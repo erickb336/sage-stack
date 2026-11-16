@@ -80,7 +80,7 @@ Use Codex 0.164 or later, in the CLI or the desktop app, and a multi-agent v2 mo
 
 ## The board
 
-Send `show board` to see the board in the chat: what needs you, the agents at work, and each task by its state. On the Mac, it also starts the board in the browser and gives a link to this project; in Codex, after you approve one prompt ([The board in Codex](docs/guide/codex.md#the-board-in-codex)). The board server, and [Remote Control](docs/guide/remote-control.md) (sessions from your phone), need macOS.
+Send `show board` to see the board in the chat: what needs you, the agents at work, and each task by its state. On the Mac, it also starts the board in the browser and gives a link to this project; in Codex, after you approve one prompt ([details](docs/guide/codex.md#the-board-in-codex)). The board server, and [Remote Control](docs/guide/remote-control.md) (sessions from your phone), need macOS.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/board-dark.png">
@@ -97,7 +97,7 @@ Send `show board` to see the board in the chat: what needs you, the agents at wo
 | `show status` | Task state and missing priority. Clean main merges keep proved cycles after fresh head checks. |
 | Tell either chief to take over a task of another chief, with its PR | In a shared logbook, the chief opens a [takeover gate](docs/guide/using-sage.md#shared-logbooks) for you to answer in either chat: its instructions say never to answer it itself, but no code ties the answer to your message. The branch and the verdicts stay, and then only the new owning chief and its agents push to the branch; a Claude chief that takes a task from Codex runs one fresh Claude cycle first. Any chief may abandon a task with no owning chief, with a reason; in separate logbooks, the chief uses [task adoption](docs/guide/codex.md#task-adoption), and reviews and QA start fresh. |
 | Tell the chief that a checkout joins a shared logbook, or starts its own, or ask it to move this project there | The chief runs [`sage link`](docs/guide/using-sage.md#shared-logbooks) after your answer, and two linked clones are one project on the board. Each task there has one owning chief, who can offer it to another chief, and you answer a takeover gate for each change of owning chief. [`sage move`](docs/guide/using-sage.md#move-an-existing-project) shows a preview and one gate, then takes the open tasks of the Claude and Codex logbooks into one shared logbook, with an end check and the steps to restore by hand; a new project starts in a shared logbook when both plugins are updated ([`sage init`](docs/guide/using-sage.md#shared-logbooks)). |
-| `show board` | The board in the chat, and its address in the browser, where each question opens with its material. When another program uses its port, [one command moves the board](docs/guide/board.md#change-the-boards-port). |
+| `show board` | The board in the chat and the browser: open a question with its material, or [archive a project](docs/guide/board.md#archive-a-project). If its port is in use, [one command moves it](docs/guide/board.md#change-the-boards-port). |
 | `autopilot on` / `autopilot off` | Merge verified work, or wait. Starts off. Codex requires the chief's active turn. |
 | `sage mode off` | A normal session again, for the rest of the session. Autopilot goes off too. |
 | `sage help` | Every phrase, and whether sage mode and autopilot are on. |
