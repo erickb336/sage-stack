@@ -10,6 +10,7 @@ import { after, before, test } from "node:test";
 import { pathToFileURL } from "node:url";
 import * as claude from "../plugins/sage/skills/sage/sage.mjs";
 import { runBoardCli } from "../plugins/sage/board/cli.mjs";
+import { startLink } from "../plugins/sage/board/access.mjs";
 import { createBoardServer, loadBoardApp } from "../plugins/sage/board/server.mjs";
 import { writeInWorker } from "../plugins/sage/board/writes.mjs";
 
@@ -175,11 +176,12 @@ test("T1059: the owner pairs once, then answers with full context, undoes, renam
   await page.locator(".needs > li[data-need] .q").filter({ hasText: /^Hand T3 from/ }).waitFor();
   await w.shot("t1059-give");
 
-  await page.goto(`${w.origin}/app/`);
-  await page.getByRole("heading", { name: /^Since you looked/ }).waitFor();
-  assert.match(await page.locator("#counts-h").textContent(), /^Since you looked · you last opened the board at /);
-  assert.equal(await page.locator('[data-count="added"] .n').textContent(), "0", "no task was added since the last look");
-  await w.shot("t1059-overview");
+  await page.goto("about:blank");
+  const later = await w.context.newPage();
+  await later.goto(`${w.origin}/app/`);
+  await later.getByRole("heading", { name: /^Since you looked/ }).waitFor();
+  assert.match(await later.locator("#counts-h").textContent(), /^Since you looked · you left the board at /);
+  assert.equal(await later.locator('[data-count="added"] .n').textContent(), "0", "no task was added since the last look");
 
   assert.deepEqual(w.problems, [], "no page error and no CSP refusal");
   assert.deepEqual(w.requests.filter(line => !line.split(" ")[1].startsWith(`${w.origin}/`)), [], "no outside request");
@@ -294,28 +296,110 @@ test("F-T1059-23: a double click on Send answer sends one answer and shows no re
   await w.shot("t1059-double-send");
 });
 
-test("F-T1059-11: the board records a visit once for each page load, not for each move inside the app", async t => {
+test("T1125: the last visit lives in each browser, also an unpaired one: a reload keeps the counts, a later visit shows Since you looked, a visit older than 7 days shows the last 7 days, and nothing goes to the server", async t => {
   const w = await openBoard(t), { page } = w;
-  await w.pair();
+  const heading = () => page.locator("#counts-h").textContent();
+  assert.match(await heading(), /^In the last 24 hours/, "a first visit in this browser");
   await page.reload();
-  await page.getByRole("heading", { name: /^Since you looked|^In the last 24 hours/ }).waitFor();
-  await w.settled();
-  const looks = w.posts("seen");
-  assert.ok(looks >= 1, "the page load records a visit");
-  await page.getByRole("link", { name: MESSAGE.title }).click();
-  await page.getByRole("heading", { name: MESSAGE.title, level: 1 }).waitFor();
-  await page.getByRole("link", { name: "Back to Needs you" }).click();
+  await page.locator("#counts-h").waitFor();
+  assert.match(await heading(), /^In the last 24 hours/, "a reload is the same visit, so it keeps the counts");
   await page.getByRole("link", { name: /^Tasks/ }).click();
   await page.locator("a.row").first().waitFor();
   await page.getByRole("link", { name: /^Overview/ }).click();
-  await page.getByRole("heading", { name: /^Since you looked/ }).waitFor();
-  await w.settled();
-  assert.equal(w.posts("seen"), looks, "a move to a question or the Tasks page and back is not a new visit");
-  await page.reload();
-  await page.getByRole("heading", { name: /^Since you looked/ }).waitFor();
-  await w.settled();
-  assert.equal(w.posts("seen"), looks + 1, "a new page load is a new visit");
-  await w.shot("t1059-since-you-looked");
+  await page.locator("#counts-h").waitFor();
+  assert.match(await heading(), /^In the last 24 hours/, "a move inside the app is the same visit");
+  await page.goto("about:blank");
+  const later = await w.context.newPage();
+  await later.goto(`${w.origin}/app/`);
+  await later.getByRole("heading", { name: /^Since you looked/ }).waitFor();
+  assert.match(await later.locator("#counts-h").textContent(), /^Since you looked · you left the board at /, "the time when you left is kept in this browser");
+  if (SHOTS) await later.screenshot({ path: join(SHOTS, "t1125-since-you-looked.png") });
+  const other = await w.context.browser().newContext();
+  t.after(() => other.close());
+  const fresh = await other.newPage();
+  await fresh.goto(`${w.origin}/app/`);
+  await fresh.locator("#counts-h").waitFor();
+  assert.match(await fresh.locator("#counts-h").textContent(), /^In the last 24 hours/, "another browser has its own last visit");
+  const back = await other.newPage();
+  await back.addInitScript(() => { if (!sessionStorage.getItem("primed")) { sessionStorage.setItem("primed", "1"); localStorage.setItem("board-seen", new Date(Date.now() - 9 * 86_400_000).toISOString()); } });
+  await back.goto(`${w.origin}/app/`);
+  await back.locator("#counts-h").waitFor();
+  assert.match(await back.locator("#counts-h").textContent(), /^In the last 7 days · you last looked more than 7 days ago/, "the board keeps 7 days, so an older visit counts the last 7 days");
+  assert.equal(w.posts("seen"), 0, "no visit goes to the server");
+  assert.deepEqual(w.problems, []);
+});
+
+test("T1125: one click on the chief's link pairs a fresh browser, takes the key out of the address bar and the history, and a second browser that opens it can unpair every browser", async t => {
+  const w = await openBoard(t);
+  const key = startLink(w.stateDir), link = `${w.origin}/app/#pair=${key}`;
+  const page = await w.context.newPage();
+  await page.goto(link);
+  await page.getByText("This browser is paired. You can now answer questions and send from the board. The link is used up.").waitFor();
+  assert.equal(page.url(), `${w.origin}/app/`, "the key left the address bar");
+  if (SHOTS) await page.screenshot({ path: join(SHOTS, "t1125-paired.png") });
+  await page.goBack();
+  assert.equal(page.url(), "about:blank", "no history entry keeps the key: the entry before the board is the new tab's blank page");
+  await page.goForward();
+  assert.equal(page.url(), `${w.origin}/app/`, "the board's own entry has no key");
+  await page.locator("#counts-h").waitFor();
+  assert.equal(await page.getByRole("heading", { name: "Pair this browser to act from the board" }).count(), 0, "the pairing card is gone");
+  await page.getByRole("link", { name: MESSAGE.title }).click();
+  await page.getByRole("button", { name: "Send answer" }).waitFor();
+  assert.equal(w.posts("pair"), 1, "the link is sent once");
+
+  const other = await w.context.browser().newContext();
+  t.after(() => other.close());
+  const second = await other.newPage();
+  await second.goto(link);
+  await second.getByText(/^Another browser on this Mac used this link at \d\d:\d\d\. This browser still reads only\./).waitFor();
+  assert.equal(second.url(), `${w.origin}/app/`);
+  if (SHOTS) await second.screenshot({ path: join(SHOTS, "t1125-used.png") });
+  await second.getByRole("button", { name: "Unpair every browser" }).click();
+  await second.getByText(/^Every browser is unpaired: each one reads only now\./).waitFor();
+  assert.deepEqual(JSON.parse(readFileSync(join(w.stateDir, "paired.json"), "utf8")).browsers, [], "no browser is paired now");
+  await page.getByRole("radio", { name: /^no/ }).check();
+  await page.getByRole("button", { name: "Send answer" }).click();
+  await page.getByRole("heading", { name: "Pair this browser to act from the board" }).waitFor();
+  assert.ok(!w.gate("G1").answered, "the first browser writes nothing after the unpair");
+
+  const late = await other.newPage();
+  await late.goto(`${w.origin}/app/#pair=${startLink(w.stateDir, Date.now() - 11 * 60_000)}`);
+  await late.getByText(/^This link expired at \d\d:\d\d: a link works for 10 minutes\./).waitFor();
+  const wrong = await other.newPage();
+  await wrong.goto(`${w.origin}/app/#pair=${"A".repeat(43)}`);
+  await wrong.getByText(/^The board refused this link: it is not a link of this board\./).waitFor();
+  assert.deepEqual(w.problems, []);
+});
+
+test("F-T1125-9: after a newer link exists, the owner still finds Unpair every browser on the used, expired and replaced notes, and it unpairs the unknown browser", async t => {
+  const w = await openBoard(t);
+  const first = startLink(w.stateDir), unknown = await w.context.newPage();
+  await unknown.goto(`${w.origin}/app/#pair=${first}`);
+  await unknown.getByText(/^This browser is paired\./).waitFor();
+  startLink(w.stateDir);
+  const owner = await w.context.browser().newContext();
+  t.after(() => owner.close());
+  const open = async (key, note) => {
+    const page = await owner.newPage();
+    await page.goto(`${w.origin}/app/#pair=${key}`);
+    await page.getByText(note).waitFor();
+    await page.getByRole("button", { name: "Unpair every browser" }).waitFor();
+    return page;
+  };
+  await open(first, /^Another browser on this Mac used this link at \d\d:\d\d\./);
+  await open(startLink(w.stateDir, Date.now() - 11 * 60_000), /^This link expired at \d\d:\d\d/);
+  const older = startLink(w.stateDir);
+  startLink(w.stateDir);
+  const replaced = await open(older, /^A newer link replaced this one\./);
+  if (SHOTS) await replaced.screenshot({ path: join(SHOTS, "t1125-replaced.png") });
+  await replaced.getByRole("button", { name: "Unpair every browser" }).click();
+  await replaced.getByText(/^Every browser is unpaired: each one reads only now\./).waitFor();
+  await unknown.getByRole("link", { name: MESSAGE.title }).click();
+  await unknown.getByRole("radio", { name: /^no/ }).check();
+  await unknown.getByRole("button", { name: "Send answer" }).click();
+  await unknown.getByRole("heading", { name: "Pair this browser to act from the board" }).waitFor();
+  assert.ok(!w.gate("G1").answered, "the unknown browser writes nothing after the unpair");
+  assert.deepEqual(w.problems, []);
 });
 
 test("F-T1059-47: after a give, the stopped chief's card shows the open takeover question in place of Give, also after a reload", async t => {

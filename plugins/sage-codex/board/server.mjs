@@ -74,6 +74,7 @@ function appPolicy(origin) {
 const forwarded = name => name === "forwarded" || name.startsWith("x-forwarded-");
 
 const BODY_MAX = 16 * 1024;
+const PAIR_AGAIN = "To pair it, type show board in a chief's chat, and click the link that it sends; or use the Terminal code of the pairing card.";
 const HEADERS_MAX = 64 * 1024;
 const GATE = /^G[1-9]\d*$/, TASK = /^T[1-9]\d*$/, CHIEF = /^C[1-9]\d*$/, LOGBOOK = /^([A-Za-z0-9_-]{1,80})\/([a-z0-9-]+-[0-9a-f]{6})$/;
 const JOBS = {
@@ -350,14 +351,22 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     let body;
     try { body = await jsonBody(request); } catch { return response.destroyed ? undefined : fail(400, "A write is one JSON object of strings and numbers, of at most 16 KiB."); }
     const name = request.url.slice("/api/".length);
+    const browser = access.browserOf(oneHeader(request, "cookie")), fits = browser && access.tokenFits(browser, oneHeader(request, "x-sage-token"));
+    const cookie = paired => ({ "Set-Cookie": `${COOKIE}=${paired.cookie}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000` });
+    if (name === "pair" && body.link !== undefined) {
+      const { outcome, at, cookie: value, token } = access.pairLink(body.link, Boolean(fits));
+      return reply(outcome === "refused" ? 403 : 200, { outcome, ...(typeof at === "string" && { at }), ...(token && { token }) }, value && cookie({ cookie: value }));
+    }
     if (name === "pair") {
       const paired = access.pair(body.code);
-      return paired.problem ? reply(403, { problem: paired.problem }) : reply(200, { token: paired.token }, { "Set-Cookie": `${COOKIE}=${paired.cookie}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000` });
+      return paired.problem ? reply(403, { problem: paired.problem }) : reply(200, { token: paired.token }, cookie(paired));
     }
-    const browser = access.browserOf(oneHeader(request, "cookie"));
-    if (!browser) return reply(401, { problem: "This browser is not paired with the board. Run the command of the pairing card in Terminal, then type its code on the board." });
-    if (!access.tokenFits(browser, oneHeader(request, "x-sage-token"))) return reply(403, { problem: "This page does not have this browser's pairing token. Pair again: run the command of the pairing card in Terminal, then type its code on the board." });
-    if (name === "seen") return reply(200, { previous: access.seen() });
+    if (name === "unpair") {
+      access.unpairAll();
+      return reply(200, { text: "Every browser is unpaired: each one reads only now. To pair this browser again, type show board in a chief's chat, and click the link that it sends." }, { "Set-Cookie": `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0` });
+    }
+    if (!browser) return reply(401, { problem: `This browser is not paired with the board. ${PAIR_AGAIN}` });
+    if (!fits) return reply(403, { problem: `This page does not have this browser's pairing token. ${PAIR_AGAIN}` });
     if (name === "name" && /^\s*-/.test(body.name ?? "")) return reply(400, { problem: "A chief's name cannot start with \"-\", because the state tool would read it as an option. Start it with a letter or a digit. Nothing changed." });
     const book = LOGBOOK.exec(body.logbook ?? ""), source = book && configured.find(item => item.id === book[1]);
     const argv = Object.hasOwn(JOBS, name) && JOBS[name](body);
