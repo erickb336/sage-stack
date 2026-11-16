@@ -2791,7 +2791,7 @@ function readMessage(file, json, project, env) {
   if (Buffer.byteLength(text) > MESSAGE_MAX) refuse("the message's JSON is over 1 MiB. Nothing written.");
   let input;
   try { input = JSON.parse(text); } catch (e) { refuse(`the message is not JSON: ${e.message}. Nothing written.`); }
-  if (/#pair=/i.test(JSON.stringify(input))) refuse("the message holds #pair=, the mark of a board pairing link. A pairing link opens the board for one browser, so it goes in the chat text only, never in a message or its page. Take it out. Nothing written.");
+  if (/#pair=/i.test(text.replace(/\\u([0-9a-f]{4})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16))))) refuse("the message holds #pair=, the mark of a board pairing link. A pairing link opens the board for one browser, so it goes in the chat text only, never in a message or its page. Take it out. Nothing written.");
   const logbook = basename(storeDir(project, env));
   const pages = (blocks, depth = 0) => (Array.isArray(blocks) ? blocks : []).forEach((b) => {
     if (b?.t === "section" && depth < MAX_SECTIONS) pages(b.body, depth + 1);
