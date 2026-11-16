@@ -9,6 +9,17 @@ const SWITCHES = new Set(["button", "input", "select", "textarea"]);
 const SWITCH_ROLES = new Set(["button", "switch", "radio", "checkbox"]);
 const SWITCH_ATTRIBUTES = ["aria-pressed", "aria-expanded", "aria-controls", "aria-selected"];
 const URL_ATTRIBUTES = ["href", "src", "action", "formaction", "xlink:href", "data"];
+const EVENTS = new Set(`abort afterprint afterscriptexecute animationcancel animationend animationiteration animationstart auxclick beforecopy beforecut
+  beforeinput beforematch beforepaste beforeprint beforescriptexecute beforetoggle beforeunload begin blur cancel canplay canplaythrough change click
+  close command contextlost contextmenu contextrestored copy cuechange cut dblclick drag dragend dragenter dragexit dragleave dragover dragstart drop
+  durationchange emptied end ended error focus focusin focusout formdata fullscreenchange fullscreenerror gotpointercapture hashchange input invalid
+  keydown keypress keyup languagechange load loadeddata loadedmetadata loadend loadstart lostpointercapture message messageerror mousedown mouseenter
+  mouseleave mousemove mouseout mouseover mouseup mousewheel offline online pagehide pagereveal pageshow pageswap paste pause play playing
+  pointercancel pointerdown pointerenter pointerleave pointermove pointerout pointerover pointerrawupdate pointerup popstate progress ratechange
+  readystatechange rejectionhandled repeat reset resize scroll scrollend search securitypolicyviolation seeked seeking select selectionchange
+  selectstart show slotchange stalled storage submit suspend timeupdate toggle touchcancel touchend touchmove touchstart transitioncancel
+  transitionend transitionrun transitionstart unhandledrejection unload visibilitychange volumechange waiting webkitanimationend
+  webkitanimationiteration webkitanimationstart webkittransitionend wheel zoom`.split(/\s+/));
 const ATTRIBUTES = `((?:=\\s*"[^"]*"|=\\s*'[^']*'|=(?!\\s*["'])|[^>=])*)`;
 const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", middot: "·", rarr: "→" };
 
@@ -22,7 +33,8 @@ const attributesOf = (source) => Object.fromEntries([...source.matchAll(/([^\s=/
 function tokens(html) {
   const source = html.replace(/<!--[\s\S]*?-->/g, "").replace(new RegExp(`<(script|style)\\b${ATTRIBUTES}>[\\s\\S]*?<\\/\\1\\s*>`, "gi"), "<$1$2></$1>");
   return [...source.matchAll(new RegExp(`<(\\/?)([a-zA-Z][\\w-]*)${ATTRIBUTES}>|([^<]+)`, "g"))].map(([, closing, name, attributes, text]) =>
-    text !== undefined ? { text: decode(text) } : { name: name.toLowerCase(), closing: closing === "/", attributes: closing ? {} : attributesOf(attributes) });
+    text !== undefined ? { text: decode(text) }
+      : { name: name.toLowerCase(), closing: closing === "/", selfClosing: /(?:^|[\s"'])\/\s*$/.test(attributes), attributes: closing ? {} : attributesOf(attributes) });
 }
 
 function headings(list) {
@@ -75,35 +87,46 @@ function switchOf({ name, attributes }, roles) {
 
 function scriptOf({ name, attributes = {} }) {
   if (name === "script") return "<script>";
-  const handler = Object.keys(attributes).find((attribute) => attribute.startsWith("on"));
+  const handler = Object.keys(attributes).find((attribute) => attribute.startsWith("on") && EVENTS.has(attribute.slice(2)));
   if (handler) return handler;
   if (URL_ATTRIBUTES.some((attribute) => /^javascript:/i.test((attributes[attribute] ?? "").replace(/[\s\0-\x1f]/g, "")))) return "a javascript: URL";
 }
 
-function contentOf(list, at) {
-  const { name } = list[at];
-  let depth = 0, elements = 0, text = "", end = at + 1;
-  for (; end < list.length; end++) {
-    const token = list[end];
-    if (token.text !== undefined) { text += token.text; continue; }
-    if (token.name === name && token.closing && depth-- === 0) break;
-    if (token.name === name && !token.closing) depth++;
-    if (!token.closing) elements++;
-  }
-  return { end, elements, text: text.trim() };
+function outline(list) {
+  const close = [], open = {}, ids = new Map(), elements = [0], words = [0], boxes = [0];
+  list.forEach((token, at) => {
+    const { name, closing, selfClosing, text, attributes } = token, element = text === undefined && !closing;
+    elements.push(elements[at] + element);
+    words.push(words[at] + Boolean(text?.trim()));
+    boxes.push(boxes[at] + (element && name === "div"));
+    if (!element) { if (closing) { const opened = open[name]?.pop(); if (opened !== undefined) close[opened] = at; } return; }
+    if (attributes.id && !ids.has(attributes.id)) ids.set(attributes.id, at);
+    if (!selfClosing) (open[name] ??= []).push(at);
+  });
+  const content = (at) => {
+    const end = close[at];
+    if (end === undefined) return { end: at, elements: 0, text: false, boxes: 0 };
+    return { end, elements: elements[end] - elements[at + 1], text: words[end] > words[at + 1], boxes: boxes[end] - boxes[at + 1] };
+  };
+  return { content, ids };
 }
 
-function isPicture(list, at, roles) {
-  const { name, attributes } = list[at], labelled = Boolean(attributes["aria-label"]?.trim());
-  if (roles.includes("img")) return labelled;
+function named({ attributes }, { content, ids }) {
+  if (attributes["aria-label"]?.trim()) return true;
+  return (attributes["aria-labelledby"] ?? "").split(/\s+/).some((id) => ids.has(id) && content(ids.get(id)).text);
+}
+
+function isPicture(list, at, roles, page) {
+  const token = list[at], { name, attributes } = token;
+  if (name === "svg") return page.content(at).elements > 0;
+  if (roles.includes("img") && named(token, page)) return true;
   if (name === "img") return Boolean(attributes.alt?.trim());
-  if (name === "svg") return contentOf(list, at).elements > 0;
-  if (name === "figure") { const { elements, text } = contentOf(list, at); return elements > 0 || text !== ""; }
-  return name === "div" && !roles.length && labelled && contentOf(list, at).elements > 0;
+  if (name === "figure") { const { elements, text } = page.content(at); return elements > 0 || text; }
+  return name === "div" && !roles.length && named(token, page) && page.content(at).boxes > 0;
 }
 
 export function designPageProblems(html) {
-  const list = tokens(html), problems = [];
+  const list = tokens(html), problems = [], page = outline(list);
   const places = partPlaces(list, problems);
   const hood = places.at(-1) ?? list.length;
   const above = new Set(), say = (key, text) => { if (!above.has(key)) { above.add(key); problems.push(text); } };
@@ -114,9 +137,9 @@ export function designPageProblems(html) {
     const token = list[at];
     if (token.text !== undefined || token.closing) continue;
     const { name, attributes } = token, roles = rolesOf(token);
-    if (isPicture(list, at, roles)) {
+    if (isPicture(list, at, roles, page)) {
       diagrams++;
-      if (CODE.has(name)) { at = contentOf(list, at).end; continue; }
+      if (CODE.has(name)) { at = page.content(at).end; continue; }
     }
     const tab = roles.find((role) => TABS.has(role)), control = switchOf(token, roles);
     if (tab) say("tab", `a tab (role="${tab}") is above "Under the hood": show every part on one scrolling page, with no tabs`);
@@ -126,7 +149,7 @@ export function designPageProblems(html) {
       || /display\s*:\s*none|visibility\s*:\s*hidden/i.test(attributes.style ?? "")) say("hidden", `a hidden element is above "Under the hood": show every part with no click and no switch`);
     if (CODE.has(name)) say(`code-${name}`, `<${name}> is above "Under the hood": move code and command output to part 10, "Under the hood"`);
   }
-  if (!diagrams) problems.push(`no diagram: draw at least one state chart, architecture diagram or flow chart, as an <svg>, an <img> with alt text, a <figure>, an element with role="img" and an aria-label, or a <div> of boxes with an aria-label`);
+  if (!diagrams) problems.push(`no diagram: draw at least one state chart, architecture diagram or flow chart, as an <svg>, an <img> with alt text, a <figure>, an element with role="img" and a name (aria-label or aria-labelledby), or a <div> of <div> boxes with a name`);
   for (const part of SAMPLE_PARTS) {
     const index = DESIGN_PARTS.indexOf(part);
     if (places[index] !== undefined && !/\bsamples?\b/i.test(partText(list, places, index))) problems.push(`${label(index)} does not say "sample": label its invented data as sample`);

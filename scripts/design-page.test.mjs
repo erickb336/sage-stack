@@ -9,7 +9,7 @@ import { DESIGN_PARTS, designPageProblems } from "../packages/sage-core/design-p
 
 const FIXTURES = join(ROOT, "scripts/fixtures/design-page");
 const OWNER = join(FIXTURES, "owner.html"), TABBED = join(FIXTURES, "tabbed-spec.html");
-const owner = readFileSync(OWNER, "utf8");
+const owner = readFileSync(OWNER, "utf8"), t1135 = readFileSync(join(FIXTURES, "t1135-v1.html"), "utf8");
 const run = (script, page) => spawnSync(process.execPath, [script, page], { encoding: "utf8" });
 
 const changed = (from, to) => {
@@ -27,7 +27,7 @@ const SEE = '<h2><span class="num">5</span>What you will see <span class="tag sa
 const SCRIPT = (kind = "<script>") => `the page has a script (${kind}): show every part and every state in plain HTML, with no script`;
 const SWITCH = (control) => `a switch (${control}) is above "Under the hood": show each state side by side, with no button and no switch`;
 const HIDDEN = 'a hidden element is above "Under the hood": show every part with no click and no switch';
-const NO_DIAGRAM = 'no diagram: draw at least one state chart, architecture diagram or flow chart, as an <svg>, an <img> with alt text, a <figure>, an element with role="img" and an aria-label, or a <div> of boxes with an aria-label';
+const NO_DIAGRAM = 'no diagram: draw at least one state chart, architecture diagram or flow chart, as an <svg>, an <img> with alt text, a <figure>, an element with role="img" and a name (aria-label or aria-labelledby), or a <div> of <div> boxes with a name';
 const CODE = (name) => `<${name}> is above "Under the hood": move code and command output to part 10, "Under the hood"`;
 
 test("the owner's design page has the format: no problems, and the check prints a pass in Claude's and Codex's plugin", () => {
@@ -141,6 +141,9 @@ test("only a real picture is a diagram: a landmark, a section, a paragraph or an
     '<div role="navigation" aria-label="Parts"><span>Rules</span></div>',
     '<p aria-label="Flow">Open, then done</p>',
     '<div aria-label="Flow"></div>',
+    '<div aria-label="Rules"><p>One rule</p></div>',
+    '<div aria-label="Rules"><ul><li>One rule</li></ul></div>',
+    '<div aria-label="Flow chart of a task"><span>Open</span><span>Done</span></div>',
     '<div role="img"><span>Open</span><span>Done</span></div>',
     '<img src="flow.png">',
     '<img alt=" " src="flow.png">',
@@ -152,7 +155,7 @@ test("only a real picture is a diagram: a landmark, a section, a paragraph or an
   const pictures = [
     '<img alt="Flow chart of a task" src="flow.png">',
     "<figure><figcaption>Flow chart of a task</figcaption></figure>",
-    '<div aria-label="Flow chart of a task"><span>Open</span><span>Done</span></div>',
+    '<div aria-label="Flow chart of a task"><div>Open</div><div>Done</div></div>',
     '<span role="img" aria-label="Flow chart of a task">Open → Done</span>',
   ];
   for (const html of pictures) assert.deepEqual(designPageProblems(noLabels.replace(HOW, HOW + html)), [], html);
@@ -182,6 +185,7 @@ test("a hidden form value is not a switch", () => {
 test("an event attribute or a javascript: URL is a script, in any part, and a <label for> above \"Under the hood\" is a switch", () => {
   const scripts = [
     ['<span onclick="this.hidden = true">Failure</span>', "onclick"],
+    ...["onload", "onmouseover", "onerror", "oninput", "onpointerdown", "onbegin"].map((handler) => [`<p ${handler}="go()">Failure</p>`, handler]),
     ['<a href="javascript:void 0">Failure</a>', "a javascript: URL"],
     ['<a href=" Java&#x09;Script:void 0">Failure</a>', "a javascript: URL"],
   ];
@@ -209,4 +213,48 @@ test("role is a list of words: each word counts", () => {
   assert.deepEqual(designPageProblems(changed(HOW, `${HOW}<span role="button link">Failure</span>`)), [SWITCH('role="button"')]);
   assert.deepEqual(designPageProblems(changed(HOW, `${HOW}<div role="none tablist"><span>One</span></div>`)),
     ['a tab (role="tablist") is above "Under the hood": show every part on one scrolling page, with no tabs']);
+});
+
+test("the T1135 design page passes, and its <svg role=\"img\"> named by aria-labelledby is a diagram on its own", () => {
+  const renamed = t1135.replace(">What the chief and agents do<", ">What the agents do<").replace(">Plan and cost<", ">Cost and plan<");
+  assert.deepEqual(designPageProblems(t1135), [
+    'missing part 6 "What the agents do": no <h2> heading that starts with "What the agents do"',
+    'missing part 9 "Cost and plan": no <h2> heading that starts with "Cost and plan"',
+  ], "the page as the designer saved it names two parts in its own words");
+  assert.deepEqual(designPageProblems(renamed), []);
+  assert.ok(renamed.includes('role="img" aria-labelledby="sc-t sc-d"'), "the page has an svg named by aria-labelledby");
+  assert.deepEqual(designPageProblems(renamed.replace(/ aria-label="[^"]*"/g, "")), [], "the svg is the only diagram");
+});
+
+test("a picture named by aria-labelledby or an svg <title> is a diagram, and a name that points to no text is not a name", () => {
+  const noLabels = owner.replace(/ aria-label="[^"]*"/g, "");
+  const pictures = [
+    '<svg viewBox="0 0 10 10" role="img" aria-labelledby="t1"><title id="t1">State chart of a task</title><rect width="4" height="4"/></svg>',
+    '<svg viewBox="0 0 10 10" role="img"><title>State chart of a task</title><rect width="4" height="4"/></svg>',
+    '<div role="img" aria-labelledby="f1"><p id="f1">Flow chart of a task</p><span>Open</span><span>Done</span></div>',
+    '<div aria-labelledby="f2"><p id="f2">Flow chart of a task</p><div>Open</div><div>Done</div></div>',
+    '<svg viewBox="0 0 10 10"><svg width="2" height="2"/><rect width="4" height="4"/></svg>',
+  ];
+  for (const html of pictures) assert.deepEqual(designPageProblems(noLabels.replace(HOW, HOW + html)), [], html);
+  const notPictures = [
+    '<div role="img" aria-labelledby="nothing"><span>Open</span><span>Done</span></div>',
+    '<div role="img" aria-labelledby="e1"><span id="e1"></span><span>Open</span></div>',
+    '<svg aria-hidden="true" width="8" height="8"/>',
+    '<svg viewBox="0 0 10 10"><rect width="4" height="4"/>',
+  ];
+  for (const html of notPictures) assert.deepEqual(designPageProblems(noLabels.replace(HOW, HOW + html)), [NO_DIAGRAM], html);
+});
+
+test("an attribute that only starts with \"on\" is not an event handler", () => {
+  assert.deepEqual(designPageProblems(changed(HOW, `${HOW}<p title=hello online>Plain text</p><p one only>Plain text</p>`)), []);
+});
+
+test("deep nesting and unclosed pictures check in linear time", () => {
+  const n = 40000;
+  for (const html of ["<figure>".repeat(n) + "x" + "</figure>".repeat(n), '<svg viewBox="0 0 10 10">'.repeat(n), '<div aria-label="Flow">'.repeat(n) + "<p>y</p>" + "</div>".repeat(n)]) {
+    const start = performance.now();
+    designPageProblems(changed(HOW, HOW + html));
+    const took = Math.round(performance.now() - start);
+    assert.ok(took < 2000, `timing-ok: one pass takes about 60 ms for each input, so the 2 s limit is 30 times that; the old quadratic read took 3.5 to 6.7 s. ${html.slice(0, 30)}: ${took} ms`);
+  }
 });
