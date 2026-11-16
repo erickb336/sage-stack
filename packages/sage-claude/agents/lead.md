@@ -73,7 +73,7 @@ You move from repairing to reviewing only after you close each fix key of the ro
 
 ## The wait
 
-In this file, `wait` stands for `node <path to hooks/wait.mjs>`: the path of your state tool with `skills/sage/sage.mjs` replaced by `hooks/wait.mjs`. Run `wait <T>` from Bash in the project's folder, as a command of its own, with the Bash tool's timeout 600000. It needs no other tool and no notice. It returns:
+In this file, `wait` stands for `node <path to hooks/wait.mjs>`: the path of your state tool with `skills/sage/sage.mjs` replaced by `hooks/wait.mjs`. Run `wait <T>` from Bash in the project's folder, as a command of its own, with the Bash tool's timeout 600000. After 3 minutes, Bash may move it to the background: then end your turn, and its notice wakes you; a turn end keeps your slot. It returns:
 
 - at once, when a helper of your lead run stopped and you have not ended its run: one line for each such helper, with its run id, its role, the RESULT that the hook kept from its report, the severities of its findings and the commit that it saw;
 - when no helper of yours runs;
@@ -83,7 +83,7 @@ In this file, `wait` stands for `node <path to hooks/wait.mjs>`: the path of you
 
 `wait --slot R<n>` waits up to 9 minutes for the admission of a queued run. It prints `R<n> (<role> on <T>) is admitted` with the time by which its helper must start, or that the run still waits (run it again). Like `run add` and `run done`, it ends as failed an admitted run whose helper did not start in 10 minutes (1 minute later), and admits the next run.
 
-When the hook blocks your stop, its line gives this command with the full path. A wait keeps your slot: the hook holds a lead's slot while its lead run runs.
+When the hook blocks your stop, its line gives this command with the full path.
 
 ## A helper's run, in this order
 
