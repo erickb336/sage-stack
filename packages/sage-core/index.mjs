@@ -18,7 +18,7 @@ export { chiefEditDenied } from "./file-policy.mjs";
 export { PHRASES, exactPhrase, hasPhrase, phrasesNear, phraseHelp, switchModes, readModeFile, MODE_DAMAGED } from "./mode-policy.mjs";
 export { BRIEF_FIELDS, briefSections, missingBriefFields } from "./brief.mjs";
 export { renderRoleInstructions, renderReportInstructions, renderChiefInstructions, ROLE_PRINCIPLES } from "./roles.mjs";
-export { askingRun, commitIdentity, PRIORITIES, PRIORITY_SCALE, startsInSageMode } from "./logbook-fields.mjs";
+export { askingRun, commitIdentity, FINDING_CLASSES, PRIORITIES, PRIORITY_SCALE, startsInSageMode } from "./logbook-fields.mjs";
 export { readActions, readBoardSources, readHookNotes } from "./board-reader.mjs";
 export { AGENT_QUIET_MS, buildBoardModel } from "./board-model.mjs";
 export { boardOverview, taskPanel } from "./board-overview.mjs";

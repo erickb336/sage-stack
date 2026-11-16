@@ -10,6 +10,7 @@ The chief reads this playbook at the moment that its line in the chief's text na
    - Sample data, labelled as sample.
    - 2 or 3 options for each open choice, and the cost of each option.
    - The prior art, by the prior-art rule (`core/references/prior-art.md`): 2 or 3 existing products or tools, read from fetched sources, and the one that each option follows, or how and why it differs. Part 4 links each source.
+   - The fragile patterns, by the fragile-pattern rule (`core/references/fragile-patterns.md`): in the rules part, each one that the design adds and its structural option. The PE check rates each one CHANGE.
    - The cases that the design does not decide (see **Undecided case**, `undecided-case.md`).
 3. **The owner's moment:** message kind `design`, with the design page as its page. Before you send it, run the design check on the page: a page that fails goes back to the designer. The message says what changes for the owner, the options and the cost. The recommendation is first.
    - Answers: pick A, B or C, or pick one and mark the parts of the others to keep.

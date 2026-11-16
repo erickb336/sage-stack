@@ -7,7 +7,7 @@ The chief reads this playbook at the moment that its line in the chief's text na
    - A picture of the parts today.
    - 2 different shapes, not 2 versions of one shape.
    - For each shape: at most 6 boxes, and the data that each part keeps.
-   - A check for warning signs: hidden shared data, many special cases.
+   - A check for warning signs: hidden shared data, many special cases, and the fragile patterns of the fragile-pattern rule (`core/references/fragile-patterns.md`), each with its structural option.
    - For each shape: the cost, the risk, and what it ties the project to.
    - The prior art, by the prior-art rule (`core/references/prior-art.md`): 2 or 3 existing stacks or tools with a similar shape, read from fetched sources, and the one that each shape follows, or how and why it differs.
 3. **The owner's moment:** message kind `question`, with one `architecture` picture for each shape, side by side on its page: here the owner often gives their own design, so show pictures, not long text. Under each picture: what changes for the owner (speed, what they see, what can break, what it ties the project to).

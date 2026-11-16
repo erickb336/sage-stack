@@ -3217,7 +3217,7 @@ test("T346: finding add takes --run of a run of its task and --class from the st
   const add = (...more) => ["finding", "add", "T1", "--source", "code-reviewer", "--severity", "low", "--summary", "x", ...more];
   assert.equal(s.no(...add("--run", "R2")), "sage: --run R2 is a run of T2, not of T1: give the run whose report holds the finding. Nothing changed.");
   assert.equal(s.no(...add("--run", "R9")), "sage: no run R9. The latest: R1.");
-  assert.equal(s.no(...add("--class", "typo")), 'sage: --class is one of state-edge, speed, copy, layout, security, other; not "typo". Nothing changed.');
+  assert.equal(s.no(...add("--class", "typo")), 'sage: --class is one of state-edge, speed, copy, layout, security, fragile-pattern, other; not "typo". Nothing changed.');
   assert.match(s.no(...add("--escaped-from", "T2")), /^sage: finding add takes no --escaped-from\./);
   assert.equal(readFileSync(join(s.dir, "findings.tsv"), "utf8").split("\n").length, 2, "no refused finding was written");
   assert.equal(s.ok(...add("--run", "R1", "--class", "state-edge")), "F-T1-1 open · low · T1");
@@ -3228,11 +3228,21 @@ test("T346: finding add takes --run of a run of its task and --class from the st
   assert.deepEqual(rows(s.dir, "findings").map((f) => [f.key, f.run, f.class]), [["F-T1-1", "R3", "copy"]], "a re-opened finding takes the new run and class");
 });
 
+test("T1149: a review finding of the class fragile-pattern is recorded with its class, so the board and the reports can count it", () => {
+  const s = store();
+  s.ok("task", "add", "--priority", "P2", "--title", "a", "--size", "small");
+  s.ok("run", "add", "T1", "--role", "code-reviewer");
+  s.ok("run", "add", "T1", "--role", "security-reviewer");
+  assert.equal(s.ok("finding", "add", "T1", "--source", "code-reviewer", "--severity", "low", "--summary", "a rule written twice, for each provider", "--run", "R1", "--class", "fragile-pattern"), "F-T1-1 open · low · T1");
+  assert.equal(s.ok("finding", "add", "T1", "--source", "security-reviewer", "--severity", "medium", "--summary", "a guard that parses a shell command", "--run", "R2", "--class", "fragile-pattern"), "F-T1-2 open · medium · T1");
+  assert.deepEqual(rows(s.dir, "findings").map((f) => [f.key, f.class]), [["F-T1-1", "fragile-pattern"], ["F-T1-2", "fragile-pattern"]]);
+});
+
 test("T490: a review or QA finding needs --run and --class, and the refusal names the classes; a note of the sage or an implementer needs neither", () => {
   const s = store();
   s.ok("task", "add", "--priority", "P2", "--title", "a", "--size", "small");
   s.ok("run", "add", "T1", "--role", "qa");
-  const need = (source, lacks) => `sage: ${source} is a review or QA role, so finding add needs --run with the run whose report holds the finding and --class with one of state-edge, speed, copy, layout, security, other; it lacks ${lacks}. Nothing changed.`;
+  const need = (source, lacks) => `sage: ${source} is a review or QA role, so finding add needs --run with the run whose report holds the finding and --class with one of state-edge, speed, copy, layout, security, fragile-pattern, other; it lacks ${lacks}. Nothing changed.`;
   for (const source of ["code-reviewer", "security-reviewer", "ux-reviewer", "qa", "evidence-review"]) {
     const add = (...more) => s.no("finding", "add", "T1", "--source", source, "--severity", "medium", "--summary", "x", ...more);
     assert.equal(add(), need(source, "--run and --class"));
