@@ -128,7 +128,9 @@ test("T995 F4: every command of the state tool is a read or has a writer class, 
     verdict: [["T1"]], lint: [["T1"]], gate: [["add"], ["add", "T1"], ["answer", "G1"], ["replace", "T1"]], log: [["T1"], ["-"]], config: [["max_rounds=3"]], projects: [["rebuild"]],
     observe: [["T1"]], claim: [["T1"]], offer: [["T1"]], cancel: [["T1"]], accept: [["T1"]], unclaim: [["T1"]], move: [[]], chief: [["name", "C1"]], storage: [["clean"]],
   };
-  assert.deepEqual([...READS, ...Object.keys(WRITES)].sort(), [...listed].sort(), "each listed command is a read or has its write forms here");
+  const OUTSIDE_LOGBOOKS = ["prior-art"];
+  assert.deepEqual([...READS, ...OUTSIDE_LOGBOOKS, ...Object.keys(WRITES)].sort(), [...listed].sort(), "each listed command is a read, writes outside every logbook, or has its write forms here");
+  assert.equal(writerClass("prior-art", ["reviews", "add"]).kind, "read", "the prior-art index is in no logbook, so an add names no chief");
   for (const [cmd, forms] of Object.entries({ ...WRITES, program: [["propose"], ["M1", "set"]] })) for (const pos of forms) assert.notEqual(writerClass(cmd, pos).kind, "read", `${cmd} ${pos.join(" ")}`);
   assert.deepEqual([writerClass("program", ["propose"]), writerClass("release", ["T1"])], [writerClass("milestone", ["propose"]), writerClass("unclaim", ["T1"])], "an old word has the class of its new word");
   assert.deepEqual([writerClass("release", ["add"]).kind, writerClass("milestone", ["M1", "set"]).kind], ["any", "any"]);
