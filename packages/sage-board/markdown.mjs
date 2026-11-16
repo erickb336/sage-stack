@@ -1,7 +1,7 @@
 import MarkdownIt from "markdown-it";
 
 const md = new MarkdownIt({ html: false, linkify: false, typographer: false });
-md.validateLink = url => !/^\s*(?:[a-z][a-z0-9+.-]*:|\/\/|\\)/i.test(url) || /^https:\/\//i.test(url.trim());
+md.validateLink = url => !/^\s*(?:[a-z][a-z0-9+.-]*:|\/\/|\\)/i.test(url) || /^(?:https:\/\/|data:)/i.test(url.trim());
 
 const slug = text => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "part";
 const plain = tokens => tokens.map(token => token.children ? plain(token.children) : ["text", "code_inline"].includes(token.type) ? token.content : "").join("");
