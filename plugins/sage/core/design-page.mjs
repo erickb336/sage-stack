@@ -7,17 +7,22 @@ const TABS = new Set(["tab", "tablist", "tabpanel"]);
 const CODE = new Set(["pre", "code", "samp"]);
 const PICTURES = new Set(["svg", "img", "canvas", "figure"]);
 const CONTROLS = new Set(["a", "button", "input", "select", "textarea", "label", "option", "summary"]);
+const SWITCHES = new Set(["button", "input", "select", "textarea"]);
+const SWITCH_ROLES = new Set(["button", "switch", "radio", "checkbox"]);
+const SWITCH_ATTRIBUTES = ["aria-pressed", "aria-expanded", "aria-controls", "aria-selected"];
+const ATTRIBUTES = `((?:[^>"']|"[^"]*"|'[^']*')*)`;
 const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", middot: "·", rarr: "→" };
 
+const character = (point) => point <= 0x10ffff ? String.fromCodePoint(point) : "\ufffd";
 const decode = (text) => text.replace(/&(#x[\da-f]+|#\d+|[a-z]+);/gi, (whole, code) =>
-  code[0] !== "#" ? ENTITIES[code.toLowerCase()] ?? whole : String.fromCodePoint(code[1].toLowerCase() === "x" ? parseInt(code.slice(2), 16) : +code.slice(1)));
+  code[0] !== "#" ? ENTITIES[code.toLowerCase()] ?? whole : character(code[1].toLowerCase() === "x" ? parseInt(code.slice(2), 16) : +code.slice(1)));
 
 const attributesOf = (source) => Object.fromEntries([...source.matchAll(/([^\s=/]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]+))?/g)]
   .map(([, name, value = ""]) => [name.toLowerCase(), decode(value.replace(/^["']|["']$/g, ""))]));
 
 function tokens(html) {
-  const source = html.replace(/<!--[\s\S]*?-->/g, "").replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "");
-  return [...source.matchAll(/<(\/?)([a-zA-Z][\w-]*)([^>]*)>|([^<]+)/g)].map(([, closing, name, attributes, text]) =>
+  const source = html.replace(/<!--[\s\S]*?-->/g, "").replace(new RegExp(`<(script|style)\\b${ATTRIBUTES}>[\\s\\S]*?<\\/\\1\\s*>`, "gi"), "<$1$2></$1>");
+  return [...source.matchAll(new RegExp(`<(\\/?)([a-zA-Z][\\w-]*)${ATTRIBUTES}>|([^<]+)`, "g"))].map(([, closing, name, attributes, text]) =>
     text !== undefined ? { text: decode(text) } : { name: name.toLowerCase(), closing: closing === "/", attributes: closing ? {} : attributesOf(attributes) });
 }
 
@@ -59,6 +64,13 @@ function partText(list, places, index) {
   return list.slice(places[index], end).map((token) => token.text ?? " ").join("");
 }
 
+function switchOf({ name, attributes }) {
+  if (SWITCHES.has(name)) return name === "input" ? `<input type="${attributes.type || "text"}">` : `<${name}>`;
+  const role = attributes.role?.toLowerCase();
+  if (SWITCH_ROLES.has(role)) return `role="${role}"`;
+  return SWITCH_ATTRIBUTES.find((attribute) => attribute in attributes);
+}
+
 const isPicture = ({ name, attributes }) => PICTURES.has(name) || attributes.role === "img" || attributes.role === "figure"
   || (Boolean(attributes["aria-label"]?.trim()) && !CONTROLS.has(name));
 
@@ -67,6 +79,7 @@ export function designPageProblems(html) {
   const places = partPlaces(list, problems);
   const hood = places.at(-1) ?? list.length;
   const above = new Set(), say = (key, text) => { if (!above.has(key)) { above.add(key); problems.push(text); } };
+  if (list.some((token) => token.name === "script")) problems.push(`the page has a <script>: show every part and every state in plain HTML, with no script`);
   let diagrams = 0, inPicture = 0;
   for (const token of list.slice(0, hood)) {
     if (token.text !== undefined) continue;
@@ -75,10 +88,11 @@ export function designPageProblems(html) {
     if (closing) continue;
     if (isPicture(token)) { diagrams++; if (name === "pre") { inPicture = 1; continue; } }
     if (inPicture) continue;
-    const role = attributes.role?.toLowerCase();
+    const role = attributes.role?.toLowerCase(), control = switchOf(token);
     if (TABS.has(role)) say("tab", `a tab (role="${role}") is above "Under the hood": show every part on one scrolling page, with no tabs`);
+    else if (control) say("switch", `a switch (${control}) is above "Under the hood": show each state side by side, with no button and no switch`);
     if (name === "details") say("details", `a <details> block is above "Under the hood": show its content open, with no click`);
-    if ("hidden" in attributes || /display\s*:\s*none/i.test(attributes.style ?? "")) say("hidden", `a hidden element is above "Under the hood": show every part with no click and no switch`);
+    if ("hidden" in attributes || /display\s*:\s*none|visibility\s*:\s*hidden/i.test(attributes.style ?? "")) say("hidden", `a hidden element is above "Under the hood": show every part with no click and no switch`);
     if (CODE.has(name)) say(`code-${name}`, `<${name}> is above "Under the hood": move code and command output to part 10, "Under the hood"`);
   }
   if (!diagrams) problems.push(`no diagram: draw at least one state chart, architecture diagram or flow chart, as <svg>, <img> or <figure>, or as an element with role="img" and an aria-label`);
@@ -95,7 +109,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.a
   let html;
   try { html = readFileSync(page, "utf8"); } catch (error) { console.error(`✗ ${page}: cannot read it (${error.code ?? error.message})`); process.exit(2); }
   const problems = designPageProblems(html);
-  if (!problems.length) { console.log(`✓ ${page}: the design page has the ten parts in order, a diagram, no hidden content and no code above "Under the hood", and labelled sample data`); process.exit(0); }
+  if (!problems.length) { console.log(`✓ ${page}: the design page has the ten parts in order, a diagram, no script, no hidden content, no switch and no code above "Under the hood", and labelled sample data`); process.exit(0); }
   console.log(`✗ ${page}: ${problems.length} problem${problems.length === 1 ? "" : "s"} with the design format (core/references/design-format.md):`);
   for (const problem of problems) console.log(`  - ${problem}`);
   process.exit(1);

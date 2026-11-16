@@ -4,8 +4,8 @@ Every design page that an agent makes for the owner has this form: a designer's 
 
 ## The page
 
-- One HTML file, self-contained, with no network.
-- One column. Scroll only: every part reads with no click, no tab and no hidden panel.
+- One HTML file, self-contained, with no network and no script.
+- One column. Scroll only: every part reads with no click, no tab, no switch and no hidden panel.
 - About 1,200 words of text or fewer. Pictures do the work: a diagram first, then a table, then text.
 - A short label (1 or 2 words) above each full sentence.
 - 80% Simplified Technical English and the project's dictionary words.
@@ -53,11 +53,13 @@ It reads only the HTML, so it works for a design of any project and any language
 
 - a part is missing or out of order (it names the part);
 - the page has no diagram;
-- a tab, a `<details>` block, a `hidden` element or `display: none` is above "Under the hood";
+- the page has a `<script>`, in any part;
+- a switch is above "Under the hood": a `<button>`, `<input>`, `<select>` or `<textarea>`, an element with `role="button"`, `"switch"`, `"radio"` or `"checkbox"`, or an element with `aria-pressed`, `aria-expanded`, `aria-controls` or `aria-selected`;
+- a tab, a `<details>` block, a `hidden` element, or an inline `style` with `display: none` or `visibility: hidden` is above "Under the hood";
 - `<pre>`, `<code>` or `<samp>` is above "Under the hood" (a text picture with `role="img"` and an `aria-label` is a diagram, not code);
 - "After" or "What you will see" does not say "sample".
 
-The check does not judge the words, the pictures or the 1440 px and 390 px widths: you and the owner do.
+The check does not read style rules, because they also hide decoration (for example an arrow on a small screen). So a style rule that hides a part, or that shows it on hover or on a link to its anchor (`:hover`, `:target`), passes the check, and so does `aria-hidden`. You and the owner catch these, and you judge the words, the pictures and the 1440 px and 390 px widths.
 
 ## Files beside the page
 

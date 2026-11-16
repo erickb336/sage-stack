@@ -23,8 +23,13 @@ const inPart = (id, edit) => {
 };
 const HOW = '<h2><span class="num">4</span>How it works</h2>';
 const HOOD = '<h2><span class="num">10</span>Under the hood</h2>';
+const SEE = '<h2><span class="num">5</span>What you will see <span class="tag sample">sample</span></h2>';
+const SCRIPT = 'the page has a <script>: show every part and every state in plain HTML, with no script';
+const SWITCH = (control) => `a switch (${control}) is above "Under the hood": show each state side by side, with no button and no switch`;
+const HIDDEN = 'a hidden element is above "Under the hood": show every part with no click and no switch';
 
 test("the owner's design page has the format: no problems, and the check prints a pass in Claude's and Codex's plugin", () => {
+  assert.ok(owner.includes(".plan .ar::after,.plan .ar::before{display:none}"), "the owner page hides a decoration with a style rule");
   assert.deepEqual(designPageProblems(owner), []);
   for (const plugin of ["plugins/sage", "plugins/sage-codex"]) {
     const result = run(join(ROOT, plugin, "core/design-page.mjs"), OWNER);
@@ -69,8 +74,10 @@ test("a tab, a details block or a hidden part above \"Under the hood\" fails", (
   const cases = [
     ['<div role="tablist"><button role="tab">One</button></div>', 'a tab (role="tablist") is above "Under the hood": show every part on one scrolling page, with no tabs'],
     ["<details><summary>More</summary><p>Limits</p></details>", 'a <details> block is above "Under the hood": show its content open, with no click'],
-    ["<div hidden><p>Limits</p></div>", 'a hidden element is above "Under the hood": show every part with no click and no switch'],
-    ['<div style="display: none"><p>Limits</p></div>', 'a hidden element is above "Under the hood": show every part with no click and no switch'],
+    ["<div hidden><p>Limits</p></div>", HIDDEN],
+    ['<div style="display: none"><p>Limits</p></div>', HIDDEN],
+    ['<div style="visibility:hidden"><p>Limits</p></div>', HIDDEN],
+    ['<div title="a>b" hidden><p>Limits</p></div>', HIDDEN],
   ];
   for (const [html, problem] of cases) {
     assert.deepEqual(designPageProblems(changed(HOW, HOW + html)), [problem], html);
@@ -94,4 +101,32 @@ test("the design format lists the parts that the check reads, and the designer, 
     "packages/sage-core/references/playbooks/design.md",
     "packages/sage-codex/skills/sage/references/briefs.md",
   ]) assert.match(readFileSync(join(ROOT, path), "utf8"), /core\/references\/design-format\.md/, path);
+});
+
+test("states that a style rule hides and buttons switch fail, as in an arena candidate page, and the message names the switch and the script", () => {
+  const states = '<style>.state{display:none}.state.on{display:block}</style><div class="tabs"><button aria-pressed="true">Normal</button><button aria-pressed="false">Failure</button></div>'
+    + '<div class="state on"><p>Normal state, sample data</p></div><div class="state"><p>Failure state, sample data</p></div>';
+  const script = '<script>document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {})</script>';
+  assert.deepEqual(designPageProblems(changed(SEE, SEE + states + script)), [SCRIPT, SWITCH("<button>")]);
+  assert.deepEqual(designPageProblems(changed(SEE, SEE + states)), [SWITCH("<button>")]);
+  assert.deepEqual(designPageProblems(changed(HOOD, HOOD + states)), [], "a button under the hood");
+  assert.deepEqual(designPageProblems(changed("</body>", script + "</body>")), [SCRIPT], "a script at the end of the page");
+});
+
+test("each kind of switch above \"Under the hood\" fails and names itself", () => {
+  const cases = [
+    ['<input type="radio" name="s" id="a" checked><label for="a">Normal</label>', '<input type="radio">'],
+    ['<select><option>Normal</option><option>Failure</option></select>', "<select>"],
+    ['<span role="switch">Failure</span>', 'role="switch"'],
+    ['<div aria-expanded="false">More</div>', "aria-expanded"],
+    ['<a href="#fail" aria-controls="fail">Failure</a>', "aria-controls"],
+  ];
+  for (const [html, control] of cases) {
+    assert.deepEqual(designPageProblems(changed(SEE, SEE + html)), [SWITCH(control)], html);
+    assert.deepEqual(designPageProblems(changed(HOOD, HOOD + html)), [], `${html} under the hood`);
+  }
+});
+
+test("a character reference above the last code point reads as a character, with no crash", () => {
+  assert.deepEqual(designPageProblems(changed(HOW, `${HOW}<p>&#x110000; &#1114112; &#99999999999999999999;</p>`)), []);
 });
