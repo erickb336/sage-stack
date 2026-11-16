@@ -48,9 +48,10 @@ fetch("/api/answer", { method: "POST", headers: { "Content-Type": "application/j
   .then(response => "api: " + response.status, error => "api: blocked " + error.name).then(line => { out.push(line); show(); });
 show();
 </script>
+<a id="top" target="_top" href="/app/#moved">Move the board</a> <a id="pop" target="_blank" href="/app/#popup">Open a new page</a>
 `;
 
-async function openBoard(t, viewport = { width: 1440, height: 1000 }) {
+async function openBoard(t, viewport = { width: 1440, height: 1000 }, { refuse } = {}) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-question-browser-")));
   const saved = { ...process.env }, fakes = join(base, "fakes");
   mkdirSync(fakes);
@@ -84,7 +85,7 @@ async function openBoard(t, viewport = { width: 1440, height: 1000 }) {
   mkdirSync(stateDir, { recursive: true, mode: 0o700 });
   const { writeInWorker } = await import("../plugins/sage/board/writes.mjs");
   const server = createBoardServer({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair",
-    write: job => { writes.push(job.argv); return writeInWorker(job); } });
+    write: job => { writes.push(job.argv); return refuse ? { code: 1, text: refuse } : writeInWorker(job); } });
   await server.start();
   const context = await browser.newContext({ viewport, colorScheme: "dark", timezoneId: "America/New_York" });
   t.after(async () => {
@@ -127,7 +128,7 @@ test("T1121: one click on Needs you opens the question with its material; a page
 
   await page.locator(".q-side").getByRole("radio", { name: /^A: yes/ }).check();
   await page.locator(".q-side").getByRole("button", { name: "Send answer" }).click();
-  await page.getByText(/^You answered G1: A: yes\. Recorded in the logbook\./).waitFor();
+  await page.locator(".q-side").getByText(/^You answered G1: A: yes\. Recorded in the logbook\./).waitFor();
   assert.equal(JSON.parse(w.gate("G1").answered).answer, "A: yes");
   const left = page.getByRole("link", { name: "Needs you · 1 left: G2 from C2" });
   await left.waitFor();
@@ -150,8 +151,37 @@ test("T1121: on a 390 px window, an open file keeps an answer bar at the bottom 
   await w.shot("question-phone");
   await bar.getByRole("button", { name: "B: no" }).click();
   await bar.getByRole("button", { name: "Send" }).click();
-  await page.getByText(/^You answered G1: B: no\./).waitFor();
+  await inView(page, bar.getByText(/^You answered G1: B: no\. Recorded in the logbook\./), "F-T1121-13: the bar shows that the answer is sent");
   assert.equal(JSON.parse(w.gate("G1").answered).answer, "B: no");
+  assert.equal(await bar.getByRole("button", { name: "Send" }).count(), 0, "a sent answer leaves no Send in the bar");
+  await w.shot("question-phone-sent");
+});
+
+test("T1121 F-T1121-3: below 900 px, where the answers go under the material, an open file keeps the answer bar at the bottom", async t => {
+  const w = await openBoard(t, { width: 820, height: 1000 }), { page } = w;
+  await page.goto(`${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G1`)}`);
+  await page.locator(".mat").filter({ hasText: "Design notes" }).click();
+  await inView(page, page.locator(".qbar").getByRole("button", { name: "Send" }), "the bar shows at 820 px");
+});
+
+async function inView(page, locator, why) {
+  await locator.waitFor();
+  const box = await locator.boundingBox(), { height } = page.viewportSize();
+  assert.ok(box && box.y >= 0 && box.y + box.height <= height, `${why}, in the window without a scroll (${JSON.stringify(box)})`);
+}
+
+test("T1121 F-T1121-13: on a 390 px window, a refused answer shows in the answer bar, in view, and the logbook keeps no answer", async t => {
+  const refuse = "sage: G1 has an answer already: A: yes, from the chief's chat.";
+  const w = await openBoard(t, { width: 390, height: 844 }, { refuse }), { page } = w;
+  await page.goto(`${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G1`)}`);
+  await page.locator(".mat").filter({ hasText: "Design notes" }).click();
+  const bar = page.locator(".qbar");
+  await bar.getByRole("button", { name: "B: no" }).click();
+  await bar.getByRole("button", { name: "Send" }).click();
+  await inView(page, bar.getByText("Not recorded. G1 has an answer already: A: yes, from the chief's chat."), "the bar names the refusal");
+  assert.equal(w.writes.length, 1);
+  assert.equal(w.gate("G1").answered ?? "", "", "nothing was recorded");
+  await w.shot("question-phone-refused");
 });
 
 test("T1121 R5: a hostile prototype or Markdown page in the material cannot read the board, its storage or its cookie, call the API, or move the top page", async t => {
@@ -176,6 +206,29 @@ test("T1121 R5: a hostile prototype or Markdown page in the material cannot read
   assert.equal(await page.evaluate(() => window.hacked), undefined, "no script of the page ran in the board");
   assert.equal(await doc.locator('a[href="https://example.com/docs"]').getAttribute("target"), "_blank", "a link to another site opens a new tab, not in the board");
   assert.equal(page.url(), url);
+  assert.deepEqual(w.writes, []);
+});
+
+test("T1121 F-T1121-2: in a framed reader page, a click on a link to another site opens a new page and a link to a board page moves the whole window; in the prototype frame, neither does", async t => {
+  const w = await openBoard(t), { page } = w, url = `${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G1`)}`;
+  const context = page.context();
+  await page.goto(url);
+  await page.locator(".mat").filter({ hasText: "v1 prototype" }).click();
+  const prototype = page.frameLocator(".viewer iframe");
+  await prototype.locator("#out").filter({ hasText: /api: / }).waitFor();
+  await prototype.locator("#pop").click();
+  await prototype.locator("#top").click();
+  await page.locator(".mat").filter({ hasText: "hostile.md" }).click();
+  const doc = page.frameLocator(".viewer iframe");
+  await doc.getByRole("heading", { name: "Hostile sample" }).waitFor();
+  assert.equal(page.url(), url, "a click on a _top link in the prototype does not move the board");
+  const [popup] = await Promise.all([context.waitForEvent("page"), doc.getByRole("link", { name: "a safe site" }).click()]);
+  assert.deepEqual(w.outside, ["https://example.com/docs"], "the new page asked for the other site (the test blocks every request that leaves the board)");
+  assert.equal(context.pages().length, 2, "the board and that one page: the prototype's _blank link opened none");
+  await popup.close();
+  await doc.getByRole("link", { name: "a safe page" }).click();
+  await page.waitForURL(/\/read\/[\w-]+\/page\/notes\.md/);
+  await page.getByRole("heading", { name: "Design notes", level: 1 }).waitFor();
   assert.deepEqual(w.writes, []);
 });
 

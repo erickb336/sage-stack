@@ -298,6 +298,8 @@ export function QuestionView({ needKey, model, theme, archived }) {
   const rows = answerRows(gate.message), unanswered = !gate.answer && !gate.answered, owner = chiefLabel(model.chiefs, gate.logbook, gate.owner);
   const item = gate.material.items.find(entry => itemId(entry) === open) ?? null, ready = unanswered && writes === "paired" && !archived && !said?.ok;
   const left = model.needs.filter(need => need.gate && need.key !== needKey), next = left[0];
+  const tone = !said ? null : said.ok ? "done" : said.json?.pending ? "note" : "refused";
+  const result = !said ? null : said.ok ? (said.text.startsWith(gate.id) ? `You answered ${gate.id}: ${gate.options[pick]}. Recorded in the logbook. It waits for ${owner} to pick it up, at its next step.` : said.text) : `${tone === "note" ? "" : "Not recorded. "}${said.text}`;
   const send = async () => {
     if (sending.current) return;
     sending.current = true; setBusy(true);
@@ -321,7 +323,7 @@ export function QuestionView({ needKey, model, theme, archived }) {
       })}
     </div>
     <div className="send" role="status">
-      {said?.ok ? <><p className="done">{said.text.startsWith(gate.id) ? `You answered ${gate.id}: ${gate.options[pick]}. Recorded in the logbook. It waits for ${owner} to pick it up, at its next step.` : said.text} <UndoButton logbook={gate.logbook} gate={gate.id} onDone={result => result.ok && setSaid(null)} /></p>
+      {said?.ok ? <><p className="done">{result} <UndoButton logbook={gate.logbook} gate={gate.id} onDone={result => result.ok && setSaid(null)} /></p>
           <p><a href={next ? questionLink(next.key) : "#"}>Needs you · {left.length} left{next && `: ${next.gate}${next.owner ? ` from ${next.owner}` : ""}`}</a></p></>
         : !unanswered ? <p><span><Answered gate={gate} chiefs={model.chiefs} /></span>{gate.answered?.via === "board" && !gate.answer && <UndoButton logbook={gate.logbook} gate={gate.id} />}</p>
         : archived ? <p>This project is archived, so the board takes no answer here. Answer in the chief's chat.</p>
@@ -329,7 +331,7 @@ export function QuestionView({ needKey, model, theme, archived }) {
         : <p>{pick === null ? "Pick one answer above." : <>Your answer: <b>{gate.options[pick]}</b></>} <span className="grow" />
             <button type="button" className="btn" onClick={() => setPick(null)}>Clear</button>
             <button type="button" className="btn primary" disabled={pick === null || busy} onClick={send}>Send answer</button></p>}
-      {said && !said.ok && <p className={said.json?.pending ? "note" : "refused"} role="alert">{said.json?.pending ? "" : "Not recorded. "}{said.text}</p>}
+      {said && !said.ok && <p className={tone} role="alert">{result}</p>}
       <p className="hint">The first answer wins: from the board or from the chief's chat. A later answer is refused and names the first one.</p>
     </div>
   </>;
@@ -350,7 +352,7 @@ export function QuestionView({ needKey, model, theme, archived }) {
         {item && form}
         <Material gate={gate} open={open} setOpen={setOpen} />
       </aside>
-      {item && <p className="qbar"><button type="button" className="btn" onClick={() => setOpen(null)}>‹ Question</button><span className="grow" />
+      {item && <p className="qbar"><button type="button" className="btn" onClick={() => setOpen(null)}>‹ Question</button><span className="grow" />{said && <span className={`said ${tone}`}>{result}</span>}
         {ready && <>{gate.options.map((option, i) => <button type="button" key={option} className="btn" aria-pressed={pick === i} aria-label={option} title={option} onClick={() => setPick(i)}>{String.fromCharCode(65 + i)}</button>)}
           <button type="button" className="btn primary" disabled={pick === null || busy} onClick={send}>Send</button></>}</p>}
     </article>

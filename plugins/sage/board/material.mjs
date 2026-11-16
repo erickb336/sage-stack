@@ -57,5 +57,6 @@ export function gateMaterial({ model, task, gate, message }) {
       src: readerUrl(task.key, kind, run.id, { in: "board" }), open: readerUrl(task.key, kind, run.id),
       why: recorded ? `${run.id} asked ${gate.id}: its ${kind}.` : `The logbook does not record which run asked ${gate.id}, so this is the newest ${run.role} run of ${task.id}.` });
   }
-  return { items: items.slice(0, MAX), more: Math.max(0, items.length - MAX), ...(gate.run && !recorded && { missing: String(gate.run).slice(0, 20) }) };
+  const asking = items.filter(item => item.group === "run"), rest = items.filter(item => item.group !== "run"), kept = rest.slice(0, MAX - asking.length);
+  return { items: [...kept, ...asking], more: rest.length - kept.length, ...(gate.run && !recorded && { missing: String(gate.run).slice(0, 20) }) };
 }

@@ -202,7 +202,7 @@ A click on an item opens it in place, and the answers move beside it, so you can
 
 Each item opens in a frame that cannot act for the board:
 
-- A reader page runs no script, and a link in it opens in the whole window.
+- A reader page runs no script. A click on a link to a board page opens it in the whole window, and a link to another site opens in a new tab.
 - A design prototype runs its own scripts in a sandbox, below one warning line. They cannot read the board, its storage or cookies, call the board's API or move the board's window.
 - A picture shows as a picture.
 
@@ -218,7 +218,9 @@ A page says "not written yet" while its run runs, "not kept" for a run older tha
 
 <img alt="The question view at the width of a phone, 390 pixels, with SAMPLE DATA: the menu moves above the page, and the answers stack in one column." src="../assets/board-narrow.png" width="40%">
 
-The board is for a desktop window from 1024 px wide. A narrower window still works: below 900 px, the menu moves above the page, and the cards and the answers stack in one column. In the question view, the material goes under the answers; while an item is open, a bar at the bottom of the window keeps "‹ Question", a button for each answer and Send.
+The board is for a desktop window from 1024 px wide. A narrower window still works: below 900 px, the menu moves above the page, and the cards and the answers stack in one column.
+
+In the question view below 900 px, the material goes under the answers; while an item is open, a bar at the bottom of the window keeps "‹ Question", a button for each answer and Send. The bar also shows the result of Send: the answer that the logbook recorded, or the reason that the board refused it.
 
 The board is for this Mac only: it has no phone or remote access.
 

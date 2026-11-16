@@ -210,7 +210,7 @@ const STYLE_HASH = `'sha256-${createHash("sha256").update(CSS).digest("base64")}
 
 export function readerPolicy(origin, logbook, taskId, framed = false) {
   const pictures = origin && logbook && taskId ? `${origin}/pages/${logbook}/${taskId}/` : "'none'";
-  return `sandbox allow-same-origin; default-src 'none'; script-src 'none'; style-src ${STYLE_HASH}; img-src ${pictures}; base-uri 'none'; form-action 'none'; frame-ancestors ${framed ? "'self'" : "'none'"}`;
+  return `sandbox allow-same-origin${framed ? " allow-top-navigation-by-user-activation allow-popups allow-popups-to-escape-sandbox" : ""}; default-src 'none'; script-src 'none'; style-src ${STYLE_HASH}; img-src ${pictures}; base-uri 'none'; form-action 'none'; frame-ancestors ${framed ? "'self'" : "'none'"}`;
 }
 
 function frame(view, { project, title, crumb, back, file, state }) {
@@ -220,7 +220,7 @@ ${view.in ? "" : `<header class="top"><a href="/app/">sage board</a><span aria-h
 `}<main><nav class="where" aria-label="Where">${view.in ? "" : `<a class="back" href="${esc(back.href)}">&#8592; ${esc(back.text)}</a><span>${esc(back.where)}</span>`}<span class="grow"></span>${file ?? ""}</nav>
 <div class="skel" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>`;
 }
-const linksOut = html => html.replace(/<a\b([^>]*?) href="([^"]*)"/g, (all, attrs, href) => href.startsWith("#") || href.includes("in=board") ? all
+const linksOut = html => html.replace(/<a\b([^>]*?) href="([^"]*)"/g, (all, attrs, href) => href.startsWith("#") || href.startsWith("/read/") && href.includes("in=board") ? all
   : `<a${attrs} ${/^https:/i.test(href) ? 'target="_blank" rel="noopener noreferrer"' : 'target="_top"'} href="${href}"`);
 
 const END = "</main></body></html>\n";

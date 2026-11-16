@@ -76,7 +76,7 @@ test("T1121 R6: the material of a question lists the pages that it names, then i
   assert.equal(list.items[5].why, "R8 asked G4: its report.");
 });
 
-test("T1121 R6: the list stops at 8 and counts the rest; a named page that is gone stays in the list, marked gone", t => {
+test("T1121 R6: the list stops at 8 and counts the rest; the asking run's report and brief keep their places, task pages go first; a named page that is gone stays in the list, marked gone", t => {
   const w = world(t);
   for (let i = 1; i <= 9; i++) writeFileSync(join(w.pages, "T10", `page-${i}.md`), `# Page ${i}\n`);
   message(w, "G4", [{ t: "page", title: "A plan that is gone", task: "T10", file: "gone.md" }]);
@@ -85,6 +85,8 @@ test("T1121 R6: the list stops at 8 and counts the rest; a named page that is go
   assert.equal(list.items.length, 8);
   assert.equal(list.more, 15 - 8, "named 2, design and prototype 2, pages 9, the run's report and brief 2: 15 in all");
   assert.deepEqual(list.items.slice(0, 2).map(item => [item.file, !!item.gone]), [["designs/v2/notes.md", false], ["gone.md", true]]);
+  assert.deepEqual(list.items.map(item => item.group), ["named", "named", "task", "task", "task", "task", "run", "run"], "F-T1121-12: the task pages are cut, not the asking run");
+  assert.deepEqual(list.items.slice(-2).map(item => item.title), ["Report of R8", "Brief of R8"]);
 });
 
 test("T1121 G189: a question lists no page of the tasks that its task waits for; a page of another task that it names gets a link, and a page of an unknown task none", t => {
@@ -152,7 +154,8 @@ test("T1121 R5: the app may frame only reader pages and the pages folder; a read
   assert.match(alone.body, /<header class="top">/);
   const framed = await get(base, readerUrl(KEY("T3"), "report", "R5", { in: "board" }));
   assert.equal(framed.status, 200);
-  assert.match(framed.headers["content-security-policy"], /^sandbox allow-same-origin; default-src 'none'; script-src 'none'; .*frame-ancestors 'self'$/);
+  assert.match(framed.headers["content-security-policy"], /^sandbox allow-same-origin allow-top-navigation-by-user-activation allow-popups allow-popups-to-escape-sandbox; default-src 'none'; script-src 'none'; .*frame-ancestors 'self'$/, "F-T1121-2: the page's own sandbox lets a click on a link leave the frame");
+  assert.match(alone.headers["content-security-policy"], /^sandbox allow-same-origin; /, "a page outside a frame keeps the plain sandbox");
   assert.doesNotMatch(framed.headers["content-security-policy"], /allow-scripts/);
   assert.doesNotMatch(framed.body, /<header class="top">|class="back"/, "no top bar and no back link in the frame");
   assert.match(framed.body, /<a target="_top" href="\/read\/[\w-]+\/brief\/R5">Brief of R5<\/a>/, "a link to another page opens in the top page");
@@ -162,6 +165,15 @@ test("T1121 R5: the app may frame only reader pages and the pages folder; a read
   assert.match(iframe.headers["content-security-policy"], new RegExp(`^sandbox allow-scripts; .*frame-ancestors ${origin}$`));
   const top = await get(base, "/pages/sample-app-abc123/T10/designs/v2/notes.md", { "sec-fetch-dest": "document", "sec-fetch-mode": "navigate", "sec-fetch-site": "none" });
   assert.match(top.headers["content-security-policy"], /frame-ancestors 'none'$/);
+});
+
+test("T1121 F-T1121-5: in a framed reader page, only a link to a board page stays in the frame; a site whose address has in=board opens a new tab", t => {
+  const w = world(t);
+  writeFileSync(join(w.pages, "T10", "links.md"), "# Links\n\n[a look-alike](https://example.com/?in=board) and [notes](designs/v2/notes.md) and [here](#links)\n");
+  const page = readerPage({ model: w.model(), configured: w.sources, url: readerUrl(KEY("T10"), "page", "links.md", { in: "board" }), origin: ORIGIN, render: renderMarkdown }).rest;
+  assert.match(page, /<a target="_blank" rel="noopener noreferrer" href="https:\/\/example\.com\/\?in=board">a look-alike<\/a>/);
+  assert.match(page, /<a target="_top" href="\/read\/[\w-]+\/page\/designs\/v2\/notes\.md">notes<\/a>/);
+  assert.match(page, /<a href="#h-links">here<\/a>/, "a link inside the page stays in the frame");
 });
 
 test("T1121 R6: /app/gate/<key> carries the material and the run that asked; the event stream does not", async t => {
