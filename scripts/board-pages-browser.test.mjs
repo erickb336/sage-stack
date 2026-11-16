@@ -86,13 +86,13 @@ before(async () => {
   writeFileSync(join(pages, "research.html"), "<!DOCTYPE html><title>SAMPLE research</title><p>SAMPLE research page</p>");
   writeFileSync(join(pages, "notes.txt"), "SAMPLE notes");
   writeFileSync(join(pages, "links.html"), `<!DOCTYPE html><title>SAMPLE links</title><a id="index" href="${at("")}">index</a> <a id="txt" href="${at("notes.txt")}">notes</a> <a id="script" href="${at("hostile.html")}">a page with a script</a>`);
-  mkdirSync(join(pages, "shots"));
-  writeFileSync(join(pages, "shots", "x.png"), PNG);
+  mkdirSync(join(pages, "designs", "final", "shots"), { recursive: true });
+  writeFileSync(join(pages, "designs", "final", "shots", "x.png"), PNG);
   mkdirSync(join(dir, "worktrees", LOGBOOK, "pages", "T2"));
   writeFileSync(join(dir, "worktrees", LOGBOOK, "pages", "T2", "x.png"), PNG);
   const images = `<img id="shot" src="shots/x.png" alt="SAMPLE shot"><img id="data" src="data:image/png;base64,${PNG.toString("base64")}" alt=""><img id="task" src="/pages/${LOGBOOK}/T2/x.png" alt=""><img id="away" src="${otherSite}/image" alt="">`;
-  writeFileSync(join(pages, "tabs.html"), tabs(images));
-  writeFileSync(join(pages, "shots.html"), `<!DOCTYPE html><title>SAMPLE shots</title>${images}`);
+  writeFileSync(join(pages, "designs", "final", "tabs.html"), tabs(`${images}<a id="sibling" href="../../research.html">research</a>`));
+  writeFileSync(join(pages, "designs", "final", "shots.html"), `<!DOCTYPE html><title>SAMPLE shots</title>${images}`);
   const design = JSON.parse(readFileSync(join(HERE, "fixtures", "messages", "07-design.json"), "utf8"));
   const message = renderMessage({ ...design, blocks: design.blocks.map((b) => (b.t === "page" ? { ...b, path: `/pages/${b.task}/${b.file}` } : b)) }, { pagePath: (name) => join(pages, name) });
   assert.ok(message.page, "the design message has a page");
@@ -157,7 +157,7 @@ test("T1130: a design page's own script switches its tabs, and its pictures from
   reached.length = 0;
   const errors = [];
   page.on("pageerror", (error) => errors.push(String(error)));
-  const response = await page.goto(at("tabs.html"));
+  const response = await page.goto(at("designs/final/tabs.html"));
   assert.equal(response.status(), 200);
   assert.equal(await page.title(), "tabs.html");
   assert.match(await page.getByRole("note").textContent(), /^Warning: this page runs its own scripts in a sandbox/);
@@ -170,7 +170,7 @@ test("T1130: a design page's own script switches its tabs, and its pictures from
   assert.equal(await frame.locator("#b").getAttribute("aria-pressed"), "true");
   await frame.locator("#a").click();
   assert.equal(await frame.locator("#one").isVisible(), true, "the first tab shows again");
-  assert.equal(await shown(frame, "#shot"), true, "shots/x.png shows");
+  assert.equal(await shown(frame, "#shot"), true, "designs/final/shots/x.png shows: 4 parts deep, as standing order 41 keeps a design");
   assert.equal(await shown(frame, "#data"), true, "a data: picture shows");
   assert.equal(await shown(frame, "#task"), false, "a picture of another task does not load");
   assert.equal(await shown(frame, "#away"), false, "a picture of another site does not load");
@@ -178,13 +178,27 @@ test("T1130: a design page's own script switches its tabs, and its pictures from
   assert.deepEqual(errors, []);
 });
 
+test("F-T1130-1: in a page with scripts, the warning line's link opens the task's index in the top window, and a link to another page of the task opens in the frame", async (t) => {
+  const { page } = await context(t);
+  await page.goto(at("designs/final/tabs.html"));
+  await (await inner(page)).locator("#sibling").click();
+  await page.waitForTimeout(300);
+  assert.equal((await inner(page)).url(), at("research.html"));
+  assert.match(await (await inner(page)).textContent("body"), /SAMPLE research page/);
+  assert.equal(page.url(), at("designs/final/tabs.html"), "the top window stays");
+  const [index] = await Promise.all([page.waitForResponse(at("")), page.getByRole("note").getByRole("link", { name: "All pages of T1" }).click()]);
+  assert.equal(index.status(), 200);
+  assert.equal(page.url(), at(""), "the index opens in the top window");
+  assert.match(await page.textContent("h1"), /Pages of T1/);
+});
+
 test("T1130: a page with no script shows its pictures from its own folder, but no picture of another task or site", async (t) => {
   const { page } = await context(t);
   reached.length = 0;
-  assert.equal((await page.goto(at("shots.html"))).status(), 200);
+  assert.equal((await page.goto(at("designs/final/shots.html"))).status(), 200);
   assert.equal(page.mainFrame().childFrames().length, 0, "no frame");
   await page.waitForLoadState("load");
-  assert.equal(await shown(page.mainFrame(), "#shot"), true, "shots/x.png shows");
+  assert.equal(await shown(page.mainFrame(), "#shot"), true, "designs/final/shots/x.png shows: 4 parts deep, as standing order 41 keeps a design");
   assert.equal(await shown(page.mainFrame(), "#task"), false, "a picture of another task does not load");
   assert.equal(await shown(page.mainFrame(), "#away"), false);
   assert.deepEqual(reached, [], "nothing reached the other site");

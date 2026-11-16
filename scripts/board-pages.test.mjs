@@ -40,7 +40,7 @@ function logbook(root, name) {
 
 function sampleRoot(base) {
   const root = join(base, "worktrees"), pages = join(root, LOGBOOK, "pages"), t1 = join(pages, "T1");
-  mkdirSync(join(t1, "sub", "deep", "deeper"), { recursive: true });
+  mkdirSync(join(t1, "sub", "deep", "deeper", "deepest"), { recursive: true });
   const files = {
     "research.html": "<!DOCTYPE html><title>research</title><p>SAMPLE research</p>",
     "message.html": `<!DOCTYPE html><title>message</title><p>SAMPLE</p>${SWITCH}`,
@@ -49,7 +49,7 @@ function sampleRoot(base) {
     "prose.html": "<!DOCTYPE html><title>prose</title><p>SAMPLE: done once = fine</p><p title=\"done once = fine\">x</p>",
     "brief.pdf": "%PDF-1.4 SAMPLE", "shot.png": "PNG SAMPLE", "photo.jpg": "JPG", "anim.gif": "GIF", "pic.webp": "WEBP", "chart.svg": "<svg xmlns='http://www.w3.org/2000/svg'/>",
     "notes.md": "# SAMPLE <b>notes</b>", "notes.txt": "SAMPLE", "sub/inner.html": "<p>inner</p>", "sub/deep/deepest.txt": "three parts",
-    "sub/deep/deeper/too-deep.txt": "four parts", "state.json": "{}", "events.jsonl": "{}", "run.log": "log", "page.tmp": "tmp", ".hidden.html": "<p>hidden</p>",
+    "sub/deep/deeper/four.txt": "four parts", "sub/deep/deeper/deepest/too-deep.txt": "five parts", "state.json": "{}", "events.jsonl": "{}", "run.log": "log", "page.tmp": "tmp", ".hidden.html": "<p>hidden</p>",
     "upper.HTML": "<p>case</p>", "v1..v2.html": "<p>two dots</p>", "notes..md": "two dots", "locked.html": "<p>locked</p>",
   };
   for (const [name, text] of Object.entries(files)) writeFileSync(join(t1, name), text);
@@ -114,7 +114,7 @@ const FRAME = { "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "navigate", "
 
 test("the pages route serves each page type with its own type and the sandbox policy, and the index lists only those pages", async (t) => {
   const f = await fixture(t);
-  const types = { "research.html": "text/html; charset=utf-8", "brief.pdf": "application/pdf", "shot.png": "image/png", "photo.jpg": "image/jpeg", "anim.gif": "image/gif", "pic.webp": "image/webp", "chart.svg": "image/svg+xml", "notes.md": "text/plain; charset=utf-8", "notes.txt": "text/plain; charset=utf-8", "sub/inner.html": "text/html; charset=utf-8", "sub/deep/deepest.txt": "text/plain; charset=utf-8" };
+  const types = { "research.html": "text/html; charset=utf-8", "brief.pdf": "application/pdf", "shot.png": "image/png", "photo.jpg": "image/jpeg", "anim.gif": "image/gif", "pic.webp": "image/webp", "chart.svg": "image/svg+xml", "notes.md": "text/plain; charset=utf-8", "notes.txt": "text/plain; charset=utf-8", "sub/inner.html": "text/html; charset=utf-8", "sub/deep/deepest.txt": "text/plain; charset=utf-8", "sub/deep/deeper/four.txt": "text/plain; charset=utf-8" };
   for (const [name, type] of Object.entries(types)) {
     const r = await get(f, `/pages/${LOGBOOK}/T1/${name}`);
     assert.equal(r.status, 200, name);
@@ -152,7 +152,7 @@ test("the pages route serves each page type with its own type and the sandbox po
   pageHeaders(index, /^script-src 'none'; default-src 'none';/);
   assert.equal(index.headers["cross-origin-opener-policy"], "same-origin");
   const listed = [...index.body.matchAll(/<a href="\/pages\/project-abcdef\/T1\/([^"?]+)">/g)].map((m) => m[1]).sort();
-  assert.deepEqual(listed, ["anim.gif", "brief.pdf", "chart.svg", "handler.html", "message.html", "notes.md", "notes.txt", "photo.jpg", "pic.webp", "prose.html", "research.html", "scripted.html", "shot.png", "sub/deep/deepest.txt", "sub/inner.html"]);
+  assert.deepEqual(listed, ["anim.gif", "brief.pdf", "chart.svg", "handler.html", "message.html", "notes.md", "notes.txt", "photo.jpg", "pic.webp", "prose.html", "research.html", "scripted.html", "shot.png", "sub/deep/deeper/four.txt", "sub/deep/deepest.txt", "sub/inner.html"]);
   assert.match(index.body, /a page may link to sites outside this Mac/);
   assert.doesNotMatch(index.body, /\?scripts|with its scripts/);
   assert.equal((await get(f, `/pages/${LOGBOOK}/T1`)).body, index.body, "the index also without the last slash");
@@ -232,7 +232,7 @@ test("the pages route refuses each path that leaves a task's pages, a link, a se
     "a log": `/pages/${LOGBOOK}/T1/run.log`,
     "a temporary file": `/pages/${LOGBOOK}/T1/page.tmp`,
     "a type in capitals": `/pages/${LOGBOOK}/T1/upper.HTML`,
-    "too deep": `/pages/${LOGBOOK}/T1/sub/deep/deeper/too-deep.txt`,
+    "too deep": `/pages/${LOGBOOK}/T1/sub/deep/deeper/deepest/too-deep.txt`,
     "too large": `/pages/${LOGBOOK}/T1/big.html`,
     "two dots inside a name": `/pages/${LOGBOOK}/T1/v1..v2.html`,
     "two dots inside a Markdown name": `/pages/${LOGBOOK}/T1/notes..md`,

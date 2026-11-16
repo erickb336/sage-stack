@@ -316,7 +316,7 @@ The Page block of a message gives this link between its title and its file path 
 
 The board shows web pages, PDFs, pictures (PNG, JPEG, GIF, WebP and SVG), and Markdown and text files as plain text. It shows no other file: no logbook file, JSON, log, hidden file or link.
 
-A page can be at most 3 parts deep in the task's folder (for example `designs/final/index.html`) and at most 16 MiB. The index lists at most 200 pages.
+A page can be at most 4 parts deep in the task's folder (for example `designs/final/shots/home.png`) and at most 16 MiB. The index lists at most 200 pages.
 
 Each page opens in a sandbox. A page cannot read the board or your files, load a style or a frame from the board or from another site, or send a form.
 
@@ -324,11 +324,16 @@ A page can show a picture from its own task's pages folder, with a relative link
 
 A script from another site does not run, but if its `integrity` hash matches the switch, your browser still asks that site for it before it checks the hash. A frame to another site stays blocked, but your browser still opens a connection to that site, and the connection sends its host name.
 
-A page with scripts of its own, for example a design prototype with tabs, opens in a frame below one warning line: "this page runs its own scripts in a sandbox". In the frame, the page's scripts run, but they cannot:
+A page with scripts of its own, for example a design prototype with tabs, opens in a frame below one warning line: "this page runs its own scripts in a sandbox". The line ends with a link to the task's index, so you can always go back to the index. In the frame, the page's scripts run, but they cannot:
 
-- read the board, its storage or its cookies, or fetch from the board or from another site;
+- read the board, its storage or its cookies, another page or your files;
+- fetch from the board or from another site;
 - send a form, or open a window;
-- move the browser's window, or move the frame to another site. So a link to another site in such a page does not open: copy the link instead.
+- move the browser's window, or move the frame out of the task's folder.
+
+So in a page with scripts, only a link to another page of the same task opens. A link to the index, to a page of another task or to another site does not open: use the link in the warning line, or copy the link.
+
+The scripts can still send the text of their own page to another site with no click: through WebRTC (a connection to a STUN or TURN server), which the page's policy does not cover. The board found no header that stops this in Chromium. Only what that page itself holds can leave this way: its scripts cannot read the board, your files or another page.
 
 A page with no script of its own opens as it is, without the frame. In it, only sage's own script runs: the Today switch of a message's page.
 
@@ -340,9 +345,9 @@ The address of that request can hold any text of the page, so that text can leav
 
 A warning line in the index tells you the rest: a page may link to sites outside this Mac. When you click such a link, your browser opens that site, and the site gets everything in the link's address.
 
-A link in a page to another page of the board, or to the index, opens when you click it: the board opens a page by a person's click from any site. A page cannot fetch anything from the board.
+A link in a page with no script of its own to another page of the board, or to the index, opens when you click it: the board opens a page by a person's click from any site. A page cannot fetch anything from the board.
 
-Another site can show a picture of a pages folder when it knows the picture's full address, because the board cannot tell that request from a page's own request for its picture. That site cannot read the picture's pixels.
+Another site can show a picture of a pages folder when it knows the picture's full address, because the board cannot tell that request from a page's own request for its picture. That site cannot read the picture's pixels. But it can learn whether a picture is at an address that it guesses, and the size of that picture.
 
 A site that moves you to a page by itself gets "not permitted". When another site opens the index or a page with scripts in a new tab, the board cuts that site's hold on the tab, so the site cannot move the tab or read what a page sends to it.
 

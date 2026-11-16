@@ -61,7 +61,7 @@ function listPages(folder) {
     for (const entry of entries) {
       if (++seen > SCAN || pages.length === LIST) { more = true; break; }
       const name = dir ? `${dir}/${entry.name}` : entry.name;
-      if (entry.isDirectory() && name.split("/").length < 3 && pageType(`${name}/x.txt`)) queue.push(name);
+      if (entry.isDirectory() && pageType(`${name}/x.txt`)) queue.push(name);
       else if (entry.isFile()) { const page = pageFile(folder, name); if (page) pages.push({ name, size: page.size }); }
     }
   }
@@ -82,11 +82,11 @@ ${pages.length ? `<ul>${rows}</ul>` : "<p>This task has no pages yet.</p>"}
 ${more ? `<p class="m">The list stops at ${pages.length} pages: the folder holds more files than the index reads.</p>` : ""}</main></body></html>\n`;
 }
 
-function frameHtml(file) {
+function frameHtml(logbook, task, file) {
   const name = file.split("/").at(-1);
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${name}</title>
 <style>:root{color-scheme:light dark}html,body{height:100%;margin:0}body{display:flex;flex-direction:column;font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}p{margin:0;padding:5px 12px;border-bottom:3px solid #c99a00}iframe{flex:1;border:0;width:100%;background:#fff}</style></head>
-<body><p role="note"><strong>Warning:</strong> this page runs its own scripts in a sandbox. They cannot read the board, your files or another site, and a link to another site does not open here.</p><iframe src="${name}" sandbox="allow-scripts" title="${name}"></iframe></body></html>\n`;
+<body><p role="note"><strong>Warning:</strong> this page runs its own scripts in a sandbox. They cannot read the board, your files or other pages, but they can send the text of this page to another site. Only a link to another page of ${task} opens here. <a href="/pages/${logbook}/${task}/">All pages of ${task}</a></p><iframe src="${name}" sandbox="allow-scripts" title="${name}"></iframe></body></html>\n`;
 }
 
 export function servePages(request, response, { onMac, model }) {
@@ -116,7 +116,7 @@ export function servePages(request, response, { onMac, model }) {
   const origin = `http://${one(request, "host").toLowerCase()}`, own = `${origin}/pages/${target.logbook}/${target.task}/`;
   const type = pageType(target.file), html = type === PAGE_TYPES.html, dest = one(request, "sec-fetch-dest");
   if (dest === "iframe") return send(200, type, bytes, pagePolicy(html && "'unsafe-inline'", own, origin));
-  if (html && dest === "document" && ownScript(bytes.toString("utf8"))) return send(200, type, frameHtml(target.file), `default-src 'none'; style-src 'unsafe-inline'; frame-src ${own}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`, true);
+  if (html && dest === "document" && ownScript(bytes.toString("utf8"))) return send(200, type, frameHtml(target.logbook, target.task, target.file), `default-src 'none'; style-src 'unsafe-inline'; frame-src ${own}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`, true);
   return send(200, type, bytes, pagePolicy(html && switchOnly(bytes) && SWITCH, own));
 }
 
