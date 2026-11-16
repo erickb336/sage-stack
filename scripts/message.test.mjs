@@ -650,7 +650,7 @@ test("the message command resolves a Page block in a task's pages folder, and re
   writeFileSync(join(boardFolder, "board.port"), "80\n");
   assert.ok(sage("message", "T1", "--file", file("q.json", local)).out.includes("\n  http://127.0.0.1:43123/pages/"), "T1079: a port out of 1024 to 65535 gives the default port");
   for (const page of [{ task: "T1", file: "../T2/x.html" }, { task: "T1", file: "/etc/passwd" }, { task: "../T1", file: "x.html" }, { path: "/etc/passwd" },
-    { task: "T1", file: ".research.html" }, { task: "T1", file: "a/.b/x.html" }, { task: "T1", file: "state.json" }, { task: "T1", file: "run.log" }, { task: "T1", file: "a/b/c/x.html" },
+    { task: "T1", file: ".research.html" }, { task: "T1", file: "a/.b/x.html" }, { task: "T1", file: "state.json" }, { task: "T1", file: "run.log" }, { task: "T1", file: "a/b/c/d/x.html" },
     { task: "T1", file: "v1..v2.html" }, { task: "T1", file: "notes..md" }, { task: "T1", file: "a..b/x.html" }])
     assert.match(sage("message", "T1", "--json", JSON.stringify({ ...question, blocks: question.blocks.map((b) => (b.t === "page" ? { t: "page", title: "x", ...page } : b)) })).out, /a page block names its page as \{ t: page, title, task, file \}/, JSON.stringify(page));
   writeFileSync(join(folder, "outside.html"), "<p>x</p>");

@@ -72,7 +72,7 @@ The JSON: `{ "kind", "title", "blocks": [ … ], "ref" }`, and `"status"` for an
 | `changes` | `rows` of `{ where, today, after, why }` | numbered rows; for changes without a screen |
 | `steps` | `items` of `{ text, cmd, see }` | numbered steps, each command in a fence |
 | `code` | `lines` | the lines in a fence |
-| `page` | `title`, `task`, `file`: a file in that task's pages folder that the board serves (a web page, PDF, picture, Markdown or text file, at most 3 parts deep and 16 MiB) | the Page block: the title, the link, the path |
+| `page` | `title`, `task`, `file`: a file in that task's pages folder that the board serves (a web page, PDF, picture, Markdown or text file, at most 4 parts deep and 16 MiB) | the Page block: the title, the link, the path |
 
 A catch-up's picture is a `frame`: boxes inside boxes that the command lays out and gives their state words. Each box is `{ "box": "release" | "milestone" | "task" | "group", "name", "items": [ boxes or lines of text ] }`. A task gives its recorded `state` (for example `"reviewing"`), and may give `waits` (what it waits for) and `needs` (the owner's question). A milestone may give its state (`"proposed"`, or `"done"`, which the boxes inside it must agree with); its word and a release's word come from the boxes inside them, and the tasks inside a group count too. A group gives its `word`, and so does a box whose items are only lines of text. Any box may give a `note` for its first line. Exactly one box is `"here": true`: the double box, the task that runs now.
 

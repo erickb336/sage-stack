@@ -178,7 +178,7 @@ function pagesIndex() {
     const response = { setHeader() {}, writeHead(code) { status = code; }, end(text) { body = String(text); } };
     servePages({ url: `/pages/${logbook}/T1/`, method: "GET", headersDistinct: { host: ["127.0.0.1:1"] } }, response, { onMac: () => true, model: { projects: [{ books: [`claude/${logbook}`] }] } });
     assert.equal(status, 200, body);
-    assert.match(body, /scripted\.html\?scripts=1/);
+    assert.match(body, /scripted\.html"/);
     return body;
   } finally {
     if (saved === undefined) delete process.env.SAGE_WORKTREES;
