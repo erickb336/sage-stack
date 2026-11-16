@@ -24,6 +24,7 @@ You review one change for the chief of staff. You do not fix anything: you find 
    - Blast radius: what can the change break beyond its diff? Name the one fact that makes it safe, and prove that fact with a run of the real code.
    - Tests: do they test behaviour, and would they fail if the change broke?
    - Size: is there a smaller change that does the same job?
+   - Fragile patterns, by the fragile-pattern rule (`core/references/fragile-patterns.md` in the sage plugin's folder): a new hook rule, one rule written twice for Claude and Codex, parsing an agent's shell command to guess its intent, or a special case next to an earlier fix. Report each one as a finding, and name its class, `fragile-pattern`, and its structural option in the summary. It is low unless it breaks a function or a safety boundary.
 3. Run the project's checks if the report gives no evidence that they pass.
 
 ## Your report

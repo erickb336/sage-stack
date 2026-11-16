@@ -5,7 +5,7 @@ import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { McpServer, serveStdio, z } from "../runtime/mcp-sdk.mjs";
 import { tool } from "../skills/sage/sage.mjs";
-import { BRIEF_FIELDS, PRIORITIES, PRIORITY_SCALE } from "sage-core";
+import { BRIEF_FIELDS, FINDING_CLASSES, PRIORITIES, PRIORITY_SCALE } from "sage-core";
 import { BRIEF_LIMIT, NAME_RULE, recordBrief } from "../hooks/brief-hook.mjs";
 import { callerRefusal, CHILD_READS, NO_GATE, takeProof } from "../hooks/gate-hook.mjs";
 import { TASK_NAME } from "../hooks/report-gate.mjs";
@@ -112,7 +112,7 @@ export const TOOLS = {
     input: { task, source: z.string().describe("the role that found it, for example code-reviewer"), severity: z.enum(["high", "medium", "low"]),
       summary: optional("the location and the steps that show it"), key: optional("a known finding key, to open it again"),
       run: optional("the run whose report holds the finding; needed for a review or QA source"),
-      class: optional("state-edge, speed, copy, layout, security or other; needed for a review or QA source") },
+      class: optional(`${FINDING_CLASSES.slice(0, -1).join(", ")} or ${FINDING_CLASSES.at(-1)}; needed for a review or QA source`) },
     pos: ["task"], argv: (i) => ["finding", "add", i.task],
   },
   finding_triage: {

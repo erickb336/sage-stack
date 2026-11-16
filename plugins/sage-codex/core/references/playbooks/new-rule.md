@@ -9,6 +9,7 @@ The chief reads this playbook at the moment that its line in the chief's text na
    - Proof that each new check fails on the past mistake.
    - How often it would stop normal work (false alarms).
    - The old rules that it replaces.
+   - No fragile pattern (`core/references/fragile-patterns.md`): a new hook rule needs proof that the state tool, the merge check or a shared rule module cannot hold it, and one rule is never written twice, for Claude and for Codex.
 3. **The owner's moment:** message kind `question`, with the mistake, the check, the proof and the cost. Ask the owner before you change sage itself.
    - Answers: add it, keep it as a note only, or skip.
    - If the owner does not answer: nothing changes in sage.
