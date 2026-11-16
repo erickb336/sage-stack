@@ -156,6 +156,26 @@ The prior-art index keeps those tables, one file for each topic, in `~/.sage/pri
 | `sage prior-art <topic>` | The chief, before a design, PE or investigate brief. | Prints the topic's table, which the chief puts in the brief's CONTEXT. |
 | `sage prior-art <topic> add --file '<path>'` | The chief, after a report names a file of proposed rows. In Codex, the `prior_art` tool does all three. | Adds the rows to the topic's file. A bad row refuses the whole add and names its line; a row whose link is in the topic already stays out. |
 
+### Fragile patterns
+
+Each design, engineering check (PE), code review and security review looks for four code patterns that break easily and cost much to keep. The agents follow one rule, in Claude and in Codex (`core/references/fragile-patterns.md` in the plugin's folder):
+
+| Pattern | The structural option |
+| --- | --- |
+| A new hook rule | The state tool, the merge check or a shared rule module. A new hook rule needs proof that none of them can do the job. |
+| One rule written twice, once for Claude and once for Codex | One shared implementation in core, which both providers call. |
+| Parsing an agent's shell command to guess its intent | A structural boundary, such as a state tool command or a file permission. |
+| A special case next to an earlier fix of the same area | A fix of the shared cause. |
+
+| Role | What it does with a pattern |
+| --- | --- |
+| Designer | Names it and its structural option in the design's rules part. |
+| PE | Rates the part CHANGE and names the structural option; QUESTION only when that option changes what you see or do. |
+| Code reviewer, security reviewer | Reports it as a finding of the class `fragile-pattern`. It is low, with the structural option, unless it breaks a function or a safety boundary. |
+| Chief | Names each open `fragile-pattern` finding under Weak points in its report to you. |
+
+A finding's class is one of `state-edge`, `speed`, `copy`, `layout`, `security`, `fragile-pattern` or `other`.
+
 ### Each question takes one answer
 
 You can answer a question in the chat, on a choice card in Claude or in Codex, or on the board. The first answer counts, wherever you give it.

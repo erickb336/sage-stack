@@ -13,7 +13,7 @@ export const KINDS = {
     parts: ["Where", "?Since", "Changes", "Next", "?Cost", "Needs you"] },
   question: { head: "QUESTION", use: "When work waits for the owner's choice. The title is the question. Ask it on the choice card when the card rule above allows it, else in this text form. Each part starts with a ### heading on its own line. The answers are a numbered list, never a table. A batch puts each question in a section “Question <n>: <short title>”, with its own answers.", tableHead: QUESTION_HEAD, pick: true, card: true,
     parts: ["Where", "Approve", "Choice", "table+", "Default", "Due", "?Judged by", "?Weak points", "Next", "?page"] },
-  report: { head: "REPORT", use: "When work ends: a pull request merged, or a study concluded. The title says what happened and what it needs. The table of the pieces of work goes under its own ### Changes heading.", tableHead: REPORT_HEAD, tableLabel: "Changes",
+  report: { head: "REPORT", use: "When work ends: a pull request merged, or a study concluded. The title says what happened and what it needs. The table of the pieces of work goes under its own ### Changes heading. Weak points names each open fragile-pattern finding and its structural option.", tableHead: REPORT_HEAD, tableLabel: "Changes",
     parts: ["Where", "?Why", "picture*", "table", "Not checked", "Weak points", "Needs you", "?page"] },
   "request understood": { head: "REQUEST UNDERSTOOD", use: "Right after the owner asks for new work, before agents spend hours on it. It starts on its defaults unless the owner corrects it.",
     parts: ["Request", "Goal", "Check these", "In", "Out", "Budget", "?Open questions", "Default"] },
