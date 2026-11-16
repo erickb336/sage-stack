@@ -10,7 +10,7 @@ export { createCommandPolicy, mentionsMerge, gitSubcommand, programName, unreada
 export { createPushPolicy, gitHubRepository } from "./push-policy.mjs";
 export { logbookWrite, stateToolRun, ghRuns, AGENT_GH, agentGh } from "./command-runs.mjs";
 export { agentCommandProblem, boardCommandProblem, boardPathProblem, CHIEF_GIT, CHIEF_SHELL, CHIEF_WORKTREE, chiefShellProblem, READ_ONLY_SHELL_WAY, TEMP } from "./agent-rules.mjs";
-export { PR, pullRequestHead } from "./pull-request.mjs";
+export { PR, keptUsersText, pullRequestHead } from "./pull-request.mjs";
 export { branchProtection, protectionNote } from "./branch-protection.mjs";
 export { fileWriteOutsideRoots, partNames } from "./protected-paths.mjs";
 export { commandWrites, shellWriteEvidence } from "./shell-write-policy.mjs";
@@ -18,7 +18,7 @@ export { chiefEditDenied } from "./file-policy.mjs";
 export { PHRASES, exactPhrase, hasPhrase, phrasesNear, phraseHelp, switchModes, readModeFile, MODE_DAMAGED } from "./mode-policy.mjs";
 export { BRIEF_FIELDS, briefSections, missingBriefFields } from "./brief.mjs";
 export { renderRoleInstructions, renderReportInstructions, renderChiefInstructions, ROLE_PRINCIPLES } from "./roles.mjs";
-export { commitIdentity, PRIORITIES, PRIORITY_SCALE, startsInSageMode } from "./logbook-fields.mjs";
+export { askingRun, commitIdentity, PRIORITIES, PRIORITY_SCALE, startsInSageMode } from "./logbook-fields.mjs";
 export { readActions, readBoardSources, readHookNotes } from "./board-reader.mjs";
 export { AGENT_QUIET_MS, buildBoardModel } from "./board-model.mjs";
 export { boardOverview, taskPanel } from "./board-overview.mjs";

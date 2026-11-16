@@ -345,7 +345,7 @@ function handleEvent(input, state, slots) {
       if (r.refused === "children") return deny(event, `this lead already has ${LEAD_HELPERS} children. ${helperWait}`);
       if (r.refused === "helper") return deny(event, `${helperKey.run} already has its helper: one run is backed by one child (F-T284-9). Report to the sage.`);
       const stop = () => slots.unnamedLead(leadMark.task) ? "by its agent id, from its start's result: it started with no name field, so a stop by its name is refused" : `by its agent id or by its name lead-${leadMark.task}`;
-      if (r.refused === "task" && r.elsewhere) return deny(event, `a lead of ${leadMark.task} holds a slot in another session, for the lead run ${r.run ?? "of its start"} (F-T273-5), and a TaskStop in this session cannot stop it. If that session ended (a restart or a crash), the slot frees by itself after an hour with no event of that lead or its helpers: start this lead again then. To start a fresh lead now, run each of these as a command of its own: ${stateCommand(`run done ${r.run ?? "<its lead run>"} --status failed`)}, then ${stateCommand(`run add ${leadMark.task} --role lead`)}, then start the lead again.`);
+      if (r.refused === "task" && r.elsewhere) return deny(event, `a lead of ${leadMark.task} holds a slot in another session, for the lead run ${r.run ?? "of its start"} (F-T273-5), and a TaskStop in this session cannot stop it. If that session ended (a restart or a crash), the slot frees by itself after an hour with no event of that lead or its helpers: start this lead again then. To start a fresh lead now, run each of these as a command of its own: ${stateCommand(`run done ${r.run ?? "<its lead run>"} --status failed --why "its session ended"`)}, then ${stateCommand(`run add ${leadMark.task} --role lead`)}, then start the lead again.`);
       if (r.refused === "task") return deny(event, `a lead named lead-${leadMark.task} already holds a slot, in this session or for this logbook (F-T273-5, F-T273-16). Wait for it to end, or stop it with TaskStop (${stop()}), before you start a fresh lead.`);
       if (r.refused === "mark") return deny(event, `the agent cap could not mark its slot (${r.error}), so it refuses this spawn. Tell the user.`);
       return deny(event, `${running(r.total)} across all projects, and the total cap is ${caps.cap_total} (${project} has ${r.project}). ${raise("cap_total", caps.cap_total)}`);
@@ -661,27 +661,16 @@ function optionsOf(args) {
   }
   return { pos, opt, twice };
 }
-function chiefStateWords(input) {
-  const command = String(input.tool_input?.command ?? "").replace(/\\\r?\n/g, " ").trim();
-  const quoted = [`node "${TOOL}" `, `node '${TOOL}' `].find((form) => command.startsWith(form));
-  let words;
-  if (quoted) words = command.slice(quoted.length).trim().split(/[ \t]+/);
-  else {
-    const [node, raw, ...rest] = command.split(/[ \t]+/), path = raw?.replace(/^(["'])(.+)\1$/, "$2");
-    if (node !== "node" || !path || !/(?:^|\/)skills\/sage\/sage\.mjs$/.test(path) || canonical(resolve(input.cwd ?? process.cwd(), path)) !== canonical(TOOL)) return undefined;
-    words = rest;
-  }
-  return words.length && PLAIN.test(words.join(" ")) ? words : undefined;
-}
 function chiefWriteWords(input) {
   let commands;
   try {
-    commands = core.shellCommands(String(input.tool_input?.command ?? ""));
+    commands = core.shellCommands(String(input.tool_input?.command ?? ""), { provenance: true });
   } catch {
     return undefined;
   }
   const [one, ...more] = commands.filter((c) => !c.host);
   if (!one || more.length) return undefined;
+  const literal = commands.length === 1 && one.wordLiterals.every(Boolean) && !one.redirects.length && !one.bodies.length && !one.heredoc;
   const env = { ...process.env }, words = [...one.words], set = (w) => (env[w.slice(0, w.indexOf("="))] = w.slice(w.indexOf("=") + 1));
   for (let k = 0; one.syntax[k]?.assignment; k++) set(words.shift());
   if (words[0] === "env") for (words.shift(); ; ) {
@@ -690,7 +679,7 @@ function chiefWriteWords(input) {
     else break;
   }
   const [node, path, ...rest] = words;
-  return node === "node" && /(?:^|\/)skills\/sage\/sage\.mjs$/.test(path) && canonical(resolve(input.cwd ?? process.cwd(), path)) === canonical(TOOL) ? { words: rest, env } : undefined;
+  return node === "node" && /(?:^|\/)skills\/sage\/sage\.mjs$/.test(path) && canonical(resolve(input.cwd ?? process.cwd(), path)) === canonical(TOOL) ? { words: rest, env, literal } : undefined;
 }
 function chiefIdProblem(input) {
   if (input.tool_name !== "Bash") return undefined;
@@ -709,11 +698,12 @@ function chiefIdProblem(input) {
 }
 function chiefEnded(input, slots) {
   try {
-    const words = chiefStateWords(input);
-    if (!words || words[0] !== "run") return;
+    const { words, env, literal } = chiefWriteWords(input) ?? {};
+    const plain = (w, k) => /^[\w./=:@,+-]+$/.test(w) || words[k - 1] === "--why" || w.startsWith("--why=");
+    if (!literal || words[0] !== "run" || !words.every(plain)) return;
     const { pos, opt } = optionsOf(words.slice(1));
     if (pos[0] !== "done" || !/^R[1-9]\d*$/.test(pos[1] ?? "")) return;
-    const view = logbookOf(opt.project ?? process.env.SAGE_PROJECT ?? input.cwd), run = view.row(pos[1]);
+    const view = logbookOf(opt.project ?? env.SAGE_PROJECT ?? input.cwd), run = view.row(pos[1]);
     if (!run || run.status === "running" || !TEAM.includes(run.role)) return;
     const leads = [view.leadRun(run.task), ...view.endedLeadRuns().filter((r) => r.task === run.task)].filter(Boolean);
     slots.endHelpers(leads.map((lead) => helperOf({ logbook: digest(view.dir), run: lead.id }, run.id)));

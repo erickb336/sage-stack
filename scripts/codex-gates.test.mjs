@@ -966,7 +966,7 @@ test("F-T552-8, F-T928-4: a lead starts its team only while its lead run runs an
   briefed(w, "sage_qa_t1_r9");
   assert.equal(lead("/root/sage_lead_t1_r1"), undefined);
   assert.match(denied(lead("/root/sage_lead_t1_r9")), /^sage: T1 has no running lead run R9, so this lead records nothing and starts no agent/, "another lead run's name");
-  w.sage("run", "done", "R1", "--status", "failed");
+  w.sage("run", "done", "R1", "--status", "failed", "--why", "stopped");
   assert.match(denied(lead("/root/sage_lead_t1_r1")), /^sage: T1 has no running lead run R1, so this lead records nothing and starts no agent/, "a lead run that ended");
   w.sage("run", "add", "T1", "--role", "lead");
   assert.equal(lead("/root/sage_lead_t1_r3"), undefined);
@@ -1015,7 +1015,7 @@ test("T950: in sage mode the chief's spawn of a lead starts only while that lead
   assert.equal(spawn("sage_lead_t1_r1"), undefined, "its lead run runs, with a checked brief");
   assert.equal(denied(spawn("sage_lead_t2_r2")), NO_BRIEF("sage_lead_t2_r2"), "its lead run runs, with no checked brief");
   assert.equal(denied(spawn("sage_lead_t1_r9")), NO_RUN("T1", "R9"), "a run id that is not the running lead run");
-  w.sage("run", "done", "R1", "--status", "failed");
+  w.sage("run", "done", "R1", "--status", "failed", "--why", "stopped");
   assert.equal(denied(spawn("sage_lead_t1_r1")), NO_RUN("T1", "R1"), "a lead run that ended");
   w.sage("run", "add", "T1", "--role", "lead");
   assert.equal(spawn("sage_lead_t1_r3"), undefined);

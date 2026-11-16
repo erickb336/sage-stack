@@ -1044,7 +1044,7 @@ for (const bad of ["{bad", "[]"]) test(`T1056: a damaged logbook config.json (${
   assert.equal(rowsOf("tasks").length, 1);
   assert.match(w.claude("run", "add", "T1", "--role", "qa"), /^R1 /);
   assert.equal(rowsOf("runs").length, 1, "one run, so a retry adds no second one");
-  w.claude("run", "done", "R1", "--status", "failed");
+  w.claude("run", "done", "R1", "--status", "failed", "--why", "stopped");
   assert.deepEqual(rowsOf("runs").map((row) => row.includes("\tfailed\t")), [true], "a running run still ends");
   assert.deepEqual([readFileSync(file, "utf8"), limitRows(w).length], [bad, 0], "nothing moves into a damaged file");
   assert.deepEqual(limitsOf(w.claude("config")), [12, 4], "the limits stay the larger values of the provider roots");
@@ -1067,8 +1067,8 @@ test("T1056, T1057: a Claude chief and a Codex chief of one project fill one age
   assert.match(w.claude("run", "add", "T1", "--role", "qa"), /^R3 /);
   assert.match(w.codex("run", "add", "T2", "--role", "qa"), /^R4 is queued, place 1 · qa on T2 · .* the project runs 3 of its 3 agents\./);
   assert.match(w.claude("run", "add", "T1", "--role", "qa"), /^R5 is queued, place 2 · qa on T1 · /);
-  assert.match(w.codex("run", "done", "R2", "--status", "failed"), /^R2 failed\nR4 admitted · qa on T2 · chief C2: /, "a run that ended admits the oldest queued run");
-  assert.match(w.claude("run", "done", "R3", "--status", "failed"), /^R3 failed\nR5 admitted · qa on T1 · chief C1: /, "the next end admits the other chief's run");
+  assert.match(w.codex("run", "done", "R2", "--status", "failed", "--why", "stopped"), /^R2 failed\nR4 admitted · qa on T2 · chief C2: /, "a run that ended admits the oldest queued run");
+  assert.match(w.claude("run", "done", "R3", "--status", "failed", "--why", "stopped"), /^R3 failed\nR5 admitted · qa on T1 · chief C1: /, "the next end admits the other chief's run");
 });
 
 test("the merge check of a shared project reads its verdicts from the shared root, its list and its counts", (t) => {

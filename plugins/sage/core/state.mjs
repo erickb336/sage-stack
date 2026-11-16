@@ -11,7 +11,7 @@ import { boardView, sessionRoots, sessionSources } from "./board-view.mjs";
 import { projectName as shownName } from "./board-model.mjs";
 import { ADMIT_LEASE_MS, KEPT_FILE_MAX, KEPT_TEXT_MAX, LAPSED, agentCaps, capNames, projectLimits, queueOrder, slug } from "./logbook-fields.mjs";
 import { logbookIdentity } from "./board-reader.mjs";
-import { PR, pullRequestHead } from "./pull-request.mjs";
+import { PR, USERS_FOLDER, pullRequestBody, pullRequestHead, usersPart } from "./pull-request.mjs";
 import { REPORT_FIELDS } from "./report.mjs";
 import { cleanReport, fieldsOf, proofResults, readReport } from "./report-reader.mjs";
 import { ROLES } from "./roles.mjs";
@@ -20,7 +20,7 @@ import { AGENT_CAPS, BREAKS, COMMIT_EMAIL, COMMIT_NAME, FINDING_CLASSES, HIDDEN,
 import { BREAKDOWN, ENDED, GATE_ID, MET, MILESTONE_ID, TASK_ID, breakdownGate, renameRows, renamedIds, byIds, dead, droppedBy, gateLines, lostClause, milestoneState, milestoneWordOf, progressOf, progressText, releaseKey, releaseNameProblem, releasesOf, shownGraph, shownMilestoneState, shownWaits, unmetWaits, waitGraph, waitWords, waitsOf, waitsWithState } from "./milestone-rules.mjs";
 import { FILES_MAX, FILE_PATH_MAX_BYTES, OBSERVATIONS_MAX_BYTES, OBSERVATION_DATA_MAX_BYTES, validateObservation, validateObservations } from "./observations.mjs";
 import { pushedBranches } from "./push-policy.mjs";
-import { MOVES, PLAN_MAX, checkoutGone, createSharedRoot, sharedRoot, unreadableFolder } from "./shared-root.mjs";
+import { MOVES, PLAN_MAX, checkoutGone, createSharedRoot, githubRemote, sharedRoot, unreadableFolder } from "./shared-root.mjs";
 import { changedText, countsOf, endText, gateQuestion, gateText, localTime, mapHtml, mismatchText, previewText, providersOf, reconciliationText, startText, stepText, stoppedText, title } from "./move-text.mjs";
 import { pagesFolder, worktreeRoot, worktrees } from "./worktrees.mjs";
 import { storageClean, storagePlan, storageView } from "./storage.mjs";
@@ -106,7 +106,7 @@ const CHIEF_COLUMN = "chief";
 const CHECKOUT_COLUMN = "checkout";
 const ADMITTED_COLUMN = "admitted";
 const RELEASE_COLUMN = "release";
-const SPARSE = { tasks: [CHIEF_COLUMN, "offer", RELEASE_COLUMN, "request"], runs: [CHIEF_COLUMN, CHECKOUT_COLUMN, ADMITTED_COLUMN], gates: ["kind", CHIEF_COLUMN, "answered", "picked"], milestones: [RELEASE_COLUMN] };
+const SPARSE = { tasks: [CHIEF_COLUMN, "offer", RELEASE_COLUMN, "request"], runs: [CHIEF_COLUMN, CHECKOUT_COLUMN, ADMITTED_COLUMN, "failure"], gates: ["kind", CHIEF_COLUMN, "answered", "picked", "run"], milestones: [RELEASE_COLUMN] };
 const TABLES = { ...PLAIN_TABLES, ...Object.fromEntries(Object.entries(SPARSE).map(([t, cols]) => [t, [...PLAIN_TABLES[t], ...cols]])) };
 const ADDED = { ...FILLED, ...Object.fromEntries(Object.entries(SPARSE).map(([t, cols]) => [t, [...(FILLED[t] ?? []), ...cols]])) };
 const RUN_ENDS = ["done", "blocked", "question", "failed"];
@@ -130,14 +130,14 @@ const OPTIONS = {
   "release add": ["name", "goal"],
   "run add": ["role", "branch", "candidate", "usage-interface"],
   observe: ["kind", "source", "basis", "observed-at", "data-hex"],
-  "run done": ["status", "tokens", "report", "usage", "usage-source", "usage-evidence"],
+  "run done": ["status", "tokens", "report", "usage", "usage-source", "usage-evidence", "why"],
   "run usage": ["tokens", "usage-source", "usage-evidence"],
   "finding add": ["source", "severity", "summary", "key", "run", "class"],
   "finding triage": ["reason", "proof"],
   "finding move": ["to", "into", "size"],
   verdict: ["sha", "kind", "cycle", "pr", "run"],
   lint: ["sha"],
-  "gate add": ["question", "options", "recommend", "default", "message"],
+  "gate add": ["question", "options", "recommend", "default", "message", "run"],
   "gate answer": ["option", "other-hex", "via", "seen"],
   log: ["why"],
   "merge-check": ["sha", "pr", "cycles", "head"],
@@ -199,6 +199,7 @@ const checkout = (dir, project, env) => {
 const pagesRoot = (project, env = process.env) => pagesFolder(basename(storeDir(project, env)), env);
 const pagesDir = (project, task, env) => join(pagesRoot(project, env), task);
 const MESSAGE_MAX = 1024 * 1024;
+const FAILURE_MAX = 200;
 
 const BRANCH = /^(?![-./])(?!(?:refs|heads|remotes|origin)\/)(?!(?:main|master|HEAD)$)(?!.*(?:\.\.|\/\/|\/\.|\.lock(?:\/|$)|[/.]$))[A-Za-z0-9._/-]+$/i;
 const ofTask = (task, name) => BRANCH.test(name) && new RegExp(`^(?:[A-Za-z0-9_-]+/)?${task}(?:-[A-Za-z0-9._-]+)?$`, "i").test(name);
@@ -553,7 +554,7 @@ const lapsedOf = (dir, runs, at) => runs.filter((r) => awaiting(dir, r) && lease
 function admit(dir, project, env, runs) {
   const stamp = now(), notes = [], lapsed = lapsedOf(dir, runs, Date.parse(stamp));
   for (const r of lapsed) {
-    Object.assign(r, { status: "failed", ended: stamp });
+    Object.assign(r, { status: "failed", ended: stamp, failure: `its agent did not start within ${ADMIT_LEASE_MS / 60_000} minutes` });
     notes.push(`${r.id} failed: admitted at ${utc(r.admitted)}, its agent did not start within ${ADMIT_LEASE_MS / 60_000} minutes`);
   }
   if (lapsed.length) write(dir, "decisions", [...read(dir, "decisions"), ...lapsed.map((r) => ({ at: stamp, task: r.task, decision: `${r.id} failed: ${LAPSED}`, why: "an admitted run keeps its place for 10 minutes; the next queued run takes it" }))]);
@@ -904,7 +905,7 @@ function replaceDelta({ reference: { gate, task, to, runs, offer }, result: { at
     if (offerOf(row)?.id !== offer) return false;
     row.offer = "";
   } else Object.assign(row, { chief: to, ...(row.offer ? { offer: "" } : {}) });
-  for (const run of rows.runs) if (runs.includes(run.id)) Object.assign(run, { status: "failed", ended: at });
+  for (const run of rows.runs) if (runs.includes(run.id)) Object.assign(run, { status: "failed", ended: at, failure: `ended when you gave ${task} to ${to} (${gate})` });
   Object.assign(asked, { answer, ...(answered === undefined ? {} : { answered }), ...(picked === undefined ? {} : { picked }) });
   rows.decisions.push({ at, task, decision: `${asked.question} → ${answer}`, why: "the user's answer" });
   return true;
@@ -2765,6 +2766,21 @@ function keepRunText(project, { kind, run, task, text }, env = process.env) {
   renameSync(temp, file);
   return file;
 }
+function keepUsersText(dir, project, task, env) {
+  let repository;
+  try { repository = githubRemote(readLocalGit(projectRoot(resolve(project)), ["config", "--get", "remote.origin.url"]).toString().trim()); } catch {}
+  if (!repository || !task.pr) return "";
+  const what = `PR ${task.pr}'s "What changes for users"`;
+  let text;
+  try { text = usersPart(pullRequestBody(task.pr, repository, project, env)); }
+  catch (error) { return ` · ${what} is not kept: ${error.message}`; }
+  if (!text) return ` · PR ${task.pr} has no "What changes for users" part (at most 64 KiB), so the board has no text for this change`;
+  const folder = join(dir, USERS_FOLDER), temp = join(folder, `.${task.id}-${randomUUID()}.tmp`);
+  mkdirSync(folder, { recursive: true, mode: 0o700 });
+  writeFileSync(temp, `${text}\n`, { mode: 0o600, flag: "wx" });
+  renameSync(temp, join(folder, `${task.id}.md`));
+  return ` · kept ${what} for the board`;
+}
 const gateMessageFile = (dir, id) => join(dir, "gates", `${id}.json`);
 function readMessage(file, json, project, env) {
   let text = json;
@@ -2775,6 +2791,7 @@ function readMessage(file, json, project, env) {
   if (Buffer.byteLength(text) > MESSAGE_MAX) refuse("the message's JSON is over 1 MiB. Nothing written.");
   let input;
   try { input = JSON.parse(text); } catch (e) { refuse(`the message is not JSON: ${e.message}. Nothing written.`); }
+  if (/#pair=/i.test(text.replace(/\\u([0-9a-f]{4})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16))))) refuse("the message holds #pair=, the mark of a board pairing link. A pairing link opens the board for one browser, so it goes in the chat text only, never in a message or its page. Take it out. Nothing written.");
   const logbook = basename(storeDir(project, env));
   const pages = (blocks, depth = 0) => (Array.isArray(blocks) ? blocks : []).forEach((b) => {
     if (b?.t === "section" && depth < MAX_SECTIONS) pages(b.body, depth + 1);
@@ -3068,9 +3085,10 @@ function act(cmd, pos, opt, dir, env, skip, project) {
       const { tasks, task } = taskOf(dir, need(sub, "the task id")), open = offerOf(task);
       if (open) refuse(`${task.id} has the open offer ${open.id} to ${open.to}: cancel it first. Nothing changed.`);
       runsBar(dir, task, "unclaim", opt.chief);
+      const last = read(dir, "decisions").filter(d => d.task === task.id).at(-1);
+      if (last?.decision !== `${task.id} unclaimed by ${opt.chief}` || last.why !== "unclaim") ownership(dir, task.id, `unclaimed by ${opt.chief}`, "unclaim");
       task.chief = "";
       write(dir, "tasks", tasks);
-      ownership(dir, task.id, `unclaimed by ${opt.chief}`, "unclaim");
       return `${task.id} unclaimed · no owning chief. Only ${opt.chief} claims it back; another chief needs the owner's takeover gate.`;
     }
     case "init":
@@ -3185,11 +3203,12 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         const planned = planTaskChanges(before, task.id, more, now(), { ...Object.fromEntries(["findings", "ledger", "gates", "milestones", "releases"].map((t) => [t, read(dir, t)])), maxRounds: config(env, dir).max_rounds, why, project, env });
         const bar = moveBar(more, planned);
         if (bar) refuse(bar);
+        const merging = task.state !== "merged" && planned.task.state === "merged";
         if (JSON.stringify(planned.decisions) !== JSON.stringify(before.decisions)) write(dir, "decisions", planned.decisions);
         if (JSON.stringify(planned.runs) !== JSON.stringify(before.runs)) write(dir, "runs", planned.runs);
         write(dir, "tasks", planned.tasks);
         Object.assign(task, planned.task);
-        note = planned.note;
+        note = planned.note + (merging ? keepUsersText(dir, project, task, env) : "");
       }
       return `${task.id} ${task.state} · ${task.size} · round ${task.round} · route ${task.route}${task.branch ? ` · ${task.branch}` : ""}${task.pr ? ` · PR ${task.pr}` : ""}${tagsOf(task)}${waitsText(task, shownOf(dir, tasks))}${note}${keptLines(dir, task.id)}`;
     }
@@ -3342,6 +3361,9 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         const run = runs.find((r) => r.id === id) ?? missing(`run ${id}`, runs.map((r) => r.id));
         const st = need(opt.status, "--status");
         if (!RUN_ENDS.includes(st)) refuse("status is done, blocked, question or failed");
+        if (opt.why !== undefined && st !== "failed") refuse(`--why gives the reason of a failed run, so it goes only with --status failed. Nothing changed.`);
+        const whyProblem = opt.why === undefined ? undefined : nameProblem(opt.why, FAILURE_MAX);
+        if (whyProblem) refuse(`--why is one line of at most ${FAILURE_MAX} characters, the reason why ${run.id} failed; it ${whyProblem}. Nothing changed.`);
         if (opt.tokens !== undefined && !/^[1-9]\d{0,11}$/.test(opt.tokens)) refuse(`--tokens is a whole number from 1 to 12 digits, for example --tokens 52000; not ${JSON.stringify(opt.tokens)}. Nothing changed.`);
         const unavailable = opt.usage === "unavailable";
         if (opt.tokens !== undefined && run.usage_interface && (!usageText(opt["usage-source"]) || !usageText(opt["usage-evidence"]))) refuse("A declared interface needs its measured source and evidence. Nothing changed.");
@@ -3356,15 +3378,17 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         }
         if (RUN_ENDS.includes(run.status)) {
           if ((run.usage_status === "unavailable" && opt.tokens !== undefined) || opt["usage-source"] !== undefined || opt["usage-evidence"] !== undefined) refuse("Use run usage to audit a later measured count. Nothing changed.");
-          const flag = (col) => `--${col}`, lacks = ["tokens", "report"].filter((col) => !run[col]);
-          const kept = ["tokens", "report"].find((col) => opt[col] !== undefined && run[col]);
-          if (kept) refuse(`${run.id} already ended as ${run.status} with its ${kept}, and ${flag(kept)} never replaces it. Nothing changed.`);
-          const adds = lacks.filter((col) => opt[col]);
-          if (st !== run.status || !adds.length) refuse(`${run.id} already ended as ${run.status}: a run ends once. A later run done --status ${run.status} may only add ${lacks.length ? lacks.map(flag).join(" or ") + ", which it lacks" : "nothing, as it has its tokens and its report"}. Nothing changed.`);
-          for (const c of adds) run[c] = opt[c];
+          const LATER = { tokens: ["tokens", "tokens"], report: ["report", "report"], failure: ["why", "reason"] }, flag = (col) => `--${LATER[col][0]}`, named = (cols) => cols.map((col) => `its ${LATER[col][1]}`);
+          const cols = ["tokens", "report", ...(run.status === "failed" ? ["failure"] : [])], lacks = cols.filter((col) => !run[col]);
+          const kept = cols.find((col) => opt[LATER[col][0]] !== undefined && run[col]);
+          if (kept) refuse(`${run.id} already ended as ${run.status} with ${named([kept])}, and ${flag(kept)} never replaces it. Nothing changed.`);
+          const adds = lacks.filter((col) => opt[LATER[col][0]]), has = named(cols);
+          if (st !== run.status || !adds.length) refuse(`${run.id} already ended as ${run.status}: a run ends once. A later run done --status ${run.status} may only add ${lacks.length ? lacks.map(flag).join(" or ") + ", which it lacks" : `nothing, as it has ${has.slice(0, -1).join(", ")} and ${has.at(-1)}`}. Nothing changed.`);
+          for (const c of adds) run[c] = opt[LATER[c][0]];
           write(dir, "runs", runs);
-          return `${run.id} ${st} · added ${adds.join(" and ")}`;
+          return `${run.id} ${st} · added ${adds.map((c) => LATER[c][1]).join(" and ")}`;
         }
+        if (st === "failed" && opt.why === undefined) refuse(`run done --status failed needs --why "<the reason>": one line of at most ${FAILURE_MAX} characters that says why ${run.id} failed, for example --why "its agent stopped with no report". The board shows it to the owner. Nothing changed.`);
         const kept = opt.tokens === undefined ? keptUsage(dir, run) : undefined;
         const counted = opt.tokens !== undefined || unavailable || kept;
         if (st === "done" && CHECKERS.includes(run.role) && !counted) refuse(`${run.id} is a ${run.role} run, so run done --status done needs --tokens with its tokens as a whole number, for example --tokens 52000. Nothing changed.`);
@@ -3372,7 +3396,7 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         if (kept) Object.assign(run, kept);
         else if (unavailable) Object.assign(run, { usage_status: "unavailable", usage_source: opt["usage-source"], usage_evidence: opt["usage-evidence"] });
         else if (opt.tokens !== undefined) Object.assign(run, { usage_status: "measured", usage_source: opt["usage-source"] ?? "", usage_evidence: opt["usage-evidence"] ?? "" });
-        Object.assign(run, { status: st, tokens: opt.tokens ?? run.tokens, report: opt.report ?? run.report, ended: now() });
+        Object.assign(run, { status: st, tokens: opt.tokens ?? run.tokens, report: opt.report ?? run.report, ended: now(), ...(opt.why !== undefined && { failure: opt.why }) });
         const admitted = admit(dir, project, env, runs);
         write(dir, "runs", runs);
         return [`${run.id} ${st}`, ...admitted].join("\n");
@@ -3539,6 +3563,12 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         if (readsAsBreakdown(question)) refuse(`a question that starts with "Approve milestone" or "Approve program" is a breakdown gate, and only milestone propose opens one. Ask it in other words.`);
         if (looks(question).startsWith("move · plan")) refuse(`a question that starts with "move · plan" is a move gate, and only sage move --plan opens one. Ask it in other words.`);
         const g = { id: nextId(dir, "G"), task: id === undefined ? "" : taskOf(dir, id).task.id, question: need(question, "--question"), options: flatOptions, recommendation, default: opt.default === undefined ? "" : pick(opt.default, "--default"), at: now(), ...chiefTag(opt) };
+        if (opt.run !== undefined) {
+          if (!g.task) refuse("--run names the run that asked this question, and a run belongs to a task: give the gate its task (sage gate add <T> ... --run R<n>). Nothing changed.");
+          const runs = read(dir, "runs"), run = runs.find((r) => r.id === opt.run) ?? missing(`run ${opt.run}`, runs.filter((r) => r.task === g.task).map((r) => r.id));
+          if (run.task !== g.task) refuse(`--run ${run.id} is a run of ${run.task}, not of ${g.task}: name the run of ${g.task} that asked this question. Nothing changed.`);
+          g.run = run.id;
+        }
         const message = opt.message === undefined ? undefined : questionMessage(opt.message, project, g.task, env);
         if (message) keepGateMessage(dir, g, message);
         write(dir, "gates", [...gates, g]);
