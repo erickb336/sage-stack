@@ -22,7 +22,7 @@ export function appTables(now) {
       task("T21", "Sample passkeys", "merged", { milestone: "M3", priority: "P1" }),
       task("T30", "Sample crash reports", "awaiting-you", { priority: "P2" }),
     ],
-    runs: [run("R1", "T2", "implementer", "failed", 3, 1), run("R2", "T3", "code-reviewer", "running", 0.5)],
+    runs: [run("R1", "T2", "designer", "failed", 3, 1), run("R2", "T3", "code-reviewer", "running", 0.5)],
     gates: [
       gate("G1", "T1", breakdown("M1", "Board redesign", "T1"), "approve|change|drop", "approve", "approve", 72),
       gate("G2", "T10", breakdown("M2", "Offline sync", "T10"), "approve|change|drop", "approve", "approve", 70),

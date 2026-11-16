@@ -259,6 +259,7 @@ input:not([type]), input[type="text"] { font: inherit; color: inherit; backgroun
 .prow .chief .dot.live { background: var(--done); }
 .prow .chief .dot.unknown { background: none; box-shadow: inset 0 0 0 1.5px var(--faint); }
 .prow :is(.why, .waits) { font-size: 12.5px; color: var(--muted); margin-top: 3px; overflow-wrap: anywhere; }
+p.waits.never { color: var(--fail); }
 .prow .why.need { color: var(--need); }
 .prow .facts { display: contents; }
 .prow .facts > span { color: var(--muted); font-size: 12.5px; }

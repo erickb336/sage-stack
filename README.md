@@ -84,7 +84,7 @@ Send `show board` to see the board in the chat: what needs you, the agents at wo
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/board-dark.png">
-  <img alt="The Overview of the board on a laptop screen, with SAMPLE DATA: the chief chips under the top bar, Needs you with three items, the Milestones card by priority, and the counts of the last 24 hours." src="docs/assets/board-light.png" width="100%">
+  <img alt="The Overview of the board on a laptop screen, with SAMPLE DATA: the chief chips under the top bar, Needs you with two items, the Milestones card by priority, and the counts of the last 24 hours." src="docs/assets/board-light.png" width="100%">
 </picture>
 
 *Sample data: every task and milestone shown is made up. The screenshot shows the first screen on a laptop (1280 by 800 pixels). The [board guide](docs/guide/board.md) shows each page of the board.*

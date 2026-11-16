@@ -213,14 +213,14 @@ test("T1096: the guide's mark key and Agents page key show the table's marks and
   for (const state of ["work", "wait", "stuck", "long", "stop"]) { const { mark, text } = shown(OBJECTS.agent.states[state]); assert.ok(guide.includes(`| ${mark} ${text} |`), state); }
   assert.ok(guide.includes(`\`${MARKS_TABLE.problem}\` is a problem: ${FLAGS.slice(0, -1).join(", ")} or ${FLAGS.at(-1)}.`) && guide.includes(`\`${MARKS_TABLE.unknown}\` is a state that the board does not know.`), "the two more marks");
   const render = readFileSync(new URL("../packages/sage-core/board-render.mjs", import.meta.url), "utf8");
-  for (const mark of ["⊘", "🔴"]) assert.ok(render.includes(mark) && new RegExp(`^- \`?${mark}\`? `, "m").test(guide), `F-T1099-58: the guide's key explains ${mark}, which the boards show`);
+  for (const mark of [MARKS_TABLE["cannot start"], "🔴"]) assert.ok((mark === "🔴" ? render.includes(mark) : render.includes('MARKS["cannot start"]')) && new RegExp(`^- \`?${mark}\`? `, "m").test(guide), `F-T1099-58: the guide's key explains ${mark}, which the boards show`);
 });
 
 test("T1096: the board app and the message command take their words from the table, and keep no copy of the six words", () => {
   const app = buildSync({ absWorkingDir: ROOT, entryPoints: ["packages/sage-board/app/main.jsx"], bundle: true, write: false, metafile: true, format: "esm", jsx: "automatic", external: ["react", "react-dom", "react/*", "react-dom/*", "@xyflow/react"], loader: { ".css": "empty" }, logLevel: "silent" });
   assert.ok(Object.keys(app.metafile.inputs).includes("packages/sage-core/state-words.mjs"), "the app bundles the table");
   const readers = ["packages/sage-core/board-render.mjs", "packages/sage-core/message.mjs", ...readdirSync(join(ROOT, "packages/sage-board/app")).filter(name => name.endsWith(".jsx")).map(name => `packages/sage-board/app/${name}`)];
-  for (const file of readers) assert.doesNotMatch(readFileSync(join(ROOT, file), "utf8"), /"not started", "waiting", "needs you"|"needs you", "in progress", "waiting"|not known"|#\$\{[^}]*\.pr\}|[○⧗▶■◫◎◌]/, file);
+  for (const file of readers) assert.doesNotMatch(readFileSync(join(ROOT, file), "utf8"), /"not started", "waiting", "needs you"|"needs you", "in progress", "waiting"|not known"|#\$\{[^}]*\.pr\}|[○⧗▶■◫◎◌⊘]/, file);
 });
 
 test("F-T1096-1, F-T1096-12, F-T1099-49: the task page and the chat lookup show each run's word and flag from the table, never the tool's status; a run that ended on a question needs you", () => {

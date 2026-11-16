@@ -204,15 +204,18 @@ function addRuns(logbook, rows) {
 
 test("T1062 F-T1062-32: failed runs travel as rows up to 20 for each lead and each chief, with how many more; the count stays the true total", t => {
   const { sources, logbook } = world(t, { agents: true });
+  const tasks = join(logbook, "tasks.tsv"), [head] = readFileSync(tasks, "utf8").split("\n"), columns = head.split("\t");
+  appendFileSync(tasks, Array.from({ length: 25 }, (_, i) => `${columns.map(column => ({ id: `T${500 + i}`, title: `Sample open task ${i}`, size: "small", route: "build,code-review,qa", state: "building", round: "0", chief: "C2" })[column] ?? "").join("\t")}\n`).join(""));
   addRuns(logbook, [
     ...Array.from({ length: 433 }, (_, i) => [`R${3000 + i}`, "T2", "qa", "C1", 60 - i * 0.1, 10]),
-    ...Array.from({ length: 25 }, (_, i) => [`R${4000 + i}`, "T21", "pe", "C2", 120 - i, 100]),
+    ...Array.from({ length: 25 }, (_, i) => [`R${4000 + i}`, `T${500 + i}`, "pe", "C2", 120 - i, 100]),
+    ...Array.from({ length: 5 }, (_, i) => [`R${4100 + i}`, "T21", "pe", "C2", 120 - i, 100]),
   ]);
   const overview = boardOverview(modelOf(sources)), [book] = overview.agents;
-  assert.equal(book.runs.filter(run => run.lead === "R20" && run.status === "failed").length, 20, "R20's newest 20 failed helpers");
+  assert.equal(book.runs.filter(run => run.lead === "R20" && run.look).length, 0, "T1120 S3: R20's 433 failed qa helpers each have a later qa run (R24), so none is a problem");
   assert.equal(book.runs.filter(run => run.chief === "C2" && !run.lead && run.status === "failed").length, 20, "C2's newest 20 failed runs with no running lead");
-  assert.deepEqual(book.failedMore, [{ lead: "R20", chief: null, count: 413 }, { lead: null, chief: "C2", count: 5 }]);
-  assert.deepEqual([book.look, overview.counts.stuck], [4 + 433 + 25, 4 + 433 + 25], "both pages count every failed run");
+  assert.deepEqual(book.failedMore, [{ lead: null, chief: "C2", count: 5 }]);
+  assert.deepEqual([book.look, overview.counts.stuck], [4 + 25, 4 + 25], "both pages count every failed run of an open task that did not run again; T1120 S3: the failed runs of merged T21 do not count");
   assert.ok(JSON.stringify(book).length < 20_000, `the agents part of the stream stays small: ${JSON.stringify(book).length} B`);
 });
 

@@ -110,7 +110,7 @@ const reasonLines = reason => {
   const [first, ...rest] = String(reason.text ?? "").split(LINE).map(line => md(line).replace(/^(\s*)([-=])/, "$1\\$2"));
   return [`${reason.gateId ? `${md(reason.key)} · ` : ""}${first}`, ...rest, ...(reason.options?.length ? [`Options: ${reason.options.map((option, i) => `${i + 1}: ${md(option)}`).join(" · ")}`] : []), ...(reason.recommendation ? [`Recommended: ${md(reason.recommendation)}`] : [])];
 };
-const WAIT_MARK = { never: "⊘", wait: MARKS.waiting };
+const WAIT_MARK = { never: MARKS["cannot start"], wait: MARKS.waiting };
 const milestoneLine = milestone => {
   const head = `${md(milestoneName({ id: milestone.id, name: milestone.name && clamp(milestone.name) }))}${wordText(milestone)}${milestone.where ? ` · ${milestone.where}` : ""}`;
   const tasks = n => `${n} ${n === 1 ? "task" : "tasks"}`;
