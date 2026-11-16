@@ -103,7 +103,8 @@ export const TOOLS = {
       report: optional("the absolute path of the saved report, as pages printed it; needed with usage unavailable"),
       usage: optional("unavailable, only for a run added with usage-interface collaboration-tools; it needs status done, usage-source, usage-evidence and report, and no tokens"),
       "usage-source": optional("where the usage comes from, for example codex collaboration-tools; needed with usage unavailable"),
-      "usage-evidence": optional("the evidence of the usage, for example wait_agent gives no token count; needed with usage unavailable") },
+      "usage-evidence": optional("the evidence of the usage, for example wait_agent gives no token count; needed with usage unavailable"),
+      why: optional("why the run failed, one line of at most 200 characters that the board shows the owner; needed with status failed, and a failed run that lacks it may add it later, once") },
     pos: ["run"], argv: (i) => ["run", "done", i.run],
   },
   finding_add: {
@@ -194,7 +195,8 @@ export const TOOLS = {
   gate_add: {
     describe: "Park a question for the owner, with options, a recommendation and a default. With message, the gate keeps the whole question message for the board, after the message check.",
     input: { task, question: z.string(), options: z.string().describe("the options joined by |, for example yes|no"), recommend: z.string().describe("the recommended option"),
-      default: optional("the default option"), message: z.string().refine(isAbsolute, "an absolute path").optional().describe("the absolute path of the question message's JSON file ({ kind: \"question\", title, blocks })") },
+      default: optional("the default option"), message: z.string().refine(isAbsolute, "an absolute path").optional().describe("the absolute path of the question message's JSON file ({ kind: \"question\", title, blocks })"),
+      run: id("R", "the run of this task that asked the question, for the board").optional() },
     pos: ["task"], argv: (i) => ["gate", "add", i.task],
   },
   gate_replace: {

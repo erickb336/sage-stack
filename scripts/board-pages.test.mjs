@@ -40,7 +40,7 @@ function logbook(root, name) {
 
 function sampleRoot(base) {
   const root = join(base, "worktrees"), pages = join(root, LOGBOOK, "pages"), t1 = join(pages, "T1");
-  mkdirSync(join(t1, "sub", "deep", "deeper"), { recursive: true });
+  mkdirSync(join(t1, "sub", "deep", "deeper", "deepest"), { recursive: true });
   const files = {
     "research.html": "<!DOCTYPE html><title>research</title><p>SAMPLE research</p>",
     "message.html": `<!DOCTYPE html><title>message</title><p>SAMPLE</p>${SWITCH}`,
@@ -49,7 +49,7 @@ function sampleRoot(base) {
     "prose.html": "<!DOCTYPE html><title>prose</title><p>SAMPLE: done once = fine</p><p title=\"done once = fine\">x</p>",
     "brief.pdf": "%PDF-1.4 SAMPLE", "shot.png": "PNG SAMPLE", "photo.jpg": "JPG", "anim.gif": "GIF", "pic.webp": "WEBP", "chart.svg": "<svg xmlns='http://www.w3.org/2000/svg'/>",
     "notes.md": "# SAMPLE <b>notes</b>", "notes.txt": "SAMPLE", "sub/inner.html": "<p>inner</p>", "sub/deep/deepest.txt": "three parts",
-    "sub/deep/deeper/too-deep.txt": "four parts", "state.json": "{}", "events.jsonl": "{}", "run.log": "log", "page.tmp": "tmp", ".hidden.html": "<p>hidden</p>",
+    "sub/deep/deeper/four.txt": "four parts", "sub/deep/deeper/deepest/too-deep.txt": "five parts", "state.json": "{}", "events.jsonl": "{}", "run.log": "log", "page.tmp": "tmp", ".hidden.html": "<p>hidden</p>",
     "upper.HTML": "<p>case</p>", "v1..v2.html": "<p>two dots</p>", "notes..md": "two dots", "locked.html": "<p>locked</p>",
   };
   for (const [name, text] of Object.entries(files)) writeFileSync(join(t1, name), text);
@@ -99,7 +99,7 @@ function raw(f, text) {
   });
 }
 
-const FILE_POLICY = /^sandbox; script-src 'sha256-[A-Za-z0-9+/]+=*'; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; media-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'$/;
+const FILE_POLICY = /^sandbox; script-src 'sha256-[A-Za-z0-9+/]+=*'; default-src 'none'; style-src 'unsafe-inline'; img-src data:(?: http:\/\/127\.0\.0\.1:\d+\/pages\/project-abcdef\/T1\/)?; font-src data:; media-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'$/;
 function pageHeaders(response, policy = FILE_POLICY) {
   assert.match(response.headers["content-security-policy"], policy);
   assert.doesNotMatch(response.headers["content-security-policy"], /connect-src|allow-same-origin.*allow-scripts|allow-scripts.*allow-same-origin/);
@@ -107,12 +107,14 @@ function pageHeaders(response, policy = FILE_POLICY) {
   assert.equal(response.headers["cache-control"], "no-store");
   assert.equal(response.headers["referrer-policy"], "no-referrer");
   assert.equal(response.headers["x-content-type-options"], "nosniff");
-  assert.equal(response.headers["cross-origin-resource-policy"], "same-origin");
+  assert.equal(response.headers["cross-origin-resource-policy"], /^image\//.test(response.headers["content-type"]) ? "cross-origin" : "same-origin");
 }
+const DOCUMENT = { "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document", "Sec-Fetch-User": "?1" };
+const FRAME = { "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "iframe" };
 
 test("the pages route serves each page type with its own type and the sandbox policy, and the index lists only those pages", async (t) => {
   const f = await fixture(t);
-  const types = { "research.html": "text/html; charset=utf-8", "brief.pdf": "application/pdf", "shot.png": "image/png", "photo.jpg": "image/jpeg", "anim.gif": "image/gif", "pic.webp": "image/webp", "chart.svg": "image/svg+xml", "notes.md": "text/plain; charset=utf-8", "notes.txt": "text/plain; charset=utf-8", "sub/inner.html": "text/html; charset=utf-8", "sub/deep/deepest.txt": "text/plain; charset=utf-8" };
+  const types = { "research.html": "text/html; charset=utf-8", "brief.pdf": "application/pdf", "shot.png": "image/png", "photo.jpg": "image/jpeg", "anim.gif": "image/gif", "pic.webp": "image/webp", "chart.svg": "image/svg+xml", "notes.md": "text/plain; charset=utf-8", "notes.txt": "text/plain; charset=utf-8", "sub/inner.html": "text/html; charset=utf-8", "sub/deep/deepest.txt": "text/plain; charset=utf-8", "sub/deep/deeper/four.txt": "text/plain; charset=utf-8" };
   for (const [name, type] of Object.entries(types)) {
     const r = await get(f, `/pages/${LOGBOOK}/T1/${name}`);
     assert.equal(r.status, 200, name);
@@ -124,10 +126,25 @@ test("the pages route serves each page type with its own type and the sandbox po
   const message = await get(f, `/pages/${LOGBOOK}/T1/message.html`);
   assert.equal(message.headers["content-security-policy"], (await get(f, `/pages/${LOGBOOK}/T1/research.html`)).headers["content-security-policy"].replace(/^sandbox;/, "sandbox allow-scripts;"));
   pageHeaders(message, /^sandbox allow-scripts; script-src 'sha256-/);
-  assert.match((await get(f, `/pages/${LOGBOOK}/T1/scripted.html`)).headers["content-security-policy"], FILE_POLICY);
-  const scripted = await get(f, `/pages/${LOGBOOK}/T1/scripted.html?scripts=1`);
+  const own = `http://127.0.0.1:${f.port}/pages/${LOGBOOK}/T1/`;
+  assert.match((await get(f, `/pages/${LOGBOOK}/T1/research.html`)).headers["content-security-policy"], new RegExp(`img-src data: ${own}; `), "a page loads pictures of its own task's folder");
+  assert.match((await get(f, `/pages/${LOGBOOK}/T1/scripted.html`)).headers["content-security-policy"], FILE_POLICY, "without Sec-Fetch-Dest a page runs no script of its own");
+  for (const name of ["research.html", "message.html"]) assert.doesNotMatch((await get(f, `/pages/${LOGBOOK}/T1/${name}`, { headers: DOCUMENT })).body, /<iframe/, `${name}: a page with no script of its own opens as it is`);
+  for (const name of ["scripted.html", "handler.html"]) {
+    const frame = await get(f, `/pages/${LOGBOOK}/T1/${name}`, { headers: DOCUMENT });
+    assert.equal(frame.status, 200, name);
+    assert.equal(frame.headers["content-type"], "text/html; charset=utf-8");
+    assert.equal(frame.headers["content-security-policy"], `default-src 'none'; style-src 'unsafe-inline'; frame-src ${own}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`);
+    assert.equal(frame.headers["cross-origin-opener-policy"], "same-origin");
+    assert.match(frame.body, new RegExp(`<iframe src="${name}" sandbox="allow-scripts"`), name);
+    assert.match(frame.body, /role="note"><strong>Warning:<\/strong> this page runs its own scripts in a sandbox/);
+    assert.doesNotMatch(frame.body, /SAMPLE|<script/, "the frame page holds none of the page");
+  }
+  const scripted = await get(f, `/pages/${LOGBOOK}/T1/scripted.html`, { headers: FRAME });
   assert.equal(scripted.status, 200);
-  pageHeaders(scripted, /^sandbox allow-scripts; script-src 'unsafe-inline'; default-src 'none';/);
+  assert.equal(scripted.body, readFileSync(join(f.t1, "scripted.html"), "latin1"));
+  pageHeaders(scripted, new RegExp(`^sandbox allow-scripts; script-src 'unsafe-inline'; default-src 'none'; style-src 'unsafe-inline'; img-src data: ${own}; font-src data:; media-src data:; base-uri 'none'; form-action 'none'; frame-ancestors http://127\\.0\\.0\\.1:${f.port}$`));
+  pageHeaders(await get(f, `/pages/${LOGBOOK}/T1/shot.png`, { headers: FRAME }), /^sandbox; script-src 'sha256-[^']+'; default-src 'none';.* frame-ancestors http:\/\/127\.0\.0\.1:\d+$/);
 
   const index = await get(f, `/pages/${LOGBOOK}/T1/`);
   assert.equal(index.status, 200);
@@ -135,16 +152,14 @@ test("the pages route serves each page type with its own type and the sandbox po
   pageHeaders(index, /^script-src 'none'; default-src 'none';/);
   assert.equal(index.headers["cross-origin-opener-policy"], "same-origin");
   const listed = [...index.body.matchAll(/<a href="\/pages\/project-abcdef\/T1\/([^"?]+)">/g)].map((m) => m[1]).sort();
-  assert.deepEqual(listed, ["anim.gif", "brief.pdf", "chart.svg", "handler.html", "message.html", "notes.md", "notes.txt", "photo.jpg", "pic.webp", "prose.html", "research.html", "scripted.html", "shot.png", "sub/deep/deepest.txt", "sub/inner.html"]);
-  assert.deepEqual([...index.body.matchAll(/href="([^"]+\?scripts=1)"/g)].map((m) => m[1]), [`/pages/${LOGBOOK}/T1/handler.html?scripts=1`, `/pages/${LOGBOOK}/T1/scripted.html?scripts=1`]);
+  assert.deepEqual(listed, ["anim.gif", "brief.pdf", "chart.svg", "handler.html", "message.html", "notes.md", "notes.txt", "photo.jpg", "pic.webp", "prose.html", "research.html", "scripted.html", "shot.png", "sub/deep/deeper/four.txt", "sub/deep/deepest.txt", "sub/inner.html"]);
   assert.match(index.body, /a page may link to sites outside this Mac/);
-  assert.match(index.body, /the link "open with its scripts" runs the page's own scripts/);
+  assert.doesNotMatch(index.body, /\?scripts|with its scripts/);
   assert.equal((await get(f, `/pages/${LOGBOOK}/T1`)).body, index.body, "the index also without the last slash");
 
   const many = await get(f, `/pages/${LOGBOOK}/T2/`);
   assert.equal([...many.body.matchAll(/<li>/g)].length, 200);
   assert.match(many.body, /The list stops at 200 pages/);
-  assert.doesNotMatch(many.body, /open with its scripts/i, "no scripts warning when no page has a script");
 });
 
 test("F-T1013-1: a page with sage's switch and an http-equiv refresh in any spelling gets no scripts; sage's own message page keeps its switch", async (t) => {
@@ -173,15 +188,16 @@ test("F-T1013-1: a page with sage's switch and an http-equiv refresh in any spel
   assert.equal(await policy("utf16.html", Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(page)])), none, "a UTF-16 byte order mark");
 });
 
-test("F-T1001-24: a tag with millions of quoted values keeps the index whole: no link for its quoted values, a link for an event attribute after them", async (t) => {
+test("F-T1001-24: a tag with millions of quoted values opens at once: as it is for its quoted values, in the script frame for an event attribute after them", async (t) => {
   const f = await fixture(t), t3 = join(f.root, LOGBOOK, "pages", "T3"), values = "\"x\" ".repeat(3_000_000);
   mkdirSync(t3);
   writeFileSync(join(t3, "quoted.html"), `<a ${values}>`);
   writeFileSync(join(t3, "handler.html"), `<a ${values} onclick=1>`);
-  const index = await get(f, `/pages/${LOGBOOK}/T3/`);
-  assert.equal(index.status, 200, index.body);
-  assert.deepEqual([...index.body.matchAll(/<a href="\/pages\/project-abcdef\/T3\/([^"?]+)">/g)].map((m) => m[1]), ["handler.html", "quoted.html"]);
-  assert.deepEqual([...index.body.matchAll(/href="([^"]+\?scripts=1)"/g)].map((m) => m[1]), [`/pages/${LOGBOOK}/T3/handler.html?scripts=1`]);
+  const quoted = await get(f, `/pages/${LOGBOOK}/T3/quoted.html`, { headers: DOCUMENT }), handler = await get(f, `/pages/${LOGBOOK}/T3/handler.html`, { headers: DOCUMENT });
+  assert.equal(quoted.status, 200);
+  assert.equal(quoted.body.length, readFileSync(join(t3, "quoted.html")).length, "the page itself, with no frame");
+  assert.equal(handler.status, 200);
+  assert.match(handler.body, /<iframe src="handler.html" sandbox="allow-scripts"/);
 });
 
 test("the pages route refuses each path that leaves a task's pages, a link, a second name, a type, a depth and a size", async (t) => {
@@ -195,6 +211,7 @@ test("the pages route refuses each path that leaves a task's pages, a link, a se
     "a hidden file": `/pages/${LOGBOOK}/T1/.hidden.html`,
     "a hidden folder": `/pages/${LOGBOOK}/T1/.git/x.html`,
     "another query": `/pages/${LOGBOOK}/T1/research.html?x=1`,
+    "the scripts query, which is gone": `/pages/${LOGBOOK}/T1/scripted.html?scripts=1`,
     "two queries": `/pages/${LOGBOOK}/T1/research.html?scripts=1?scripts=1`,
     "scripts on a picture": `/pages/${LOGBOOK}/T1/shot.png?scripts=1`,
     "scripts on the index": `/pages/${LOGBOOK}/T1/?scripts=1`,
@@ -215,7 +232,7 @@ test("the pages route refuses each path that leaves a task's pages, a link, a se
     "a log": `/pages/${LOGBOOK}/T1/run.log`,
     "a temporary file": `/pages/${LOGBOOK}/T1/page.tmp`,
     "a type in capitals": `/pages/${LOGBOOK}/T1/upper.HTML`,
-    "too deep": `/pages/${LOGBOOK}/T1/sub/deep/deeper/too-deep.txt`,
+    "too deep": `/pages/${LOGBOOK}/T1/sub/deep/deeper/deepest/too-deep.txt`,
     "too large": `/pages/${LOGBOOK}/T1/big.html`,
     "two dots inside a name": `/pages/${LOGBOOK}/T1/v1..v2.html`,
     "two dots inside a Markdown name": `/pages/${LOGBOOK}/T1/notes..md`,
@@ -325,17 +342,17 @@ test("the pages route answers only on the Mac, only GET and HEAD, and only to th
   for (const head of ["HTTP/1.0\r\n", `HTTP/1.1\r\nHost: 127.0.0.1:${f.port}\r\nHost: 127.0.0.1:${f.port}\r\n`]) assert.match(await raw(f, `GET ${page} ${head}\r\n`), /^HTTP\/1\.[01] 4\d\d /, head);
   assert.equal((await get(f, page)).status, 200);
   const click = { "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document", "Sec-Fetch-User": "?1" };
-  for (const headers of [{}, { "Sec-Fetch-Site": "none" }, { "Sec-Fetch-Site": "same-origin" }, click, { ...click, "Sec-Fetch-Site": "same-site" }])
+  const frame = { "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "iframe" }, picture = { "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "no-cors", "Sec-Fetch-Dest": "image" };
+  for (const headers of [{}, { "Sec-Fetch-Site": "none" }, { "Sec-Fetch-Site": "same-origin" }, click, { ...click, "Sec-Fetch-Site": "same-site" }, frame, picture])
     assert.equal((await get(f, page, { headers })).status, 200, JSON.stringify(headers));
-  for (const headers of [{ "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty" }, { ...click, "Sec-Fetch-User": undefined }, { ...click, "Sec-Fetch-Dest": "iframe" },
-    { "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "no-cors", "Sec-Fetch-Dest": "image" }, { Origin: "null" }, { Origin: "http://evil.example" }]) {
+  for (const headers of [{ "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty" }, { "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "no-cors", "Sec-Fetch-Dest": "empty" },
+    { ...click, "Sec-Fetch-User": undefined }, { ...click, "Sec-Fetch-Dest": "embed" }, { ...picture, "Sec-Fetch-Mode": "cors" }, { ...picture, "Sec-Fetch-Dest": "script" }, { ...picture, "Sec-Fetch-Dest": "style" },
+    { ...frame, Origin: "http://evil.example" }, { Origin: "null" }, { Origin: "http://evil.example" }]) {
     for (const name of Object.keys(headers)) if (headers[name] === undefined) delete headers[name];
     const r = await get(f, page, { headers });
     assert.equal(r.status, 403, JSON.stringify(headers));
     pageHeaders(r);
   }
-  assert.equal((await get(f, `/pages/${LOGBOOK}/T1/scripted.html?scripts=1`, { headers: click })).status, 403, "the scripts link opens only from the board's own index");
-  assert.equal((await get(f, `/pages/${LOGBOOK}/T1/scripted.html?scripts=1`, { headers: { "Sec-Fetch-Site": "same-origin" } })).status, 200);
   for (const method of ["POST", "PUT", "DELETE", "OPTIONS"]) {
     const r = await get(f, page, { method });
     assert.equal(r.status, 405, method);

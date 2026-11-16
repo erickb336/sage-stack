@@ -1,5 +1,6 @@
 import { box, columns, openBoxes, wrap } from "./picture.mjs";
 import { OBJECTS, UNKNOWN, WORDS, milestoneWord, releaseWord, taskWord } from "./state-words.mjs";
+import { nameProblem } from "./logbook-fields.mjs";
 
 export const WIDTH = 46, LONG_WIDTH = 66;
 export const INCIDENT_STATUS = ["Investigating", "Identified", "Monitoring", "Resolved"];
@@ -40,6 +41,7 @@ export const KINDS = {
 
 export const headOf = (msg) => `${KINDS[msg.kind].head}${msg.status ? ` · ${msg.status}` : ""}`;
 
+const ANSWER_MAX = 40, PART_MAX = 200;
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 const texts = (v) => Array.isArray(v) && v.every((s) => typeof s === "string");
 const BLOCKS = {
@@ -50,7 +52,8 @@ const BLOCKS = {
   table: (b) => texts(b.head) && Array.isArray(b.rows) && b.rows.length > 0 && b.rows.every((r) => texts(r) && r.length === b.head.length)
     && (b.pick === undefined || (Number.isInteger(b.pick) && b.pick >= 0 && b.pick < b.rows.length)),
   picture: (b) => isText(b.title) && (texts(b.lines) !== (b.frame !== undefined)),
-  page: (b) => isText(b.title) && isText(b.path ?? b.file),
+  page: (b) => isText(b.title) && isText(b.path ?? b.file)
+    && (b.answer === undefined || !nameProblem(b.answer, ANSWER_MAX)) && (b.part === undefined || (!nameProblem(b.part, PART_MAX) && /\.md$/.test(b.file ?? ""))),
   code: (b) => texts(b.lines) && b.lines.length > 0,
   steps: (b) => Array.isArray(b.items) && b.items.length > 0 && b.items.every((s) => isText(s?.text) && (s.cmd === undefined || texts(s.cmd)) && (s.see === undefined || isText(s.see))),
   toggle: (b) => [b.after, b.today].every((side) => Array.isArray(side) && side.length > 0 && side.every((p) => isText(p?.title) && texts(p.lines))),
@@ -59,7 +62,7 @@ const BLOCKS = {
 const SHAPES = {
   field: "{ t: field, label, text }", p: "{ t: p, text }", section: "{ t: section, label, body: [blocks] }", list: "{ t: list, items: [text], ordered }",
   table: "{ t: table, head: [text], rows: [[text]] with one cell for each head, pick: the number of your pick's row, from 0, which the message puts first, caption }",
-  picture: "{ t: picture, title, key, and lines: [text] or frame: a box }", page: "{ t: page, title, task, file }", code: "{ t: code, lines: [text] }",
+  picture: "{ t: picture, title, key, and lines: [text] or frame: a box }", page: `{ t: page, title, task, file, answer: the answer that the page shows (optional, one line of at most ${ANSWER_MAX} characters), part: a heading of a .md page to open at (optional, one line of at most ${PART_MAX} characters) }`, code: "{ t: code, lines: [text] }",
   steps: "{ t: steps, items: [{ text, cmd: [text], see }] }", toggle: "{ t: toggle, after: [{ title, lines }], today: [{ title, lines }] }",
   changes: "{ t: changes, rows: [{ where, today, after, why }] }",
 };
@@ -194,11 +197,12 @@ const FENCE = "```";
 
 export const BOARD_PORT = 43123;
 export const PAGE_MAX = 16 * 1024 * 1024;
+export const PAGE_DEPTH = 4;
 export const PAGE_TYPES = Object.freeze({ html: "text/html; charset=utf-8", pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml", md: "text/plain; charset=utf-8", txt: "text/plain; charset=utf-8" });
 const PAGE_PART = /^(?!.*\.\.)[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}$/;
 export const pageType = (file) => {
   const parts = String(file).split("/"), type = /\.([a-z0-9]+)$/.exec(parts.at(-1))?.[1];
-  return parts.length <= 3 && parts.every((part) => PAGE_PART.test(part)) && Object.hasOwn(PAGE_TYPES, type) ? PAGE_TYPES[type] : null;
+  return parts.length <= PAGE_DEPTH && parts.every((part) => PAGE_PART.test(part)) && Object.hasOwn(PAGE_TYPES, type) ? PAGE_TYPES[type] : null;
 };
 export const pagePath = (logbook, task, file) => `/pages/${logbook}/${task}/${file}`;
 export const pageUrl = (logbook, task, file, port = BOARD_PORT) => `http://127.0.0.1:${port}${pagePath(logbook, task, file)}`;

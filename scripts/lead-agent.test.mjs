@@ -650,7 +650,7 @@ test("T301: the lead file's helper cap is the hook's, and with the default agent
   const second = p.chief("run", "add", "T2", "--role", "lead");
   assert.match(second, new RegExp(`^R${DEFAULT_CAP + 3} is queued, place 2 · lead on T2`), "a second lead waits behind it");
   p.send({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: `node ${TOOL} run add T2 --role lead` }, tool_response: { stdout: second, stderr: "", interrupted: false } });
-  const done = `node ${TOOL} run done R3 --status failed`, ended = p.run("sage", ["run", "done", "R3", "--status", "failed"]);
+  const done = `node ${TOOL} run done R3 --status failed --why stopped`, ended = p.run("sage", ["run", "done", "R3", "--status", "failed", "--why", "stopped"]);
   assert.match(ended.stdout.toString(), new RegExp(`^R3 failed\\n${id} admitted · qa on T1: `), "the chief's end of a helper run admits the lead's queued run");
   const told = p.send({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: done }, tool_response: { stdout: ended.stdout.toString(), stderr: "", interrupted: false } })?.hookSpecificOutput?.additionalContext ?? "";
   assert.ok(told.includes(`sage: ${id} (qa on T1) is admitted from the queue. lead-T1 added it, so the lead starts its agent: you do nothing.`), `the chief hears that its lead added ${id}, so it starts no second agent (F-T1057-16): ${told}`);
