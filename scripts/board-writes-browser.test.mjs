@@ -371,6 +371,29 @@ test("T1125: one click on the chief's link pairs a fresh browser, takes the key 
   assert.deepEqual(w.problems, []);
 });
 
+test("F-T1129-1: the link's note shows its outcome also when the board's answer comes back right after the note first shows, before its effects run", async t => {
+  const w = await openBoard(t);
+  const other = await w.context.browser().newContext();
+  t.after(() => other.close());
+  const page = await other.newPage();
+  await page.addInitScript(() => {
+    const real = window.fetch;
+    window.fetch = async (url, init) => {
+      const response = await real(url, init);
+      if (!String(url).endsWith("/api/pair")) return response;
+      const json = await response.json(), answer = { ok: response.ok, status: response.status, json: async () => json };
+      return new Promise(done => {
+        let watch = null;
+        const shown = () => { if (!document.querySelector(".pair-note")) return false; watch?.disconnect(); done(answer); return true; };
+        if (!shown()) { watch = new MutationObserver(shown); watch.observe(document, { childList: true, subtree: true }); }
+      });
+    };
+  });
+  await page.goto(`${w.origin}/app/#pair=${startLink(w.stateDir)}`);
+  await page.getByText("This browser is paired. You can now answer questions and send from the board. The link is used up.").waitFor();
+  await page.getByRole("heading", { name: "Pair this browser to act from the board" }).waitFor({ state: "detached" });
+});
+
 test("F-T1125-9: after a newer link exists, the owner still finds Unpair every browser on the used, expired and replaced notes, and it unpairs the unknown browser", async t => {
   const w = await openBoard(t);
   const first = startLink(w.stateDir), unknown = await w.context.newPage();
