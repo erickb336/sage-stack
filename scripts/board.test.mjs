@@ -188,12 +188,12 @@ function twoProjects() {
 
 test("T72-S5-WRONGLOGBOOK: rich hook offers no bare project map for gate answers", () => {
   const w = twoProjects();
+  w.sage(w.beta, "task", "add", "--priority", "P2", "--title", "beta task 2", "--size", "tiny");
   rmSync(join(storeDir(w.beta, w.env), "checkout.txt"));
   const blind = w.hook("show board for beta", w.alpha);
   assert.match(blind, /full source\/project\/gate key/);
   assert.match(blind, /Do not route or record an answer/);
   assert.doesNotMatch(blind, /^- beta: node /m);
-  w.sage(w.beta, "task", "add", "--priority", "P2", "--title", "beta task 2", "--size", "tiny");
   assert.match(w.hook("show board for beta", w.alpha), /full source\/project\/gate key/);
   assert.doesNotMatch(w.hook("show board for beta", w.alpha), /^- beta: node /m);
 });
