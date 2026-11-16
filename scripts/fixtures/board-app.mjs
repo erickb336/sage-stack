@@ -243,7 +243,8 @@ export const HOSTILE_MARKDOWN = ["# Hostile sample", "", "<script>window.hacked=
 
 function addDocumentRows(tables, at, pagesRoot) {
   tables.runs = tables.runs.map(run => ({ ...run, model: run.id === "R5" ? "opus" : run.id === "R7" ? "sonnet" : "" }));
-  tables.runs.push({ id: "R8", task: "T10", role: "designer", round: "0", status: "done", started: at(30), ended: at(29), chief: "C1", model: "opus" },
+  tables.runs.push({ id: "R8", task: "T10", role: "designer", candidate: "A", round: "0", status: "done", started: at(30), ended: at(29), chief: "C1", model: "opus" },
+    { id: "R10", task: "T10", role: "designer", candidate: "B", round: "0", status: "done", started: at(30), ended: at(29), chief: "C1", model: "opus" },
     { id: "R9", task: "T10", role: "arena-judge", round: "0", status: "done", started: at(26), ended: at(25), chief: "C1", model: "opus" });
   tables.runs.push({ id: "R4", task: "T3", role: "code-reviewer", round: "0", status: "done", started: at(3), ended: at(2.5), chief: "C2" });
   tables.findings.push({ task: "T3", key: "F1", round: "0", source: "code-reviewer", severity: "medium", summary: "An older finding of R4 with the key F1.", triage: "fix", reason: "", status: "closed", run: "R4", class: "other" },
@@ -326,7 +327,7 @@ BRANCH        sage/t3-limits, head ${"b".repeat(40)}, PR 12
   version("v2", { title: "v2", about: "Create link first; then the link, the permission row and Revoke.", at: at(28), run: "R8", today: true, screenshots: [{ file: "first.svg", caption: "Before a link exists" }, { file: "after.svg", caption: "After Create link" }] },
     [["first.svg", "Share list", ["No link yet. Only you see this list."], "#ededf0"], ["after.svg", "Share list", ["list.example/L-77", "Anyone with the link · view", "Expires in 7 days"], "#fb7f7f"]]);
   version("A", { title: "Candidate A", candidate: "A", run: "R8", angle: "Precision: a count on each list", strong: "People see which list holds unsent edits.", weak: "Many badges when many lists have edits." }, [["screen.svg", "Lists", ["Groceries · 3", "Work · 1", "Trip · 12"], "#fbbf24"]]);
-  version("B", { title: "Candidate B", candidate: "B", run: "R8", angle: "Calm: one total in the header", strong: "One place, little noise.", weak: "It does not say which list waits." }, [["screen.svg", "Lists · 16 unsent", ["Groceries", "Work", "Trip"], "#fbbf24"]]);
+  version("B", { title: "Candidate B", candidate: "B", run: "R10", angle: "Calm: one total in the header", strong: "One place, little noise.", weak: "It does not say which list waits." }, [["screen.svg", "Lists · 16 unsent", ["Groceries", "Work", "Trip"], "#fbbf24"]]);
   version("final", { title: "The judge's final", run: "R9", at: at(25), final: { base: "A", why: "It scored highest and fits the brief best.", grafted: [], grafts: ["From B: the total in the tooltip."], unused: ["B's header total: it hides which list waits."], gate: "G12",
     scores: { rubric: ["Fits the brief", "Clear at a glance", "Every state", "Access", "Cost to build"], max: 5, candidates: { A: [5, 4, 4, 4, 4], B: [3, 4, 3, 4, 3] } } } }, [["screen.svg", "Lists", ["Groceries · 3", "Work · 1 · 3 edits not sent", "Trip · 12"], "#4ade80"]]);
 }
