@@ -213,7 +213,7 @@ header.top { position: sticky; top: 0; z-index: 20; height: 52px; display: flex;
 .menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; width: 340px; display: grid; gap: 10px; padding: 14px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--card); box-shadow: var(--shadow); }
 .menu-h { display: flex; align-items: center; gap: 7px; font-weight: 600; }
 .rename, .pair { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
-.pair { padding: 16px 18px; margin-bottom: 16px; }
+.pair, .pair-note { padding: 16px 18px; margin-bottom: 16px; }
 .pair h2 { width: 100%; font-size: 15px; }
 .pair-step { width: 100%; display: grid; gap: 6px; }
 .pair-step .lbl { margin: 4px 0 0; }

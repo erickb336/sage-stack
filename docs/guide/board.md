@@ -94,7 +94,7 @@ The address of the board opens the Overview. From the top:
 - **The chief chips:** one chip for each chief, Claude and Codex alike, with a green dot for a live chief, a yellow dot for a chief that waits for your answer, a ring for a stopped chief, and "autopilot on" or "autopilot off". A click on a chip shows only that chief's work, on each page; "All chiefs" shows all again.
 - **Needs you:** each open question and each problem, oldest first, with its chief, its task and when it was asked. A click on a question opens the [question view](#the-question-view-and-the-reader).
 - **Milestones:** each milestone by the top priority of its open tasks, with its state word, its goal, its progress bar ("2 of 9 merged") and its pilot. A click opens the Tasks page at that milestone.
-- **Since you looked** (with a paired browser), or **In the last 24 hours**: the tasks merged, the runs that failed or whose agent is silent for 30 minutes, and the tasks added.
+- **Since you looked**, or **In the last 24 hours** on the first visit in a browser, or **In the last 7 days** after a longer absence: the tasks merged, the runs that failed or whose agent is silent for 30 minutes, and the tasks added.
 
 Needs you also has items that no task holds: a stuck milestone, a breakdown gate that the logbook lost, a milestone that tasks name but the logbook does not have, a table or a logbook that the board cannot read, and an open move gate ([the move](using-sage.md#move-an-existing-project)). Each item says why and what to do.
 
@@ -197,19 +197,42 @@ With a paired browser, you act from the Overview:
 | Rename a chief | 2: the chief's menu (▾), then Rename | `chief name`. An empty name clears your name. |
 | Show only one chief's work | 1: the chief's chip. "All chiefs" shows all again | Nothing: the filter holds on each page, in this browser tab. |
 | Give a task of a stopped chief to another chief | 2: Give to another chief, then Open the takeover question | `gate give`. Nothing moves until you answer the takeover question. |
-| See what changed since you looked | 0 | The time of your last visit, in the board's state folder. |
+| See what changed since you looked | 0 | Nothing on the Mac: each browser keeps the time when you last left the board (the tab closed, or hidden for 5 minutes). A reload keeps the counts. |
 
 The first answer wins. When you answer in a chat or on a card first, the board shows where and when, for example "Answered first in C2's chat at 14:51", and a later board answer is not recorded.
 
-**Pair a browser once.** Until you pair, the board only reads. Do these steps:
+**Pair a browser once.** Until you pair, the board only reads. Type `show board` in a chief's chat, and click the link in its reply: one click opens the board and pairs the browser.
 
-1. Open the board. The card "Pair this browser to act from the board" shows the pairing command of the board that runs, with its full path, for example `node "<board folder>/cli.mjs" board --pair`. Choose Copy.
-2. Paste the command in Terminal on the Mac, and run it. It prints a one-time code that works for 10 minutes.
-3. On the board, type the code in the "Pairing code" field, and choose Pair.
+The chief makes the link with `board --ensure --link`:
+
+- The link has the form `http://127.0.0.1:<port>/app/#pair=<key>`. The key is 256 random bits. It is after the `#`, so the browser never sends it in a request line, a log or a referrer.
+- The board takes the key out of the address bar and the history at once, then sends it once. The server keeps only its hash, in `pair-link.json` in the board's state folder.
+- A link pairs one browser, once, within 10 minutes. A new link ends the older one.
+- The hooks refuse `--link` from an agent: only the chief runs it, and the chief puts the link in the chat text only, never in a file, a message page or a brief.
+
+After the click, a note on top of the Overview gives the outcome and the next step:
+
+| Outcome | What the note says |
+| --- | --- |
+| Paired | This browser is paired, and the link is used up. |
+| Already paired | Nothing changed. The link no longer pairs any browser. |
+| Used | Another browser on this Mac used the link, and when. The note has the button **Unpair every browser**, for the case that it was not you. |
+| Replaced | A newer link replaced this one. |
+| Expired | The link is older than 10 minutes. |
+| Refused | The key is not a link of this board. |
+
+For each outcome except Paired and Already paired, type `show board` again for a new link.
+
+**Unpair every browser** works without pairing. It removes every pairing, so each browser reads only until you pair it again. A program on this Mac can also send it; the worst result is that you pair again.
+
+**No chat open?** Pair with a Terminal code. The pairing card shows the command, with its full path, for example `node "<board folder>/cli.mjs" board --pair`:
+
+1. Choose Copy, then paste the command in Terminal on the Mac, and run it. It prints a one-time code that works for 10 minutes.
+2. On the board, type the code in the "Pairing code" field, and choose Pair.
 
 If the page shows no pairing card, the board that runs is older than your sage: run the `board --stop` command that `board --pair` prints, ask for the board again, and reload the page. When a browser loses its site data, it pairs again.
 
-The command refuses to run when its input is not a terminal, and the hooks refuse it from an agent.
+`board --pair` refuses to run when its input is not a terminal, and the hooks refuse it from an agent.
 
 **What the board checks.** Each write is a POST to `/api/...`, and the server refuses it unless all of these hold:
 
@@ -323,7 +346,7 @@ In Claude and in Codex, `show board` also starts the local board server on the M
 
 The server listens on loopback and refuses every request that is not from the Mac itself.
 
-The sage hook refuses the ordinary command shapes by which an agent reads, copies or replaces the board config or a file of the board's state folder, lists, searches, copies or moves the board's folder (`~/.config/sage-board/`), or runs `board --pair`. It does not stop a script that builds them while it runs; full protection needs the sandbox.
+The sage hook refuses the ordinary command shapes by which an agent reads, copies or replaces the board config or a file of the board's state folder, lists, searches, copies or moves the board's folder (`~/.config/sage-board/`), or runs `board --pair`, and it refuses `board --ensure --link` from an agent. It does not stop a script that builds them while it runs; full protection needs the sandbox.
 
 After you change a setting of the config, or update sage, the line says that a restart is needed: run the `board --stop` command that it gives, then ask for the board again.
 

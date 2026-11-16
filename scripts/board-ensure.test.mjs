@@ -140,6 +140,36 @@ test("T216: ensure sets the board up, starts one detached server, and leaves a r
   } finally { await stop(dir, port); }
 });
 
+const pairWith = (port, link) => new Promise((done, fail) => {
+  const req = request({ host: "127.0.0.1", port, path: "/api/pair", method: "POST", agent: false, headers: { Host: `127.0.0.1:${port}`, Origin: `http://127.0.0.1:${port}`, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" } }, (response) => {
+    let body = ""; response.setEncoding("utf8"); response.on("data", (chunk) => { body += chunk; });
+    response.on("end", () => done({ status: response.statusCode, outcome: JSON.parse(body).outcome, cookie: Boolean(response.headers["set-cookie"]) }));
+  });
+  req.once("error", fail);
+  req.end(JSON.stringify({ link }));
+});
+
+test("T1125: ensure --link gives the board's address with a one-time pairing link that the running board takes once, and a newer link replaces it", async (t) => {
+  const { dir, env } = scratch(t);
+  const port = await freePort();
+  try {
+    const line = new RegExp(`^Sage board (started|is running): http://127\\.0\\.0\\.1:${port}/app/#pair=([A-Za-z0-9_-]{43}) · only on this Mac\\. The link pairs the first browser that opens it, once, within 10 minutes\\.\\n$`);
+    const first = await board(CLI, ["--ensure", "--link", "--port", String(port)], env);
+    assert.equal(first.status, 0, first.stderr);
+    const [, started, key] = line.exec(first.stdout) ?? assert.fail(first.stdout);
+    assert.equal(started, "started");
+    assert.doesNotMatch(readFileSync(join(dir, "home", ".config", "sage-board", "board.log"), "utf8"), new RegExp(key), "the key is not in the board's log");
+    const second = await board(CLI, ["--ensure", "--link"], env);
+    const [, running, newer] = line.exec(second.stdout) ?? assert.fail(second.stdout);
+    assert.equal(running, "is running");
+    assert.notEqual(newer, key, "each link has its own key");
+    assert.deepEqual(await pairWith(port, key), { status: 200, outcome: "replaced", cookie: false });
+    assert.deepEqual(await pairWith(port, newer), { status: 200, outcome: "paired", cookie: true });
+    assert.deepEqual(await pairWith(port, newer), { status: 200, outcome: "used", cookie: false });
+    assert.equal((await board(CLI, ["--ensure"], env)).stdout, `Sage board is running: http://127.0.0.1:${port}/ · only on this Mac.\n`, "without --link, ensure makes no link");
+  } finally { await stop(dir, port); }
+});
+
 test("T216: ensure gives one line when another program holds the port, and starts nothing", async (t) => {
   const { dir, env, config } = scratch(t);
   const other = createHttpServer((request, response) => response.end("another program\n"));

@@ -10,6 +10,7 @@ import { test } from "node:test";
 import { pathToFileURL } from "node:url";
 import * as claude from "../plugins/sage/skills/sage/sage.mjs";
 import { runBoardCli } from "../plugins/sage/board/cli.mjs";
+import { startLink } from "../plugins/sage/board/access.mjs";
 import { createBoardServer, loadBoardApp, withoutPaths } from "../plugins/sage/board/server.mjs";
 import { writeInWorker } from "../plugins/sage/board/writes.mjs";
 
@@ -168,7 +169,7 @@ test("F-T1059-13: the pairing cookie alone writes nothing: a server on another p
   const own = await call(w.port, "/api/answer", { headers: p.headers, body: { logbook: w.logbook, gate: "G1", option: 1, digest: need.digest } });
   assert.equal(own.status, 200, `the paired browser, with its token, still writes: ${own.text}`);
   const other = await pair(w);
-  assert.equal((await call(w.port, "/api/seen", { headers: { ...other.headers, "X-Sage-Token": p.token }, body: {} })).status, 403, "a token works only with the cookie of the same browser");
+  assert.equal((await call(w.port, "/api/name", { headers: { ...other.headers, "X-Sage-Token": p.token }, body: {} })).status, 403, "a token works only with the cookie of the same browser");
 });
 
 test("every forged write is refused before it reaches the logbook: a plain curl, another port, a sandboxed /pages page, a cross-site form, no cookie, no token", async t => {
@@ -240,7 +241,7 @@ test("the owner answers, undoes and answers again from the board; a changed ques
   assert.equal(detail.status, 200);
 });
 
-test("the owner renames a chief, gives a task to another chief, and the last visit comes back from the board's state folder", async t => {
+test("the owner renames a chief and gives a task to another chief", async t => {
   const w = await board(t), p = await pair(w);
   const named = await call(w.port, "/api/name", { headers: p.headers, body: { logbook: w.logbook, chief: "C2", name: "Codex desk" } });
   assert.equal(named.status, 200, named.text);
@@ -257,22 +258,80 @@ test("the owner renames a chief, gives a task to another chief, and the last vis
   assert.match(given.json.text, /^G2 open · Hand T1 from C1 \(claude\) to C2 \(codex\)\?/);
   assert.equal(claude.read(w.dir, "tasks").find(row => row.id === "T1").chief, "C1", "giving only opens the takeover question: nothing moves before the owner's answer");
 
-  const first = await call(w.port, "/api/seen", { headers: p.headers, body: {} });
-  assert.deepEqual(first.json, { previous: null });
-  const second = await call(w.port, "/api/seen", { headers: p.headers, body: {} });
-  assert.match(second.json.previous, /^\d{4}-\d\d-\d\dT/);
-  assert.ok(JSON.parse(readFileSync(join(w.stateDir, "seen.json"), "utf8")).at >= second.json.previous, "seen.json keeps the newest visit");
-
   const elsewhere = await call(w.port, "/api/give", { headers: p.headers, body: { logbook: "shared/other-abcdef", task: "T1", to: "C2" } });
   assert.equal(elsewhere.status, 409, "a logbook with no checkout on this Mac is refused");
 });
 
-test("F-T1059-25: a last visit in the future (a clock set back, a hand-edited file) counts as no earlier visit", async t => {
-  const w = await board(t), p = await pair(w);
+const linkPair = (w, link, headers = w.own) => call(w.port, "/api/pair", { headers, body: { link } });
+const cookieOf = got => got.headers["set-cookie"]?.[0].split(";")[0];
+const probe = (w, headers) => call(w.port, "/api/name", { headers, body: {} }).then(got => got.status);
+
+test("T1125: a link pairs a fresh browser once, and each other outcome says why: used, already paired, replaced, expired, refused", async t => {
+  const w = await board(t);
+  for (const link of ["A".repeat(43), 5, "short", `${"A".repeat(43)}x`]) {
+    const got = await linkPair(w, link);
+    assert.deepEqual([got.status, got.json, cookieOf(got)], [403, { outcome: "refused" }, undefined], `a key that no link has: ${JSON.stringify(link)}`);
+  }
+  const key = startLink(w.stateDir);
+  assert.match(key, /^[A-Za-z0-9_-]{43}$/, "256 random bits, base64url");
+  assert.doesNotMatch(readFileSync(join(w.stateDir, "pair-link.json"), "utf8"), new RegExp(key), "the board keeps only the key's hash");
+  const paired = await linkPair(w, key);
+  assert.equal(paired.status, 200, paired.text);
+  assert.equal(paired.json.outcome, "paired");
+  const first = { ...w.own, Cookie: cookieOf(paired), "X-Sage-Token": paired.json.token };
+  assert.equal(await probe(w, first), 400, "the browser that clicked the link writes");
+
+  const again = await linkPair(w, key);
+  assert.deepEqual([again.status, again.json.outcome, cookieOf(again)], [200, "used", undefined], "a second browser cannot use the same link");
+  assert.match(again.json.at, /^\d{4}-\d\d-\d\dT/, "the used note gives when the link was used");
+
+  const second = startLink(w.stateDir);
+  const already = await linkPair(w, second, first);
+  assert.deepEqual([already.json.outcome, cookieOf(already), already.json.token], ["already", undefined, undefined], "a paired browser gets nothing new");
+  assert.equal((await linkPair(w, second)).json.outcome, "used", "the paired browser ended the link unused, so no other browser can use it");
+  assert.equal((await linkPair(w, "A".repeat(43), first)).json.outcome, "already", "a paired browser reads 'already' for any link");
+
+  const older = startLink(w.stateDir), newer = startLink(w.stateDir);
+  assert.equal((await linkPair(w, older)).json.outcome, "replaced", "a new link ends the older one");
+  assert.equal((await linkPair(w, newer)).json.outcome, "paired");
+
+  const expired = startLink(w.stateDir, Date.now() - 10 * 60_000 - 1);
+  const late = await linkPair(w, expired);
+  assert.deepEqual([late.json.outcome, cookieOf(late)], ["expired", undefined]);
+  assert.ok(Date.parse(late.json.at) < Date.now(), "the expired note gives when the link ended");
+
+  const token = startLink(w.stateDir);
+  assert.equal((await linkPair(w, token, { ...w.own, Cookie: first.Cookie })).json.outcome, "paired", "a cookie without its page's token is not paired, so the link pairs that browser again");
+  const forged = await linkPair(w, startLink(w.stateDir), { ...w.own, Origin: `http://127.0.0.1:${w.port + 1}` });
+  assert.equal(forged.status, 403, "the link form keeps the origin checks");
+});
+
+test("T1125: 'Unpair every browser' works without pairing, removes every pairing, and keeps the origin checks", async t => {
+  const w = await board(t), byCode = await pair(w), byLink = await linkPair(w, startLink(w.stateDir));
+  const linked = { ...w.own, Cookie: cookieOf(byLink), "X-Sage-Token": byLink.json.token };
+  assert.deepEqual([await probe(w, byCode.headers), await probe(w, linked)], [400, 400], "both browsers are paired");
+  assert.equal((await call(w.port, "/api/unpair", { headers: { ...w.own, Origin: `http://127.0.0.1:${w.port + 1}` }, body: {} })).status, 403, "a page on another port cannot unpair");
+  assert.deepEqual([await probe(w, byCode.headers), await probe(w, linked)], [400, 400], "a refused unpair changes nothing");
+  const unpaired = await call(w.port, "/api/unpair", { headers: w.own, body: {} });
+  assert.equal(unpaired.status, 200, unpaired.text);
+  assert.match(unpaired.json.text, /^Every browser is unpaired/);
+  assert.deepEqual([await probe(w, byCode.headers), await probe(w, linked)], [401, 401], "every browser reads only now");
+  assert.equal((await pair(w)).token.length, 43, "a browser pairs again after it");
+});
+
+test("T1125: the last visit is no longer on the Mac: /api/seen is gone, and an old seen.json or a broken pair-link.json does not break the board", async t => {
+  const w = await board(t);
   mkdirSync(w.stateDir, { recursive: true });
-  writeFileSync(join(w.stateDir, "seen.json"), JSON.stringify({ at: new Date(Date.now() + 86_400_000).toISOString() }));
-  assert.deepEqual((await call(w.port, "/api/seen", { headers: p.headers, body: {} })).json, { previous: null });
-  assert.match((await call(w.port, "/api/seen", { headers: p.headers, body: {} })).json.previous, /^\d{4}-\d\d-\d\dT/, "the visit is recorded, so the next look has an earlier visit");
+  writeFileSync(join(w.stateDir, "seen.json"), JSON.stringify({ at: "2026-11-01T10:00:00.000Z" }));
+  writeFileSync(join(w.stateDir, "pair-link.json"), "{ not json");
+  assert.equal((await call(w.port, "/app/", { method: "GET" })).status, 200);
+  assert.equal((await linkPair(w, "A".repeat(43))).json.outcome, "refused", "a broken link file pairs nothing");
+  const p = await pair(w);
+  const seen = await call(w.port, "/api/seen", { headers: p.headers, body: {} });
+  assert.equal(seen.status, 400, `the route is gone: ${seen.text}`);
+  assert.equal(readFileSync(join(w.stateDir, "seen.json"), "utf8"), JSON.stringify({ at: "2026-11-01T10:00:00.000Z" }), "the board neither reads nor writes seen.json");
+  const key = startLink(w.stateDir);
+  assert.equal((await linkPair(w, key)).json.outcome, "paired", "a new link replaces the broken file");
 });
 
 test("the state tool's lock never runs on the server's event thread: a read answers while a write waits for the lock", async t => {
@@ -309,11 +368,11 @@ test("F-T1059-52, F-T1059-28: the real board process answers a clear 500 and sta
     const own = { ...w.own, Origin: `http://127.0.0.1:${port}` };
     const paired = await call(port, "/api/pair", { headers: own, body: { code: /Pairing code: (\S+)/.exec(lines.join("\n"))[1] } });
     const headers = { ...own, Cookie: paired.headers["set-cookie"][0].split(";")[0], "X-Sage-Token": paired.json.token };
-    assert.equal((await call(port, "/api/seen", { headers, body: {} })).status, 200);
+    assert.equal((await call(port, "/api/name", { headers, body: {} })).status, 400, "the browser is paired");
     const broken = async (what, code) => {
-      const seen = await call(port, "/api/seen", { headers, body: {} });
-      assert.equal(seen.status, 500, `${what}: ${seen.text}`);
-      assert.match(seen.json.problem, new RegExp(`^The board could not do this on this Mac \\(${code}\\), so nothing changed\\.`), what);
+      const unpair = await call(port, "/api/unpair", { headers, body: {} });
+      assert.equal(unpair.status, 500, `${what}: ${unpair.text}`);
+      assert.match(unpair.json.problem, new RegExp(`^The board could not do this on this Mac \\(${code}\\), so nothing changed\\.`), what);
       assert.equal((await call(port, "/app/", { method: "GET" })).status, 200, `${what}: the board still serves pages`);
       assert.equal(exited, null, `${what}: the board process still runs`);
     };
@@ -336,9 +395,8 @@ test("F-T1059-52, F-T1059-28: the real board process answers a clear 500 and sta
 test("F-T1059-46: a shadow sage_board cookie that comes first does not hide the paired cookie after it", async t => {
   const w = await board(t), p = await pair(w);
   const shadow = `sage_board=${"B".repeat(43)}`;
-  const seen = await call(w.port, "/api/seen", { headers: { ...p.headers, Cookie: `${shadow}; ${p.cookie}` }, body: {} });
-  assert.equal(seen.status, 200, seen.text);
-  assert.equal((await call(w.port, "/api/seen", { headers: { ...p.headers, Cookie: shadow }, body: {} })).status, 401, "the shadow cookie alone is still not paired");
+  assert.equal(await probe(w, { ...p.headers, Cookie: `${shadow}; ${p.cookie}` }), 400, "the paired cookie after the shadow still counts");
+  assert.equal(await probe(w, { ...p.headers, Cookie: shadow }), 401, "the shadow cookie alone is still not paired");
 });
 
 test("F-T1059-47: while a takeover question for a task is open, to any chief, a give of that task to another chief is refused; after the answer, it opens", async t => {

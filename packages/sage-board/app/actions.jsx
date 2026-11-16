@@ -11,6 +11,14 @@ const access = { writes: !on ? "off" : stored.get() ? "paired" : "unpaired" };
 const listeners = new Set();
 const setAccess = writes => { access.writes = writes; listeners.forEach(fn => fn()); };
 addEventListener("storage", event => { if (on && (event.key === TOKEN_KEY || event.key === null)) setAccess(stored.get() ? "paired" : "unpaired"); });
+const link = /^#pair=([\w-]{1,64})$/.exec(location.hash)?.[1];
+if (link) history.replaceState(null, "", location.pathname + location.search);
+const linkNote = { outcome: link && on ? "loading" : null, listeners: new Set() };
+const setNote = (outcome, detail) => { Object.assign(linkNote, { outcome, detail }); linkNote.listeners.forEach(fn => fn()); };
+if (linkNote.outcome) post("pair", { link }).then(({ json, text }) => {
+  if (json.token) { stored.set(json.token); setAccess("paired"); }
+  setNote(json.outcome ?? "error", json.at ?? text);
+});
 const VIA = { board: "on the board", chat: "in the chat", "claude-card": "on a Claude card", "codex-card": "on a Codex card" };
 const clock = at => Number.isFinite(Date.parse(at)) ? new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "an unknown time";
 const clocks = text => String(text).replace(/\b\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d+)?)?Z\b/g, clock);
@@ -36,6 +44,33 @@ export async function post(path, body) {
   } catch { return { ok: false, text: "The board lost its connection to its server on this Mac, so it cannot say whether the write landed. Reload the board to see it before you try again.", json: { pending: true } }; }
 }
 
+const NEW_LINK = "To pair this browser: type show board in a chief's chat, and click the new link.";
+const NOTES = {
+  loading: ["note", "Pairing this browser…"],
+  paired: ["done", "This browser is paired. You can now answer questions and send from the board. The link is used up."],
+  already: ["note", "This browser is paired already. Nothing changed. The link no longer pairs any browser."],
+  used: ["refused", at => `Another browser on this Mac used this link at ${clock(at)}. This browser still reads only. ${NEW_LINK}`],
+  replaced: ["refused", () => `A newer link replaced this one. ${NEW_LINK}`],
+  expired: ["refused", at => `This link expired at ${clock(at)}: a link works for 10 minutes. ${NEW_LINK}`],
+  refused: ["refused", () => `The board refused this link: it is not a link of this board. ${NEW_LINK}`],
+  error: ["refused", text => `The board could not pair this browser: ${text}`],
+};
+export function PairNote() {
+  const [, render] = useState(0), [unpaired, setUnpaired] = useState(null);
+  useEffect(() => { const changed = () => render(n => n + 1); linkNote.listeners.add(changed); return () => linkNote.listeners.delete(changed); }, []);
+  const { outcome, detail } = linkNote;
+  if (!outcome) return null;
+  const [kind, text] = NOTES[outcome] ?? NOTES.error;
+  const unpair = async () => { const result = await post("unpair", {}); if (result.ok) { stored.set(""); setAccess("unpaired"); } setUnpaired(result); };
+  return (
+    <div className={`card pair-note ${kind}`} role="status">
+      <p>{typeof text === "function" ? text(detail) : text} <button type="button" className="btn" onClick={() => setNote(null)}>Close</button></p>
+      {outcome === "used" && <p>Not you? <button type="button" className="btn" disabled={unpaired?.ok} onClick={unpair}>Unpair every browser</button> Every browser then reads only, until you pair it again.</p>}
+      {unpaired && <p className={unpaired.ok ? "done" : "refused"} role="alert">{unpaired.text}</p>}
+    </div>
+  );
+}
+
 export function PairBox() {
   const writes = useAccess(), [code, setCode] = useState(""), [problem, setProblem] = useState(null), [copied, setCopied] = useState(null);
   if (writes === "paired") return null;
@@ -50,9 +85,9 @@ export function PairBox() {
   return (
     <form className="card pair" onSubmit={pair} aria-labelledby="pair-h">
       <h2 id="pair-h">Pair this browser to act from the board</h2>
-      <p className="hint">You do this once for each browser. Until then, the board only reads.</p>
+      <p className="hint">You do this once for each browser. Until then, the board only reads. Type show board in a chief's chat, and click the link that it sends: one click opens the board and pairs this browser.</p>
       <div className="pair-step">
-        <p className="lbl">In Terminal</p>
+        <p className="lbl">No chat open? Pair with a Terminal code</p>
         <div className="pair-cmd"><code>{PAIR_COMMAND}</code><button type="button" className="btn" onClick={copy}>{copied === true ? "Copied" : "Copy"}</button></div>
         <p className="hint">Run this command in Terminal on this Mac. It prints a one-time code.</p>
         {copied === false && <p className="refused" role="alert">This browser did not let the board copy. Select the command and copy it.</p>}
@@ -64,18 +99,20 @@ export function PairBox() {
   );
 }
 
-const seen = { previous: undefined, started: false, listeners: new Set() };
-const look = () => post("seen", {}).then(result => { if (result.ok) { seen.previous = result.json.previous ?? null; seen.listeners.forEach(fn => fn()); } });
-export function useSeen(writes) {
-  const [previous, setPrevious] = useState(seen.previous);
-  useEffect(() => { const changed = () => setPrevious(seen.previous); seen.listeners.add(changed); return () => seen.listeners.delete(changed); }, []);
-  useEffect(() => {
-    if (writes !== "paired" || seen.started) return;
-    seen.started = true;
-    let hidden = false;
-    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") hidden = true; else if (hidden) { hidden = false; look(); } });
-    look();
-  }, [writes]);
+const SEEN_KEY = "board-seen", AWAY_MS = 5 * 60_000;
+const keep = (name, value) => { try { if (value !== undefined) window[name].setItem(SEEN_KEY, value); return window[name].getItem(SEEN_KEY); } catch { return null; } };
+const seen = { previous: keep("sessionStorage") ?? keep("localStorage") ?? "", listeners: new Set() };
+keep("sessionStorage", seen.previous);
+let away = null, timer;
+addEventListener("pagehide", () => keep("localStorage", new Date().toISOString()));
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") { const at = new Date().toISOString(); timer = setTimeout(() => { away = keep("localStorage", at); }, AWAY_MS); return; }
+  clearTimeout(timer);
+  if (away) { seen.previous = keep("sessionStorage", away); away = null; seen.listeners.forEach(fn => fn()); }
+});
+export function useSeen() {
+  const [previous, setPrevious] = useState(seen.previous || null);
+  useEffect(() => { const changed = () => setPrevious(seen.previous || null); seen.listeners.add(changed); return () => seen.listeners.delete(changed); }, []);
   return previous;
 }
 

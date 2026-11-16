@@ -4,7 +4,8 @@ import { dirname, join } from "node:path";
 
 export const COOKIE = "sage_board";
 export const CODE_MS = 10 * 60_000;
-const TRIES = 5, BROWSERS = 8, JSON_MAX = 65536;
+const TRIES = 5, BROWSERS = 8, OLD_LINKS = 8, JSON_MAX = 65536;
+const KEY = /^[A-Za-z0-9_-]{43}$/;
 const LETTERS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const sha = text => createHash("sha256").update(text).digest("hex");
 const same = (a, b) => typeof a === "string" && typeof b === "string" && a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -39,9 +40,16 @@ export function startPairing(dir, now = Date.now()) {
   return `${letters.slice(0, 4)}-${letters.slice(4)}`;
 }
 
+export function startLink(dir, now = Date.now()) {
+  const key = randomBytes(32).toString("base64url"), old = readJson(dir, "pair-link.json");
+  const replaced = [...(typeof old?.hash === "string" ? [old.hash] : []), ...(Array.isArray(old?.replaced) ? old.replaced : [])].slice(0, OLD_LINKS);
+  writeJson(dir, "pair-link.json", { hash: sha(key), expires: now + CODE_MS, state: "open", replaced });
+  return key;
+}
+
 export function boardAccess(dir) {
   const browserOf = header => {
-    const values = String(header ?? "").split(";").map(part => part.trim()).filter(part => part.startsWith(`${COOKIE}=`)).map(part => part.slice(COOKIE.length + 1)).filter(value => /^[A-Za-z0-9_-]{43}$/.test(value));
+    const values = String(header ?? "").split(";").map(part => part.trim()).filter(part => part.startsWith(`${COOKIE}=`)).map(part => part.slice(COOKIE.length + 1)).filter(value => KEY.test(value));
     if (!values.length) return null;
     const paired = readJson(dir, "paired.json"), browsers = Array.isArray(paired?.browsers) ? paired.browsers : [];
     for (const value of values) { const browser = browsers.find(item => same(item?.hash, sha(value))); if (browser) return browser; }
@@ -50,6 +58,19 @@ export function boardAccess(dir) {
   return {
     browserOf,
     tokenFits: (browser, given) => typeof given === "string" && same(browser.token, sha(given)),
+    pairLink(key, paired, now = Date.now()) {
+      const link = readJson(dir, "pair-link.json"), hash = typeof key === "string" && KEY.test(key) ? sha(key) : null;
+      const open = hash && link && same(link.hash, hash) && link.state === "open" && link.expires > now, at = new Date(now).toISOString();
+      if (paired) { if (open) writeJson(dir, "pair-link.json", { ...link, state: "used", at }); return { outcome: "already" }; }
+      if (!hash || !link) return { outcome: "refused" };
+      if (!same(link.hash, hash)) return { outcome: (Array.isArray(link.replaced) ? link.replaced : []).some(old => same(old, hash)) ? "replaced" : "refused" };
+      if (link.state !== "open") return { outcome: "used", at: link.at };
+      if (!open) return { outcome: "expired", ...(Number.isFinite(new Date(link.expires).getTime()) && { at: new Date(link.expires).toISOString() }) };
+      const issued = issue(now);
+      writeJson(dir, "pair-link.json", { ...link, state: "used", at });
+      return { outcome: "paired", ...issued };
+    },
+    unpairAll() { writeJson(dir, "paired.json", { browsers: [] }); },
     pair(code, now = Date.now()) {
       const wanted = readJson(dir, "pair-code.json");
       if (!wanted || typeof wanted.hash !== "string" || !(wanted.expires > now) || !(wanted.tries < TRIES)) {
@@ -61,16 +82,15 @@ export function boardAccess(dir) {
         writeJson(dir, "pair-code.json", { ...wanted, tries: wanted.tries + 1 });
         return { problem: wanted.tries + 1 < TRIES ? "This code is not the one that the pairing command printed. Type it again." : "Five wrong codes: this code no longer works. Run the command of the pairing card in Terminal again for a new code." };
       }
-      const old = readJson(dir, "paired.json"), cookie = randomBytes(32).toString("base64url"), token = randomBytes(32).toString("base64url");
-      const browsers = [...(Array.isArray(old?.browsers) ? old.browsers : []), { hash: sha(cookie), token: sha(token), at: new Date(now).toISOString() }].slice(-BROWSERS);
-      writeJson(dir, "paired.json", { browsers });
+      const issued = issue(now);
       rmSync(join(dir, "pair-code.json"), { force: true });
-      return { cookie, token };
-    },
-    seen(now = Date.now()) {
-      const previous = readJson(dir, "seen.json")?.at, at = typeof previous === "string" ? Date.parse(previous) : NaN;
-      writeJson(dir, "seen.json", { at: new Date(now).toISOString() });
-      return at <= now ? previous : null;
+      return issued;
     },
   };
+  function issue(now) {
+    const old = readJson(dir, "paired.json"), cookie = randomBytes(32).toString("base64url"), token = randomBytes(32).toString("base64url");
+    const browsers = [...(Array.isArray(old?.browsers) ? old.browsers : []), { hash: sha(cookie), token: sha(token), at: new Date(now).toISOString() }].slice(-BROWSERS);
+    writeJson(dir, "paired.json", { browsers });
+    return { cookie, token };
+  }
 }

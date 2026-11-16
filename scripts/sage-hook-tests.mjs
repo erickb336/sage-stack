@@ -2984,11 +2984,12 @@ test("T216: the board note's two commands pass the hook for the chief, as the no
     const note = context(handle({ ...prompt(ask), session_id: "s1", cwd: FEATURE }, { sage: true, given: true }, slots));
     const ensure = note.match(/First run, as a command of its own: (.+)$/m)?.[1];
     const chat = note.match(/Then run: (.+)$/m)?.[1];
-    assert.equal(ensure, `node ${fileURLToPath(new URL("../plugins/sage/board/cli.mjs", import.meta.url))} board --ensure`, ask);
+    assert.equal(ensure, `node ${fileURLToPath(new URL("../plugins/sage/board/cli.mjs", import.meta.url))} board --ensure --link`, ask);
     assert.ok(chat?.startsWith(`node ${TOOL} board `), note);
     for (const command of [ensure, chat]) assert.equal(denied(handle(bash(command), { sage: true, given: true }, slots)), undefined, command);
     assert.ok(denied(handle(bash("git push origin main"), { sage: true, given: true }, slots)), "the same check refuses a chief's command that the hook forbids");
     assert.match(note, /The board is for a desktop browser on this Mac only\. Never read the board config file\./);
+    assert.match(note, /Put the link in the chat text only\. Never write it into a file, a message page or a brief\./, "T1125: the pairing link stays in the chat");
     assert.doesNotMatch(note, /password|phone|sign-in/i, "T1053: the board is for this Mac only");
     assert.match(note, /When the line says that a restart is needed, give the owner its stop command; run it only when the owner asks\./, "F-T229-32: no restart by itself");
     assert.doesNotMatch(note, /secret/, "T229: the board has no random secret");
@@ -3005,7 +3006,7 @@ test("T229, T1059: the board config rule refuses the ordinary shapes, the board'
   symlinkSync(config, join(dir, "plain-name.txt"));
   symlinkSync(join(home, ".config"), join(dir, "linked-config"));
   const CONFIG = /^sage: the board config rule \(T229\): no agent reads, copies or replaces the board config \(~\/\.config\/sage-board\/board\.json\), or lists, searches, copies or moves the board's folder or a folder that holds it/;
-  const OK = null, REPO = FEATURE, PAIR = /^sage: the board pairing rule \(T1059\): no agent runs board --pair\./;
+  const OK = null, REPO = FEATURE, PAIR = /^sage: the board pairing rule \(T1059, T1125\): no agent runs board --pair, and only the chief runs board --ensure --link\./;
   const rows = [
     ["cat ~/.config/sage-board/state/paired.json", CONFIG], [`head -c 9 ${folder}/state/pair-code.json`, CONFIG], ["ls ~/.config/sage-board/state", CONFIG], ["cp ~/.config/sage-board/state/seen.json /tmp/x", CONFIG],
     [`node ${BOARD} board --pair`, PAIR], [`node ${BOARD} board --pair --config ${config}`, PAIR], ["npm run board -- --pair", PAIR], ["grep -n pair packages/sage-board/cli.mjs", OK],
@@ -3111,6 +3112,22 @@ test("T1079: the board port rule refuses board --port from an agent, and lets th
     }
   }
   for (const command of others) assert.doesNotMatch(denied(handle(bash(command, FEATURE, agent), { sage: true }, slots)) ?? "", /board port rule/, `an agent: ${command}`);
+});
+
+test("T1125: the board pairing rule refuses board --ensure --link from an agent, in and outside sage mode, and lets the chief and a session outside sage mode run it", async () => {
+  const { handle } = await import("../plugins/sage/hooks/sage-hook.mjs");
+  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {} };
+  const BOARD = fileURLToPath(new URL("../plugins/sage/board/cli.mjs", import.meta.url));
+  const PAIR = /^sage: the board pairing rule \(T1059, T1125\): no agent runs board --pair, and only the chief runs board --ensure --link\./;
+  const links = [`node ${BOARD} board --ensure --link`, `node ${BOARD} board --link --ensure --config /tmp/x/board.json`, "npm run board -- --ensure --link", `cd /tmp && node ${BOARD} board --ensure --link=1`];
+  const agent = { agent_id: "a1", agent_type: "sage:implementer" };
+  for (const command of links) {
+    for (const sage of [true, false]) assert.match(denied(handle(bash(command, FEATURE, agent), { sage }, slots)) ?? "", PAIR, `an agent, sage mode ${sage}: ${command}`);
+    for (const [who, state] of [["the chief", { sage: true, given: true }], ["a session outside sage mode", { sage: false }]]) {
+      assert.equal(denied(handle(bash(command, FEATURE), state, slots)), undefined, `${who}: ${command}`);
+    }
+  }
+  for (const command of [`node ${BOARD} board --ensure`, "grep -n -- --link packages/sage-board/cli.mjs"]) assert.equal(denied(handle(bash(command, FEATURE, agent), { sage: true }, slots)), undefined, `an agent: ${command}`);
 });
 
 test("F-T229-17: the board rule is fast on a word of many variable and ? pieces", async () => {
@@ -3312,7 +3329,7 @@ test("T72-C5-STATECMD: with the plugin in a folder with a space, the read-only b
   assert.equal(r.status, 0, r.stderr);
   const lines = context(JSON.parse(r.stdout)).split("\n");
   const board = `node "${tool}" board this --project '${project}' --view chat`;
-  assert.equal(lines[0], `sage: the owner asked for the board. The plugin path has a space: when the sandbox is on, it needs a plugin path without spaces. First run, as a command of its own: node "${join(dir, "my plugins", "sage", "board", "cli.mjs")}" board --ensure`);
+  assert.equal(lines[0], `sage: the owner asked for the board. The plugin path has a space: when the sandbox is on, it needs a plugin path without spaces. First run, as a command of its own: node "${join(dir, "my plugins", "sage", "board", "cli.mjs")}" board --ensure --link`);
   assert.ok(lines[1].endsWith(`Then run: ${board}`), lines[1]);
   assert.ok(!lines.some(line => line.includes("gate answer")));
   const shown = spawnSync("node", [tool, "board", "this", "--project", project, "--view", "chat"], { encoding: "utf8", env });
