@@ -3068,9 +3068,10 @@ function act(cmd, pos, opt, dir, env, skip, project) {
       const { tasks, task } = taskOf(dir, need(sub, "the task id")), open = offerOf(task);
       if (open) refuse(`${task.id} has the open offer ${open.id} to ${open.to}: cancel it first. Nothing changed.`);
       runsBar(dir, task, "unclaim", opt.chief);
+      const last = read(dir, "decisions").filter(d => d.task === task.id).at(-1);
+      if (last?.decision !== `${task.id} unclaimed by ${opt.chief}` || last.why !== "unclaim") ownership(dir, task.id, `unclaimed by ${opt.chief}`, "unclaim");
       task.chief = "";
       write(dir, "tasks", tasks);
-      ownership(dir, task.id, `unclaimed by ${opt.chief}`, "unclaim");
       return `${task.id} unclaimed · no owning chief. Only ${opt.chief} claims it back; another chief needs the owner's takeover gate.`;
     }
     case "init":
