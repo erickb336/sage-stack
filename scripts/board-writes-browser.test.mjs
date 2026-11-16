@@ -313,7 +313,7 @@ test("T1125: the last visit lives in each browser, also an unpaired one: a reloa
   await later.goto(`${w.origin}/app/`);
   await later.getByRole("heading", { name: /^Since you looked/ }).waitFor();
   assert.match(await later.locator("#counts-h").textContent(), /^Since you looked · you left the board at /, "the time when you left is kept in this browser");
-  await w.shot("t1125-since-you-looked");
+  if (SHOTS) await later.screenshot({ path: join(SHOTS, "t1125-since-you-looked.png") });
   const other = await w.context.browser().newContext();
   t.after(() => other.close());
   const fresh = await other.newPage();
@@ -336,9 +336,13 @@ test("T1125: one click on the chief's link pairs a fresh browser, takes the key 
   await page.goto(link);
   await page.getByText("This browser is paired. You can now answer questions and send from the board. The link is used up.").waitFor();
   assert.equal(page.url(), `${w.origin}/app/`, "the key left the address bar");
-  assert.equal(await page.evaluate(() => history.length), 1, "the key's history entry was replaced, not kept");
+  if (SHOTS) await page.screenshot({ path: join(SHOTS, "t1125-paired.png") });
+  await page.goBack();
+  assert.equal(page.url(), "about:blank", "no history entry keeps the key: the entry before the board is the new tab's blank page");
+  await page.goForward();
+  assert.equal(page.url(), `${w.origin}/app/`, "the board's own entry has no key");
+  await page.locator("#counts-h").waitFor();
   assert.equal(await page.getByRole("heading", { name: "Pair this browser to act from the board" }).count(), 0, "the pairing card is gone");
-  await w.shot("t1125-paired");
   await page.getByRole("link", { name: MESSAGE.title }).click();
   await page.getByRole("button", { name: "Send answer" }).waitFor();
   assert.equal(w.posts("pair"), 1, "the link is sent once");
@@ -349,14 +353,14 @@ test("T1125: one click on the chief's link pairs a fresh browser, takes the key 
   await second.goto(link);
   await second.getByText(/^Another browser on this Mac used this link at \d\d:\d\d\. This browser still reads only\./).waitFor();
   assert.equal(second.url(), `${w.origin}/app/`);
-  await w.shot("t1125-used");
+  if (SHOTS) await second.screenshot({ path: join(SHOTS, "t1125-used.png") });
   await second.getByRole("button", { name: "Unpair every browser" }).click();
   await second.getByText(/^Every browser is unpaired: each one reads only now\./).waitFor();
   assert.deepEqual(JSON.parse(readFileSync(join(w.stateDir, "paired.json"), "utf8")).browsers, [], "no browser is paired now");
   await page.getByRole("radio", { name: /^no/ }).check();
   await page.getByRole("button", { name: "Send answer" }).click();
   await page.getByRole("heading", { name: "Pair this browser to act from the board" }).waitFor();
-  assert.equal(w.gate("G1").answered, "", "the first browser writes nothing after the unpair");
+  assert.ok(!w.gate("G1").answered, "the first browser writes nothing after the unpair");
 
   const late = await other.newPage();
   await late.goto(`${w.origin}/app/#pair=${startLink(w.stateDir, Date.now() - 11 * 60_000)}`);

@@ -46,7 +46,7 @@ async function open(t, options = {}, { path = "/app/", theme = "dark", width = 1
     for (const book of [logbook, other]) writeFileSync(join(book, "config.json"), JSON.stringify({ ...JSON.parse(readFileSync(join(book, "config.json"), "utf8")), name: "twin" }));
   }
   const stateDir = seen === undefined ? null : join(dir, "state");
-  if (stateDir) { mkdirSync(stateDir, { mode: 0o700 }); writeFileSync(join(stateDir, "seen.json"), JSON.stringify({ at: at(seen) }), { mode: 0o600 }); }
+  if (stateDir) mkdirSync(stateDir, { mode: 0o700 });
   const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair" });
   await server.start();
   const base = `http://127.0.0.1:${port}`;
@@ -58,6 +58,7 @@ async function open(t, options = {}, { path = "/app/", theme = "dark", width = 1
   page.on("pageerror", error => problems.push(String(error)));
   page.on("console", message => { if (message.type() === "error" || /Content Security Policy|Refused to/.test(message.text())) problems.push(message.text()); });
   if (theme === "light") await page.addInitScript(() => localStorage.setItem("board-theme", "light"));
+  if (stateDir) await page.addInitScript(last => { if (!sessionStorage.getItem("board-seen")) localStorage.setItem("board-seen", last); }, at(seen));
   await page.goto(`${base}${path}`);
   await page.locator("main h1").waitFor();
   if (stateDir) {
