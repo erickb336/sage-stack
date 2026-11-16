@@ -192,7 +192,7 @@ export function TaskPage({ taskKey, tab: asked, at, from }) {
     pick(next); tabs.current[TABS.indexOf(next)]?.focus();
   };
   const back = typeof from === "string" ? backName(from) : null;
-  const counts = task && { Artifacts: task.runs.length + (task.files.designs.versions ? 1 : 0) + task.files.recorded.length + task.artifacts.length + (task.files.pages?.length ?? 0) + task.files.kept.length, Log: task.log.length + task.logMore, Decisions: task.decisions.length };
+  const counts = task && { Artifacts: task.runs.length + (task.files.designs.versions || hasArena(task) ? 1 : 0) + task.files.recorded.length + task.artifacts.length + (task.files.pages?.length ?? 0) + task.files.kept.length, Log: task.log.length + task.logMore, Decisions: task.decisions.length };
   return (
     <article className="taskpage">
       <a className="back" href={back ? `#${from}` : "#tasks"} onClick={event => { if (back && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); history.back(); } }}><span aria-hidden="true">‹ </span>{back ?? BACK_NAMES.tasks}</a>
@@ -229,18 +229,23 @@ export function TaskPage({ taskKey, tab: asked, at, from }) {
   );
 }
 
+function hasArena(task) {
+  return task.files.designs.arena || task.runs.some(run => run.role === "arena-judge" || run.candidate && ["designer", "implementer"].includes(run.role));
+}
+
 function Artifacts({ task }) {
   const { files } = task, base = `/pages/${task.logbook}/${task.id}/`, read = (kind, arg) => readLink(task.key, kind, arg);
-  const empty = !task.runs.length && !task.artifacts.length && !files.pages?.length && !files.kept.length && !files.briefs.length && !files.reports.length && !files.designs.versions && !files.recorded.length;
+  const arena = hasArena(task);
+  const empty = !task.runs.length && !task.artifacts.length && !files.pages?.length && !files.kept.length && !files.briefs.length && !files.reports.length && !files.designs.versions && !arena && !files.recorded.length;
   const fileLink = name => /\.md$/.test(name) ? <a href={read("page", name)}>{name}</a> : <a href={`${base}${name}`} target="_blank" rel="noopener noreferrer">{name}</a>;
   return (
     <div>
       {empty && <p className="none">No artifact is recorded for this task yet.</p>}
-      {files.designs.versions > 0 && <>
+      {(files.designs.versions > 0 || arena) && <>
         <h4>Design</h4>
         <ul className="files">
-          <li><a href={read("design")}>Design · {files.designs.versions} {files.designs.versions === 1 ? "version" : "versions"}</a><span className="faint">today, or two side by side</span></li>
-          {files.designs.arena && <li><a href={read("arena")}>Arena · candidates, scores and the judge's final</a></li>}
+          {files.designs.versions > 0 && <li><a href={read("design")}>Design · {files.designs.versions} {files.designs.versions === 1 ? "version" : "versions"}</a><span className="faint">today, or two side by side</span></li>}
+          {arena && <li><a href={read("arena")}>Arena · candidates, scores and the judge's final</a></li>}
         </ul>
       </>}
       {task.runs.length > 0 && <>
