@@ -4435,7 +4435,7 @@ test("T948: config start=sage-mode starts each new session of the project in sag
   assert.equal(s.ok("config", "start=sage-mode"), "name= archived=no start=sage-mode");
   assert.deepEqual(JSON.parse(readFileSync(own, "utf8")), { start: "sage-mode" });
   assert.equal(starts(), true);
-  assert.equal(s.ok("config", "archived=yes"), "name= archived=yes start=sage-mode", "another key keeps the start");
+  assert.match(s.ok("config", "archived=yes"), /^name= archived=yes start=sage-mode\nArchived: /, "another key keeps the start");
   assert.equal(s.ok("config", "start=normal"), "name= archived=yes start=normal");
   assert.deepEqual(JSON.parse(readFileSync(own, "utf8")), { archived: true }, "normal removes the key");
   assert.equal(starts(), false);
