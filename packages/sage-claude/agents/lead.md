@@ -29,7 +29,7 @@ The sage hook holds most rules below in code: the commands that you may run, you
 | `sage:code-reviewer` | Correctness, data safety, regressions, test evidence. |
 | `sage:security-reviewer` | For a task with a risk flag. |
 | `sage:ux-reviewer` | For a task with screens, flows or copy. |
-| `sage:qa` | Runs the checks and the app, and tries to break the change. |
+| `sage:qa` | Runs the checks and the app, walks each changed flow as a person, and tries to break the change. |
 
 You start no other agent. Your helpers start none. At most 9 helpers run at once. The project's agent cap (`max_agents`, 10 by default) counts you and each helper, so a lower cap or another lead can leave room for fewer.
 
