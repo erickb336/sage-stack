@@ -47,7 +47,7 @@ function cyclesText({ cycles }, group) {
 }
 const findingsText = ({ findings }) => findings.open ? `${findings.open} open · ${findings.worst}` : `0 open${findings.closed ? ` · ${findings.closed} closed` : ""}`;
 
-function Row({ task, group, now, prs, many }) {
+function Row({ task, group, now, prs }) {
   const later = Date.parse(task.doneAt) - Date.parse(now) > 60_000;
   const age = group === "merged" ? task.doneAt && (later ? "merge time is in the future" : `merged ${ago(task.doneAt, now)}`) : task.lastActivity && ago(task.lastActivity, now);
   return (
@@ -61,7 +61,6 @@ function Row({ task, group, now, prs, many }) {
         <p className="meta">
           <span className="chief">{task.chief && <ChiefDot stopped={task.chief.stopped} />}{chiefName(task.chief)}{task.chief?.stopped && " (stopped)"}</span>
           <span className="mono">{task.id}</span>
-          {many && <span>{controlsShown(task.project)}</span>}
           {task.milestone && <span>{controlsShown(task.milestone.title)}</span>}
           {!task.word && <span className="badge">state {UNKNOWN}</span>}
           {CHIEF_MOVES[task.state] && <span className="badge">{CHIEF_MOVES[task.state]}</span>}
@@ -81,9 +80,9 @@ function Row({ task, group, now, prs, many }) {
   );
 }
 
-function graphData(groups, all, many) {
+function graphData(groups, all) {
   const shown = new Map(groups.flatMap(group => group.tasks.map(task => [task.key, { task, group }])));
-  const chief = task => many ? `${chiefName(task.chief)} · ${controlsShown(task.project)}` : chiefName(task.chief);
+  const chief = task => chiefName(task.chief);
   const head = task => task.pr ? `${prName(controlsShown(task.pr))} · ${task.id}` : `${task.id} · no PR yet`;
   const away = new Map([...shown.values()].flatMap(({ task }) => task.waitsFor.filter(wait => !wait.met && !shown.has(wait.key)).map(wait => [wait.key, wait])));
   const waits = [...shown.values()].flatMap(({ task }) => task.waitsFor.filter(wait => shown.has(wait.key) || away.has(wait.key)).map(wait => ({ from: wait.key, to: task.key, met: wait.met })));
@@ -108,7 +107,6 @@ function useView() {
 
 export function Pulls({ model, chief = null }) {
   const [view, setView] = useView(), now = useNow();
-  const many = model.projects.length > 1;
   const all = useMemo(() => new Map(model.tasks.map(task => [task.key, task])), [model.tasks]);
   const prs = useMemo(() => new Map(model.tasks.filter(task => task.pr).map(task => [task.key, task.pr])), [model.tasks]);
   const groups = useMemo(() => {
@@ -117,7 +115,7 @@ export function Pulls({ model, chief = null }) {
     const newest = (a, b) => (Date.parse(b.doneAt ?? b.lastActivity) || 0) - (Date.parse(a.doneAt ?? a.lastActivity) || 0);
     return GROUPS.map(([key, title, hint]) => ({ key, title, hint, tasks: map.get(key).sort(newest) })).filter(group => group.tasks.length);
   }, [model.tasks, model.at, chief]);
-  const graph = useMemo(() => graphData(groups, all, many), [groups, all, many]);
+  const graph = useMemo(() => graphData(groups, all), [groups, all]);
   const open = groups.filter(group => group.key !== "merged").reduce((n, group) => n + group.tasks.filter(task => task.pr).length, 0);
   return (
     <>
@@ -147,7 +145,7 @@ export function Pulls({ model, chief = null }) {
                 <span className="grow" />
                 <span className="hint">{group.hint}</span>
               </div>
-              <ul className="rows">{group.tasks.map(task => <Row key={task.key} task={task} group={group.key} now={now} prs={prs} many={many} />)}</ul>
+              <ul className="rows">{group.tasks.map(task => <Row key={task.key} task={task} group={group.key} now={now} prs={prs} />)}</ul>
             </section>
           ))}
       {view === "list" && groups.length > 0 && <p className="none">Older merged PRs and abandoned tasks are on the <a href="#tasks">Tasks page</a>.</p>}

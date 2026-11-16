@@ -122,7 +122,7 @@ test("T1054: the event stream sends the Overview model as JSON, and again when t
   });
   assert.deepEqual(first.needs.map(need => need.gate), ["G4", "G5"]);
   assert.deepEqual(first.milestones.map(milestone => milestone.id), ["M2", "M1", "M3"]);
-  assert.deepEqual(first.counts, { merged: 1, stuck: 1, added: null });
+  assert.equal(first.agents.reduce((n, book) => n + book.look, 0), 1, "one run with a problem flag");
   assert.equal(first.stale, false);
   assert.equal(second.needs[1].question, "Crash reports: <b>send</b> them?", "the model carries text, never HTML");
 });
@@ -177,8 +177,9 @@ test("F-T1065-14, F-T1076-14: the server reads again when a merge leaves the 24-
   const margin = 8_000;
   const { base } = await board(t, { now: new Date(Date.now() - 22 * 3_600_000 + margin).toISOString() });
   const [first, second] = await models(`${base}/app/events`, 2, () => {}, margin + 20_000);
-  assert.equal(first.counts.merged, 1, "T1 merged 24 h minus 8 s ago: the setup and the first read get 8 s, as a loaded test machine can take seconds to start a server");
-  assert.equal(second?.counts.merged, 0, "8 s later the merge leaves the window, and the server sends the new count");
+  const merged = model => model?.tasks.filter(task => task.state === "merged" && Date.parse(task.doneAt) > Date.parse(model.at) - 86_400_000).length;
+  assert.equal(merged(first), 1, "T1 merged 24 h minus 8 s ago: the setup and the first read get 8 s, as a loaded test machine can take seconds to start a server");
+  assert.equal(merged(second), 0, "8 s later the merge leaves the window, and the server sends the new count");
 });
 
 test("F-T1065-15, -16: a package that npm puts inside another package's folder gets its own pin check and its own licence", t => {

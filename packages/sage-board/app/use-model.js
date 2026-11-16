@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 const RETRY_MS = 5000, TICK_MS = 60_000;
+export const PROJECT = /^(?:[A-Za-z0-9_-]{1,80}\/)?[a-z0-9-]+-[0-9a-f]{6}$/;
 
 export const when = at => new Date(at).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 const localName = chief => chief.named || !chief.startedAt ? chief : { ...chief, name: chief.name.replace(/\d{4}-\d\d-\d\d \d\d:\d\d UTC/, when(chief.startedAt)) };

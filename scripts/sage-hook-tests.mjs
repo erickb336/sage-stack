@@ -2984,7 +2984,7 @@ test("T216: the board note's two commands pass the hook for the chief, as the no
     const note = context(handle({ ...prompt(ask), session_id: "s1", cwd: FEATURE }, { sage: true, given: true }, slots));
     const ensure = note.match(/First run, as a command of its own: (.+)$/m)?.[1];
     const chat = note.match(/Then run: (.+)$/m)?.[1];
-    assert.equal(ensure, `node ${fileURLToPath(new URL("../plugins/sage/board/cli.mjs", import.meta.url))} board --ensure --link`, ask);
+    assert.equal(ensure, `node ${fileURLToPath(new URL("../plugins/sage/board/cli.mjs", import.meta.url))} board --ensure --link${{ "show board": ` --project '${FEATURE}'`, "show board for all": "", "show board for sage": " --name-hex 73616765" }[ask]}`, `${ask}: T1135, the link names the chat board's project`);
     assert.ok(chat?.startsWith(`node ${TOOL} board `), note);
     for (const command of [ensure, chat]) assert.equal(denied(handle(bash(command), { sage: true, given: true }, slots)), undefined, command);
     assert.ok(denied(handle(bash("git push origin main"), { sage: true, given: true }, slots)), "the same check refuses a chief's command that the hook forbids");
@@ -3329,7 +3329,7 @@ test("T72-C5-STATECMD: with the plugin in a folder with a space, the read-only b
   assert.equal(r.status, 0, r.stderr);
   const lines = context(JSON.parse(r.stdout)).split("\n");
   const board = `node "${tool}" board this --project '${project}' --view chat`;
-  assert.equal(lines[0], `sage: the owner asked for the board. The plugin path has a space: when the sandbox is on, it needs a plugin path without spaces. First run, as a command of its own: node "${join(dir, "my plugins", "sage", "board", "cli.mjs")}" board --ensure --link`);
+  assert.equal(lines[0], `sage: the owner asked for the board. The plugin path has a space: when the sandbox is on, it needs a plugin path without spaces. First run, as a command of its own: node "${join(dir, "my plugins", "sage", "board", "cli.mjs")}" board --ensure --link --project '${project}'`);
   assert.ok(lines[1].endsWith(`Then run: ${board}`), lines[1]);
   assert.ok(!lines.some(line => line.includes("gate answer")));
   const shown = spawnSync("node", [tool, "board", "this", "--project", project, "--view", "chat"], { encoding: "utf8", env });

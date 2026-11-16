@@ -40,7 +40,7 @@ function gateNeeds(task) {
       task: { key: task.key, id: task.id, title: task.title },
       chief: task.holder ?? title(task.sourceLabel) ?? null,
       ...(reason.gateId && { logbook: reason.logbook, options: reason.options, digest: reason.digest, owner: reason.owner, takeover: !!reason.replace }),
-      project: task.projectName,
+      project: task.group,
       askedAt: gate && time(gate.at) !== null ? new Date(time(gate.at)).toISOString() : null,
     };
   });
@@ -56,7 +56,7 @@ const milestoneNeed = need => ({
   task: null,
   milestone: need.milestone ? need.key : null,
   chief: null,
-  project: need.projectName ?? null,
+  project: need.group ?? null,
   askedAt: null,
 });
 
@@ -83,10 +83,10 @@ function projectNames(model) {
   return new Map(projects.map(project => [project.key, count(project.name) > 1 ? `${project.name} (${project.key})` : project.name]));
 }
 
-function taskRow(task, chiefs, names) {
+function taskRow(task, chiefs) {
   const step = stepOf(task);
   return {
-    key: task.key, id: task.id, title: task.title, project: names.get(task.group) ?? task.projectName, state: task.state, word: task.word ?? null, ended: ENDED.includes(task.state),
+    key: task.key, id: task.id, title: task.title, project: task.group, state: task.state, word: task.word ?? null, ended: ENDED.includes(task.state),
     priority: task.priority || null, kind: task.kind || null, size: task.size || null, pr: task.pr || null,
     milestone: task.milestone ? { key: task.milestone.key, id: task.milestone.id, title: milestoneName({ id: task.milestone.id, name: task.milestone.name ?? "" }) } : null,
     chief: chiefTag(task, chiefs), needsYou: task.reasons.length > 0, waits: task.waitLine?.text ?? null, cannotStart: !!task.waitLine?.never,
@@ -109,9 +109,8 @@ const failReason = (task, run) => (task.decisionRows ?? []).findLast(row => Stri
 
 function agentsOf(model, recent, agents, chiefs) {
   const states = new Map(agents.filter(agent => agent.task?.key && agent.runId).map(agent => [`${agent.task.key.slice(0, agent.task.key.lastIndexOf("/"))}/${agent.runId}`, agent]));
-  const groups = new Map((model.projects ?? []).map(project => [project.key, project]));
   const look = [];
-  const books = (model.agents?.limits ?? []).filter(book => !groups.get(book.group)?.archived).map(book => {
+  const books = (model.agents?.limits ?? []).map(book => {
     const all = model.tasks.filter(task => task.project === book.key).flatMap(task => task.runs.map(run => {
       const agent = run.status === "running" ? states.get(`${book.key}/${run.id}`) : null, state = run.status !== "running" ? null : agent?.state ?? (run.clock.stale ? "stuck" : "unk");
       return { run, task, agent, state, look: run.status === "failed" ? !task.archived && !ENDED.includes(task.state) && recent(run.ended) && !retried(task, run) : LOOK.includes(state) };
@@ -151,7 +150,7 @@ function agentsOf(model, recent, agents, chiefs) {
     }).sort((a, b) => (time(a.started) ?? 0) - (time(b.started) ?? 0) || number(a.id) - number(b.id));
     const byChief = new Map();
     for (const run of runs) if (run.status === "running") byChief.set(run.chief, (byChief.get(run.chief) ?? 0) + 1);
-    return { key: book.key, project: groups.get(book.group)?.name ?? book.key, running: book.running, limit: book.limit, leads: book.leads, leadLimit: book.leadLimit, queued: book.queued.length,
+    return { key: book.key, project: book.group, running: book.running, limit: book.limit, leads: book.leads, leadLimit: book.leadLimit, queued: book.queued.length,
       look: all.filter(item => item.look).length, failedMore, byChief: [...byChief].map(([chief, n]) => ({ chief, count: n })).sort((a, b) => number(a.chief) - number(b.chief)), runs };
   });
   return { books, look };
@@ -161,24 +160,23 @@ export function boardOverview(model) {
   const at = time(model.at);
   const since = at - DAY;
   const recent = value => { const when = time(value); return when !== null && when > since && when <= at; };
-  const tasks = model.tasks.filter(task => !task.archived);
-  const byKey = new Map(model.tasks.map(task => [task.key, task])), names = projectNames(model);
+  const tasks = model.tasks, byKey = new Map(tasks.map(task => [task.key, task])), names = projectNames(model);
 
-  const needs = [...model.needsOwner.flatMap(task => gateNeeds(task).map(need => ({ ...need, project: names.get(task.group) ?? need.project }))), ...(model.milestoneNeeds ?? []).map(milestoneNeed)]
+  const needs = [...tasks.filter(task => task.visible && task.column).flatMap(gateNeeds), ...(model.milestoneNeeds ?? []).map(milestoneNeed)]
     .sort((a, b) => (time(a.askedAt) ?? -Infinity) - (time(b.askedAt) ?? -Infinity));
 
-  let hiddenDone = 0;
-  const milestones = model.milestones.filter(milestone => !milestone.archived && milestone.state !== "dropped").flatMap(milestone => {
+  const hiddenDone = {};
+  const milestones = model.milestones.filter(milestone => milestone.state !== "dropped").flatMap(milestone => {
     const own = milestone.tasks.map(key => byKey.get(key)).filter(Boolean);
     const open = own.filter(task => !ENDED.includes(task.state));
     const lastDone = Math.max(-Infinity, ...own.map(task => time(task.completedAt)).filter(when => when !== null));
-    if (milestone.state === "done" && !(lastDone > at - DONE_DAYS * DAY)) { hiddenDone++; return []; }
+    if (milestone.state === "done" && !(lastDone > at - DONE_DAYS * DAY)) { hiddenDone[milestone.group] = (hiddenDone[milestone.group] ?? 0) + 1; return []; }
     return [{
       key: milestone.key,
       id: milestone.id,
       title: milestoneName(milestone),
       goal: milestone.goal || null,
-      project: milestone.projectName,
+      project: milestone.group,
       state: milestone.state,
       word: milestone.word,
       priority: PRIORITIES.find(priority => open.some(task => task.priority === priority)) ?? null,
@@ -194,7 +192,7 @@ export function boardOverview(model) {
   }).sort((a, b) => rank(a.priority) - rank(b.priority) || stateRank(a.state) - stateRank(b.state) || number(a.id) - number(b.id));
 
   const merged = tasks.filter(task => task.state === "merged" && recent(task.completedAt));
-  const chiefs = (model.projects ?? []).filter(project => !project.archived).flatMap(project => (project.chiefs ?? []).map(chief => ({ ...chief, project: names.get(project.key), logbook: chief.key.slice(0, chief.key.lastIndexOf("/")) })));
+  const chiefs = (model.projects ?? []).flatMap(project => (project.chiefs ?? []).map(chief => ({ ...chief, project: project.key, logbook: chief.key.slice(0, chief.key.lastIndexOf("/")) })));
   const lastWrite = agent => agent.how === "logbook" ? time(byKey.get(agent.task?.key)?.lastActivity) ?? time(agent.run?.started) : null;
   const agents = everyAgent(model.agents).map(agent => {
     const when = lastWrite(agent);
@@ -210,15 +208,15 @@ export function boardOverview(model) {
     at: model.at,
     stale: !!model.stale,
     problems: (model.diagnostics ?? []).map(item => item.message),
-    projects: (model.projects ?? []).filter(project => !project.archived).map(project => names.get(project.key)),
+    projects: (model.projects ?? []).map(project => ({ key: project.key, name: names.get(project.key), sub: project.sub, books: project.books, list: project.list, needs: project.needsOwner,
+      agents: project.agents, open: tasks.filter(task => task.group === project.key && !ENDED.includes(task.state)).length, lastActivity: project.lastActivity, archived: project.archived })),
     chiefs,
     needs,
-    answered: tasks.flatMap(task => task.boardAnswers.map(item => ({ ...item, task: { key: task.key, id: task.id, title: task.title }, project: names.get(task.group) ?? task.projectName }))).sort((a, b) => (time(a.at) ?? 0) - (time(b.at) ?? 0)),
-    tasks: tasks.map(task => taskRow(task, chiefs, names)),
+    answered: tasks.flatMap(task => task.boardAnswers.map(item => ({ ...item, task: { key: task.key, id: task.id, title: task.title }, project: task.group }))).sort((a, b) => (time(a.at) ?? 0) - (time(b.at) ?? 0)),
+    tasks: tasks.map(task => taskRow(task, chiefs)),
     milestones,
     hiddenDone,
     agents: books,
-    counts: { merged: merged.length, stuck: look.length, added: tasks.some(task => task.addedAt) ? tasks.filter(task => recent(task.addedAt)).length : null },
     next: leaving.length ? Math.min(...leaving) : null,
   };
 }
@@ -242,12 +240,11 @@ function logOf(task) {
 export function taskPanel(model, key) {
   const task = model.tasks.find(item => item.key === key);
   if (!task) return null;
-  const names = projectNames(model);
-  const chiefs = (model.projects ?? []).flatMap(project => (project.chiefs ?? []).map(chief => ({ ...chief, project: names.get(project.key) })));
+  const chiefs = (model.projects ?? []).flatMap(project => project.chiefs ?? []);
   const log = logOf(task), waiting = new Set(task.reasons.map(reason => reason.gateId));
   const steps = task.loop.steps.map(step => ({ key: step.key, label: step.label, status: step.status, detail: step.detail, parts: (step.parts ?? []).map(([name, status]) => ({ name, status })) }));
   return {
-    ...taskRow(task, chiefs, names),
+    ...taskRow(task, chiefs),
     at: model.at,
     route: task.route ? task.route.split(",") : [], risk: task.risk || null, branch: task.branch || null,
     logbook: task.project.slice(task.project.indexOf("/") + 1),

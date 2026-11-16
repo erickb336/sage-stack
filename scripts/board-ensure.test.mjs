@@ -2,7 +2,7 @@ import "./test-env.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import fs, { chmodSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import fs, { chmodSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer, request } from "node:http";
 import { createServer } from "node:net";
 import { syncBuiltinESMExports } from "node:module";
@@ -167,6 +167,59 @@ test("T1125: ensure --link gives the board's address with a one-time pairing lin
     assert.deepEqual(await pairWith(port, newer), { status: 200, outcome: "paired", cookie: true });
     assert.deepEqual(await pairWith(port, newer), { status: 200, outcome: "used", cookie: false });
     assert.equal((await board(CLI, ["--ensure"], env)).stdout, `Sage board is running: http://127.0.0.1:${port}/ · only on this Mac.\n`, "without --link, ensure makes no link");
+  } finally { await stop(dir, port); }
+});
+
+test("T1135: ensure --project names the chat's project in the link, by its logbook folder, read only; a folder with no logbook gives the link with no project", async (t) => {
+  const { dir, env } = scratch(t);
+  const port = await freePort(), checkout = join(dir, "work", "recipes"), logbook = join(dir, "home", ".claude", "sage", "recipes-1a2b3c");
+  mkdirSync(checkout, { recursive: true }); mkdirSync(logbook, { recursive: true });
+  writeFileSync(join(logbook, "checkout.txt"), `${checkout}\n`);
+  writeFileSync(join(logbook, "tasks.tsv"), "id\ttitle\tsize\trisk\troute\tstate\tbranch\tpr\tround\tkeys\thold\textra\n");
+  const before = readdirSync(logbook).sort();
+  try {
+    const linked = await board(CLI, ["--ensure", "--link", "--port", String(port), "--project", checkout], env);
+    assert.equal(linked.status, 0, linked.stderr);
+    assert.match(linked.stdout, new RegExp(`^Sage board started: http://127\\.0\\.0\\.1:${port}/app/#pair=[A-Za-z0-9_-]{43}&project=recipes-1a2b3c · only on this Mac\\.`));
+    assert.equal((await board(CLI, ["--ensure", "--project", checkout], env)).stdout, `Sage board is running: http://127.0.0.1:${port}/app/#project=recipes-1a2b3c · only on this Mac.\n`, "without --link, the address opens the project");
+    assert.equal((await board(CLI, ["--ensure", "--project", join(dir, "work", "elsewhere")], env)).stdout, `Sage board is running: http://127.0.0.1:${port}/ · only on this Mac.\n`, "no logbook names that folder, so the link names no project");
+    assert.deepEqual(readdirSync(logbook).sort(), before, "the lookup writes nothing in the logbook");
+    const plain = `Sage board is running: http://127.0.0.1:${port}/ · only on this Mac.\n`;
+    for (const folder of [join(dir, "work", "re\u200bcipes"), "work/recipes"]) {
+      const odd = await board(CLI, ["--ensure", "--project", folder], env);
+      assert.deepEqual([odd.status, odd.stdout, odd.stderr], [0, plain, ""], `F-T1135-2: a folder that is not a plain absolute path still gives the address, with no project: ${JSON.stringify(folder)}`);
+    }
+  } finally { await stop(dir, port); }
+});
+
+test("T1135 F-T1135-1: ensure --project finds the project from a subfolder, a linked worktree and a linked path, read only", async (t) => {
+  const { dir, env } = scratch(t);
+  const port = await freePort(), checkout = join(dir, "work", "recipes"), worktree = join(dir, "work", "recipes-wt"), logbook = join(dir, "home", ".claude", "sage", "recipes-1a2b3c");
+  mkdirSync(checkout, { recursive: true }); mkdirSync(logbook, { recursive: true });
+  writeFileSync(join(logbook, "checkout.txt"), `${checkout}\n`);
+  writeFileSync(join(logbook, "tasks.tsv"), "id\ttitle\tsize\trisk\troute\tstate\tbranch\tpr\tround\tkeys\thold\textra\n");
+  const git = (...args) => { const run = spawnSync("git", ["-c", "user.name=Sample", "-c", "user.email=sample@example.invalid", "-c", "commit.gpgsign=false", ...args], { cwd: checkout, env: { ...env, GIT_CONFIG_NOSYSTEM: "1" }, encoding: "utf8" }); assert.equal(run.status, 0, run.stderr); };
+  git("init", "-q"); git("commit", "-q", "--allow-empty", "-m", "sample"); git("worktree", "add", "-q", "--detach", worktree);
+  mkdirSync(join(checkout, "src")); mkdirSync(join(worktree, "src")); symlinkSync(join(dir, "work"), join(dir, "alias"));
+  try {
+    assert.equal((await board(CLI, ["--ensure", "--port", String(port), "--project", checkout], env)).status, 0);
+    for (const folder of [join(checkout, "src"), worktree, join(worktree, "src"), join(dir, "alias", "recipes-wt", "src")]) {
+      assert.equal((await board(CLI, ["--ensure", "--project", folder], env)).stdout, `Sage board is running: http://127.0.0.1:${port}/app/#project=recipes-1a2b3c · only on this Mac.\n`, folder);
+    }
+  } finally { await stop(dir, port); }
+});
+
+test("T1135 F-T1135-3: ensure --name-hex names the asked project in the link; a name of no project, or bad hex, gives no project", async (t) => {
+  const { dir, env } = scratch(t);
+  const port = await freePort(), logbook = join(dir, "home", ".claude", "sage", "recipes-1a2b3c"), hex = name => Buffer.from(name, "utf8").toString("hex");
+  mkdirSync(logbook, { recursive: true });
+  writeFileSync(join(logbook, "tasks.tsv"), "id\ttitle\tsize\trisk\troute\tstate\tbranch\tpr\tround\tkeys\thold\textra\n");
+  try {
+    const named = await board(CLI, ["--ensure", "--link", "--port", String(port), "--project", join(dir, "work", "other"), "--name-hex", hex("Recipes")], env);
+    assert.match(named.stdout, /\/app\/#pair=[A-Za-z0-9_-]{43}&project=recipes-1a2b3c · /, "the asked name wins over the chat's folder");
+    for (const bad of [hex("nothing"), "zz", "e2"]) assert.equal((await board(CLI, ["--ensure", "--name-hex", bad], env)).stdout, `Sage board is running: http://127.0.0.1:${port}/ · only on this Mac.\n`, bad);
+    const alone = await board(CLI, ["--stop", "--name-hex", hex("recipes")], env);
+    assert.deepEqual([alone.status, alone.stderr], [1, "sage board: --name-hex goes with --ensure only\n"]);
   } finally { await stop(dir, port); }
 });
 

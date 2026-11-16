@@ -234,9 +234,9 @@ test("T72-C6-LOWS: when the state tool cannot load, the board phrase says so and
   assert.equal(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, "sage: the owner asked for the board, but the state tool cannot load, so there is no board. Tell the owner so, and record no answer.");
 });
 
-test("T72-C5-STATECMD, T216: the hook's board note starts the board server first, then runs the state tool's board, both unquoted", () => {
+test("T72-C5-STATECMD, T216, T1135: the hook's board note starts the board server first, with the chat's project for the link, then runs the state tool's board, both unquoted", () => {
   const [ensure, run] = note("show board").split("\n");
-  assert.equal(ensure, `sage: the owner asked for the board. First run, as a command of its own: node ${fileURLToPath(new URL("../plugins/sage/board/cli.mjs", import.meta.url))} board --ensure --link`);
+  assert.equal(ensure, `sage: the owner asked for the board. First run, as a command of its own: node ${fileURLToPath(new URL("../plugins/sage/board/cli.mjs", import.meta.url))} board --ensure --link --project '/work/sage'`);
   assert.equal(run, `It starts the local board server on this Mac when it is not running, and prints one line: the board's address, or why the server is not running. Then run: node ${TOOL} board this --project '/work/sage' --view chat`);
 });
 

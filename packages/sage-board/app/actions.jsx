@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { when } from "./use-model.js";
+import { PROJECT, when } from "./use-model.js";
 import { UNKNOWN, chiefName, runWord } from "../../sage-core/state-words.mjs";
 import { chiefState, chiefSub, encodeKey, taskLink } from "./task.jsx";
 
@@ -12,8 +12,8 @@ const listeners = new Set();
 const useShared = (set, read) => useSyncExternalStore(fn => { set.add(fn); return () => set.delete(fn); }, read);
 const setAccess = writes => { access.writes = writes; listeners.forEach(fn => fn()); };
 addEventListener("storage", event => { if (on && (event.key === TOKEN_KEY || event.key === null)) setAccess(stored.get() ? "paired" : "unpaired"); });
-const link = /^#pair=([\w-]{1,64})$/.exec(location.hash)?.[1];
-if (link) history.replaceState(null, "", location.pathname + location.search);
+const [, link, project] = /^#pair=([\w-]{1,64})(?:&project=([^&]*))?$/.exec(location.hash) ?? [];
+if (link) history.replaceState(null, "", `${location.pathname}${location.search}${PROJECT.test(project ?? "") ? `#?project=${project}` : ""}`);
 let linkNote = { outcome: link && on ? "loading" : null };
 const noteListeners = new Set();
 const setNote = (outcome, detail) => { linkNote = { outcome, detail }; noteListeners.forEach(fn => fn()); };
@@ -139,7 +139,7 @@ function ChiefMenu({ chief, onFilter, close }) {
   );
 }
 
-export function ChiefChips({ chiefs, filter, setFilter, many }) {
+export function ChiefChips({ chiefs, filter, setFilter }) {
   const [open, setOpen] = useState(null);
   useEffect(() => {
     if (!open) return;
@@ -156,7 +156,6 @@ export function ChiefChips({ chiefs, filter, setFilter, many }) {
           <button type="button" className="chip" aria-pressed={filter === chief.key} data-chief={chief.key} onClick={() => setFilter(filter === chief.key ? null : chief.key)}
             title={`${STATE[dot(chief)]} · show only this chief's work`}>
             <span className={`dot ${dot(chief)}`} aria-hidden="true" /><b>{chiefName(chief.id, chief.provider)}</b> <span className="faint">{chiefSub(chief)}</span>
-            {many && <span className="faint"> · {chief.project}</span>}
             <span className="state">{STATE[dot(chief)]}{dot(chief) === "live" && chief.autopilot !== null && ` · autopilot ${chief.autopilot ? "on" : "off"}`}</span>
           </button>
           <button type="button" className="chip caret" aria-expanded={open === chief.key} aria-label={`More about ${chief.id}`} onClick={() => setOpen(open === chief.key ? null : chief.key)}>▾</button>
@@ -242,7 +241,7 @@ export function UndoButton({ logbook, gate, onDone }) {
   );
 }
 
-export function QuestionView({ needKey, model, theme }) {
+export function QuestionView({ needKey, model, theme, archived }) {
   const { gate, problem } = useGate(needKey, model.at), writes = useAccess();
   const [pick, setPick] = useState(null), [said, setSaid] = useState(null), [busy, setBusy] = useState(false), sending = useRef(false);
   useEffect(() => { document.getElementById("question-h")?.focus(); }, [needKey, !gate]);
@@ -278,6 +277,7 @@ export function QuestionView({ needKey, model, theme }) {
       <div className="send" role="status">
         {said?.ok ? <p className="done">{said.text.startsWith(gate.id) ? `You answered ${gate.id}: ${gate.options[pick]}. Recorded in the logbook. It waits for ${owner} to pick it up, at its next step.` : said.text} <UndoButton logbook={gate.logbook} gate={gate.id} onDone={result => result.ok && setSaid(null)} /></p>
           : !open ? <p><span><Answered gate={gate} chiefs={model.chiefs} /></span>{gate.answered?.via === "board" && !gate.answer && <UndoButton logbook={gate.logbook} gate={gate.id} />}</p>
+          : archived ? <p>This project is archived, so the board takes no answer here. Answer in the chief's chat.</p>
           : writes !== "paired" ? <PairBox />
           : <p>{pick === null ? "Pick one answer above." : <>Your answer: <b>{gate.options[pick]}</b></>} <span className="grow" />
               <button type="button" className="btn" onClick={() => setPick(null)}>Clear</button>

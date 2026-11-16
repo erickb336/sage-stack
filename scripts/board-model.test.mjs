@@ -563,7 +563,7 @@ test("T305: one repository is one project: the logbooks of one key and one check
   assert.equal(denied.projects[0].problem, "its tasks file has no read permission");
 });
 
-test("T305: the picker's list puts needs you first, then active in the last 14 days, idle and archived, with every name a person may know", () => {
+test("T305, T1135: the picker's list puts needs you first, then active in the last 14 days, quiet and archived, with every name a person may know", () => {
   const decision = (id, at) => [{ task: id, at, decision: "sample", why: "sample" }];
   const withActivity = buildBoardModel([{ id: "claude", label: "claude", provider: "Claude", diagnostics: [], projects: [
     { key: "claude/product-demos-1c0254", name: "product-demos-1c0254", checkout: "/sample/work/sdc/product-demos", repository: "https://github.com/sample-owner/seacc", upstream: "https://github.com/sample-org/seacc", displayName: "seacc (Council Record)", diagnostics: [], tables: { tasks: [task("T41", "awaiting-you")] } },
@@ -572,13 +572,47 @@ test("T305: the picker's list puts needs you first, then active in the last 14 d
     { key: "claude/gone-cccccc", name: "gone-cccccc", checkout: "/sample/work/gone", archived: true, diagnostics: [], tables: { tasks: [task("T1", "framed")] } },
     { key: "claude/broken-dddddd", name: "broken-dddddd", checkout: "/sample/work/broken", diagnostics: ["tasks: damaged table header"], tables: {} },
   ] }], { now });
-  assert.deepEqual(withActivity.projects.map(project => [project.list, project.name, project.needsOwner]), [["needs", "broken-dddddd", 1], ["needs", "seacc (Council Record)", 1], ["active", "fresh", 0], ["idle", "old", 0], ["archived", "gone", 0]]);
+  assert.deepEqual(withActivity.projects.map(project => [project.list, project.name, project.needsOwner]), [["needs", "broken-dddddd", 1], ["needs", "seacc (Council Record)", 1], ["active", "fresh", 0], ["quiet", "old", 0], ["archived", "gone", 0]]);
   const sdc = withActivity.projects[1];
   assert.equal(sdc.sub, "sample-org/seacc · folder product-demos");
   assert.deepEqual(sdc.terms, ["seacc (Council Record)", "sample-org/seacc", "sample-owner/seacc", "product-demos", "product-demos-1c0254", "claude/product-demos-1c0254"]);
   assert.deepEqual(sdc.paths, ["/sample/work/sdc/product-demos"], "R1069-2: the paths are apart from the terms");
   assert.deepEqual(withActivity.projects.map(project => project.sub), ["no GitHub remote · folder broken", "sample-org/seacc · folder product-demos", "no GitHub remote · folder fresh", "sample-owner/old · folder old", "no GitHub remote · folder gone"], "F-T305-11: no GitHub remote comes first, so the line never cuts it off; R1071-6: owner/repo, not the owner alone");
   assert.equal(withActivity.projects[0].problem, "tasks: damaged table header", "an unreadable logbook is named by its folder, with the reason");
+});
+
+const daysAgo = days => new Date(Date.parse(now) - days * 86400000).toISOString();
+const lists = books => buildBoardModel([{ id: "claude", label: "claude", provider: "Claude", diagnostics: [], projects: books.map(([name, tables, extra = {}]) => ({ key: `claude/${name}`, name, checkout: `/sample/work/${name}`, diagnostics: [], tables, ...extra })) }], { now })
+  .projects.map(project => [project.key, project.list, project.lastActivity]);
+
+test("T1135 G199: a project folds into Older after 30 days with no work, open tasks or not; a project with a waiting question stays on top; a project with no time is quiet", () => {
+  const work = (days, state = "framed") => ({ tasks: [task("T1", state)], decisions: [{ task: "T1", at: daysAgo(days), decision: "sample", why: "sample" }] });
+  assert.deepEqual(lists([
+    ["active-aaaaaa", work(14)],
+    ["quiet-bbbbbb", work(30)],
+    ["older-cccccc", work(31)],
+    ["done-dddddd", work(45, "merged")],
+    ["asks-eeeeee", { ...work(60), gates: [{ id: "G1", task: "T1", question: "Keep the old format?", options: "yes|no", answer: "", at: daysAgo(60) }] }],
+    ["empty-ffffff", {}],
+    ["put-away-111111", work(1), { archived: true }],
+  ]), [
+    ["asks-eeeeee", "needs", daysAgo(60)],
+    ["active-aaaaaa", "active", daysAgo(14)],
+    ["quiet-bbbbbb", "quiet", daysAgo(30)],
+    ["empty-ffffff", "quiet", null],
+    ["older-cccccc", "older", daysAgo(31)],
+    ["done-dddddd", "older", daysAgo(45)],
+    ["put-away-111111", "archived", daysAgo(1)],
+  ], "needs you first, then by last work: active up to 14 days, quiet up to 30 days, then Older; archived last");
+});
+
+test("T1135 R7: last work also counts a project-level decision, a gate asked or answered, and a board answer; a project with no task takes its decision time", () => {
+  const book = tables => lists([["sample-aaaaaa", { tasks: [task("T1", "framed")], decisions: [{ task: "T1", at: daysAgo(40), decision: "sample", why: "sample" }], ...tables }]])[0].slice(1);
+  assert.deepEqual(book({}), ["older", daysAgo(40)], "the task's own row only");
+  assert.deepEqual(book({ decisions: [{ task: "T1", at: daysAgo(40), decision: "sample", why: "sample" }, { task: "", at: daysAgo(2), decision: "cap raised", why: "the owner" }] }), ["active", daysAgo(2)], "a decision of the project, with no task");
+  assert.deepEqual(book({ gates: [{ id: "G1", task: "", question: "Move?", options: "yes|no", answer: "yes", at: daysAgo(20) }] }), ["quiet", daysAgo(20)], "a gate of the project, asked and answered");
+  assert.deepEqual(book({ gates: [{ id: "G1", task: "", question: "Move?", options: "yes|no", answer: "", at: daysAgo(50), answered: JSON.stringify({ via: "board", at: daysAgo(3), answer: "yes" }) }] }), ["active", daysAgo(3)], "an answer on the board that waits for the chief");
+  assert.deepEqual(lists([["no-task-bbbbbb", { decisions: [{ task: "", at: daysAgo(5), decision: "project created", why: "sample" }] }]]), [["no-task-bbbbbb", "active", daysAgo(5)]], "a project with no task uses its decision time");
 });
 
 const milestonesModel = (sources = [milestonesSource()]) => buildBoardModel(sources, { now: MILESTONES_NOW });

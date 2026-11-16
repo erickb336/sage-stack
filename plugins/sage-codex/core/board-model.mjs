@@ -388,7 +388,9 @@ function wasOf(project, task) {
     return null;
   }
 }
-const ACTIVE_DAYS = 14;
+const DAY_MS = 86400000, ACTIVE_DAYS = 14, OLDER_DAYS = 30;
+const bookTimes = project => [...(project.tables.decisions ?? NONE).map(row => row.at), ...(project.tables.gates ?? NONE).flatMap(gate => [gate.at, boardAnswer(gate)?.at])].map(time).filter(at => at !== null);
+const listOf = (archived, needsOwner, last, at) => archived ? "archived" : needsOwner ? "needs" : last && at - last > OLDER_DAYS * DAY_MS ? "older" : last && at - last <= ACTIVE_DAYS * DAY_MS ? "active" : "quiet";
 const repoPath = url => githubRepository(url)?.slice("https://github.com/".length) ?? null;
 const unique = list => list.filter((item, i) => item && list.indexOf(item) === i);
 
@@ -730,13 +732,13 @@ export function buildBoardModel(input,{ now = new Date().toISOString(), landing 
   const shown = tasks.filter(task => task.visible && task.column).sort((a, b) => (b.reasons.length > 0) - (a.reasons.length > 0) || rank(a) - rank(b) || recent(b) - recent(a));
   const visible = shown.filter(task => !task.archived);
   const columnOf = (key, list) => { const cards = list.filter(task => task.column === key); return key === "done" ? cards.sort(newest) : cards; };
-  const LISTS = ["needs", "active", "idle", "archived"];
+  const LISTS = ["needs", "active", "quiet", "older", "archived"];
   const projects = groups.map(group => {
     const own = tasks.filter(task => task.group === group.key), live = shown.filter(task => task.group === group.key);
-    const last = Math.max(0, ...own.map(recent)), extra = milestoneNeeds.filter(need => need.group === group.key).length, needsOwner = live.filter(task => task.reasons.length).length + extra;
+    const last = Math.max(0, ...own.map(recent), ...group.books.flatMap(book => bookTimes(book.project))), extra = milestoneNeeds.filter(need => need.group === group.key).length, needsOwner = live.filter(task => task.reasons.length).length + extra;
     const chiefs = group.books.filter(book => book.project.shared && !book.project.old).flatMap(({ project }) => boardChiefs({ rows: project.chiefs ?? NONE, live: project.chiefLive, names: project.chiefNames, runs: own.filter(task => task.project === project.key).flatMap(task => task.runs), waits: own.filter(task => task.project === project.key && !ENDED.includes(task.state)).flatMap(task => task.reasons.filter(reason => reason.owner).map(reason => reason.owner)), now: at }).map(chief => ({ key: `${project.key}/${chief.id}`, ...chief })));
     return { key: group.key, name: group.name, sub: group.sub, pathSub: group.pathSub ?? null, terms: group.terms, paths: group.paths, books: group.books.map(book => book.project.key), providers: group.providers, chiefs, archived: group.archived, problem: group.problem, tasks: own.length, needsOwner, agents: live.reduce((n, task) => n + task.agents.filter(agent => !agent.stale).length, 0), lastActivity: last ? new Date(last).toISOString() : null,
-      list: group.archived ? "archived" : needsOwner ? "needs" : last && at - last <= ACTIVE_DAYS * 86400000 ? "active" : "idle" };
+      list: listOf(group.archived, needsOwner, last, at) };
   }).sort((a, b) => LISTS.indexOf(a.list) - LISTS.indexOf(b.list) || (a.list === "needs" ? b.needsOwner - a.needsOwner : 0) || (Date.parse(b.lastActivity ?? 0) || 0) - (Date.parse(a.lastActivity ?? 0) || 0) || a.name.localeCompare(b.name));
   const archived = projects.filter(project => project.archived).map(project => ({ key: project.key, name: project.name, tasks: project.tasks, needsOwner: project.needsOwner }));
   const agents = agentsOf(sources, groups, groupOf, byKey, at);

@@ -155,7 +155,7 @@ test("T1080 (F-T1080-2, F-T1080-14): the group and the filters are in the addres
   await page.getByRole("button", { name: "Chief", exact: true }).click();
   await filter(page, "provider").selectOption("Codex");
   await settles(() => groupTitles(page), ["Codex · C2"]);
-  assert.equal(await page.evaluate(() => location.hash), "#tasks?group=chief&provider=Codex");
+  assert.equal(await page.evaluate(() => location.hash), "#tasks?project=sample-app-abc123&group=chief&provider=Codex", "T1135: the address also names the project");
   await page.reload();
   await settles(() => groupTitles(page), ["Codex · C2"], "the reload keeps the group and the filter");
   assert.equal(await filter(page, "provider").inputValue(), "Codex");
@@ -164,7 +164,7 @@ test("T1080 (F-T1080-2, F-T1080-14): the group and the filters are in the addres
   await taskTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
   await page.goBack();
   await row(page, "T3").waitFor();
-  assert.equal(await page.evaluate(() => location.hash), "#tasks?group=chief&provider=Codex", "Back from the task page goes back to the same view");
+  assert.equal(await page.evaluate(() => location.hash), "#tasks?project=sample-app-abc123&group=chief&provider=Codex", "Back from the task page goes back to the same view");
   await page.getByRole("button", { name: "Clear filters" }).click();
   await settles(() => groupTitles(page), ["Claude · C1", "Codex · C2"]);
   assert.equal(await page.getByRole("button", { name: "Clear filters" }).count(), 0);
@@ -179,20 +179,27 @@ test("T1080 (F-T1080-13): the State filter done shows the ended tasks at once", 
   assert.equal(await page.locator(".more-ended").count(), 0, "no Show button to click");
 });
 
-test("T1080 (F-T1080-1): with two projects, chief groups, chief filter values and rows name the project", async t => {
-  const { page } = await open(t, { twin: true }, "/app/#tasks?group=chief");
-  await settles(() => groupTitles(page), ["Claude · C1 · other-app", "Claude · C1 · sample-app", "Codex · C2 · other-app", "Codex · C2 · sample-app"]);
-  assert.deepEqual((await filter(page, "chief").locator("option").allTextContents()).slice(1), ["Claude · C1 · other-app", "Claude · C1 · sample-app", "Codex · C2 · other-app", "Codex · C2 · sample-app"]);
-  assert.match(await row(page, "T3").textContent(), /^P2Sample shared limitssample-appproviders/, "the row names its project");
+const books = async page => [...new Set((await page.locator("a.row[data-task]").evaluateAll(rows => rows.map(row => row.dataset.task))).map(key => key.slice(0, key.lastIndexOf("/"))))];
+
+test("T1080, T1135: with two projects, Tasks shows one project, its chief groups, filter values and chief chips; the picker switches, and Back returns", async t => {
+  const { page } = await open(t, { twin: true }, "/app/#tasks?group=chief&project=sample-app-abc123");
+  await settles(() => groupTitles(page), ["Claude · C1", "Codex · C2"]);
+  await settles(() => books(page), ["shared/sample-app-abc123"]);
+  assert.deepEqual((await filter(page, "chief").locator("option").allTextContents()).slice(1), ["Claude · C1", "Codex · C2"]);
+  assert.match(await row(page, "T3").textContent(), /^P2Sample shared limitsproviders/, "no row names a project");
+  assert.deepEqual(await page.locator("button.chip[data-chief]").evaluateAll(chips => chips.map(chip => chip.dataset.chief)), ["shared/sample-app-abc123/C1", "shared/sample-app-abc123/C2"], "the chips of this project only");
+  await page.locator("header.top button.picker").click();
+  await page.locator('.pick-menu a[data-project="other-app-def456"]').click();
+  await settles(() => books(page), ["shared/other-app-def456"]);
+  assert.equal(await page.evaluate(() => location.hash), "#tasks?project=other-app-def456", "the picker keeps the page and names the project");
+  await page.goBack();
+  await settles(() => books(page), ["shared/sample-app-abc123"]);
 });
 
-test("T1099 (F-T1099-37, F-T1099-38): two logbooks with one display name keep apart in the chief groups, the chief filter and the chief chips", async t => {
+test("T1099, T1135 (F-T1099-37, F-T1099-38): two logbooks with one display name read apart in the picker", async t => {
   const { page } = await open(t, { twin: "one name" }, "/app/#tasks?group=chief");
-  const titles = ["Claude · C1 · twin (other-app-def456)", "Claude · C1 · twin (sample-app-abc123)", "Codex · C2 · twin (other-app-def456)", "Codex · C2 · twin (sample-app-abc123)"];
-  await settles(() => groupTitles(page), titles);
-  assert.deepEqual((await filter(page, "chief").locator("option").allTextContents()).slice(1), titles);
-  const chips = await page.locator("button.chip[data-chief]").allTextContents();
-  assert.equal(new Set(chips).size, chips.length, `each chief chip reads differently: ${chips.join(" | ")}`);
+  await page.locator("header.top button.picker").click();
+  assert.deepEqual(await page.locator(".pick-menu a b").allTextContents(), ["twin (other-app-def456)", "twin (sample-app-abc123)"]);
 });
 
 test("T1098 (R4165-2): two logbooks with one display name and the same chief ids: the chief filter of Tasks and Pull requests shows only the chosen logbook's tasks", async t => {
@@ -201,6 +208,7 @@ test("T1098 (R4165-2): two logbooks with one display name and the same chief ids
   const ids = selector => page.locator(selector).evaluateAll(rows => rows.map(row => (row.dataset.task ?? row.dataset.prTask).split("/").pop()).sort());
   const seen = {};
   for (const book of ["shared/sample-app-abc123", "shared/other-app-def456"]) {
+    await page.goto(`${page.url().split("#")[0]}#tasks?project=${book.split("/")[1]}`);
     await page.locator(`button.chip[data-chief="${book}/C1"]`).click();
     await page.goto(`${page.url().split("#")[0]}#tasks`);
     await settles(() => books("a.row[data-task]"), [book], `Tasks lists only ${book}'s tasks of C1`);
@@ -234,7 +242,7 @@ test("T1061, T1083: the task page opens from the keyboard, its tabs move with th
   assert.match(page.url(), /&tab=log$/, "the tab is in the address");
   await page.goBack();
   await page.waitForFunction(key => document.activeElement?.dataset.task === key, KEY("T3"));
-  assert.equal(await page.evaluate(() => location.hash), "#tasks", "a tab change adds no Back step");
+  assert.equal(await page.evaluate(() => location.hash), "#tasks?project=sample-app-abc123", "a tab change adds no Back step");
   await page.keyboard.press("Enter");
   await taskTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
   await page.keyboard.press("Shift+Tab");

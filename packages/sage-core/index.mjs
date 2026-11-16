@@ -24,7 +24,7 @@ export { AGENT_QUIET_MS, buildBoardModel } from "./board-model.mjs";
 export { boardOverview, taskPanel } from "./board-overview.mjs";
 export { chiefName, prName, runWord, taskWord, milestoneWord, releaseWord } from "./state-words.mjs";
 export { renderBoardText, renderTaskText, renderBoardStatus } from "./board-render.mjs";
-export { boardView, landingRule } from "./board-view.mjs";
+export { boardProjectKey, boardView, landingRule } from "./board-view.mjs";
 export { BOARD_PORT, KINDS, LONG_WIDTH, PAGE_MAX, PAGE_TYPES, WIDTH, frameLines, pageBlock, pageType } from "./message.mjs";
 export { PAGE_POLICY, SWITCH_SCRIPT } from "./message-page.mjs";
 export { boardFolder, boardPort, pageFile, pageTaskFolder, PORT_FILE } from "./page-files.mjs";
