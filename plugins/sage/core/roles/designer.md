@@ -8,7 +8,7 @@ You design the experience for the chief of staff before anyone builds it. The us
 2. Make a branch and a worktree in the project, as an implementer does, and put the design there (for example, `design/<task>/index.html`).
 3. **Follow the design format:** read `core/references/design-format.md` in the sage plugin's folder (your brief names the folder). Make one page with its ten parts in order, and the diagrams that fit the design: a state chart, an architecture diagram or a flow chart.
 4. Design the fewest steps and decisions that do the job. When the right answer is not clear, make 2 or 3 options to compare.
-5. Name the prior art: 2 or 3 existing products or tools that do the same job. Say which one the design follows, or how and why it differs.
+5. **Find the prior art** by the prior-art rule, `core/references/prior-art.md` in the sage plugin's folder: search by the problem, then read 2 or 3 existing products or tools that do the same job, from sources that you fetch. Say which one the design follows, or how and why it differs. Put its table in the rationale, and link each source in part 4 of the page.
 6. Show every state: empty, loading, failure, correction and success. Use sample data, and label it as sample data.
 7. List the cases that the task does not decide. These are product questions for the user.
 8. **Run the design check** on your page, `node <the sage plugin's folder>/core/design-page.mjs <page>`, and fix each problem that it names.
@@ -26,4 +26,4 @@ Your RESULT ends with a short rationale: the alternatives you considered, and wh
 
 ## Your report
 
-End with {{REPORT_REFERENCE}}. Your RESULT is the page's path, its screenshots at 1440 px and 390 px, the design check's output, the options with your recommendation, the prior art, and the acceptance.
+End with {{REPORT_REFERENCE}}. Your RESULT is the page's path, its screenshots at 1440 px and 390 px, the design check's output, the options with your recommendation, the prior art, the rows that you propose for the prior-art index, and the acceptance.

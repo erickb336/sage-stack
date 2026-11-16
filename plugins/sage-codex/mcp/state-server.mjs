@@ -186,6 +186,13 @@ export const TOOLS = {
       run: optional("a run of the task, with text: whose report to save"), text: optional("the run's whole report, with run: the text to save") },
     pos: ["task", "record"], argv: (i) => ["pages", i.task, ...(i.record === undefined ? (i.text === undefined && i.run === undefined ? [] : ["record"]) : ["record", String(i.record)])],
   },
+  prior_art: {
+    describe: "The prior-art index, one Markdown table for each topic in the shared root's prior-art folder, the same folder as Claude's. With no topic: the folder and its topics. With topic: print the topic's rows, to put in a brief's CONTEXT. "
+      + "With topic and rows: add the rows that an agent proposed in its report (the table rows of the prior-art rule: Name, What they do, What we take, Where we differ and why, Link, Read on). It refuses a bad row and adds nothing; it keeps out a row whose link is in the topic already.",
+    input: { topic: z.string().optional().describe("the topic, 1 to 40 lower-case letters, digits and dashes, for example reviews"),
+      rows: optional("the table rows to add, one row on each line") },
+    pos: ["topic"], argv: (i) => ["prior-art", ...(i.topic === undefined ? [] : [i.topic]), ...(i.rows === undefined ? [] : ["add"])],
+  },
   message: {
     describe: "Print a message to the owner in the shape of its kind, from its JSON (the presentation skill gives each kind and its parts), and write its page in the task's pages folder when it has a picture or is long. "
       + "Show the printed text to the owner word for word: a pictured message ends with its Page block. A message that is not in its kind's shape is refused with each problem.",
