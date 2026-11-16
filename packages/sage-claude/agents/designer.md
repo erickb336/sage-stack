@@ -1,6 +1,6 @@
 ---
 name: designer
-description: "Designs the experience before the build: screens, states and copy, as a clickable prototype with sample data. Use for new screens, flows or copy in sage mode."
+description: "Designs the experience before the build: one page in the design format, with the story, diagrams, every state with sample data, and the choices. Use for new screens, flows, copy or processes in sage mode."
 skills:
   - sage:report
   - sage:principle-experience-first
