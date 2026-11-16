@@ -6281,14 +6281,26 @@ test("T482 K3: a lead's slot holds through a 2-hour wait while its lead run runs
   assert.match(denied(stateRun(s, "round T1")) ?? "", /this lead holds no bound lead slot/, "an ended lead run's slot expires");
 });
 
-test("T482 K3 T371: the sage's run done of a helper run notes its stop, so the lead may go on and end", () => {
-  const s = leadSession();
-  s.sage("run", "done", "R2", "--status", "done", "--tokens", "1");
-  const run = liveHelper(s, "qa");
-  assert.equal(helperSlots(s).length, 1);
-  chiefRunDone(s, run);
-  assert.equal(waitOut(s), "No helper of R1 runs.");
-  assert.equal(leadStop(s), undefined, "the lead ends");
+test("T482 K3 T371 F-T1124-16: the sage's run done of a helper run notes its stop, also with a quoted --why, so the lead may go on and end", () => {
+  for (const why of [undefined, ` "its agent stopped"`, ` 'its agent stopped'`, `="its agent stopped"`]) {
+    const s = leadSession();
+    s.sage("run", "done", "R2", "--status", "done", "--tokens", "1");
+    const run = liveHelper(s, "qa");
+    assert.equal(helperSlots(s).length, 1);
+    chiefRunDone(s, run, {}, why);
+    assert.equal(waitOut(s), "No helper of R1 runs.", `the stop is noted with --why${why ?? " stopped"}`);
+    assert.equal(leadStop(s), undefined, "the lead ends");
+  }
+});
+
+test("F-T1124-16: a quoted --why with a shell character, or a second quoted value, notes no stop", () => {
+  for (const why of [` "its $(agent) stopped"`, ` "its agent stopped" --x "two words"`, ` "its agent; stopped"`]) {
+    const s = leadSession();
+    s.sage("run", "done", "R2", "--status", "done", "--tokens", "1");
+    const run = liveHelper(s, "qa");
+    chiefRunDone(s, run, {}, why);
+    assert.match(waitOut(s), new RegExp(`^${run} still runs`), `no stop is noted with --why${why}`);
+  }
 });
 
 function endedHelper(role, ...more) {
@@ -6500,9 +6512,9 @@ test("T482 R1817-2: a lead's second verdict on a run that backs one names that v
   assert.equal(why, `sage: R4 already backs the qa-pass verdict of T1 on ${s.head().slice(0, 7)}: one run backs one review or QA verdict. Run the review again under a new run.`);
 });
 
-function chiefRunDone(s, run, extra = {}) {
+function chiefRunDone(s, run, extra = {}, why) {
   s.sage("run", "done", run, "--status", "failed", "--why", "stopped");
-  s.send({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: `node ${TOOL} run done ${run} --status failed --why stopped --project ${realpathSync(s.dir)}` }, tool_response: { stdout: "", stderr: "", interrupted: false }, cwd: s.dir, ...extra });
+  s.send({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: `node ${TOOL} run done ${run} --status failed --why${why ?? " stopped"} --project ${realpathSync(s.dir)}` }, tool_response: { stdout: "", stderr: "", interrupted: false }, cwd: s.dir, ...extra });
 }
 
 test("T482 R1836-1 T504: after a restart, an old helper's slot frees by the stale slot rule after the sage's run done, also after the fresh lead's start", () => {

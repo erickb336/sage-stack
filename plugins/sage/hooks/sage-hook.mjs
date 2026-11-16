@@ -500,6 +500,7 @@ function moveCheck({ owner, repo, branch }) {
 const READS = { status: () => true, "merge-check": () => true, logbook: (pos) => pos[0] !== "repair", standing: (pos) => pos[0] !== "add", config: (pos) => !pos.length };
 const READ_FORM = "node <path to skills/sage/sage.mjs> <status, merge-check, logbook, standing or config> [--project <path>] (config without a key=value)";
 const PLAIN = /^[\w./=:@,+-]+(?:[ \t]+[\w./=:@,+-]+)*$/;
+const ONE_PLAIN_QUOTED_WHY = /(^| )--why(?: |=)(["'])([\w./=:@,+ -]*)\2(?= |$)/;
 const fields = (v) => (typeof v === "string" ? [v] : v && typeof v === "object" ? Object.values(v).flatMap(fields) : []);
 const fold = (text) => text.normalize("NFKC").toLowerCase();
 function rootsOf(strict) {
@@ -671,7 +672,8 @@ function chiefStateWords(input) {
     if (node !== "node" || !path || !/(?:^|\/)skills\/sage\/sage\.mjs$/.test(path) || canonical(resolve(input.cwd ?? process.cwd(), path)) !== canonical(TOOL)) return undefined;
     words = rest;
   }
-  return words.length && PLAIN.test(words.join(" ")) ? words : undefined;
+  const line = words.join(" ").replace(ONE_PLAIN_QUOTED_WHY, "$1--why=_");
+  return line && PLAIN.test(line) ? line.split(" ") : undefined;
 }
 function chiefWriteWords(input) {
   let commands;
