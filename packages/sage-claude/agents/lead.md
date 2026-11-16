@@ -38,7 +38,7 @@ You start no other agent. Your helpers start none. At most 9 helpers run at once
 In this file, `sage` stands for `node <path to skills/sage/sage.mjs>`, the absolute path in your brief. Write the full path each time. The hook lets you run only these commands, and only on your own task:
 
 - reads: `sage status`, `sage standing`, `sage logbook`, `sage pages <T>`;
-- runs: `sage run add <T> --role <role> --branch <branch>` (the branch only for the implementer) and `sage run done <R> --status done --tokens <n>`, for the five roles above; `sage run done <R> --status failed` for a helper that gave no report;
+- runs: `sage run add <T> --role <role> --branch <branch>` (the branch only for the implementer) and `sage run done <R> --status done --tokens <n>`, for the five roles above; `sage run done <R> --status failed --why=<word>` for a helper that gave no report;
 - findings: `sage finding add <T> --source <role> --severity <severity> --summary=<word> --run <R> --class <class>`, `sage finding triage <T> <K> fix` (in a cycle, a medium or high one: `sage finding triage <T> <K> fix --proof <R>`), `sage finding triage <T> <K> dismiss --reason=<word>` (a low finding that is no fix key of the round or of an earlier one), `sage finding triage <T> <K> dismiss --proof <R>` (a medium finding that the proof check did not reproduce) and `sage finding close <T> <K>`;
 - verdicts: `sage verdict <T> --sha <sha> --kind <kind> --cycle <n> --pr <n> --run <R>`, for a review or QA only;
 - the lint check: the state tool's `lint` command, with the task and `--sha`, to see early the lines that the sage's lint will name. It records lint-pass or lint-fail, which only it writes. The sage runs it on the final head before the merge;
@@ -243,7 +243,7 @@ $ sage run add T1 --role qa
 ! stop R10
 $ sage run done R9 --status done --tokens 50000
 $ sage verdict T1 --sha <sha> --kind review-clean --cycle 1 --pr 12 --run R9
-$ sage run done R10 --status failed
+$ sage run done R10 --status failed --why=no-report
 $ sage run add T1 --role qa
 → R11 running · qa on T1
 > R11 sage:qa

@@ -4193,7 +4193,7 @@ const ageSlots = (s, minutes, names) => {
   for (const slot of names ?? readdirSync(dir)) utimesSync(join(dir, slot), old, old);
 };
 const fillSix = (s, prefix, extra = {}) => { for (let n = 1; n <= 6; n++) assert.equal(s.send(nested("sage:qa", `${prefix}-fill-${n}`, extra)), undefined, `filler ${n}`); };
-const endLeadRuns = (s, ...ids) => { for (const id of ids) spawnSync("node", [TOOL, "run", "done", id, "--status", "failed", "--project", LEAD_DIR], { encoding: "utf8", env: s.vars }); };
+const endLeadRuns = (s, ...ids) => { for (const id of ids) spawnSync("node", [TOOL, "run", "done", id, "--status", "failed", "--why", "stopped", "--project", LEAD_DIR], { encoding: "utf8", env: s.vars }); };
 const threeLeads = (s) => {
   s.sage("config", "cap_total=4");
   for (const [n, a] of ["a", "b", "c"].entries()) {
@@ -4627,7 +4627,7 @@ test("#118 point 4: in sage mode the main session starts lead-T<n> only when T<n
   assert.match(denied(s.send(leadSpawn("qa-run", 1, { cwd: s.dir }))) ?? "", NONE("T1"), "a run of another role does not count");
   s.sage("run", "add", "T1", "--role", "lead");
   assert.equal(s.send(leadSpawn("after", 1, { cwd: s.dir })), undefined, "the running lead run of T1");
-  s.sage("run", "done", "R3", "--status", "failed");
+  s.sage("run", "done", "R3", "--status", "failed", "--why", "stopped");
   assert.match(denied(s.send(leadSpawn("ended", 1, { cwd: s.dir }))) ?? "", NONE("T1"), "an ended lead run does not count");
   assert.match(denied(s.send(leadSpawn("no-cwd", 2, { cwd: undefined }))) ?? "", /^sage: the hook could not read the logbook for T2 \(/, "an event with no folder");
   assert.equal(s.send(leadSpawn("t2", 2, { cwd: s.dir })), undefined, "T2 keeps its running lead run");
@@ -4779,10 +4779,10 @@ test("F-T273-3: a lead's run add --branch must be a branch of its own task", () 
 
 test("F-T273-4: a lead writes only while the lead run that its slot started for still runs", () => {
   const ended = leadSession();
-  ended.sage("run", "done", "R1", "--status", "failed");
+  ended.sage("run", "done", "R1", "--status", "failed", "--why", "stopped");
   assert.match(denied(stateRun(ended, "round T1")) ?? "", /T1's lead run R1 no longer runs/);
   const replaced = leadSession();
-  replaced.sage("run", "done", "R1", "--status", "failed");
+  replaced.sage("run", "done", "R1", "--status", "failed", "--why", "stopped");
   replaced.sage("run", "add", "T1", "--role", "lead");
   assert.match(denied(stateRun(replaced, "round T1")) ?? "", /T1's lead run R1 no longer runs/, "a newer lead run belongs to the fresh lead");
 });
@@ -5172,7 +5172,7 @@ test("F-T284-11: a bound lead starts no child after its task is held, or after i
   setState(held, "T1", "held");
   assert.match(denied(held.send(nested("sage:qa", "after-hold"))) ?? "", /^sage: T1 is held, so its lead records nothing and starts no agent\. Report to your chief\.$/);
   const ended = leadSession();
-  ended.sage("run", "done", "R1", "--status", "failed");
+  ended.sage("run", "done", "R1", "--status", "failed", "--why", "stopped");
   assert.match(denied(ended.send(nested("sage:qa", "after-end"))) ?? "", /T1's lead run R1 no longer runs, so this lead starts no agent/);
 });
 
@@ -5270,14 +5270,14 @@ test("F-T289-8, T928: a new lead never helps with or ends an old lead's runs; th
   const idle = leadAdd(s, "qa");
   assert.equal(s.send(tool("Agent", { subagent_type: "sage:qa", prompt: BRIEF, name: old }, { tool_use_id: "old-helper", ...LEAD })), undefined);
   s.send(resultOf("old-helper", "kid-old", LEAD));
-  s.sage("run", "done", "R1", "--status", "failed");
+  s.sage("run", "done", "R1", "--status", "failed", "--why", "stopped");
   s.send(tool("TaskStop", { task_id: "lead-T1" }));
   s.send(ended("kid-old", "sage:qa", { last_assistant_message: report("PASS") }));
   s.sage("run", "add", "T1", "--role", "lead");
   assert.equal(s.send(leadSpawn("lead-b-call", 1, { cwd: s.dir })), undefined);
   s.send(resultOf("lead-b-call", "lead-b"));
   const B = { agent_id: "lead-b", agent_type: "sage:lead" };
-  assert.match(denied(stateRun(s, `run done ${idle} --status failed`, B)) ?? "", /^sage: R6 is not a run that this lead added: the chief ends it/, "an old lead's run (F-T928-1)");
+  assert.match(denied(stateRun(s, `run done ${idle} --status failed --why stopped`, B)) ?? "", /^sage: R6 is not a run that this lead added: the chief ends it/, "an old lead's run (F-T928-1)");
   assert.match(denied(s.send(tool("Agent", { subagent_type: "sage:qa", prompt: BRIEF, name: idle }, { tool_use_id: "adopt", ...B }))) ?? "", /R6 is not a run that this lead added: a lead helps only with its own runs/);
   s.sage("run", "done", old, "--status", "done", "--tokens", "1");
   assert.equal(leadVerdict(s, "qa-pass", old, s.head(), B), undefined);
@@ -5312,11 +5312,11 @@ test("F-T289-3, F-T928-1: a lead ends a run whose helper never started as failed
   const none = leadAdd(s, "qa");
   assert.match(denied(stateRun(s, `run done ${none} --status done`)) ?? "", /^sage: R5's helper gave no report, so R5 ends only as failed or blocked \(F-T289-3, F-T289-20\)\./);
   for (const status of ["failed", "blocked"]) assert.equal(denied(stateRun(s, `run done ${none} --status ${status}`)), undefined, status);
-  s.sage("run", "done", none, "--status", "failed");
+  s.sage("run", "done", none, "--status", "failed", "--why", "stopped");
   assert.match(leadVerdict(s, "qa-pass", none) ?? "", /^sage: R5 ended as failed, so it backs no verdict\./, "no helper, no verdict");
   const live = leadAdd(s, "qa");
   assert.equal(s.send(tool("Agent", { subagent_type: "sage:qa", prompt: BRIEF, name: live }, { tool_use_id: "live", ...LEAD })), undefined);
-  assert.match(denied(stateRun(s, `run done ${live} --status failed`)) ?? "", /R6's helper has not stopped/, "a helper that started must stop first");
+  assert.match(denied(stateRun(s, `run done ${live} --status failed --why stopped`)) ?? "", /R6's helper has not stopped/, "a helper that started must stop first");
 });
 
 test("F-T289-6, T909: a lead closes a fix finding of its round while repairing, also before a new commit; the next review cycle checks the repair", () => {
@@ -5387,7 +5387,7 @@ test("F-T289-15: a lead ends a review run whose report was not clean only after 
   assert.equal(denied(stateRun(s, `run done ${run} --status done`)), undefined, "after the finding");
   const odd = leadAdd(s, "code-reviewer");
   helpRun(s, odd, "code-reviewer", LEAD, report("FINDINGS", "Y2 medium no dash"));
-  assert.match(denied(stateRun(s, `run done ${odd} --status failed`)) ?? "", ODD("R6"));
+  assert.match(denied(stateRun(s, `run done ${odd} --status failed --why stopped`)) ?? "", ODD("R6"));
 });
 
 test("F-T289-12: a lead closes a round's finding on the repair's commit, also when the re-review of that commit finds a new problem", () => {
@@ -5407,14 +5407,14 @@ test("F-T289-13: a helper that left with no stop frees its lead's stop when its 
   assert.equal(s.send(tool("Agent", { subagent_type: "sage:qa", prompt: BRIEF, name: run }, { tool_use_id: "lost", ...LEAD })), undefined);
   s.send(resultOf("lost", "kid-lost", LEAD));
   assert.match(liveHelpers(s), /your helper R5 still runs/, "the helper still holds its slot");
-  assert.match(denied(stateRun(s, `run done ${run} --status failed`)) ?? "", /R5's helper has not stopped/, "the helper still holds its slot (F-T928-1)");
+  assert.match(denied(stateRun(s, `run done ${run} --status failed --why stopped`)) ?? "", /R5's helper has not stopped/, "the helper still holds its slot (F-T928-1)");
   const dir = join(s.vars.SAGE_HOOKS_STATE, "slots");
   ageSlots(s, 61, readdirSync(dir).filter((slot) => readdirSync(join(dir, slot)).some((m) => m.startsWith("helper-"))));
   assert.match(denied(stateRun(s, `run done ${run} --status done`)) ?? "", /R5's helper gave no report/, "never done (F-T928-1)");
   for (const status of ["failed", "blocked"]) assert.equal(denied(stateRun(s, `run done ${run} --status ${status}`)), undefined, status);
   const helpers = join(s.vars.SAGE_HOOKS_STATE, "helpers");
   assert.ok(readdirSync(helpers).length > 0);
-  s.sage("run", "done", "R1", "--status", "failed");
+  s.sage("run", "done", "R1", "--status", "failed", "--why", "stopped");
   s.send(tool("TaskStop", { task_id: "lead-T1" }));
   s.sage("run", "add", "T1", "--role", "lead");
   assert.equal(s.send(leadSpawn("fresh", 1, { cwd: s.dir })), undefined);
@@ -5425,7 +5425,7 @@ test("F-T289-16: a lead helps with and ends only the runs that it added itself, 
   const s = leadSession();
   const chiefs = s.sage("run", "add", "T1", "--role", "qa").split(" ")[0];
   assert.match(denied(s.send(tool("Agent", { subagent_type: "sage:qa", prompt: BRIEF, name: chiefs }, { tool_use_id: "adopt", ...LEAD }))) ?? "", /R5 is not a run that this lead added: a lead helps only with its own runs/);
-  assert.match(denied(stateRun(s, `run done ${chiefs} --status failed`)) ?? "", /^sage: R5 is not a run that this lead added: the chief ends it/, "a run of its own task that the chief added (F-T928-1)");
+  assert.match(denied(stateRun(s, `run done ${chiefs} --status failed --why stopped`)) ?? "", /^sage: R5 is not a run that this lead added: the chief ends it/, "a run of its own task that the chief added (F-T928-1)");
   setState(s, "T1", "replan");
   assert.match(denied(stateRun(s, "finding add T1 --source qa --severity low --summary=x")) ?? "", /T1 is replan, so its lead records nothing and starts no agent\./);
   assert.match(denied(s.send(nested("sage:qa", "in-replan"))) ?? "", /T1 is replan, so its lead records nothing and starts no agent\./);
@@ -5521,7 +5521,7 @@ test("F-T289-20: a helper that the sage stopped gave no report, so its run backs
   s.send(resultOf("cut", "kid-cut", LEAD));
   s.send(tool("TaskStop", { task_id: "kid-cut" }));
   assert.match(denied(stateRun(s, `run done ${run} --status done`)) ?? "", /R5's helper gave no report, so R5 ends only as failed or blocked \(F-T289-3, F-T289-20\)/, "F-T928-1");
-  assert.equal(denied(stateRun(s, `run done ${run} --status failed`)), undefined);
+  assert.equal(denied(stateRun(s, `run done ${run} --status failed --why stopped`)), undefined);
   s.sage("run", "done", run, "--status", "done", "--tokens", "1");
   assert.match(leadVerdict(s, "qa-pass", run) ?? "", /^sage: R5 has no kept report/, "no report backs no verdict, in the state tool (T483)");
   const quoted = lines("STATUS done", "RESULT CLEAN", "EVIDENCE the old report said:", "  FINDINGS none", "FINDINGS - Y1 high a.mjs:1 the token is logged", "QUESTIONS none", "NOT VERIFIED none", "BRANCH none");
@@ -5538,7 +5538,7 @@ test("F-T301-14: a lead never stops its own helper before its report; the main s
   assert.equal(denied(s.send(tool("TaskStop", { task_id: "kid-own" }, LEAD))), "sage: a lead stops no task, also no shell task: only the main session stops one. Wait for the helper's stop, or ask the sage (SendMessage to main) to stop it.");
   assert.match(liveHelpers(s), new RegExp(`your helper ${run} still runs`), "the refused stop leaves the helper running");
   assert.equal(denied(s.send(tool("TaskStop", { task_id: "kid-own" }))), undefined, "the main session stops the helper");
-  assert.equal(denied(stateRun(s, `run done ${run} --status failed`)), undefined, "and then the lead ends its run as failed");
+  assert.equal(denied(stateRun(s, `run done ${run} --status failed --why stopped`)), undefined, "and then the lead ends its run as failed");
 });
 
 test("F-T301-27: a helper never stops a sibling, its lead or the sage, by name or by agent id; it still stops its own shell task", () => {
@@ -5730,7 +5730,7 @@ test("F-T289-31, T928: while a helper's lease is live, run done says to wait for
   assert.equal(s.send(tool("Agent", { subagent_type: "sage:qa", prompt: BRIEF, name: run }, { tool_use_id: "slow", ...LEAD })), undefined);
   s.send(resultOf("slow", "kid-slow", LEAD));
   assert.match(liveHelpers(s), /your helper R5 still runs/);
-  assert.match(denied(stateRun(s, `run done ${run} --status failed`)) ?? "", /R5's helper has not stopped, and its slot holds its lease for about 60 more minute\(s\): wait for its stop, or ask your chief to end R5 \(F-T289-31\)/, "F-T928-1");
+  assert.match(denied(stateRun(s, `run done ${run} --status failed --why stopped`)) ?? "", /R5's helper has not stopped, and its slot holds its lease for about 60 more minute\(s\): wait for its stop, or ask your chief to end R5 \(F-T289-31\)/, "F-T928-1");
   assert.match(leadVerdict(s, "qa-pass", run) ?? "", /^sage: R5 still runs: end it after its helper's report/);
 });
 
@@ -5957,7 +5957,7 @@ test("F-T289-55: a verdict refused on a run that still runs gives its way out", 
   const odd = leadAdd(s, "qa");
   helpRun(s, odd, "qa", LEAD, report("looks good"));
   assert.match(leadVerdict(s, "qa-pass", odd) ?? "", /^sage: R6 still runs: end it after its helper's report/);
-  assert.match(denied(stateRun(s, `run done ${odd} --status failed`)) ?? "", ODD("R6"), "only the chief ends it");
+  assert.match(denied(stateRun(s, `run done ${odd} --status failed --why stopped`)) ?? "", ODD("R6"), "only the chief ends it");
 });
 
 test("F-T289-59: after the sage releases a held task to building, a refused repair names the move to reviewing, not round", () => {
@@ -6258,7 +6258,7 @@ test("T482 K3: a lead's slot holds through a 2-hour wait while its lead run runs
   ageSlots(s, 121);
   assert.equal(s.send(spawnAgent("sage:pe", BRIEF, "other-call", { cwd: s.dir })), undefined);
   assert.equal(denied(stateRun(s, "round T1")), undefined, "the lead's slot stays bound while its lead run R1 runs");
-  s.sage("run", "done", "R1", "--status", "failed");
+  s.sage("run", "done", "R1", "--status", "failed", "--why", "stopped");
   ageSlots(s, 61);
   assert.equal(s.send(spawnAgent("sage:pe", BRIEF, "other-call-2", { cwd: s.dir })), undefined);
   assert.match(denied(stateRun(s, "round T1")) ?? "", /this lead holds no bound lead slot/, "an ended lead run's slot expires");
@@ -6403,7 +6403,7 @@ test("T482 R1762-2: after a restart, a new session starts a fresh lead: another 
   const s2 = { session_id: "s2" };
   s.send({ ...prompt("sage mode"), ...s2 });
   const fresh = (id) => denied(s.send(leadSpawn(id, 1, { cwd: s.dir, ...s2 })));
-  assert.match(fresh("restart-1") ?? "", new RegExp(`^sage: a lead of T1 holds a slot in another session, for the lead run R1 \\(F-T273-5\\), and a TaskStop in this session cannot stop it\\. If that session ended \\(a restart or a crash\\), the slot frees by itself after an hour with no event of that lead or its helpers: start this lead again then\\. To start a fresh lead now, run each of these as a command of its own: node \\S+ run done R1 --status failed, then node \\S+ run add T1 --role lead, then start the lead again\\.$`));
+  assert.match(fresh("restart-1") ?? "", new RegExp(`^sage: a lead of T1 holds a slot in another session, for the lead run R1 \\(F-T273-5\\), and a TaskStop in this session cannot stop it\\. If that session ended \\(a restart or a crash\\), the slot frees by itself after an hour with no event of that lead or its helpers: start this lead again then\\. To start a fresh lead now, run each of these as a command of its own: node \\S+ run done R1 --status failed --why "its session ended", then node \\S+ run add T1 --role lead, then start the lead again\\.$`));
   s.send({ ...tool("TaskStop", { task_id: "lead-T1" }), ...s2 });
   assert.ok(fresh("restart-2"), "the new session's TaskStop frees no slot of another session");
   ageSlots(s, 121);
@@ -6418,7 +6418,7 @@ test("T482 R1762-2: within the lease, the sage's end of the old lead run and a n
   const s2 = { session_id: "s2" };
   s.send({ ...prompt("sage mode"), ...s2 });
   assert.ok(denied(s.send(leadSpawn("fresh-1", 1, { cwd: s.dir, ...s2 }))), "the old lead's slot holds within its lease");
-  s.sage("run", "done", "R1", "--status", "failed");
+  s.sage("run", "done", "R1", "--status", "failed", "--why", "stopped");
   const run = s.sage("run", "add", "T1", "--role", "lead").split(" ")[0];
   assert.match(run, /^R\d+$/);
   assert.equal(denied(s.send(leadSpawn("fresh-2", 1, { cwd: s.dir, ...s2 }))), undefined, "the fresh lead starts at once");
@@ -6484,15 +6484,15 @@ test("T482 R1817-2: a lead's second verdict on a run that backs one names that v
 });
 
 function chiefRunDone(s, run, extra = {}) {
-  s.sage("run", "done", run, "--status", "failed");
-  s.send({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: `node ${TOOL} run done ${run} --status failed --project ${realpathSync(s.dir)}` }, tool_response: { stdout: "", stderr: "", interrupted: false }, cwd: s.dir, ...extra });
+  s.sage("run", "done", run, "--status", "failed", "--why", "stopped");
+  s.send({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: `node ${TOOL} run done ${run} --status failed --why stopped --project ${realpathSync(s.dir)}` }, tool_response: { stdout: "", stderr: "", interrupted: false }, cwd: s.dir, ...extra });
 }
 
 test("T482 R1836-1 T504: after a restart, an old helper's slot frees by the stale slot rule after the sage's run done, also after the fresh lead's start", () => {
   for (const helpersFirst of [false, true]) {
     const s = leadSession();
     s.sage("run", "done", "R2", "--status", "done", "--tokens", "1");
-    s.sage("run", "done", "R3", "--status", "failed");
+    s.sage("run", "done", "R3", "--status", "failed", "--why", "stopped");
     const old = [1, 2].map((k) => {
       const run = leadAdd(s, "qa");
       assert.equal(denied(s.send(tool("Agent", { subagent_type: "sage:qa", prompt: BRIEF, name: run }, { tool_use_id: `old-${k}`, cwd: s.dir, ...LEAD }))), undefined);
@@ -6720,7 +6720,7 @@ test("T482 R1834-1: a lead whose lead run the sage ended stops, also while a hel
   s.sage("run", "done", "R2", "--status", "done", "--tokens", "1");
   const run = liveHelper(s, "qa");
   assert.equal(leadStop(s)?.decision, "block", "while its lead run runs, the stop waits for the helper");
-  s.sage("run", "done", "R1", "--status", "failed");
+  s.sage("run", "done", "R1", "--status", "failed", "--why", "stopped");
   assert.match(waitOut(s), /^T1 has no running lead run/, "the wait returns at once");
   assert.equal(leadStop(s), undefined, `the lead stops; ${run}'s slot keeps its own rules`);
   assert.equal(helperSlots(s).length, 1, "the helper's slot is not freed by the lead's stop");

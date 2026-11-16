@@ -154,7 +154,7 @@ test('T954 a Claude lead run that ends with a report needs its tokens; a lead wi
     assert.equal(run('run','done',id,'--status',status,'--tokens','108973'),`${id} ${status}`);
   }
   const failed=run('run','add','T1','--role','lead').split(' ')[0];
-  assert.equal(run('run','done',failed,'--status','failed'),`${failed} failed`);
+  assert.equal(run('run','done',failed,'--status','failed','--why','no report'),`${failed} failed`);
   assert.deepEqual(tokens(),['108973','108973','108973','']);
   assert.match(run('status'),/about 109k tokens · 1 measured, 0 unavailable, 0 legacy-unrecorded/);
 });

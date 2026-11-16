@@ -15,6 +15,13 @@ export function boardAnswer(gate) {
     return a && typeof a === "object" && a.via === "board" && typeof a.at === "string" && typeof a.answer === "string" && a.answer ? a : null;
   } catch { return null; }
 }
+const ASKERS = ["designer", "pe", "investigate"];
+const runNumber = (run) => Number(String(run.id).slice(1));
+export function askingRun(gate, runs) {
+  if (gate?.run) return runs.find((run) => run.id === gate.run) ?? null;
+  const asked = runs.filter((run) => run.task === gate?.task && gate.task && ASKERS.includes(run.role) && !(run.started > gate.at));
+  return asked.sort((a, b) => runNumber(b) - runNumber(a))[0] ?? null;
+}
 export const gateDigest = (gate) => createHash("sha256").update(JSON.stringify([gate.id, gate.task, gate.question, gate.options])).digest("hex").slice(0, 16);
 
 const NUMERIC = /^\s*[+-]?(\d+(\.\d*)?|\.\d+)(e[+-]?\d+)?\s*$/i;

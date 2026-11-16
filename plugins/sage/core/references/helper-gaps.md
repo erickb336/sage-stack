@@ -11,7 +11,7 @@ A lead reads this page when a helper ends with no report, or when the hook canno
 
 ## A helper with no report
 
-- A helper that ends with no report (the sage stopped it, or it died) ends as `sage run done <R> --status failed`.
+- A helper that ends with no report (the sage stopped it, or it died) ends as `sage run done <R> --status failed --why "<the reason>"`, for example `--why "its agent stopped with no report"`.
 - When the hook says that the helper's slot still holds its lease, wait, or ask the sage to end the run. The sage's `run done` frees the helper's slot at once. Then add a new run.
 - Never stop a helper yourself: the hook refuses your TaskStop.
 - Never end or use a run that you did not add: ask the sage.

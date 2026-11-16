@@ -749,3 +749,43 @@ test("F-T1046-3: the card rule holds the background condition only for Claude's 
   assert.match(rule, /In Claude, no lead or other background run of yours runs\./);
   assert.match(rule, /Codex's card does not hold your turn, so in Codex you may use it while work runs\./);
 });
+
+test("T1124: a page block may name the answer that its page shows and a heading of a .md page to open at; a bad value is refused", () => {
+  const { sage } = sandbox();
+  const question = fixture("02-question.json");
+  const folder = sage("pages", "T1").out;
+  writeFileSync(join(folder, "research.html"), "<p>research</p>");
+  writeFileSync(join(folder, "plan.md"), "# Plan\n\n## Option A\n\nThe first way.\n");
+  const send = (page) => sage("message", "T1", "--json", JSON.stringify({ ...question, blocks: question.blocks.map((b) => (b.t === "page" ? { ...b, task: "T1", ...page } : b)) }));
+  for (const page of [{ answer: "A" }, { file: "plan.md", part: "Option A" }, { file: "plan.md", answer: "Keep the list", part: "Option A" }]) {
+    const r = send(page);
+    assert.equal(r.status, 0, `${JSON.stringify(page)}: ${r.out}`);
+  }
+  for (const page of [{ answer: "" }, { answer: "x".repeat(41) }, { answer: "A\nB" }, { answer: 1 }, { answer: " A" },
+    { part: "Option A" }, { file: "plan.md", part: "" }, { file: "plan.md", part: "y".repeat(201) }, { file: "plan.md", part: "Option​A" }]) {
+    const r = send(page);
+    assert.equal(r.status, 1, `${JSON.stringify(page)} is refused`);
+    assert.match(r.out, /is not a block\. The blocks: .*\{ t: page, title, task, file, answer: .*part: a heading of a \.md page/, JSON.stringify(page));
+  }
+});
+
+test("T1124: the message command refuses any message that holds #pair=, also when the JSON escapes it, and gate add keeps no such message", () => {
+  const { sage, file } = sandbox();
+  const question = fixture("02-question.json");
+  const folder = sage("pages", "T1").out;
+  writeFileSync(join(folder, "research.html"), "<p>research</p>");
+  const local = { ...question, blocks: question.blocks.map((b) => (b.t === "page" ? { ...b, task: "T1" } : b)) };
+  assert.equal(sage("message", "T1", "--json", JSON.stringify(local)).status, 0, "the message without the mark passes");
+  const marked = { ...local, blocks: [{ t: "p", text: "Open http://127.0.0.1:43123/app/#pair=abc" }, ...local.blocks] };
+  const before = readdirSync(folder).sort();
+  for (const json of [JSON.stringify(marked), JSON.stringify(marked).replace("#pair=", "\\u0023pair\\u003d"), JSON.stringify(marked).replace("#pair=", "#PAIR=")]) {
+    const r = sage("message", "T1", "--json", json);
+    assert.equal(r.status, 1, json.slice(0, 80));
+    assert.match(r.out, /^sage: the message holds #pair=, the mark of a board pairing link\. .* Nothing written\.$/);
+  }
+  assert.deepEqual(readdirSync(folder).sort(), before, "no page is written");
+  const gate = sage("gate", "add", "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes", "--message", file("marked.json", marked));
+  assert.equal(gate.status, 1);
+  assert.match(gate.out, /the message holds #pair=/);
+  assert.doesNotMatch(sage("status").out, /G1/, "no gate opens");
+});

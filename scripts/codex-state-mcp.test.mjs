@@ -248,7 +248,7 @@ test("T552: each call of a lead on another task is refused with its reason, by t
   await w.call("finding_add", { task: "T2", source: "qa", severity: "low", summary: "x", run: "R3", class: "other" });
   const before = readFileSync(join(w.env.CODEX_HOME, "sage", readdirSync(join(w.env.CODEX_HOME, "sage")).find((name) => name.startsWith("project-")), "runs.tsv"), "utf8");
   const other = /^sage: (?:T2|R2|R3|F-T2-1) is not of T1, and a lead records only its own task/;
-  for (const [name, args] of [["run_add", { task: "T2", role: "qa" }], ["run_done", { run: "R3", status: "failed" }], ["run_done", { run: "R2", status: "failed" }], ["finding_add", { task: "T2", source: "qa", severity: "low", summary: "x", run: "R3", class: "other" }],
+  for (const [name, args] of [["run_add", { task: "T2", role: "qa" }], ["run_done", { run: "R3", status: "failed", why: "stopped" }], ["run_done", { run: "R2", status: "failed", why: "stopped" }], ["finding_add", { task: "T2", source: "qa", severity: "low", summary: "x", run: "R3", class: "other" }],
     ["finding_triage", { task: "T2", key: "F-T2-1", decision: "fix" }], ["finding_triage", { task: "T1", key: "F-T2-1", decision: "fix" }], ["finding_close", { task: "T2", key: "F-T2-1" }], ["finding_close", { task: "T1", key: "F-T2-1" }],
     ["verdict", { task: "T2", kind: "qa-pass", sha: SHA, pr: 5, run: "R3" }], ["round", { task: "T2" }], ["pages", { task: "T2" }], ["pages", { task: "T2", run: "R3", text: "x" }], ["task_set", { task: "T2", fields: { state: "verifying" } }]]) {
     const { denied } = await lead(name, args);
@@ -331,7 +331,7 @@ test("T552: a reviewer, QA, an implementer, a run of another task and a lead tha
   assert.match((await lead("run_add", { project: elsewhere, task: "T1", role: "qa" })).denied, /^sage: a lead records only the logbook of its own project/);
   await w.call("task_set", { task: "T1", fields: { state: "abandoned" } });
   assert.match((await lead("round", { task: "T1" })).denied, /^sage: T1 is abandoned, so its lead records nothing/);
-  await w.call("run_done", { run: "R1", status: "failed" });
+  await w.call("run_done", { run: "R1", status: "failed", why: "stopped" });
   assert.match((await lead("round", { task: "T1" })).denied, /^sage: T1 has no running lead run R1/);
 });
 
@@ -633,7 +633,7 @@ for (const scenario of ["absent checks", "failed checks", "stale checks", "incom
 test("F-T928-10: a Codex lead's call that names no task, no run or no finding says so, with the lead's own task", async (t) => {
   const { lead } = await leadWorld(t);
   assert.equal((await lead("pages", {})).denied, 'sage: "pages" names no task: a lead names its own task, T1');
-  assert.equal((await lead("run_done", { status: "failed" })).denied, 'sage: "run done" names no run: a lead names a run of T1');
+  assert.equal((await lead("run_done", { status: "failed", why: "stopped" })).denied, 'sage: "run done" names no run: a lead names a run of T1');
   assert.equal((await lead("finding_close", { task: "T1" })).denied, 'sage: "finding close" names no finding: a lead names a finding of T1');
 });
 
@@ -775,7 +775,7 @@ test("T108: page preflight preserves admission, damaged capture and missing-capt
   await w.lead("run_done", { run: missing, status: "done", tokens: 1 });
   assert.match((await w.lead("verdict", { task: "T1", kind: "review-clean", sha: SHA, pr: 5, run: missing })).error, /has no kept report/);
   assert.throws(() => w.tool.keepReport(w.project, { task: "T1", run: missing, role: "code-reviewer", sha: SHA, text: CLEAN }, w.env), /ended as done/);
-  await w.call("run_done", { run: "R1", status: "failed" });
+  await w.call("run_done", { run: "R1", status: "failed", why: "stopped" });
   assert.match((await w.lead("pages", args)).denied, /no running lead run/);
 });
 
@@ -1028,7 +1028,7 @@ test("each tool writes the Codex logbook in CODEX_HOME/sage, and returns each re
   assert.match((await call("run_add", { task: "T1", role: "boss" })).error, /^sage: "boss" is not a role of a run\./);
   assert.equal(await call("run_add", { task: "T1", role: "lead", branch: "codex/t1-a" }), "R1 running · lead on T1 · codex/t1-a");
   assert.equal(await call("run_done", { run: "R1", status: "done", tokens: "90000" }), "R1 done");
-  assert.match((await call("run_done", { run: "R1", status: "failed" })).error, /^sage: R1 already ended as done: a run ends once\./);
+  assert.match((await call("run_done", { run: "R1", status: "failed", why: "stopped" })).error, /^sage: R1 already ended as done: a run ends once\./);
   assert.match(readFileSync(join(logbook, "runs.tsv"), "utf8"), /\nR1\tT1\tlead\t/);
 
   await call("task_set", { task: "T1", fields: { state: "building" } });
@@ -1239,7 +1239,7 @@ test("T952, T1057: run_add holds the project's agent cap in Codex as in Claude: 
   assert.match(s.claude("run", "add", "T1", "--role", "code-reviewer"), /^R11 is queued, place 1 · code-reviewer on T1 · model opus · the project runs 10 of its 10 agents\./);
   const steps = readFileSync(new URL("../plugins/sage-codex/skills/sage/references/lead-steps.md", import.meta.url), "utf8");
   assert.ok(steps.includes("is queued, place"), "the lead's steps name the queue line");
-  assert.equal(await both("run_done", { run: "R4", status: "failed" }, ["run", "done", "R4", "--status", "failed"]), "R4 failed\nR11 admitted · code-reviewer on T1: start its agent within 10 minutes, or the run ends as failed");
+  assert.equal(await both("run_done", { run: "R4", status: "failed", why: "stopped" }, ["run", "done", "R4", "--status", "failed", "--why", "stopped"]), "R4 failed\nR11 admitted · code-reviewer on T1: start its agent within 10 minutes, or the run ends as failed");
   assert.match(await s.call("run_add", { task: "T1", role: "qa" }), /^R12 is queued, place 1 · qa on T1/);
 });
 

@@ -131,6 +131,7 @@ Until then, you can take a board answer back. An answer in the chat or on a card
 | `sage gate answer <G> ... --via board --seen <digest>` | The board in the browser, for your paired browser. The digest names the question and the options that you saw. | Refused when the question changed after you read it. |
 | `node <board folder>/cli.mjs board --pair` | You, in Terminal, once for each browser. It refuses input that is not a terminal, and the hooks refuse it from an agent. | A one-time code for the board in the browser. After you type it there, the browser can answer, undo, rename a chief and give a task to another chief ([Act from the board](board.md#act-from-the-board)). |
 | `sage gate add <T> ... --message <file>` | The chief, when it parks a question. The file is the JSON of the question's message. | The gate keeps the whole message as `gates/G<n>.json` in the logbook, after the message check, so that the board can show the full question. |
+| `sage gate add <T> ... --run R<n>` | The chief, when a run of the task asked the question, for example a designer or PE run. | The gate keeps the run, so that the board can show the question beside that run's report. A run of another task is refused. With no `--run`, the board takes the newest designer, PE or investigate run of the task. |
 
 - **Who picks up a board answer.** The chief that owns the question's task now, also after a takeover; the chief that opened a question with no task, such as the lint offer; or the receiving chief of a takeover gate. Its hook reads your answer at its next step, applies it, records the pickup and tells the chief what it did.
 - **A Claude chief** that is idle, with open questions and nothing else running, starts a wait in the background first (`wait.mjs --gates`), so that your board answer wakes it.
@@ -153,6 +154,8 @@ A picture is plain text first, at most 46 columns wide, so it reads the same in 
 
 - The Page block is `Page ·` and a title, then the board's link to the page, then its file path on your Mac. A click on the link opens the page from the board server: in the Claude desktop app's Browser pane, in the Codex app's built-in browser, or in your default browser from a terminal ([the pages of a task](board.md#the-pages-of-a-task)). When the board does not run, use the file path: in the Claude desktop app, a click on it opens the page in the Browser pane.
 - The page shows the whole message, with each picture drawn as an image from the same text.
+- A Page block of a question may also name the answer that its page shows (`answer`, for example `A`) and, for a `.md` page, the heading to open at (`part`). The board uses them to link the question to its material.
+- The message command refuses any message that holds `#pair=`, the mark of a board pairing link: a pairing link goes in the chat text only.
 - A design's page has a switch between the picture after the change and today's picture.
 
 In Claude Code, the sage hook reads each message of the chief when it ends. A message whose first line names a kind, and that does not fit that kind's shape, gets the chief a short note at its next turn:
@@ -184,6 +187,7 @@ The lead and each helper take a place of the project's agent cap (`max_agents`, 
 - A run that ends admits the oldest queued run, under the logbook's lock, so two chiefs at the limit never pass it. The chief that owns the run gets a notice: in Claude Code at the hook's next event, and in Codex at the chief's next turn. In Claude Code, a chief that stops while its run waits is told once to start `wait.mjs --slot <R>` in the background; its end wakes the chief.
 - An admitted run keeps its place for 10 minutes. When its agent does not start in that time, the next `run add`, `run done` or `wait.mjs --slot` ends it as failed, from 1 minute after those 10 minutes, and the next queued run takes the place.
 - To free a place, the chief ends a run that is stuck.
+- A run that ends as failed keeps its reason, which the board shows: the chief gives it with `sage run done <R> --status failed --why "<one line>"`, and the command refuses a failed end without it. A run whose admission lapsed, and a run that a takeover ended, get their reason from sage. A failed run of an older logbook may add its reason once.
 - In Codex, set Codex's thread limit to the cap too ([What you need](codex.md#what-you-need)).
 
 At most 5 leads run for a project by default. To change this, ask the chief in the chat, and it runs `sage config max_leads=<n>` with a whole number from 1.
