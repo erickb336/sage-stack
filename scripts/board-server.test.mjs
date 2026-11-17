@@ -384,6 +384,18 @@ test("board watcher errors publish a stale diagnostic and recover on an observed
   await stream.next(p => !p.stale && has(p, "Sample watcher restored"));
 });
 
+test("a folder that is gone before the board can watch it (a write's short lock) is no watch failure: the board does not go stale", async t => {
+  const original = fs.watch;
+  fs.watch = (path, ...rest) => { if (String(path).endsWith("/.lock")) rmSync(path, { recursive: true, force: true }); return original(path, ...rest); };
+  syncBuiltinESMExports();
+  t.after(() => { fs.watch = original; syncBuiltinESMExports(); });
+  const f = await fixture(t), stream = events(f); t.after(() => stream.close()); await stream.next();
+  mkdirSync(join(f.project, ".lock"));
+  writeFileSync(join(f.project, "tasks.tsv"), tasks(row("Sample after the lock")));
+  const next = await stream.next(p => p.stale || has(p, "Sample after the lock"));
+  assert.deepEqual([next.stale, next.problems], [false, []], "the lock folder went away between the board's list and its watch");
+});
+
 
 test("a parent rename that names only the destination refreshes the missing board root", async t => {
   const original = fs.watch, captured = [];

@@ -290,7 +290,10 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
           schedule();
         });
         watchers.set(key, item); added = true;
-      } catch { watchErrors.set(key, { source: "board", message: "File watching is unavailable; the displayed board may be stale." }); }
+      } catch (error) {
+        // A folder that went away after the list (a write's short .lock) needs no watch: its parent's watch sees it go.
+        if (error.code !== "ENOENT") watchErrors.set(key, { source: "board", message: "File watching is unavailable; the displayed board may be stale." });
+      }
     }
     if (added && !light) settle();
   }
