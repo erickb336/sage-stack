@@ -145,8 +145,11 @@ test("T1156 F-T1156-11, -33: a part link opens at the reader's own heading id; t
 
 test("T1156 F-T1156-1, -19: one rule gives a failed run's reason to the chat board and the web board: its failure line first", t => {
   const task = { id: "T3", decisionRows: [{ decision: "R5 failed: the chief's reason" }] }, run = { id: "R5", failure: "its own line" };
-  assert.deepEqual(runFailure(task, run), failureOf({ dir: null, task, run }));
-  assert.deepEqual(runFailure(task, { id: "R5", failure: "" }), { text: "the chief's reason", from: "decision" });
+  for (const reason of [runFailure, (task, run) => failureOf({ dir: null, task, run })]) {
+    assert.deepEqual(reason(task, run), { text: "its own line", from: "failure" });
+    assert.deepEqual(reason(task, { id: "R5", failure: "" }), { text: "the chief's reason", from: "decision" });
+    assert.equal(reason(task, { id: "R6", failure: "" }), null, "a run with no failure line and no decision has no reason");
+  }
 });
 
 const get = (base, path, headers = {}) => new Promise((accept, reject) => {

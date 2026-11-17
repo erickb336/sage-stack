@@ -1,7 +1,7 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -308,6 +308,68 @@ test("T1121 F-T1121-21: after the last question of this project, the line names 
   await page.getByRole("link", { name: "Export as CSV or as a sheet?" }).click();
   await page.locator(".mat").filter({ hasText: "Far page" }).click();
   assert.equal(await page.locator(".viewer .note").textContent(), "The board does not show this page: it has no task T9 in the logbook of this question.", "F-T1121-19: the note says the true reason");
+});
+
+// Sets cells of one task row in tasks.tsv, for a state that the state tool reaches only through a whole route.
+function setTask(dir, id, cells) {
+  const file = join(dir, "tasks.tsv"), [head, ...rows] = readFileSync(file, "utf8").trimEnd().split("\n"), cols = head.split("\t");
+  const row = rows.map(line => line.split("\t")).find(row => row[0] === id);
+  for (const [name, value] of Object.entries(cells)) row[cols.indexOf(name)] = value;
+  writeFileSync(file, `${[head, ...rows.map(line => line.split("\t")[0] === id ? row.join("\t") : line)].join("\n")}\n`);
+}
+
+test("T1156 F-T1156-15, -16: after Send, the line counts every need of the project, also a merge; with none left, it names and links each other project that needs you", async t => {
+  const w = await openBoard(t), { page } = w, projects = {};
+  for (const name of ["other-app", "third-app"]) {
+    const other = projects[name] = w.addProject(name);
+    other.as("C1", "task", "add", "--title", `Sample ${name} task`, "--size", "small", "--priority", "P1");
+    other.as("C1", "gate", "add", "T1", "--question", `A question of ${name}?`, "--options", "yes|no", "--recommend", "yes");
+  }
+  w.as("C2", "gate", "answer", "G2", "--option", "1", "--via", "chat");
+  setTask(w.dir, "T2", { state: "verified", pr: "12" });
+  await page.goto(`${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G1`)}`);
+  await page.getByRole("radio", { name: /^A: yes/ }).check();
+  await page.getByRole("button", { name: "Send answer" }).click();
+  const send = page.locator(".q-main .send");
+  await send.getByRole("link", { name: "Needs you · 1 left" }).waitFor();
+  assert.equal(await send.getByText(/Nothing else waits/).count(), 0, "F-T1156-15: the merge of T2 still waits, so the line does not say that nothing waits");
+  setTask(w.dir, "T2", { state: "building", pr: "" });
+  await send.getByText(/^Nothing else waits in sample-app · 2 other projects need you: /).waitFor();
+  for (const name of ["other-app", "third-app"]) {
+    const link = send.getByRole("link", { name, exact: true });
+    assert.match(await link.getAttribute("href"), new RegExp(`project=${encodeURIComponent(basename(projects[name].dir))}`), `F-T1156-16: the line links ${name}`);
+  }
+});
+
+test("T1156 F-T1156-18: a PDF in the material shows a note and a link that opens it in a new tab, and no frame", async t => {
+  const w = await openBoard(t), { page } = w;
+  writeFileSync(join(process.env.SAGE_WORKTREES, basename(w.dir), "pages", "T1", "spec.pdf"), "%PDF-1.4\n% sample\n");
+  writeFileSync(join(w.base, "pdf.json"), JSON.stringify({ ...MESSAGE, title: "Which spec?", blocks: [...MESSAGE.blocks.slice(0, -1), { t: "page", title: "Sample spec", task: "T1", file: "spec.pdf" }] }));
+  w.as("C1", "gate", "add", "T1", "--question", "Which spec?", "--options", "A: yes|B: no", "--recommend", "A: yes", "--message", join(w.base, "pdf.json"));
+  await page.goto(`${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G3`)}`);
+  await page.locator(".mat").filter({ hasText: "Sample spec" }).click();
+  const viewer = page.locator(".viewer");
+  assert.equal(await viewer.locator(".note").textContent(), "The board does not show a PDF inside the page. Open Sample spec in a new tab.");
+  const link = viewer.locator(".note").getByRole("link", { name: "Open Sample spec in a new tab" });
+  assert.equal(await link.getAttribute("target"), "_blank");
+  assert.match(await link.getAttribute("href"), /\/T1\/spec\.pdf$/);
+  assert.equal(await viewer.locator("iframe").count(), 0, "no blank frame");
+});
+
+test("T1156 F-T1156-36, -43, -45: the picker counts each need as Needs you does, also in the archived list; the archived banner names the agent that still runs, as the header counts it", async t => {
+  const w = await openBoard(t, undefined, { setup: as => as("C1", "gate", "add", "T1", "--question", "A second question on T1?", "--options", "yes|no", "--recommend", "yes") }), { page } = w;
+  await page.goto(`${w.origin}/app/#?project=${encodeURIComponent(basename(w.dir))}`);
+  await page.locator(".nav .count.need").filter({ hasText: "3" }).waitFor();
+  await page.locator("header .picker").click();
+  assert.equal(await page.locator('.pick-menu [data-project] span').first().textContent(), "3 need you", "F-T1156-43: three questions on two tasks are three needs, as in Needs you");
+  await page.locator("header .picker").click();
+  w.config("archived=yes");
+  const banner = page.locator(".banner.archived");
+  await banner.waitFor();
+  assert.match(await banner.textContent(), /1 agent finishes its current run, and nothing new starts\. The logbook is whole\./, "F-T1156-45: the banner names the running agent");
+  assert.match(await page.locator("header.top a.limit").first().textContent(), /^Agents 1 of /, "F-T1156-45: as the header counts it");
+  await page.locator("header .picker").click();
+  assert.match(await page.locator(".pick-menu details").filter({ hasText: "Archived" }).locator("[data-project] span").textContent(), / · 2 open tasks · 3 wait for you$/, "F-T1156-36: the archived row says that questions wait");
 });
 
 test("T1121 S7: a failed run's recorded reason shows on its task page and on the Agents page", async t => {
