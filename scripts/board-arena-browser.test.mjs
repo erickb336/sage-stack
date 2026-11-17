@@ -5,11 +5,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { chromium } from "playwright";
+import { requireBrowser } from "./browser-prerequisite.mjs";
 import { createBoardServer } from "../packages/sage-board/server.mjs";
 import { readerUrl } from "../packages/sage-board/reader.mjs";
 import { ARENA_KEY, writeArenaFixture } from "./fixtures/board-arena.mjs";
 import { createBoardServer as createBuiltBoardServer } from "../plugins/sage-codex/board/server.mjs";
+
+const chromium = requireBrowser();
 
 test("task links reach arena-only, mixed and artifact-free arenas without changing ordinary or empty tasks", async t => {
   const root = mkdtempSync(join(tmpdir(), "sage-arena-entry-")), fixture = writeArenaFixture(root);
@@ -21,7 +23,7 @@ test("task links reach arena-only, mixed and artifact-free arenas without changi
   try {
     board = createBuiltBoardServer({ sources: fixture.sources, port: 0 });
     ({ port } = await board.start());
-    browser = await chromium.launch({ headless: true, ...(process.env.BOARD_BROWSER_PATH ? { executablePath: process.env.BOARD_BROWSER_PATH } : {}) });
+    browser = await chromium.launch();
     const page = await browser.newPage();
     const origin = `http://127.0.0.1:${port}`, task = `${origin}/app/#task?key=${encodeURIComponent(ARENA_KEY)}&tab=artifacts`;
     const isTask = url => url.origin === origin && url.pathname === "/app/" && url.hash.startsWith("#task?")
@@ -105,7 +107,7 @@ test("fictional arena route preserves failed candidates and unknown evidence on 
   try {
     board = createBoardServer({ sources: fixture.sources, port: 0 });
     ({ port } = await board.start());
-    browser = await chromium.launch({ headless: true, ...(process.env.BOARD_BROWSER_PATH ? { executablePath: process.env.BOARD_BROWSER_PATH } : {}) });
+    browser = await chromium.launch();
     const page = await browser.newPage();
     const url = `http://127.0.0.1:${port}${readerUrl(ARENA_KEY, "arena")}`;
     for (const [name, viewport] of [["desktop", { width: 1280, height: 900 }], ["mobile", { width: 390, height: 844 }]]) {
