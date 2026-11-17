@@ -555,8 +555,8 @@ const utc = (at) => `${at.slice(11, 16)} UTC`;
 const lapsedOf = (dir, runs, at) => runs.filter((r) => awaiting(dir, r) && leaseEnd(r) + SWEEP_GRACE_MS <= at);
 const archivedIn = (dir) => savedIn(dir).archived === true;
 const ARCHIVE_FAILURE = "the project was archived";
-const RESTORE = "restore it first with sage config archived=no, tell the owner in one line that you restored it";
-const archivedBar = (what, then) => `this project is archived, so it takes no ${what}: an archived project starts no agent and merges nothing. If the owner asked for new work here, ${RESTORE}, then ${then}. A lead does not restore a project: report blocked to your chief. Nothing changed.`;
+const RESTORE = "If this is new work that the owner asked for in this chat after the archive, restore the project first with sage config archived=no, tell the owner in one line that you restored it";
+const archivedBar = (what, then) => `this project is archived, so it takes no ${what}: an archived project starts no agent and merges nothing. ${RESTORE}, then ${then}. A lead does not restore a project: report blocked to your chief. Nothing changed.`;
 function admit(dir, project, env, runs) {
   const stamp = now(), notes = [], lapsed = lapsedOf(dir, runs, Date.parse(stamp));
   for (const r of lapsed) {
@@ -605,7 +605,7 @@ function chiefQueue(project, native, env = process.env) {
 }
 function queueProblem(project, id, env = process.env) {
   const q = queueOf(project, env), waiting = q.queued.find((r) => r.id === id), lapsed = q.lapsed.find((r) => r.id === id);
-  if (archivedIn(q.dir)) return `this project is archived, so no agent starts, also not for ${id}. If the owner asked for new work here, ${RESTORE}, then add a new run.`;
+  if (archivedIn(q.dir)) return `this project is archived, so no agent starts, also not for ${id}. ${RESTORE}, then add a new run.`;
   if (waiting) return `${id} is queued, place ${waiting.place} of ${q.queued.length}: the project runs ${q.running} of its ${q.limit} agents, so its agent does not start yet. A run that ends admits the oldest queued run.`;
   if (lapsed) return `${id} (${lapsed.role} on ${lapsed.task}) was admitted at ${utc(lapsed.admitted)}, and no agent started within ${ADMIT_LEASE_MS / 60_000} minutes, so it ${lapsed.ended ? "ended as failed and lost its place" : "lost its place and ends as failed"}. Add a new run for this agent.`;
   return undefined;
@@ -1894,6 +1894,7 @@ function taskFrame(id, title, size, risk, add) {
   return task;
 }
 function frame(dir, title, size, risk, add, tags = {}) {
+  if (archivedIn(dir)) refuse(archivedBar("new task", "give the same command again"));
   const task = { ...taskFrame(nextId(dir, "T"), title, size, risk, add), ...tags };
   write(dir, "tasks", [...read(dir, "tasks"), task]);
   write(dir, "decisions", [...read(dir, "decisions"), { at: now(), task: task.id, decision: TASK_ADDED, why: "framed" }]);
@@ -2229,7 +2230,9 @@ function judgeMerge(sha, env, { cycles, pr, readOnly, head, project, locked, ses
         const since = verdict.ok && task && takenAt(decisionsOf.get(id) ?? []), older = since && olderThan(since, runsOf.get(id) ?? []);
         const fresh = since && !cleanCycles(task, own.filter((r) => !older(r))) && { ok: false, reason: `${id} came from a chief of another provider through a takeover gate (${since}), so the cycles before that do not merge it alone: ${takeoverCycle ? takeoverCycle(id) : "its owning chief runs one cycle of its reviews and QA on this SHA, and records each verdict"}.` };
         const notOwn = chief && task && liveBar(dir, task, chief), owner = notOwn && { ok: false, reason: notOwn };
-        const archived = shut && { ok: false, reason: `${id} is in an archived project, so it does not merge: an archived project merges nothing. When the owner asks for work here again, ${RESTORE}, then check again.` };
+        const archived = shut && { ok: false, reason: mine !== undefined && basename(dir) !== mine
+          ? `${id} is in the logbook ${visible(basename(dir))}, and that project is archived, so ${id} does not merge: an archived project merges nothing. A chat restores only its own project, so do not restore that one from here. To merge the change, push a new commit, and record its verdicts only under this project's tasks. If the owner wants that project back, the owner restores it on the board or in that project's own chat.`
+          : `${id} is in an archived project, so it does not merge: an archived project merges nothing. ${RESTORE}, then check again.` };
         return { dir, id, ofPr: ofPr.has(id), owns: owns(id), back: !owns(id) && back(id), own: own.length, ...verdict, ...fresh, ...busy, ...arena, ...held, ...owner, ...archived };
       });
       const here = new Map(checked.map((r) => [r.id, r]));
@@ -3187,7 +3190,6 @@ function act(cmd, pos, opt, dir, env, skip, project) {
     }
     case "task": {
       if (sub === "add") {
-        if (archivedIn(dir)) refuse(archivedBar("new task", "add the task again"));
         const size = need(opt.size, "--size");
         if (!SIZES[size]) refuse(`size is one of ${Object.keys(SIZES).join(", ")}`);
         const risk = list(opt.risk);
