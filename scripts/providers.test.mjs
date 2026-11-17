@@ -339,6 +339,53 @@ test("T44: output-file dispatches count as writes in both packaged cores", async
   }
 });
 
+test("T1164: both bundles expose every literal Git output and keep uncertainty", async t => {
+  for (const provider of ["claude", "codex"]) {
+    const f = isolated(t, provider);
+    const { commandWrites, shellWriteEvidence } = await import(pathToFileURL(join(f.plugin, "core/index.mjs")));
+    const checkout = "/work/home/.codex/worktrees/sample/project", safe = "/work/exports/result.patch";
+    const protectedPath = "/work/home/.codex/config.toml";
+    for (const sub of ["diff", "show", "log"]) {
+      for (const output of [`--output=${safe}`, `--output ${safe}`]) {
+        const command = `git -C ${checkout} ${sub} ${output}`;
+        assert.equal(commandWrites(command, f.dir), true, command);
+        assert.deepEqual(shellWriteEvidence(command, f.dir, ""), {
+          reads: ["git", "-C", checkout, sub, ...(output.includes("=") ? [output] : ["--output", safe])].map(word => ({ word, dir: f.dir })),
+          writes: [{ word: safe, dir: f.dir }],
+        }, command);
+      }
+      for (const targets of [[safe, protectedPath], [protectedPath, safe], [safe, safe]]) {
+        const command = `git -C ${checkout} ${sub} --output=${targets[0]} --output ${targets[1]}`;
+        assert.deepEqual(shellWriteEvidence(command, f.dir, "").writes, targets.map(word => ({ word, dir: f.dir })), command);
+      }
+      assert.deepEqual(shellWriteEvidence(`git -C ${checkout} ${sub} --output=${safe} 2> errors.txt`, f.dir, "").writes,
+        [{ word: "errors.txt", dir: f.dir }, { word: safe, dir: f.dir }]);
+      for (const suffix of [`--format '--output=${protectedPath}'`, `--format=--output=${protectedPath}`, `-- --output=${protectedPath}`]) {
+        const command = `git ${sub} ${suffix}`;
+        assert.equal(commandWrites(command, f.dir), false, command);
+        assert.deepEqual(shellWriteEvidence(command, f.dir, "").writes, [], command);
+      }
+    }
+    for (const command of [
+      `git diff --out=${safe}`, `git show --o ${safe}`, "git log --output", "git diff --output=",
+      `git diff --unknown --output=${safe}`, `git diff --unknown -- --output=${safe}`,
+      `git diff --output=${safe} --unknown`, `git -c diff.external=writer diff --output=${safe}`,
+      `git --unknown diff --output=${safe}`, `git diff --output=$DEST`, 'git diff --output="${DEST}"',
+      "git diff --output=/work/export*", "git diff --output=relative.patch",
+      `git -C ${checkout} diff --output=relative.patch`, "git -C one -C two diff --output=relative.patch",
+      "git -C '' diff --output=relative.patch", `env X=1 git diff --output=${safe}`, `X=1 git diff --output=${safe}`,
+      `cd $DEST; git diff --output=${safe}`, `git diff --output=${safe} > $DEST`,
+    ]) {
+      const evidence = shellWriteEvidence(command, f.dir, "");
+      assert.ok(evidence === undefined || evidence.uncertain === true, `${provider}: ${command}`);
+      assert.equal(commandWrites(command, f.dir), true, command);
+    }
+    for (const directory of ["-C one -C two", "-C ''", `-C ${checkout}`]) {
+      assert.deepEqual(shellWriteEvidence(`git ${directory} diff --output=${safe}`, f.dir, "").writes, [{ word: safe, dir: f.dir }]);
+    }
+  }
+});
+
 test("T44: reader operands and ordinary output-free commands remain data", async t => {
   for (const provider of ["claude", "codex"]) {
     const f = isolated(t, provider);
