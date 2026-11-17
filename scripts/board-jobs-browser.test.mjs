@@ -123,6 +123,19 @@ for (const width of WIDTHS) {
     assert.equal(clicks, 0);
   });
 
+  test(`F-T1158-6 and F-T1158-9 at ${width} px: on Stats, the page's own Show list is the only scope: no project picker and no chief chips`, async t => {
+    const clicks = await walk(t, "stats", width, async (page, click) => {
+      assert.equal(await page.locator("header.top button.picker").count(), 1, "the Overview has the picker");
+      assert.ok(await page.locator(".chips").count() > 0, "and the chief chips");
+      await click(page.locator(".nav a", { hasText: "Stats" }));
+      await page.locator(".chart").first().waitFor();
+      assert.deepEqual([await page.locator("header.top button.picker").count(), await page.locator(".chips").count(), await page.locator("header.top .crumb").textContent()], [0, 0, "Stats"]);
+      assert.deepEqual(await page.getByLabel("Show").locator("option").allTextContents(), ["All projects", "sample-app"]);
+      assert.match(await page.locator("header.top").textContent(), /Live · read/, "the top bar keeps its other parts");
+    });
+    assert.equal(clicks, 1);
+  });
+
   test(`J7 at ${width} px: each chief's chip says whether it runs and whether its autopilot is on, with no click`, async t => {
     const clicks = await walk(t, "J7", width, async page => {
       if (width < 760) {
