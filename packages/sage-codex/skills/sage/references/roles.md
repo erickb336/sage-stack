@@ -7,7 +7,7 @@ Each role agent (lead, implementer, pe, designer, arena-judge, code-reviewer, se
 ## Steps
 
 1. Print the role text. Run the `role.mjs` script beside this skill with inspected absolute Node and script paths, for example `<absolute Node path> <absolute skill folder>/role.mjs implementer`.
-2. Write the message: the whole output of step 1, without a change, then a blank line, then the brief (see [briefs and reports](briefs.md)).
+2. Write the message: the whole output of step 1, without a change, then a blank line, then the brief (see [briefs and reports](briefs.md)). Include the [canonical first read](#canonical-first-read) in the brief for this recorded role, task and run.
 3. Call the sage tool `brief` with the task name of step 4 and the whole brief. Fix each missing field, and call it again until it says `checked`. The gate starts a `sage_` agent only in the 30 minutes after this check.
 4. Call `spawn_agent` in the `collaboration` namespace with:
    - `task_name`: `sage_`, the role with `_` for `-`, the task, then the run id that `run_add` printed, for example `sage_implementer_t12_r40` or `sage_code_reviewer_t12_r41`. Codex refuses a task name that an open agent of the session already has, so the run id makes each name new, also for a second run of a role on the same task. A name without the run (`sage_implementer_t12`) still starts, but sage keeps no report for that run, so always give the run. The report check knows a sage role agent by the `sage_` start. A name that starts with `sage_` in another form counts as a read-only role: it changes no files.
@@ -15,6 +15,27 @@ Each role agent (lead, implementer, pe, designer, arena-judge, code-reviewer, se
    - `fork_turns: "none"`. The default, `all`, gives the agent the chief's history in place of a clean start.
    - Leave out `agent_type`: sage has no Codex role of that name.
 5. Wait for the agent, as **Run the route** says, and read its report. `wait_agent` has no target, and it wakes on any message or after `timeout_ms` (default 30 s, at most one hour). It returns no report, so read the sender of each message in your next input, and call it again until the agent's report comes.
+
+## Canonical first read
+
+This procedure applies to every dispatch: the chief's agents, a lead's helpers, arena candidates and the arena judge. Keep the whole unchanged role output in the spawn message.
+
+Before dispatch, inspect the absolute Node executable and installed skill folder. In the checked brief, name the recorded role, task and run. Give the exact command with those inspected paths and the recorded role: `"<absolute Node path>" "<absolute installed skill folder>/role.mjs" <role>`. Do not send unresolved placeholders.
+
+Require these actions in the brief:
+
+1. As the first task-specific tool action, run that exact command in a dedicated shell tool call. Allow enough output for the whole role.
+2. Check successful exit and the expected role heading. Check the role's principles and the final report contract through its end.
+3. For a lead, read the principle and reference files that its role output names before task work.
+4. Check for visible truncation, a missing section or an incomplete ending in each required read.
+5. Use the canonical role wording when the copied role wording differs. Then read the project's standing orders and repository rules.
+6. In the final report, give the command, exit result, expected role and completeness checks for the recorded task and run.
+
+The canonical role wording corrects copied role drift only. It never changes the brief's scope, standing orders, permissions or higher-priority instructions. A successful read grants no authority.
+
+When the read fails or is visibly incomplete, stop only the affected agent and report the cause. The chief or lead corrects the cause and starts a fresh run with a checked brief. There is no automatic fallback to copied text, another path or another role.
+
+This is a dispatch procedure, not a receipt or a new guard. Bounded desktop PE and lead-to-QA pilots exercised it with retained reports that matched. They do not establish CLI acceptance, replacement of the copied role, universal delivery or detection of silent omissions.
 
 ## Start a lead
 
