@@ -65,7 +65,7 @@ claude plugin update sage@sage
 
 ### In Codex
 
-Use Codex 0.164 or later, in the CLI or desktop app, and a multi-agent v2 model. The install commands need the Codex CLI, also for the desktop app (`npm install -g @openai/codex@0.164.0`), and a lead with more than 2 helpers at once needs `max_concurrent_threads_per_session = 10` under `[agents]` in your Codex config, `~/.codex/config.toml`. You need Node.js 20 or later, `gh` logged in, and a project GitHub remote (see [What you need](docs/guide/codex.md#what-you-need)).
+Use Codex 0.164 or later, in the CLI or the desktop app, and a multi-agent v2 model. The install commands need the Codex CLI, also for the desktop app (`npm install -g @openai/codex@0.164.0`), and a lead with more than 2 helpers at once needs `max_concurrent_threads_per_session = 10` under `[agents]` in your Codex config, `~/.codex/config.toml`. You also need Node.js 20 or later, `gh` logged in, and a GitHub remote for the project (see [What you need](docs/guide/codex.md#what-you-need)).
 
 1. Add the sage marketplace and install sage, in a terminal. For an old or pinned install (`hooks install` says `unknown command "hooks"`), run `codex plugin marketplace remove sage` first:
    ```sh
@@ -93,7 +93,7 @@ Send `show board` to see the board in the chat: what needs you, the agents at wo
 
 | Say | What happens |
 | --- | --- |
-| `sage mode` | The session becomes your chief of staff. Send your request next. Codex agents follow the [canonical first read](docs/guide/codex.md#the-brief-check). |
+| `sage mode` | The session becomes your chief of staff. Send your request next. Codex agents use the [canonical first read](docs/guide/codex.md#the-brief-check). |
 | `show status` | Task state and missing priority. Clean main merges keep proved cycles after fresh head checks. |
 | Tell either chief to take over a task of another chief, with its PR | In a shared logbook, the chief opens a [takeover gate](docs/guide/using-sage.md#shared-logbooks) for you to answer in either chat: its instructions say never to answer it itself, but no code ties the answer to your message. The branch and the verdicts stay, and then only the new owning chief and its agents push to the branch; a Claude chief that takes a task from Codex runs one fresh Claude cycle first. Any chief may abandon a task with no owning chief, with a reason; in separate logbooks, the chief uses [task adoption](docs/guide/codex.md#task-adoption), and reviews and QA start fresh. |
 | Tell the chief that a checkout joins a shared logbook, or starts its own, or ask it to move this project there | The chief runs [`sage link`](docs/guide/using-sage.md#shared-logbooks) after your answer, and two linked clones are one project on the board. Each task there has one owning chief, who can offer it to another chief, and you answer a takeover gate for each change of owning chief. [`sage move`](docs/guide/using-sage.md#move-an-existing-project) shows a preview and one gate, then takes the open tasks of the Claude and Codex logbooks into one shared logbook, with an end check and the steps to restore by hand; a new project starts in a shared logbook when both plugins are updated ([`sage init`](docs/guide/using-sage.md#shared-logbooks)). |
