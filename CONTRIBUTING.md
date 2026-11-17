@@ -24,6 +24,7 @@ Edit only the sources. The build makes everything else, and `npm run check` fail
 | `packages/` (shared code, and each provider's hooks, agents and skills) | `instructions/core.md` (built from `preferences/` and `writing/`) |
 | `scripts/graphics.mjs` (draws the README's graphics) | `docs/assets/*.svg` (drawn by the script) |
 | `scripts/board-shots.mjs` (takes the board screenshots) | `docs/assets/board-*.png` and `learn-*.png` (taken by the script) |
+| `scripts/board-walkthrough.mjs` (records the board walkthrough) | `docs/assets/board-walkthrough-*.gif` (recorded by the script) |
 
 To add a principle, add `principles/<name>.md`. A principle adapted from pstack has `source: pstack principle-<name>`, with the credit and the pstack version and commit that it was checked against (see [Credit](#credit)).
 
@@ -117,6 +118,22 @@ node scripts/board-shots.mjs
 ```
 
 `npm run check` fails when a PNG is missing, or when the sample data changed after the last screenshots. It does not compare pixels.
+
+## The board walkthrough
+
+The README's board walkthrough, `docs/assets/board-walkthrough-dark.gif` and `board-walkthrough-light.gif`, comes from `scripts/board-walkthrough.mjs`. Make it again after a board change:
+
+```sh
+npm run walkthrough
+```
+
+- It writes the sample logbook of the screenshots (`scripts/fixtures/board-app.mjs`) to a temporary folder and starts a board server on a free port, with the built app.
+- It pairs a Playwright browser and clicks one fixed path at 1320 by 800 pixels: Needs you, Agents, a task and its steps, a question that it answers, and Stats. Each frame carries a caption and a Sample data label.
+- The answer goes to the sample logbook through a stand-in for the state tool, so the script never runs the state tool.
+- It stops when a frame shows the temporary folder, the home folder or the user name.
+- It needs ffmpeg 6 or later, to write the GIF: on PATH, or its path in `FFMPEG` (macOS: `brew install ffmpeg`; Debian or Ubuntu: `sudo apt-get install ffmpeg`).
+- It uses Playwright's Chromium, or the browser in `--browser <path>` or `BOARD_BROWSER_PATH`. `--theme dark` or `--theme light` makes one GIF; `--frames <folder>` keeps the frames, to compare two runs.
+- CI does not run it. Two runs differ only in the times on the board.
 
 For board QA, `node scripts/board-sample.mjs <empty folder>` writes sample logbooks (made-up data), with sample agent slots for the Agents page. It prints the board sources as JSON.
 
