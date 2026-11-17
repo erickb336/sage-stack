@@ -26,7 +26,6 @@ export function readLocalGit(project, args, input, { timeout = 5000, maxBuffer =
   Object.assign(env, {
     GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_NO_REPLACE_OBJECTS: "1", GIT_GRAFT_FILE: "/dev/null",
     GIT_NO_LAZY_FETCH: "1", GIT_ALLOW_PROTOCOL: "", GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0",
-    // The variable is a colon-separated list, so the path goes in C quotes: a checkout path may hold a colon.
     ...objects && { GIT_OBJECT_DIRECTORY: objects.write, GIT_ALTERNATE_OBJECT_DIRECTORIES: `"${objects.read.replace(/[\\"]/g, "\\$&")}"` },
   });
   return execFileSync(trustedGit(), ["--no-replace-objects", "-c", "core.commitGraph=false", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
