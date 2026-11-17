@@ -1,7 +1,7 @@
 import { LAPSED, LINE, PRIORITIES, boardAnswer } from "./logbook-fields.mjs";
 import { milestoneName } from "./milestone-rules.mjs";
 import { STOPPED_MS } from "./chief-live.mjs";
-import { AGENT_QUIET_MS } from "./board-model.mjs";
+import { AGENT_QUIET_MS, isOpen } from "./board-model.mjs";
 import { TEAM } from "./role-policy.mjs";
 import { runWord, taskWord } from "./state-words.mjs";
 
@@ -86,7 +86,7 @@ export function projectNames(model) {
 function taskRow(task, chiefs) {
   const step = stepOf(task);
   return {
-    key: task.key, id: task.id, title: task.title, project: task.group, state: task.state, word: task.word ?? null, ended: ENDED.includes(task.state),
+    key: task.key, id: task.id, title: task.title, project: task.group, state: task.state, word: task.word ?? null, ended: !isOpen(task),
     priority: task.priority || null, kind: task.kind || null, size: task.size || null, pr: task.pr || null,
     milestone: task.milestone ? { key: task.milestone.key, id: task.milestone.id, title: milestoneName({ id: task.milestone.id, name: task.milestone.name ?? "" }) } : null,
     chief: chiefTag(task, chiefs), needsYou: task.reasons.length > 0, waits: task.waitLine?.text ?? null, cannotStart: !!task.waitLine?.never,
@@ -214,7 +214,7 @@ export function boardOverview(model) {
     stale: !!model.stale,
     problems: (model.diagnostics ?? []).map(item => item.message),
     projects: (model.projects ?? []).map(project => ({ key: project.key, name: names.get(project.key), sub: project.sub, books: project.books, list: project.list, needs: needs.filter(need => need.project === project.key).length,
-      agents: project.agents, open: tasks.filter(task => task.group === project.key && !ENDED.includes(task.state)).length, lastActivity: project.lastActivity, archived: project.archived,
+      agents: project.agents, open: tasks.filter(task => task.group === project.key && isOpen(task)).length, lastActivity: project.lastActivity, archived: project.archived,
       kept: { tasks: project.tasks, ...project.kept }, archives: project.archives ?? 0, archivedAt: project.archivedAt ?? null, welcome: !project.archived && !project.workSinceRestore && project.restoredAt || null })),
     chiefs,
     needs,

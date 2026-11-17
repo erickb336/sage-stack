@@ -534,7 +534,7 @@ test("T1138: GET /app/stats gives the numbers of all projects or of one, names a
   appendFileSync(join(f.project, "tasks.tsv"), row("Sample new task", "T3"));
   let gaps = [];
   for (let i = 0; i < 100 && !gaps.length; i++) { await new Promise(done => setTimeout(done, 100)); gaps = (await get("/app/stats")).json.gaps; }
-  assert.deepEqual(gaps, [{ project: "project", what: "the agent time and tokens of the Sample source logbook of project" }], "the stats read the new logbook, not the board's last good copy; F-T1158-10: only the runs are left out; F-T1158-7: the project keeps its name");
+  assert.deepEqual(gaps, [{ project: "project", what: "the agent time and tokens of project (Sample source logbook)" }], "the stats read the new logbook, not the board's last good copy; F-T1158-10: only the runs are left out; F-T1158-7: the project keeps its name");
   assert.equal((await get("/app/stats")).json.total.open, 2, "the rest still counts, with the new task");
 });
 

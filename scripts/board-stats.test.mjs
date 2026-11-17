@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildBoardModel } from "../packages/sage-core/board-model.mjs";
 import { boardStats } from "../packages/sage-core/board-stats.mjs";
+import { boardOverview } from "../packages/sage-core/board-overview.mjs";
 
 const NOW = "2026-11-13T12:00:00.000Z";
 const WEEKS_MONDAY_21_SEP_TO_9_NOV = ["2026-09-21", "2026-09-28", "2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26", "2026-11-02", "2026-11-09"];
@@ -57,7 +58,7 @@ test("T1138: Stats for one project counts only that project, and an unknown proj
 test("T1138: a logbook that cannot be read is named as a gap, and the other projects still count", () => {
   const lost = book("claude", "gamma-cccccc", "gamma", { ...table(), tasks: undefined }, ["tasks: EACCES"]);
   const stats = boardStats(model(source("claude", [book("claude", "alpha-aaaaaa", "alpha", ALPHA), lost]), source("codex", [], ["EACCES"])));
-  assert.deepEqual(stats.gaps.map(gap => gap.what).sort(), ["every project in the Codex logbook folder", "every task of the Claude logbook of gamma-cccccc"], "a project whose every logbook cannot be read shows its folder name, as in the picker (T305)");
+  assert.deepEqual(stats.gaps.map(gap => gap.what).sort(), ["every project in the Codex logbook folder", "every task of gamma (Claude logbook)"], "T1159 F-T1159-55: a project whose every logbook cannot be read keeps its project name, as in the picker");
   assert.deepEqual([stats.total.merged, stats.total.tokens, stats.empty], [2, 51000, false]);
 });
 
@@ -69,10 +70,10 @@ test("F-T1158-1: a config.json that cannot be read leaves the numbers whole, so 
   assert.deepEqual(folder.gaps.map(gap => gap.what), ["every project in the Claude logbook folder"]);
 });
 
-test("F-T1158-7: a project whose runs table cannot be read keeps its name; only a logbook with no readable tasks is named by its folder", () => {
+test("F-T1158-7, T1159 F-T1159-55, F-T1159-56: a project whose runs or tasks table cannot be read keeps its name, and the gap names the project, then its logbook", () => {
   const lost = name => model(source("claude", [book("claude", "gamma-cccccc", "gamma", { ...table(), tasks: [task("T1", "framed")], [name]: undefined }, [`${name}: EACCES`])]));
-  assert.deepEqual(boardStats(lost("runs")).gaps, [{ project: "gamma", what: "the agent time and tokens of the Claude logbook of gamma" }]);
-  assert.deepEqual(boardStats(lost("tasks")).gaps, [{ project: "gamma-cccccc", what: "every task of the Claude logbook of gamma-cccccc" }], "T305: no task to show, so the folder names it");
+  assert.deepEqual(boardStats(lost("runs")).gaps, [{ project: "gamma", what: "the agent time and tokens of gamma (Claude logbook)" }]);
+  assert.deepEqual(boardStats(lost("tasks")).gaps, [{ project: "gamma", what: "every task of gamma (Claude logbook)" }], "T1159 F-T1159-55: with no readable task, the project still has its name, not its folder key");
 });
 
 test("F-T1158-2 and F-T1158-10: an unreadable runs, decisions or gates table names exactly what the numbers leave out", () => {
@@ -81,10 +82,10 @@ test("F-T1158-2 and F-T1158-10: an unreadable runs, decisions or gates table nam
     for (const name of names) tables[name] = undefined;
     return boardStats(model(source("claude", [book("claude", "alpha-aaaaaa", "alpha", tables, names.map(name => `${name}: EACCES`))]))).gaps.map(gap => gap.what);
   };
-  assert.deepEqual(lose("runs"), ["the agent time and tokens of the Claude logbook of alpha"], "only the runs are left out; the tasks still count");
-  assert.deepEqual(lose("decisions"), ["the merges of the Claude logbook of alpha"]);
-  assert.deepEqual(lose("gates"), ["the questions of the Claude logbook of alpha"]);
-  assert.deepEqual(lose("runs", "decisions", "gates"), ["the agent time and tokens, the merges and the questions of the Claude logbook of alpha"]);
+  assert.deepEqual(lose("runs"), ["the agent time and tokens of alpha (Claude logbook)"], "only the runs are left out; the tasks still count");
+  assert.deepEqual(lose("decisions"), ["the merges of alpha (Claude logbook)"]);
+  assert.deepEqual(lose("gates"), ["the questions of alpha (Claude logbook)"]);
+  assert.deepEqual(lose("runs", "decisions", "gates"), ["the agent time and tokens, the merges and the questions of alpha (Claude logbook)"]);
   assert.deepEqual(lose("findings"), [], "the numbers do not use the findings");
 });
 
@@ -100,4 +101,22 @@ test("T1138: Stats with no task in any logbook is empty, and archived projects c
   assert.equal(boardStats(model(source("claude", []))).empty, true);
   const shelved = boardStats(model(source("codex", [{ ...book("codex", "beta-bbbbbb", "beta", BETA), archived: true }])));
   assert.deepEqual(shelved.projects.map(row => [row.name, row.archived, row.merged]), [["beta", true, 1]]);
+});
+
+test("T1159 F-T1159-53: an open task that moved to the shared logbook counts once in Open tasks and in the picker, not again for its old copy", () => {
+  const shared = { ...book("shared", "alpha-aaaaaa", "alpha", table({ tasks: [task("T5", "building", { adoption: JSON.stringify({ version: 2, provider: "codex", task: "T1" }) })] })), shared: true, chiefs: [], notes: [] };
+  const old = { ...book("shared", "alpha-aaaaaa", "alpha", table({ tasks: [task("T1", "building"), task("T2", "framed")] })), key: "old-codex/alpha-aaaaaa", old: { provider: "codex", of: "shared/alpha-aaaaaa" } };
+  const board = model({ ...source("shared", [shared, old]), shared: true });
+  assert.equal(boardStats(board, "alpha-aaaaaa").total.open, 2, "T5, and the old T2 that did not move; the old T1 is T5");
+  assert.deepEqual(boardOverview(board).projects.map(project => project.open), [2], "the picker counts the same");
+});
+
+test("T1159 F-T1159-57: the need-you tile counts questions and merges only, so an unreadable runs, decisions or gates table never adds to it", () => {
+  const needs = (...names) => {
+    const tables = { ...ALPHA };
+    for (const name of names) tables[name] = undefined;
+    return boardStats(model(source("claude", [book("claude", "alpha-aaaaaa", "alpha", tables, names.map(name => `${name}: EACCES`))]))).total.needs;
+  };
+  assert.deepEqual([needs(), needs("runs"), needs("decisions")], [1, 1, 1], "the one question G1 of T6");
+  assert.equal(needs("gates"), 0, "with no readable gates the board knows no question, and the gap banner says so");
 });
