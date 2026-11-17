@@ -45,11 +45,11 @@ test("T1064: a brief shows its ten fields in order, GOAL and ACCEPTANCE open, a 
   assert.match(page.html, /<span class="fname">SCOPE<\/span><span class="first">Task T3 only\. Branch sage\/t3-limits, in your own worktree\. <span class="faint">\(\+2\)<\/span>/, "a closed field shows its first line and how many lines follow");
   assert.match(page.html, /<ul>\n<li>Change the limit reader\.<\/li>\n<li>Keep the old keys readable\.<\/li>/, "the field's list renders as a list, without the column indent");
   assert.match(page.text, /Run R7 Role implementer Task T3 Chief Codex · C2 Model sonnet Started/);
-  assert.match(page.html, /href="\/read\/[\w-]+\/report\/R7">Report of R7<\/a>/, "a link to the run's report");
-  assert.match(page.html, /<a class="back" href="\/app\/#task\?key=shared%2Fsample-app-abc123%2FT3">&#8592; Back to T3<\/a>/, "T1083: the back link returns to the task's own page");
+  assert.match(page.html, /<li><span class="faint">No report<\/span><\/li>/, "T1126: R7 keeps no report, so the reader names none and links none");
+  assert.match(page.html, /<a class="back" href="\/app\/#task\?key=shared%2Fsample-app-abc123%2FT3&#38;tab=artifacts">&#8592; Back to T3<\/a>/, "T1083, T1126: the back link returns to the task's own page, on its Artifacts tab");
   assert.ok(fieldsOpen(read(w, "T3", "brief", "R7", { open: "all" }).html).every(name => name.endsWith(" open")));
   assert.ok(fieldsOpen(read(w, "T3", "brief", "R7", { open: "none" }).html).every(name => !name.endsWith(" open")));
-  assert.match(read(w, "T3", "brief", "R7", { back: "pull-requests" }).html, /href="\/app\/#task\?key=shared%2Fsample-app-abc123%2FT3">&#8592; Back to T3/, "T1083: a task has one page, so an old back value also returns to it");
+  assert.match(read(w, "T3", "brief", "R7", { back: "pull-requests" }).html, /href="\/app\/#task\?key=shared%2Fsample-app-abc123%2FT3&#38;tab=artifacts">&#8592; Back to T3/, "T1083: a task has one page, so an old back value also returns to it");
 });
 
 test("T1064: a report shows the STATUS pill, RESULT first, each finding as a row with severity, key, summary and location, the logbook's rows with their states, then the other fields and the PR link", t => {
@@ -424,4 +424,20 @@ test("T1126: the task panel says which runs have a brief or a report, the same a
   assert.deepEqual((await panel("T1")).change, { from: "pr", text: "- Each install gets the same files." });
   assert.deepEqual((await panel("T20")).change, { from: "lead", run: "R80", text: "ready. Sign-in shows one message\nwhen a session ends." });
   assert.equal((await panel("T21")).change, null, "the newest lead R82 has no report, and an older lead's RESULT is not shown in its place");
+});
+
+test("T1126 F-T1126-1, F-T1126-10: Back opens the task's Artifacts tab, as its crumb says; a side link leads only to a brief or report that the logbook keeps", t => {
+  const w = world(t), links = html => [.../<aside class="side">([\s\S]*?)<\/aside>/.exec(html)[1].matchAll(/<li>([\s\S]*?)<\/li>/g)].map(([, item]) => item.replace(/<a href="[^"]*">([^<]*)<\/a>/, "link: $1").replace(/<[^>]+>/g, ""));
+  for (const [kind, run] of [["brief", "R7"], ["report", "R5"]]) {
+    const html = read(w, "T3", kind, run).html, [, href, where] = /<a class="back" href="([^"]+)">&#8592; Back to T3<\/a><span>([^<]+)<\/span>/.exec(html);
+    assert.equal(href.replaceAll("&#38;", "&"), "/app/#task?key=shared%2Fsample-app-abc123%2FT3&tab=artifacts");
+    assert.match(where, / \/ Artifacts$/, "the crumb names the tab that Back opens");
+  }
+  assert.deepEqual(links(read(w, "T3", "brief", "R7").html), ["No report", "link: Task T3"], "R7 keeps no report");
+  assert.deepEqual(links(read(w, "T3", "brief", "R6").html), ["Report when it ends", "link: Task T3"], "R6 runs");
+  assert.deepEqual(links(read(w, "T3", "report", "R5").html).slice(1), ["No brief", "link: Task T3"], "R5 keeps no brief");
+  writeFileSync(join(w.logbook, "reports", "R7.md"), "STATUS done\nRESULT ready\n");
+  writeFileSync(join(w.logbook, "briefs", "R5.md"), "Run R5 · task T3 (code-reviewer)\nGOAL review\n");
+  assert.deepEqual(links(read(w, "T3", "brief", "R7").html), ["link: Report of R7", "link: Task T3"], "a kept report is linked");
+  assert.deepEqual(links(read(w, "T3", "report", "R5").html).slice(1), ["link: Brief of R5", "link: Task T3"], "a kept brief is linked");
 });
