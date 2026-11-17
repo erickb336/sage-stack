@@ -42,7 +42,7 @@ show();
 <a id="top" target="_top" href="/app/#moved">Move the board</a> <a id="pop" target="_blank" href="/app/#popup">Open a new page</a>
 `;
 
-async function openBoard(t, viewport = { width: 1440, height: 1000 }, { refuse, before } = {}) {
+async function openBoard(t, viewport = { width: 1440, height: 1000 }, { refuse, before, setup } = {}) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-question-browser-")));
   const saved = { ...process.env }, fakes = join(base, "fakes");
   mkdirSync(fakes);
@@ -76,6 +76,7 @@ async function openBoard(t, viewport = { width: 1440, height: 1000 }, { refuse, 
   writeFileSync(join(base, "question.json"), JSON.stringify(MESSAGE));
   as("C1", "gate", "add", "T1", "--question", TITLE, "--options", "A: yes|B: no", "--recommend", "A: yes", "--default", "A: yes", "--message", join(base, "question.json"), "--run", "R1");
   as("C2", "gate", "add", "T2", "--question", "Crash reports: send them on their own, or ask each time?", "--options", "ask each time|send them", "--recommend", "ask each time");
+  setup?.(as); // logbook rows that a server-rendered page must show at once: the board reads them at its start
   const stateDir = join(base, "home", ".config", "sage-board", "state"), writes = [];
   mkdirSync(stateDir, { recursive: true, mode: 0o700 });
   const { writeInWorker } = await import("../plugins/sage/board/writes.mjs");
@@ -430,8 +431,7 @@ test("T1156 F-T1156-40, -47: an answer sent while the Archive write lands is ref
 });
 
 test("T1156 F-T1156-23: in a report in the frame, the link to the same question closes the file, and opens no second tab", async t => {
-  const w = await openBoard(t), { page } = w;
-  w.as("C1", "run", "done", "R1", "--status", "done", "--tokens", "1");
+  const w = await openBoard(t, undefined, { setup: as => as("C1", "run", "done", "R1", "--status", "done", "--tokens", "1") }), { page } = w;
   await page.goto(`${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G1`)}`);
   await page.locator(".mat").filter({ hasText: "Report of R1" }).click();
   await page.frameLocator(".viewer iframe").getByRole("link", { name: "Open G1" }).click();
