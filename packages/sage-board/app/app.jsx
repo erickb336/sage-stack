@@ -87,7 +87,7 @@ function Status({ model, link, lostAt, now }) {
   if (!model) return <span className="live bad" role="status"><span className="dot" />Cannot reach the board</span>;
   if (link === "lost") return <span className="live bad" role="status"><span className="dot" />Not updated since {age(dataAt(model, link, lostAt), now)} · trying again</span>;
   if (model.stale) return <span className="live bad" role="status"><span className="dot" />Not updated since {age(model.at, now)}</span>;
-  return <span className="live ok" role="status"><span className="dot" />Live<span className="at"> · read {clock(model.at)}</span></span>;
+  return <span className="live ok" role="status"><span className="dot" /><span>Live<span className="at"> · read {clock(model.at)}</span></span></span>;
 }
 
 function Banner({ model, link, lostAt, now, own }) {
