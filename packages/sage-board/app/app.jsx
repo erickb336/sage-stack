@@ -184,7 +184,7 @@ export function App() {
       <div className="col">
         <header className="top">
           <span className="crumb">{all && !page.own && <><Picker projects={all.projects} current={current} page={LISTED.includes(page.hash) ? page.hash : ""} now={now} /><span aria-hidden="true">/</span></>}<b>{page.name}</b></span>
-          {model && <Signal others={model.others} />}
+          {model && !page.own && <Signal others={model.others} />}
           <span className="grow" />
           {model && <LimitCounts agents={model.agents} all={page.own ? model.agents : all.agents} />}
           <Status model={model} link={link} lostAt={lostAt} now={now} />

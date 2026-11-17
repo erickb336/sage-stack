@@ -565,7 +565,7 @@ test("T1159 (F-T1159-54): Stats has its own scope, so its top bar shows no count
   await page.locator(".nav a", { hasText: "Stats" }).click();
   await page.locator(".stat-tiles").waitFor();
   assert.doesNotMatch(await top(), /in all projects/, "Stats counts its own scope only");
-  assert.equal(await page.locator(".picker, .chips").count(), 0, "Stats shows no picker and no chief chips");
+  assert.equal(await page.locator(".picker, .chips, .signal").count(), 0, "Stats shows no picker, no chief chips and no line about other projects than one it does not name");
 });
 
 test("T1159 (F-T1159-39, F-T1159-42): with a chief chip on, the Overview's Merged count and its list agree, and a group of only merged tasks counts them, not 0 open", async t => {
