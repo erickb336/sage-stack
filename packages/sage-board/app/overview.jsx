@@ -18,14 +18,15 @@ export function ago(from, to) {
 
 const DAY = 86_400_000, WEEK = 7 * DAY;
 const after = (list, since) => list.filter(at => at && Date.parse(at) > since).length;
-function Counts({ model, previous, now }) {
+function Counts({ model, previous, now, chief }) {
+  const tasks = model.tasks.filter(task => ofChief(task, chief));
   const old = previous && Date.parse(previous) < Date.parse(model.at) - WEEK, since = previous && !old ? Date.parse(previous) : Date.parse(model.at) - (old ? WEEK : DAY);
-  const known = model.tasks.some(task => task.addedAt), unknown = model.tasks.some(task => !task.addedAt);
+  const known = tasks.some(task => task.addedAt), unknown = tasks.some(task => !task.addedAt);
   const links = { merged: `#tasks?group=state&sort=newest&since=${new Date(since).toISOString()}`, stuck: "#agents" };
   const items = [
-    ["merged", after(model.tasks.filter(task => task.state === "merged").map(task => task.doneAt), since), "Merged", "tasks merged into main"],
+    ["merged", after(tasks.filter(task => task.state === "merged").map(task => task.doneAt), since), "Merged", "tasks merged into main"],
     ["stuck", model.stuck, FLAGGED[0].toUpperCase() + FLAGGED.slice(1), "runs of open tasks that failed in the last 24 hours and did not run again, or agents silent for 30 min or stopped"],
-    ["added", known ? after(model.tasks.map(task => task.addedAt), since) : null, "New tasks", !known ? `${UNKNOWN} · no task in the logbook has a time when it was added` : unknown ? "tasks added to the logbook; older tasks have no time" : "tasks added to the logbook"],
+    ["added", known ? after(tasks.map(task => task.addedAt), since) : null, "New tasks", !known ? `${UNKNOWN} · no task in the logbook has a time when it was added` : unknown ? "tasks added to the logbook; older tasks have no time" : "tasks added to the logbook"],
   ];
   return (
     <section className="counts" aria-labelledby="counts-h">
@@ -217,7 +218,7 @@ function Start({ started }) {
   );
 }
 
-export function Overview({ model, shown }) {
+export function Overview({ model, shown, chief }) {
   const previous = useSeen(), now = useNow();
   if (!model.tasks.length && !model.needs.length && !model.milestones.length) return <><div className="page-h"><h1>Overview</h1></div><Start started={model.chiefs.length > 0} /></>;
   return (
@@ -232,7 +233,7 @@ export function Overview({ model, shown }) {
         <NeedsYou model={model} shown={shown} now={now} />
         <Milestones milestones={model.milestones} hiddenDone={model.hiddenDone} />
       </div>
-      <Counts model={model} previous={previous} now={now} />
+      <Counts model={model} previous={previous} now={now} chief={chief} />
     </>
   );
 }

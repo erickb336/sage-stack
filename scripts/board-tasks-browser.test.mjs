@@ -567,3 +567,26 @@ test("T1159 (F-T1159-54): Stats has its own scope, so its top bar shows no count
   assert.doesNotMatch(await top(), /in all projects/, "Stats counts its own scope only");
   assert.equal(await page.locator(".picker, .chips").count(), 0, "Stats shows no picker and no chief chips");
 });
+
+test("T1159 (F-T1159-39, F-T1159-42): with a chief chip on, the Overview's Merged count and its list agree, and a group of only merged tasks counts them, not 0 open", async t => {
+  const { page } = await open(t, {}, "/app/#");
+  const merged = () => page.locator('[data-count="merged"] .n').textContent();
+  assert.equal(await merged(), "1", "T1 merged 2 h ago");
+  await page.locator('button.chip[data-chief="shared/sample-app-abc123/C2"]').click();
+  await settles(merged, "0", "C2 merged nothing");
+  await page.locator('[data-count="merged"] a').click();
+  await page.locator("main h1", { hasText: "Tasks" }).waitFor();
+  assert.equal(await page.locator("a.row").count(), 0, "the list agrees with the count");
+  await page.locator('button.chip[data-chief="shared/sample-app-abc123/C1"]').click();
+  await settles(() => page.locator("a.row .id").allTextContents(), ["T1"]);
+  assert.deepEqual(await page.locator(".group .card-h .hint").allTextContents(), ["1 ended"], "not done 0 open");
+});
+
+test("T1159 (F-T1159-48, F-T1159-49): a milestone with no task shows only its own note, and the milestone badge says the word milestone once", async t => {
+  const { page, base } = await open(t, { stuck: true }, `/app/#tasks?milestone=${encodeURIComponent(KEY("M10"))}`);
+  await page.locator(".lost").waitFor();
+  assert.equal(await page.locator(".empty").count(), 0, "no second note that the filters hide every task");
+  assert.equal(await page.locator(".focus-note .badge").textContent(), "Milestone 10: Empty stuck");
+  await page.goto(`${base}/app/#tasks?milestone=${encodeURIComponent(KEY("M1"))}`);
+  await settles(() => page.locator(".focus-note .badge").textContent(), "Milestone 1: Board redesign");
+});

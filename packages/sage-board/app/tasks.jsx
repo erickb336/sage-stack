@@ -60,7 +60,7 @@ function Group({ group, milestone, why, focus, open, shown, toggle, row }) {
     <section className={`card group${focus ? " focus" : ""}`} data-group={group.key} aria-labelledby={`g-${group.id}`}>
       <div className="card-h">
         <h2 id={`g-${group.id}`}>{group.title}</h2>
-        <span className="hint">{live.length} open</span>
+        <span className="hint">{live.length || !ended.length ? `${live.length} open` : `${ended.length} ended`}</span>
         <span className="grow" />
         {milestone && <span className="hint">{milestone.merged} of {milestone.total} merged</span>}
       </div>
@@ -147,7 +147,7 @@ export function Tasks({ model, params, chief = null }) {
         <span className="grow" />
         <span className="hint" role="status">{chief && `${chief.id}'s work · `}{open} open · {shown.length - open} ended</span>
       </div>
-      {(focus || since > 0) && <p className="focus-note"><span className="badge">{focus ? `${OBJECTS.milestone.label}: ${milestones.get(focus)?.title ?? focus.split("/").pop()}` : `Merged since ${when(new Date(since).toISOString())}`}</span>{since > 0 && ` ${shown.length} ${shown.length === 1 ? "task" : "tasks"}${sort ? " · newest first" : ""}`} <a href={hashOf(params, { milestone: "", since: "" })}>Show all tasks</a></p>}
+      {(focus || since > 0) && <p className="focus-note"><span className="badge">{focus ? milestones.get(focus)?.title ?? `${OBJECTS.milestone.label} ${focus.split("/").pop()}` : `Merged since ${when(new Date(since).toISOString())}`}</span>{since > 0 && ` ${shown.length} ${shown.length === 1 ? "task" : "tasks"}${sort ? " · newest first" : ""}`} <a href={hashOf(params, { milestone: "", since: "" })}>Show all tasks</a></p>}
       {lost && (
         <section className="card group focus lost" aria-labelledby="g-lost">
           <div className="card-h"><h2 id="g-lost">{milestones.get(focus)?.title ?? needsOf(focus)[0]?.question ?? "This milestone"}</h2></div>
@@ -161,7 +161,7 @@ export function Tasks({ model, params, chief = null }) {
           return <Group key={item.key} group={item} milestone={group === "milestone" ? milestones.get(item.key) : null} why={focused && <Why needs={needsOf(focus)} />} focus={focused}
             open={opened.has(`${group}:${item.key}`)} shown={focused || since > 0 || ENDED_WORDS.includes(filters.state)} toggle={() => toggle(item.key)} row={row} />;
         })
-        : <p className="empty card">{model.tasks.length ? "No task matches these filters." : "No tasks yet. A task starts when you ask the chief for a change."}</p>}
+        : !lost && <p className="empty card">{model.tasks.length ? "No task matches these filters." : "No tasks yet. A task starts when you ask the chief for a change."}</p>}
     </>
   );
 }

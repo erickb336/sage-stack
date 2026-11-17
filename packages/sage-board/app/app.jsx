@@ -153,7 +153,7 @@ export function App() {
   const open = model ? model.tasks.filter(task => !task.ended).length : 0;
   const prs = model ? model.tasks.filter(task => task.pr && !task.ended).length : 0;
   const running = model ? model.agents.reduce((n, book) => n + book.running, 0) : 0;
-  const body = page.hash === "" ? <Overview model={model} shown={shown} /> : page.hash === "tasks" ? <Tasks model={model} params={page.params} chief={picked} />
+  const body = page.hash === "" ? <Overview model={model} shown={shown} chief={picked} /> : page.hash === "tasks" ? <Tasks model={model} params={page.params} chief={picked} />
     : page.hash === "pull-requests" ? <Pulls model={model} chief={picked} />
     : page.hash === "agents" ? <Agents model={model} chief={picked} />
     : page.hash === "stats" ? <Stats all={all} params={page.params} />
