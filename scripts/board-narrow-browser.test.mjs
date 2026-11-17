@@ -139,3 +139,19 @@ test("T1159 (F-T1159-50): on a phone the board's shell is compact and never cove
     assert.deepEqual(shell.small, [], `${name}: each page link and header button is at least 44 px high`);
   }
 });
+
+test("F-T1168-7: at 390 px each control on Overview, Tasks and a task page is a 44 px touch target: chips, filters, tabs and buttons", async t => {
+  const base = await board(t);
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  t.after(() => context.close());
+  const page = await context.newPage();
+  for (const [name, path, ready] of [["overview", "/app/#", ".needs .q"], ["tasks", "/app/#tasks", ".row"], ["task", `/app/#task?key=${encodeURIComponent(KEY("T2"))}`, ".about-card"]]) {
+    await page.goto(`${base}${path}`);
+    await page.locator(ready).first().waitFor();
+    const small = await page.evaluate(() => [...document.querySelectorAll("button, select, input, summary, [role=tab], .chip, a.limit")]
+      .filter(item => item.getClientRects().length && getComputedStyle(item).visibility !== "hidden")
+      .map(item => [item.tagName.toLowerCase(), item.className, item.textContent.trim().slice(0, 30), Math.round(item.getBoundingClientRect().height)])
+      .filter(([, , , height]) => height < 44));
+    assert.deepEqual(small, [], `${name}: each control is at least 44 px high`);
+  }
+});

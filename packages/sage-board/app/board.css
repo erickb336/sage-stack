@@ -575,7 +575,9 @@ p.waits.never { color: var(--fail); }
   .nav a { min-height: 44px; padding: 0 10px; white-space: nowrap; }
   header.top { position: static; padding: 4px 16px; gap: 4px 10px; }
   .crumb { min-width: 0; flex-wrap: wrap; }
-  header.top button { min-height: 44px; min-width: 44px; }
+  header.top button, .main :is(.btn, select, input, .tabs button, .seg button, .more-ended), .limit, .chip { min-height: 44px; }
+  header.top button { min-width: 44px; }
+  .main summary { min-height: 44px; padding-block: 12px; box-sizing: border-box; }
   header.top > :is(.crumb, .grow) { order: -2; }
   header.top > :is(.live, .theme) { order: -1; }
   .chips { gap: 6px; padding: 8px 16px; }
