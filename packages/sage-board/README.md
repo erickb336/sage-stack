@@ -20,6 +20,8 @@ node <path to board/cli.mjs> board --stop
 
 Then ask for the board again (or run `board --ensure`). `--stop` stops only this config's board: it checks that the board on the port names this config and the pid in `board.pid`, sends that pid a stop signal, and waits until the port is free. The login service runs the same `--serve` command, so its board writes `board.pid` too and `--stop` stops it; to stop the login service itself, use `launchctl bootout` (below).
 
+A paired browser can also stop the board: "Stop the board" at the foot of the side bar (in a narrow window, under the page links) asks once, then sends the owner write `POST /api/stop`. The server answers, closes, and removes `board.pid`, like the stop signal. The login service does not start it again until the next login (its login file has `RunAtLoad` and no `KeepAlive`); `show board` starts it again at any time. A browser that is not paired cannot send the write, and the side bar says "Ask the chief to stop the board."
+
 An older board server, from before the board sent its id, does not name its process. `--stop` sends it no signal, whatever `board.pid` holds, and `board --ensure` says so. Stop it where it started: press Ctrl+C in its terminal, or run `launchctl bootout "gui/$(id -u)/dev.sage.board"` for the login service. Then ask for the board again.
 
 To set it up by hand, run these commands in the `board/` folder of the installed plugin. `board --ensure` does the first and the last step for you; the install step makes a copy that does not change when the plugin updates. Replace the source paths when your provider uses another root.

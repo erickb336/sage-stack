@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { configId, createBoardConfig, readBoardConfig, runBoardCli } from "../packages/sage-board/cli.mjs";
 import { createBoardServer } from "../packages/sage-board/server.mjs";
 import { boardPort } from "../packages/sage-core/index.mjs";
+import { boardCommandPort } from "./fixtures/board-port.mjs";
 
 const CLI = fileURLToPath(new URL("../packages/sage-board/cli.mjs", import.meta.url));
 const PLUGIN_CLI = fileURLToPath(new URL("../plugins/sage/board/cli.mjs", import.meta.url));
@@ -65,14 +66,6 @@ function board(cli, args, env) {
   return resultOf(child);
 }
 
-async function freePort() {
-  const socket = createServer();
-  await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-  const { port } = socket.address();
-  await new Promise((accept) => socket.close(accept));
-  return port;
-}
-
 const get = (port) => new Promise((done) => {
   const req = request({ host: "127.0.0.1", port, path: "/", agent: false, headers: { Host: `127.0.0.1:${port}` } }, (response) => {
     let body = ""; response.setEncoding("utf8"); response.on("data", (chunk) => { body += chunk; });
@@ -115,7 +108,7 @@ test("T216: setup without --sources lists the standard Claude and Codex roots an
 
 test("T216: ensure sets the board up, starts one detached server, and leaves a running server as it is", async (t) => {
   const { dir, env, config } = scratch(t);
-  const port = await freePort();
+  const port = await boardCommandPort();
   try {
     const first = await board(CLI, ["--ensure", "--port", String(port)], env);
     assert.equal(first.status, 0, first.stderr);
@@ -151,7 +144,7 @@ const pairWith = (port, link) => new Promise((done, fail) => {
 
 test("T1125: ensure --link gives the board's address with a one-time pairing link that the running board takes once, and a newer link replaces it", async (t) => {
   const { dir, env } = scratch(t);
-  const port = await freePort();
+  const port = await boardCommandPort();
   try {
     const line = new RegExp(`^Sage board (started|is running): http://127\\.0\\.0\\.1:${port}/app/#pair=([A-Za-z0-9_-]{43}) · only on this Mac\\. The link pairs the first browser that opens it, once, within 10 minutes\\.\\n$`);
     const first = await board(CLI, ["--ensure", "--link", "--port", String(port)], env);
@@ -172,7 +165,7 @@ test("T1125: ensure --link gives the board's address with a one-time pairing lin
 
 test("T1135: ensure --project names the chat's project in the link, by its logbook folder, read only; a folder with no logbook gives the link with no project", async (t) => {
   const { dir, env } = scratch(t);
-  const port = await freePort(), checkout = join(dir, "work", "recipes"), logbook = join(dir, "home", ".claude", "sage", "recipes-1a2b3c");
+  const port = await boardCommandPort(), checkout = join(dir, "work", "recipes"), logbook = join(dir, "home", ".claude", "sage", "recipes-1a2b3c");
   mkdirSync(checkout, { recursive: true }); mkdirSync(logbook, { recursive: true });
   writeFileSync(join(logbook, "checkout.txt"), `${checkout}\n`);
   writeFileSync(join(logbook, "tasks.tsv"), "id\ttitle\tsize\trisk\troute\tstate\tbranch\tpr\tround\tkeys\thold\textra\n");
@@ -194,7 +187,7 @@ test("T1135: ensure --project names the chat's project in the link, by its logbo
 
 test("T1135 F-T1135-1: ensure --project finds the project from a subfolder, a linked worktree and a linked path, read only", async (t) => {
   const { dir, env } = scratch(t);
-  const port = await freePort(), checkout = join(dir, "work", "recipes"), worktree = join(dir, "work", "recipes-wt"), logbook = join(dir, "home", ".claude", "sage", "recipes-1a2b3c");
+  const port = await boardCommandPort(), checkout = join(dir, "work", "recipes"), worktree = join(dir, "work", "recipes-wt"), logbook = join(dir, "home", ".claude", "sage", "recipes-1a2b3c");
   mkdirSync(checkout, { recursive: true }); mkdirSync(logbook, { recursive: true });
   writeFileSync(join(logbook, "checkout.txt"), `${checkout}\n`);
   writeFileSync(join(logbook, "tasks.tsv"), "id\ttitle\tsize\trisk\troute\tstate\tbranch\tpr\tround\tkeys\thold\textra\n");
@@ -211,7 +204,7 @@ test("T1135 F-T1135-1: ensure --project finds the project from a subfolder, a li
 
 test("T1135 F-T1135-3: ensure --name-hex names the asked project in the link; a name of no project, or bad hex, gives no project", async (t) => {
   const { dir, env } = scratch(t);
-  const port = await freePort(), logbook = join(dir, "home", ".claude", "sage", "recipes-1a2b3c"), hex = name => Buffer.from(name, "utf8").toString("hex");
+  const port = await boardCommandPort(), logbook = join(dir, "home", ".claude", "sage", "recipes-1a2b3c"), hex = name => Buffer.from(name, "utf8").toString("hex");
   mkdirSync(logbook, { recursive: true });
   writeFileSync(join(logbook, "tasks.tsv"), "id\ttitle\tsize\trisk\troute\tstate\tbranch\tpr\tround\tkeys\thold\textra\n");
   try {
@@ -245,7 +238,7 @@ test("T216: ensure gives one line when another program holds the port, and start
 
 test("T216: two ensures at once start one board, and board.pid names the process that answers (F-T216-6)", async (t) => {
   const { dir, env, config } = scratch(t);
-  const port = await freePort();
+  const port = await boardCommandPort();
   try {
     assert.equal((await board(CLI, ["--setup", "--port", String(port)], env)).status, 0);
     const both = await Promise.all([board(CLI, ["--ensure"], env), board(CLI, ["--ensure"], env)]);
@@ -258,7 +251,7 @@ test("T216: two ensures at once start one board, and board.pid names the process
 
 test("T216: board --stop stops this config's board, and ensure says when the config changed after the start (F-T216-7)", async (t) => {
   const { dir, env, config } = scratch(t);
-  const port = await freePort(), pidFile = join(dirname(config), "board.pid");
+  const port = await boardCommandPort(), pidFile = join(dirname(config), "board.pid");
   try {
     assert.equal((await board(CLI, ["--ensure", "--port", String(port)], env)).status, 0);
     assert.equal((await get(port)).status, 302);
@@ -279,7 +272,7 @@ test("T216: board --stop stops this config's board, and ensure says when the con
 
 test("T395: the documented port change (stop, edit the port, ask again) leaves one board, on the new port (R1478-1)", async (t) => {
   const { dir, env, config } = scratch(t);
-  const [oldPort, newPort] = [await freePort(), await freePort()];
+  const [oldPort, newPort] = [await boardCommandPort(), await boardCommandPort()];
   try {
     assert.equal((await board(CLI, ["--ensure", "--port", String(oldPort)], env)).status, 0);
     const stopped = await board(CLI, ["--stop", "--config", config], env);
@@ -306,7 +299,7 @@ const snapshot = (config) => ({ text: readFileSync(config, "utf8"), mode: statSy
 test("T1079: another program holds the port; the error names board --port, and that one command gives a working board on the new port and keeps every other setting", async (t) => {
   const { dir, env, config } = scratch(t);
   const other = createHttpServer((request, response) => response.end("another program\n"));
-  const busyPort = await listen(other), newPort = await freePort();
+  const busyPort = await listen(other), newPort = await boardCommandPort();
   try {
     createBoardConfig(config, { sources: [{ id: "sample", path: join(dir, "logbooks") }], port: busyPort });
     writeFileSync(config, `${JSON.stringify({ ...JSON.parse(readFileSync(config, "utf8")), secret: "old-secret-value", pagesDir: join(dir, "exports") }, null, 2)}\n`);
@@ -332,7 +325,7 @@ test("T1079: another program holds the port; the error names board --port, and t
 
 test("T1079: board --port stops this config's running board and starts it on the new port, and a second run changes nothing", async (t) => {
   const { dir, env, config } = scratch(t);
-  const [oldPort, newPort] = [await freePort(), await freePort()];
+  const [oldPort, newPort] = [await boardCommandPort(), await boardCommandPort()];
   try {
     assert.equal((await board(CLI, ["--ensure", "--port", String(oldPort)], env)).status, 0);
     assert.equal(readFileSync(portFile(config), "utf8"), `${oldPort}\n`);
@@ -352,7 +345,7 @@ test("T1079: board --port stops this config's running board and starts it on the
 test("T1079: board --port refuses a bad number, a busy port, a missing config and a file or folder that it cannot write, and then changes nothing and leaves the board running", async (t) => {
   const { dir, env, config } = scratch(t);
   const other = createHttpServer((request, response) => response.end("another program\n"));
-  const [port, busyPort, newPort] = [await freePort(), await listen(other), await freePort()];
+  const [port, busyPort, newPort] = [await boardCommandPort(), await listen(other), await boardCommandPort()];
   try {
     const missing = await board(CLI, ["--port", String(newPort)], env);
     assert.equal(missing.stderr, `sage board: there is no board config at ${config} yet. Run node ${CLI} board --ensure --port ${newPort} to set the board up on port ${newPort} and start it.\n`);
@@ -365,7 +358,7 @@ test("T1079: board --port refuses a bad number, a busy port, a missing config an
       assert.equal((await get(port)).status, 302, `${label}: the board still answers on its port`);
       assert.equal((await get(newPort)).error, "ECONNREFUSED", `${label}: nothing started on the new port`);
     };
-    for (const value of ["80", "1023", "65536", "abc", "4312a", "-5", "043124"]) {
+    for (const value of ["0", "80", "1023", "65536", "abc", "4312a", "-5", "043124"]) {
       const bad = await board(CLI, ["--port", value], env);
       assert.equal(bad.status, 1, value);
       assert.equal(bad.stderr, `sage board: board --port needs a whole number from 1024 to 65535, not ${JSON.stringify(value)}. Nothing changed.\n`);
@@ -391,7 +384,7 @@ test("T1079: board --port refuses a bad number, a busy port, a missing config an
 
 test("T1079: board --port leaves a board of another config on the old port running, and moves this config", async (t) => {
   const { dir, env, config } = scratch(t);
-  const [port, newPort] = [await freePort(), await freePort()];
+  const [port, newPort] = [await boardCommandPort(), await boardCommandPort()];
   createBoardConfig(config, { sources: [{ id: "sample", path: join(dir, "logbooks") }], port });
   const otherConfig = join(dir, "other", "board.json");
   createBoardConfig(otherConfig, { sources: [{ id: "sample", path: join(dir, "logbooks") }], port });
@@ -408,7 +401,7 @@ test("T1079: board --port leaves a board of another config on the old port runni
 
 test("T1079: board --port refuses a port that another program holds on 127.0.0.1, 0.0.0.0 or ::, and changes nothing (F-T1079-1, F-T1079-5)", async (t) => {
   const { dir, env, config } = scratch(t);
-  const port = await freePort();
+  const port = await boardCommandPort();
   try {
     assert.equal((await board(CLI, ["--ensure", "--port", String(port)], env)).status, 0);
     const kept = snapshot(config), pidFile = join(dirname(config), "board.pid"), pid = readFileSync(pidFile, "utf8"), running = (await get(port)).board;
@@ -434,7 +427,7 @@ test("T1079: board --port refuses a port that another program holds on 127.0.0.1
 
 test("T1079: when the config write fails after the board stopped, board --port starts the board again on the old port and says so (F-T1079-2, F-T1079-11)", async (t) => {
   const { dir, env, config } = scratch(t);
-  const [oldPort, newPort] = [await freePort(), await freePort()];
+  const [oldPort, newPort] = [await boardCommandPort(), await boardCommandPort()];
   const temporaries = () => readdirSync(dirname(config)).filter((name) => name.endsWith(".tmp"));
   try {
     assert.equal((await board(CLI, ["--ensure", "--port", String(oldPort)], env)).status, 0);
@@ -454,7 +447,7 @@ test("T1079: when the config write fails after the board stopped, board --port s
 
 test("T1079: a config write that fails part way leaves no temporary copy of the config (F-T1079-7)", async (t) => {
   const { dir, env, config } = scratch(t);
-  const [port, newPort] = [await freePort(), await freePort()];
+  const [port, newPort] = [await boardCommandPort(), await boardCommandPort()];
   createBoardConfig(config, { sources: [{ id: "sample", path: join(dir, "logbooks") }], port });
   writeFileSync(config, `${JSON.stringify({ ...JSON.parse(readFileSync(config, "utf8")), secret: "old-secret-value" }, null, 2)}\n`);
   const kept = snapshot(config), write = fs.writeFileSync;
@@ -472,7 +465,7 @@ test("T1079: a config write that fails part way leaves no temporary copy of the 
 
 test("T1079: a board server that cannot write board.port stops and leaves no board.pid (F-T1079-4)", async (t) => {
   const { dir, env, config } = scratch(t);
-  const port = await freePort();
+  const port = await boardCommandPort();
   createBoardConfig(config, { sources: [{ id: "sample", path: join(dir, "logbooks") }], port });
   mkdirSync(join(portFile(config), "in-the-way"), { recursive: true });
   await assert.rejects(runBoardCli(["board", "--serve", "--config", config], { env, output: () => {} }));
@@ -520,7 +513,7 @@ test("T216: ensure names an older board server and how to stop it; stop sends it
     assert.deepEqual(lines, []);
     assert.equal((await get(port)).status, 200, "the older board still runs");
   } finally { await shut(older); }
-  const unnamed = createBoardServer({ ...readBoardConfig(config), port: await freePort() });
+  const unnamed = createBoardServer({ ...readBoardConfig(config), port: 0 });
   try {
     await unnamed.start();
     const at = unnamed.address().port, path = join(dir, "unnamed", "board.json");
@@ -544,7 +537,7 @@ test("T216: a program that takes the port and never answers gives one line that 
 
 test("T216: a board of another config on the port is not reported as this one, and stop leaves it running (F-T216-10)", async (t) => {
   const { dir, env, config } = scratch(t);
-  const port = await freePort();
+  const port = await boardCommandPort();
   createBoardConfig(config, { sources: [{ id: "sample", path: join(dir, "logbooks") }], port });
   const otherConfig = join(dir, "other", "board.json");
   createBoardConfig(otherConfig, { sources: [{ id: "sample", path: join(dir, "logbooks") }], port });
@@ -564,7 +557,7 @@ test("T216: a board of another config on the port is not reported as this one, a
 
 test("T216: stop sends no signal when board.pid does not name the process that answers, or is missing (F-T216-7)", async (t) => {
   const { dir, env, config } = scratch(t);
-  const port = await freePort();
+  const port = await boardCommandPort();
   createBoardConfig(config, { sources: [{ id: "sample", path: join(dir, "logbooks") }], port });
   const server = createBoardServer({ ...readBoardConfig(config), id: configId(config) });
   const signals = [], kill = (...args) => signals.push(args);
@@ -579,7 +572,7 @@ test("T216: stop sends no signal when board.pid does not name the process that a
 
 test("F-T216-12: when board.pid cannot be written, the server closes and the command fails, so no listener stays without it", async (t) => {
   const { dir, env, config } = scratch(t);
-  const port = await freePort();
+  const port = await boardCommandPort();
   createBoardConfig(config, { sources: [{ id: "sample", path: join(dir, "logbooks") }], port });
   mkdirSync(join(dirname(config), "board.pid", "inside"), { recursive: true });
   const child = startBoard(CLI, ["board", "--serve"], env);
@@ -594,7 +587,7 @@ test("F-T216-12: when board.pid cannot be written, the server closes and the com
 
 test("F-T216-13, T1079: the server writes board.pid and board.port as new files, so a hard link at those names does not change the file it points to", async (t) => {
   const { dir, env, config } = scratch(t);
-  const port = await freePort();
+  const port = await boardCommandPort();
   createBoardConfig(config, { sources: [{ id: "sample", path: join(dir, "logbooks") }], port });
   const other = join(dir, "other.txt"), pidFile = join(dirname(config), "board.pid");
   writeFileSync(other, "sample text that stays\n");
@@ -667,7 +660,7 @@ test("F-T216-17: the board guide's set-up commands run as written in the board f
   const cli = join(home, ".local", "share", "sage-board", "service", "packages", "board", "cli.mjs");
   assert.equal(installed.stdout.split("\n")[0], `Installed board command: ${cli}`);
   assert.equal(serve[1], cli, "the serve line names the path that install prints");
-  const config = join(home, ".config", "sage-board", "board.json"), port = await freePort();
+  const config = join(home, ".config", "sage-board", "board.json"), port = await boardCommandPort();
   writeFileSync(config, JSON.stringify({ ...JSON.parse(readFileSync(config, "utf8")), port }));
   const child = startBoard(serve[1], serve.slice(2), env, join(plugin, "board"));
   try {
@@ -686,7 +679,7 @@ test("F-T216-17: the board guide's set-up commands run as written in the board f
 
 test("T921: in a sandbox with no network, as in Codex, ensure says that the sandbox blocks the port, and starts nothing", { skip: process.platform !== "darwin" && "macOS sandbox-exec only" }, async (t) => {
   const { dir, env, config } = scratch(t);
-  const port = await freePort();
+  const port = await boardCommandPort();
   const run = spawnSync("/usr/bin/sandbox-exec", ["-p", "(version 1)(allow default)(deny network*)", process.execPath, fileURLToPath(new URL("../plugins/sage-codex/board/cli.mjs", import.meta.url)), "board", "--ensure", "--port", String(port)], { env, encoding: "utf8" });
   assert.equal(run.stderr, `sage board: this command cannot reach 127.0.0.1:${port}: a sandbox blocks the local network here (EPERM). In Codex, run it escalated (outside the sandbox), or in Terminal on the Mac.\n`);
   assert.equal(run.status, 1);
@@ -699,7 +692,7 @@ test("T921: in a sandbox with no network, as in Codex, ensure says that the sand
 test("T922: on the first run in a sandbox, as in Codex, ensure gives one plain line about the board config folder, and makes nothing", { skip: process.platform !== "darwin" && "macOS sandbox-exec only" }, async (t) => {
   const { dir, env } = scratch(t), home = join(dir, "home");
   mkdirSync(join(home, ".config"), { recursive: true });
-  const port = await freePort(), cli = fileURLToPath(new URL("../plugins/sage-codex/board/cli.mjs", import.meta.url));
+  const port = await boardCommandPort(), cli = fileURLToPath(new URL("../plugins/sage-codex/board/cli.mjs", import.meta.url));
   const sandboxed = args => spawnSync("/usr/bin/sandbox-exec", ["-p", `(version 1)(allow default)(deny network*)(deny file-write* (subpath "${home}"))`, process.execPath, ...args], { env, encoding: "utf8" });
   assert.match(sandboxed(["-e", `require("fs").writeFileSync(${JSON.stringify(join(home, "probe"))}, "")`]).stderr, /EPERM/);
   const run = sandboxed([cli, "board", "--ensure", "--port", String(port)]);
@@ -754,7 +747,7 @@ test("board test teardown waits for an owned descendant after its shutdown handl
 });
 
 test("board test supervisor closes its server tree when the parent disconnects", async (t) => {
-  const { dir, env } = scratch(t), port = await freePort();
+  const { dir, env } = scratch(t), port = await boardCommandPort();
   const child = startBoard(CLI, ["board", "--ensure", "--port", String(port)], env);
   child.stdout.resume(); child.stderr.resume();
   const result = await resultOf(child);

@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { test } from "node:test";
@@ -15,14 +14,6 @@ import { ownerWrite } from "../plugins/sage/board/writes.mjs";
 
 const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
 const gitEnv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
-
-async function freePort() {
-  const socket = createServer();
-  await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-  const { port } = socket.address();
-  await new Promise(accept => socket.close(accept));
-  return port;
-}
 
 function call(port, path, { method = "POST", headers = {}, body } = {}) {
   return new Promise((accept, reject) => {
@@ -77,12 +68,12 @@ async function world(t) {
   codex.sage(["task", "add", "--title", "Sample Codex task", "--size", "small", "--priority", "P2", "--project", meadow], inCodex);
   const dirs = { lantern: lanternDir, harbor: claude.storeDir(harbor, inClaude), meadow: codex.storeDir(meadow, inCodex) };
   for (const dir of Object.values(dirs)) assert.ok(existsSync(join(dir, "tasks.tsv")), `${dir} is a logbook`);
-  const config = join(base, "home", ".config", "sage-board", "board.json"), port = await freePort();
+  const config = join(base, "home", ".config", "sage-board", "board.json");
   const sources = [{ id: "claude", label: "Claude", provider: "claude", path: join(env.CLAUDE_CONFIG_DIR, "sage") }, { id: "codex", label: "Codex", provider: "codex", path: join(env.CODEX_HOME, "sage") }, { id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }];
-  await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify(sources)], { output: () => {}, env });
-  const server = createBoardServer({ sources, port, app: APP, settleReads: [], stateDir: join(base, "home", ".config", "sage-board", "state"), pairCommand: "node /sample/board/cli.mjs board --pair" });
-  await server.start();
+  const server = createBoardServer({ sources, port: 0, app: APP, settleReads: [], stateDir: join(base, "home", ".config", "sage-board", "state"), pairCommand: "node /sample/board/cli.mjs board --pair" });
   t.after(() => server.close());
+  const { port } = await server.start();
+  await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify(sources)], { output: () => {}, env });
   const origin = `http://127.0.0.1:${port}`, headers = { Origin: origin, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" };
   return { base, env, own, inClaude, port, config, headers, dirs, checkouts: { lantern, harbor, meadow } };
 }

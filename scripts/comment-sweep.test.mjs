@@ -1,9 +1,9 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { Lang, parse } from "@ast-grep/napi";
 import { buildBoardModel } from "../packages/sage-core/board-model.mjs";
@@ -16,6 +16,7 @@ import { NOW, milestonesSource } from "./fixtures/board-milestones.mjs";
 import { NOW as WALK_NOW, STAGES, walkthroughSource } from "./fixtures/board-walkthrough.mjs";
 import { prove } from "./comment-proof.mjs";
 import { RULE_SET } from "./lint-rules.mjs";
+import { copyRepo } from "./repo-copy.mjs";
 import { stripComments } from "./strip-comments.mjs";
 
 const PROJECT = { ".gitattributes": readFileSync(join(ROOT, ".gitattributes"), "utf8") };
@@ -138,10 +139,8 @@ test("both scripts print their usage on --help, and one line with no stack trace
 });
 
 test("npm run check fails on one comment in the sources, and names the file and line", () => {
-  const dir = mkdtempSync(join(realpathSync(tmpdir()), "sage-comment-check-"));
+  const dir = copyRepo("sage-comment-check-");
   try {
-    cpSync(ROOT, dir, { recursive: true, filter: (src) => ![".git", ".claude", "node_modules"].includes(relative(ROOT, src)) });
-    symlinkSync(join(ROOT, "node_modules"), join(dir, "node_modules"), "dir");
     const check = () => spawnSync("node", [join(dir, "scripts/check.mjs")], { encoding: "utf8" });
     const clean = check();
     assert.equal(clean.status, 0, clean.stderr);

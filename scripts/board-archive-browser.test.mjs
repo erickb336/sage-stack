@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { after, before, test } from "node:test";
@@ -22,14 +21,6 @@ const PROJECTS = ["harbor", "orchard", "quarry", "summit", "tundra", "valley", "
 let browser;
 before(async () => { browser = await chromium.launch({ headless: true, ...(process.env.BOARD_BROWSER_PATH ? { executablePath: process.env.BOARD_BROWSER_PATH } : {}) }); });
 after(async () => { await browser?.close(); });
-
-async function freePort() {
-  const socket = createServer();
-  await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-  const { port } = socket.address();
-  await new Promise(accept => socket.close(accept));
-  return port;
-}
 
 function repository(base, name) {
   const path = join(base, name);
@@ -71,11 +62,10 @@ async function openBoard(t, { viewport = { width: 1440, height: 1000 } } = {}) {
   dirs.meadow = codex.storeDir(meadow, inCodex);
   dirs.meadowClaude = claude.storeDir(meadow, inClaude);
   const sources = [{ id: "claude", label: "Claude", provider: "claude", path: inClaude.SAGE_HOME }, { id: "codex", label: "Codex", provider: "codex", path: inCodex.SAGE_HOME }, { id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }];
-  const config = join(base, "home", ".config", "sage-board", "board.json"), port = await freePort();
+  const config = join(base, "home", ".config", "sage-board", "board.json"), stateDir = join(base, "home", ".config", "sage-board", "state");
+  const server = createBoardServer({ sources, port: 0, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair" });
+  const { port } = await server.start();
   await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify(sources)], { output: () => {}, env });
-  const stateDir = join(base, "home", ".config", "sage-board", "state");
-  const server = createBoardServer({ sources, port, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair" });
-  await server.start();
   const context = await browser.newContext({ viewport, colorScheme: "dark", timezoneId: "America/New_York" });
   t.after(async () => {
     await context.close(); await server.close();

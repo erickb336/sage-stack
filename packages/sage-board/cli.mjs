@@ -304,9 +304,9 @@ export async function runBoardCli(argv, { output = line => process.stdout.write(
   if (options["install-dir"] || options["login-file"]) throw new TypeError("installation paths require --install");
   if (options.serve) {
     if (value !== "all" || options.project) throw new TypeError("server uses all configured sources; no project option");
-    const configPath = boundedPath(options.config), server = createBoardServer({ ...config, sources: readSources(config.sources, env), providerRoots: providerRoots(env), id: configId(configPath), stateDir: stateFolder(configPath), pairCommand: boardCommand("--pair", configPath, env) });
-    try { await server.start(); } catch (error) { throw error.code === "EADDRINUSE" ? new Error(`${error.message} ${moveHint(configPath, config, env)}`) : error; }
+    const configPath = boundedPath(options.config), server = createBoardServer({ ...config, sources: readSources(config.sources, env), providerRoots: providerRoots(env), id: configId(configPath), stateDir: stateFolder(configPath), pairCommand: boardCommand("--pair", configPath, env), onStop: () => close() });
     const close = () => server.close().finally(() => { if (readPid(configPath) === process.pid) rmSync(pidPath(configPath), { force: true }); });
+    try { await server.start(); } catch (error) { throw error.code === "EADDRINUSE" ? new Error(`${error.message} ${moveHint(configPath, config, env)}`) : error; }
     try { writePid(configPath, process.pid); replaceFile(join(dirname(configPath), PORT_FILE), `${config.port}\n`); } catch (error) { await close(); throw error; }
     output(`Sage board: http://127.0.0.1:${config.port}/ · only on this Mac.`);
     return { ...server, close };

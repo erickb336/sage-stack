@@ -7,7 +7,7 @@ import { AGENT_QUIET_MS, readActions, readHookNotes, readBoardSources, buildBoar
 import { COOKIE, boardAccess, readJson } from "./access.mjs";
 import { gateMaterial } from "./material.mjs";
 import { failureOf, pagesRequest, servePages, taskFiles } from "./pages.mjs";
-import { briefAbout, designSummary, logbookDir, readerPage, recordedPages } from "./reader.mjs";
+import { briefAbout, changeText, designSummary, logbookDir, readerPage, recordedPages, runFiles } from "./reader.mjs";
 import { writeInWorker, writesEnded } from "./writes.mjs";
 
 const MARKDOWN = await import("./markdown.mjs").then(module => module.renderMarkdown, () => null);
@@ -105,8 +105,8 @@ function jsonBody(request) {
   });
 }
 
-export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () => new Date().toISOString(), settleReads = SETTLE_READS, lightEvery = LIGHT_EVERY, duringRead = null, providerRoots = [], app = loadBoardApp(), markdown = MARKDOWN, stateDir = null, pairCommand = null, write = writeInWorker } = {}) {
-  if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) throw new TypeError("board port must be an integer from 1024 through 65535");
+export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () => new Date().toISOString(), settleReads = SETTLE_READS, lightEvery = LIGHT_EVERY, duringRead = null, providerRoots = [], app = loadBoardApp(), markdown = MARKDOWN, stateDir = null, pairCommand = null, write = writeInWorker, onStop = null } = {}) {
+  if (!Number.isSafeInteger(port) || port !== 0 && (port < 1024 || port > 65535)) throw new TypeError("board port must be an integer from 1024 through 65535, or 0 for a free port that the system picks");
   if (typeof clock !== "function") throw new TypeError("the board clock must be a function that gives an ISO time");
   if (!Array.isArray(sources) || !sources.length || sources.length > 32) throw new TypeError("board needs 1 to 32 explicit sources");
   const ids = new Set();
@@ -118,8 +118,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
   });
   const landing = landingRule(configured);
   if (id !== undefined && (typeof id !== "string" || !/^[a-f0-9]{16,64}$/.test(id))) throw new TypeError("the board id must be 16 to 64 lowercase hex characters");
-  const local = new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
-  const origins = new Map([...local].map(host => [host, `http://${host}`]));
+  const local = new Set(), origins = new Map();
   let boardHeader = null;
   if (stateDir && (typeof pairCommand !== "string" || !pairCommand || /[\x00-\x1f\x7f]/.test(pairCommand))) throw new TypeError("a board that takes writes needs the pairing command that the owner runs in Terminal");
   const access = stateDir ? boardAccess(stateDir) : null;
@@ -314,9 +313,10 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     else if (!next.diagnostics.length) model = lastGood ? { ...lastGood, stale: false, changing: changing.map(item => ({ project: item.project, at: lastGood.at })) } : { ...next, stale: false };
     else model = { ...(lastGood ?? next), stale: true, diagnostics: next.diagnostics, changing };
     overview = boardOverview(model);
-    for (const book of overview.agents) for (const run of book.runs) if (run.status === "failed") {
-      const task = model.tasks.find(item => item.key === run.task.key), row = task?.runs.find(item => item.id === run.id);
-      if (row) run.why = failureOf({ dir: logbookDir(configured, task), task, run: row })?.text ?? null;
+    for (const book of overview.agents) for (const run of book.runs) if (run.status === "failed" || run.role === "arena-judge") {
+      const task = model.tasks.find(item => item.key === run.task.key), row = task?.runs.find(item => item.id === run.id), dir = task && logbookDir(configured, task);
+      if (row && run.status === "failed") run.why = failureOf({ dir, task, run: row })?.text ?? null;
+      if (row && run.role === "arena-judge") run.report = runFiles(dir, pageTaskFolder(task.project.slice(task.project.indexOf("/") + 1), task.id), task, row).report;
     }
     const known = activity;
     activity = new Map();
@@ -374,6 +374,10 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     }
     if (!browser) return reply(401, { problem: `This browser is not paired with the board. ${PAIR_AGAIN}` });
     if (!fits) return reply(403, { problem: `This page does not have this browser's pairing token. ${PAIR_AGAIN}` });
+    if (name === "stop") {
+      response.once("finish", () => Promise.resolve().then(onStop ?? board.close).catch(() => {}));
+      return reply(200, { ok: true, text: "The board stopped. To start it again, type show board in a chief's chat." });
+    }
     if (name === "name" && /^\s*-/.test(body.name ?? "")) return reply(400, { problem: "A chief's name cannot start with \"-\", because the state tool would read it as an option. Start it with a letter or a digit. Nothing changed." });
     if (Object.hasOwn(ARCHIVE_JOBS, name)) return reply(...await archiveWrite(body.project, ARCHIVE_JOBS[name]));
     const book = LOGBOOK.exec(body.logbook ?? ""), source = book && configured.find(item => item.id === book[1]);
@@ -448,9 +452,10 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
         const key = taskKey(name.slice("task/".length)), panel = key && model && taskPanel(model, key);
         if (!panel) return fail(404, "This task is not on the board.");
         const task = model.tasks.find(item => item.key === key), dir = logbookDir(configured, task);
-        const files = { ...taskFiles({ dir, logbook: panel.logbook, task: task.id, runs: panel.runs }), designs: designSummary(panel.logbook, task.id), recorded: recordedPages(task, pageTaskFolder(panel.logbook, task.id)) };
-        const runs = panel.runs.map(run => run.status === "failed" ? { ...run, failure: failureOf({ dir, task, run: task.runs.find(item => item.id === run.id) }) } : run);
-        const body = Buffer.from(JSON.stringify({ ...panel, runs, files, brief: briefAbout(dir, task, panel.runs) }));
+        const folder = pageTaskFolder(panel.logbook, task.id), files = { ...taskFiles({ dir, logbook: panel.logbook, task: task.id, runs: panel.runs }), designs: designSummary(panel.logbook, task.id), recorded: recordedPages(task, folder) };
+        const runs = panel.runs.map(run => ({ ...run, ...runFiles(dir, folder, task, run), ...(run.status === "failed" && { failure: failureOf({ dir, task, run: task.runs.find(item => item.id === run.id) }) }) }));
+        const change = task.state === "merged" ? changeText(dir, folder, task, panel.runs) : undefined;
+        const body = Buffer.from(JSON.stringify({ ...panel, runs, files, brief: briefAbout(dir, task, panel.runs), ...(change !== undefined && { change }) }));
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Content-Length": body.length });
         return response.end(request.method === "HEAD" ? undefined : body);
       } catch { return fail(503, "The board snapshot is unavailable."); }
@@ -495,7 +500,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
   server.requestTimeout = 15_000;
   server.keepAliveTimeout = 5_000;
 
-  return Object.freeze({
+  const board = Object.freeze({
     start() {
       if (closed) return Promise.reject(new Error("the board server is closed"));
       if (startPromise) return startPromise;
@@ -512,6 +517,8 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
           refresh();
           server.listen(port, "127.0.0.1", () => {
             server.off("error", failed);
+            const bound = server.address().port;
+            for (const host of [`127.0.0.1:${bound}`, `localhost:${bound}`, `[::1]:${bound}`]) { local.add(host); origins.set(host, `http://${host}`); }
             if (id) boardHeader = `id=${id}; pid=${process.pid}; started=${Date.now()}`;
             accept(server.address());
           });
@@ -534,4 +541,5 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
       return closePromise;
     },
   });
+  return board;
 }

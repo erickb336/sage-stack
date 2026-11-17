@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { TaskPage, taskLink } from "./task.jsx";
-import { ChiefChips, QuestionView } from "./actions.jsx";
+import { ChiefChips, QuestionView, StopBoard, Stopped, useStopped } from "./actions.jsx";
 import { Agents, LimitCounts } from "./agents.jsx";
 import { AgentsIcon, AlertIcon, LeafIcon, MoonIcon, OverviewIcon, PullsIcon, StatsIcon, SunIcon, TasksIcon } from "./icons.jsx";
 import { Overview, ago } from "./overview.jsx";
@@ -48,6 +48,7 @@ function useHashPage(ready) {
     const changed = () => {
       const next = pageWithOldTaskLinkMoved();
       if (next.hash === TASK.hash && typeof history.state?.from !== "string") history.replaceState({ ...history.state, from: last.replace(/^#\/?/, "") }, "");
+      if (next.hash !== pageOf(last).hash && typeof history.state?.focus !== "string") scrollTo(0, 0);
       last = location.hash; setPage(next);
     };
     const keep = event => {
@@ -144,7 +145,7 @@ export function App() {
   const [current, unknown] = useProject(all, page);
   const model = all && projectView(all, current?.key ?? null);
   const [theme, flip] = useTheme();
-  const [chosen, setFilter] = useChiefFilter();
+  const [chosen, setFilter] = useChiefFilter(), stopped = useStopped();
   const filter = model?.chiefs.some(chief => chief.key === chosen) ? chosen : null;
   const picked = model?.chiefs.find(chief => chief.key === filter);
   const shown = (logbook, id) => !filter || `${logbook}/${id}` === filter;
@@ -158,6 +159,7 @@ export function App() {
     : page.hash === "stats" ? <Stats all={all} params={page.params} />
     : page.hash === "question" ? <QuestionView key={page.params.get("key")} needKey={page.params.get("key") ?? ""} model={model} theme={theme} archived={!!current?.archived} />
     : page.hash === TASK.hash ? <TaskPage key={page.params.get("key")} taskKey={page.params.get("key") ?? ""} tab={page.params.get("tab")} at={model?.at} from={history.state?.from} /> : null;
+  if (stopped) return <Stopped at={stopped} />;
   return (
     <div className="app">
       <aside className="side">
@@ -177,7 +179,7 @@ export function App() {
             ))}
           </ul>
         </nav>
-        <p className="foot">The logbook on this Mac is the source of each line. Your answers and names write to it.</p>
+        <div className="foot"><p className="src">The logbook on this Mac is the source of each line. Your answers and names write to it.</p><p className="lbl">Board</p><StopBoard /></div>
       </aside>
       <div className="col">
         <header className="top">

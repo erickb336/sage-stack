@@ -2,7 +2,6 @@ import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -123,13 +122,6 @@ test("T1121 S7: a failed run's reason comes from its failure line, then its kept
   assert.equal(failureOf({ dir, task: { id: "T3" }, run: { id: "R6", failure: "" } }), null);
 });
 
-async function freePort() {
-  const socket = createServer();
-  await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-  const { port } = socket.address();
-  await new Promise(accept => socket.close(accept));
-  return port;
-}
 const get = (base, path, headers = {}) => new Promise((accept, reject) => {
   const req = request(`${base}${path}`, { headers }, response => {
     let body = ""; response.setEncoding("utf8");
@@ -139,15 +131,15 @@ const get = (base, path, headers = {}) => new Promise((accept, reject) => {
   req.on("error", reject); req.end();
 });
 async function serve(t, w) {
-  const port = await freePort(), base = `http://127.0.0.1:${port}`;
-  const server = createBoardServer({ sources: w.sources, port, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [], clock: () => NOW });
+  const server = createBoardServer({ sources: w.sources, port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [], clock: () => NOW });
   t.after(() => server.close());
-  await server.start();
-  return base;
+  return `http://127.0.0.1:${(await server.start()).port}`;
 }
 
 test("T1121 R5: the app may frame only reader pages and the pages folder; a reader page opens in a frame only with ?in=board, without its top bar, and its links leave the frame; a pages file only in a frame of the board", async t => {
-  const w = world(t), base = await serve(t, w), origin = base;
+  const w = world(t);
+  writeFileSync(join(w.logbook, "briefs", "R5.md"), "Run R5 · task T3 (code-reviewer)\nGOAL review\n");
+  const base = await serve(t, w), origin = base;
   const app = await get(base, "/app/");
   assert.match(app.headers["content-security-policy"], new RegExp(`; frame-src ${origin}/read/ ${origin}/pages/; .*frame-ancestors 'none'`));
   const alone = await get(base, readerUrl(KEY("T10"), "page", "designs/v2/notes.md"));

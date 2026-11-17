@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { ago } from "./overview.jsx";
 import { ChiefDot, chiefName, controlsShown, ofChief, taskLink } from "./task.jsx";
-import { useNow } from "./use-model.js";
+import { useNow, when } from "./use-model.js";
 import { MARKS, OBJECTS, STEPS, UNKNOWN, URGENCY as WORDS, prName, shown } from "../../sage-core/state-words.mjs";
 
 const PRIORITIES = ["P0", "P1", "P2", "P3"];
 const ENDED_WORDS = ["done", "stopped"];
 const NONE = "—", SHOWN_CONFLICTS = 1;
 const order = (list, value) => (list.indexOf(value) + 1 || list.length + 1);
+const latest = task => Date.parse(task.doneAt ?? task.lastActivity) || 0;
+const SORTS = { "": ["Priority first", (a, b) => b.needsYou - a.needsYou || order(PRIORITIES, a.priority) - order(PRIORITIES, b.priority) || number(a.id) - number(b.id)], newest: ["Newest first", (a, b) => latest(b) - latest(a) || number(b.id) - number(a.id)] };
 const number = id => Number(String(id).replace(/^\D+/, "")) || 0;
 
 const GROUPS = {
@@ -90,25 +92,22 @@ export function Tasks({ model, params, chief = null }) {
   const [opened, setOpened] = useState(() => new Set(history.state?.opened ?? []));
   useEffect(() => { history.replaceState({ ...history.state, opened: [...opened] }, ""); }, [opened]);
   const now = useNow();
-  const focus = params.get("milestone");
+  const focus = params.get("milestone"), sort = Object.hasOwn(SORTS, params.get("sort")) ? params.get("sort") : "", since = Date.parse(params.get("since") ?? "");
   const group = focus || !Object.hasOwn(GROUPS, params.get("group")) ? "milestone" : params.get("group");
   const filters = Object.fromEntries(FILTERS.map(([key]) => [key, params.get(key) ?? ""]));
   const go = changes => { location.hash = hashOf(location.hash.split("?")[1] ?? "", changes); };
-  useEffect(() => {
-    if (focus) requestAnimationFrame(() => document.querySelector(`[data-group="${CSS.escape(focus)}"], .lost`)?.scrollIntoView({ block: "start" }));
-  }, [focus]);
 
   const tasks = useMemo(() => model.tasks.map(task => ({ ...task, who: chiefName(task.chief) })), [model.tasks]);
   const options = useMemo(() => Object.fromEntries(FILTERS.map(([key, , value]) => [key, [...new Set(tasks.map(value))].sort((a, b) => key === "state" ? order(WORDS, a) - order(WORDS, b) : a.localeCompare(b))])), [tasks]);
-  const shown = useMemo(() => tasks.filter(task => ofChief(task, chief) && FILTERS.every(([key, , value]) => !filters[key] || value(task) === filters[key])), [tasks, chief, ...Object.values(filters)]);
+  const shown = useMemo(() => tasks.filter(task => ofChief(task, chief) && (!focus || task.milestone?.key === focus) && (!since || task.state === "merged" && Date.parse(task.doneAt) > since) && FILTERS.every(([key, , value]) => !filters[key] || value(task) === filters[key])), [tasks, chief, focus, since, ...Object.values(filters)]);
   const groups = useMemo(() => {
     const how = GROUPS[group], rank = new Map(model.milestones.map((milestone, i) => [milestone.key, i])), map = new Map();
     for (const task of shown) { const key = how.of(task); if (!map.has(key)) map.set(key, { key: key || "none", title: how.title(task), tasks: [] }); map.get(key).tasks.push(task); }
     const sortKey = item => group === "milestone" ? (item.key === "none" ? Infinity : rank.get(item.key) ?? 1e6 + number(item.key.split("/").at(-1))) : how.rank?.(item.key === "none" ? "" : item.key) ?? 0;
     const sorted = [...map.values()].sort((a, b) => (a.tasks.every(task => task.ended) - b.tasks.every(task => task.ended)) || sortKey(a) - sortKey(b) || a.title.localeCompare(b.title));
-    for (const item of sorted) item.tasks.sort((a, b) => b.needsYou - a.needsYou || order(PRIORITIES, a.priority) - order(PRIORITIES, b.priority) || number(a.id) - number(b.id));
+    for (const item of sorted) item.tasks.sort(SORTS[sort][1]);
     return sorted.map((item, i) => ({ ...item, id: i }));
-  }, [shown, group, model.milestones]);
+  }, [shown, group, sort, model.milestones]);
 
   const open = shown.filter(task => !task.ended).length;
   const filtered = FILTERS.some(([key]) => filters[key]);
@@ -129,6 +128,10 @@ export function Tasks({ model, params, chief = null }) {
           <span className="lbl">Group by</span>
           {Object.entries(GROUPS).map(([key, item]) => <button type="button" key={key} aria-pressed={group === key} onClick={() => go({ group: key === "milestone" ? "" : key, milestone: "" })}>{item.name}</button>)}
         </div>
+        <div className="seg" role="group" aria-label="Sort">
+          <span className="lbl">Sort</span>
+          {Object.entries(SORTS).map(([key, [name]]) => <button type="button" key={key} aria-pressed={sort === key} onClick={() => go({ sort: key })}>{name}</button>)}
+        </div>
         <div className="seg" role="group" aria-label="Filter">
           <span className="lbl">Filter</span>
           {FILTERS.map(([key, label]) => (
@@ -144,6 +147,7 @@ export function Tasks({ model, params, chief = null }) {
         <span className="grow" />
         <span className="hint" role="status">{chief && `${chief.id}'s work · `}{open} open · {shown.length - open} ended</span>
       </div>
+      {(focus || since) && <p className="focus-note"><span className="badge">{focus ? `${OBJECTS.milestone.label}: ${milestones.get(focus)?.title ?? focus.split("/").pop()}` : `Merged since ${when(new Date(since).toISOString())}`}</span>{since > 0 && ` ${shown.length} ${shown.length === 1 ? "task" : "tasks"}${sort ? " · newest first" : ""}`} <a href={hashOf(params, { milestone: "", since: "" })}>Show all tasks</a></p>}
       {lost && (
         <section className="card group focus lost" aria-labelledby="g-lost">
           <div className="card-h"><h2 id="g-lost">{milestones.get(focus)?.title ?? needsOf(focus)[0]?.question ?? "This milestone"}</h2></div>
@@ -155,7 +159,7 @@ export function Tasks({ model, params, chief = null }) {
         ? groups.map(item => {
           const focused = group === "milestone" && item.key === focus;
           return <Group key={item.key} group={item} milestone={group === "milestone" ? milestones.get(item.key) : null} why={focused && <Why needs={needsOf(focus)} />} focus={focused}
-            open={opened.has(`${group}:${item.key}`)} shown={focused || ENDED_WORDS.includes(filters.state)} toggle={() => toggle(item.key)} row={row} />;
+            open={opened.has(`${group}:${item.key}`)} shown={focused || since > 0 || ENDED_WORDS.includes(filters.state)} toggle={() => toggle(item.key)} row={row} />;
         })
         : <p className="empty card">{model.tasks.length ? "No task matches these filters." : "No tasks yet. A task starts when you ask the chief for a change."}</p>}
     </>

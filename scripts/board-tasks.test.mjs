@@ -2,7 +2,6 @@ import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -29,18 +28,10 @@ function world(t, options) {
 }
 const modelOf = sources => buildBoardModel(readBoardSources(sources, { now: Date.parse(NOW) }), { now: NOW });
 
-async function freePort() {
-  const socket = createServer();
-  await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-  const { port } = socket.address();
-  await new Promise(accept => socket.close(accept));
-  return port;
-}
 async function serve(t, sources) {
-  const port = await freePort(), server = createBoardServer({ sources, port, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [] });
+  const server = createBoardServer({ sources, port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [] });
   t.after(() => server.close());
-  await server.start();
-  return `http://127.0.0.1:${port}`;
+  return `http://127.0.0.1:${(await server.start()).port}`;
 }
 
 test("T1061: the stream lists every task with its state word, priority, kind, chief tag and may-conflict flag; ended tasks are marked", t => {

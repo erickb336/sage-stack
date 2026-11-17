@@ -21,16 +21,6 @@ const NAMES = ["tasks", "runs", "findings", "ledger", "gates", "decisions"];
 const LOGBOOK = "project-abcdef";
 const SWITCH = `<script>${SWITCH_SCRIPT}</script>`;
 
-async function freePort() {
-  for (;;) {
-    const socket = createServer();
-    await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-    const { port } = socket.address();
-    await new Promise((accept) => socket.close(accept));
-    if (![4173, 43123].includes(port)) return port;
-  }
-}
-
 function logbook(root, name) {
   const dir = join(root, name);
   mkdirSync(dir, { recursive: true });
@@ -71,13 +61,13 @@ function sampleRoot(base) {
 }
 
 async function fixture(t) {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-pages-"))), source = join(base, "source"), port = await freePort();
+  const base = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-pages-"))), source = join(base, "source");
   logbook(source, LOGBOOK);
   const root = sampleRoot(base), before = process.env.SAGE_WORKTREES;
   process.env.SAGE_WORKTREES = root;
-  const server = createBoardServer({ sources: [{ id: "sample", path: source, label: "Sample" }], port, app: loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", import.meta.url))) });
+  const server = createBoardServer({ sources: [{ id: "sample", path: source, label: "Sample" }], port: 0, app: loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", import.meta.url))) });
   t.after(async () => { await server.close(); if (before === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = before; rmSync(base, { recursive: true, force: true }); });
-  await server.start();
+  const { port } = await server.start();
   return { base, root, port, t1: join(root, LOGBOOK, "pages", "T1") };
 }
 
@@ -445,10 +435,10 @@ async function messageSandbox(t) {
   const folder = sage("pages", "T1").out, name = basename(dirname(dirname(folder)));
   const book = readdirSync(base, { recursive: true }).map((path) => join(base, path)).find((path) => basename(path) === name && !path.includes(`${join(base, "worktrees")}`));
   assert.ok(book, "the sandbox's logbook");
-  const port = await freePort(), before = process.env.SAGE_WORKTREES;
+  const before = process.env.SAGE_WORKTREES;
   process.env.SAGE_WORKTREES = env.SAGE_WORKTREES;
-  const server = createBoardServer({ sources: [{ id: "sample", path: dirname(book) }], port });
+  const server = createBoardServer({ sources: [{ id: "sample", path: dirname(book) }], port: 0 });
   t.after(async () => { await server.close(); if (before === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = before; });
-  await server.start();
+  const { port } = await server.start();
   return { base, sage, folder, name, port };
 }
