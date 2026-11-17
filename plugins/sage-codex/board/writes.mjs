@@ -4,11 +4,11 @@ import { Worker, isMainThread, parentPort, workerData } from "node:worker_thread
 import { createStateTool } from "../core/index.mjs";
 
 const OWNER = [["gate", "answer"], ["gate", "undo"], ["gate", "give"], ["chief", "name"]];
-const ARCHIVE = [["config", "archived=yes"], ["config", "archived=no"]];
+export const ARCHIVE_JOBS = { archive: ["config", "archived=yes"], restore: ["config", "archived=no"] };
 const WRITE_MS = 30_000;
 const UNEXPECTED = { code: 2, pending: true, text: "The logbook write stopped with an unexpected error, so the board cannot say whether it landed. Reload the board to see it before you try again." };
 const open = new Set();
-export const archiveCommand = argv => Array.isArray(argv) && ARCHIVE.some(form => form.length === argv.length && form.every((word, i) => argv[i] === word));
+export const archiveCommand = argv => Array.isArray(argv) && Object.values(ARCHIVE_JOBS).some(form => form.length === argv.length && form.every((word, i) => argv[i] === word));
 export const ownerCommand = argv => archiveCommand(argv) || Array.isArray(argv) && argv.every(word => typeof word === "string") && OWNER.some(([cmd, sub]) => argv[0] === cmd && argv[1] === sub);
 export const writesEnded = () => Promise.all(open);
 

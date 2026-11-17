@@ -360,7 +360,29 @@ test("T1125: one click on the chief's link pairs a fresh browser, takes the key 
   await late.getByText(/^This link expired at \d\d:\d\d: a link works for 10 minutes\./).waitFor();
   const wrong = await other.newPage();
   await wrong.goto(`${w.origin}/app/#pair=${"A".repeat(43)}`);
-  await wrong.getByText(/^The board refused this link: it is not a link of this board\./).waitFor();
+  await wrong.getByText(/^The board does not know this link: it is not a link of this board, or it is older than the board's last 8 links\./).waitFor();
+  assert.deepEqual(w.problems, []);
+});
+
+test("F-T1159-11, F-T1159-12: a link pasted into a board tab that is open pairs it at once; a link older than the last 8 says so, not that it is another board's", async t => {
+  const w = await openBoard(t);
+  const other = await w.context.browser().newContext();
+  t.after(() => other.close());
+  const page = await other.newPage();
+  await page.goto(`${w.origin}/app/`);
+  await page.getByRole("heading", { name: "Pair this browser to act from the board" }).waitFor();
+  const key = startLink(w.stateDir);
+  await page.evaluate(key => { location.hash = `#pair=${key}`; }, key);
+  await page.getByText("This browser is paired. You can now answer questions and send from the board. The link is used up.").waitFor();
+  assert.match(page.url(), new RegExp(`^${w.origin}/app/(#\\?project=[a-z0-9-]+)?$`), "the key left the address bar");
+  await page.getByRole("heading", { name: "Pair this browser to act from the board" }).waitFor({ state: "detached" });
+  for (let n = 0; n < 9; n++) startLink(w.stateDir);
+  await page.evaluate(key => { location.hash = `#pair=${key}`; }, key);
+  await page.getByText(/^This browser is paired already\./).waitFor();
+  const fresh = await (await w.context.browser().newContext()).newPage();
+  t.after(() => fresh.context().close());
+  await fresh.goto(`${w.origin}/app/#pair=${key}`);
+  await fresh.getByText(/^The board does not know this link: it is not a link of this board, or it is older than the board's last 8 links\./).waitFor();
   assert.deepEqual(w.problems, []);
 });
 

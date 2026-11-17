@@ -213,7 +213,7 @@ test("T1083: only a running agent's outline moves, and reduced motion stops it",
 
 test("T1083: the arena card shows the candidates, then the judge, and says when its scores come", async t => {
   const base = await board(t), { page } = await open(t, base, "/app/#agents");
-  const arena = page.locator(`section.acard.arena[aria-label="Arena of T11"]`);
+  const arena = page.locator(`section.acard.arena[aria-label="Arena of Sample sync build, T11"]`);
   await arena.waitFor();
   assert.deepEqual(await arena.locator(".squad > *").evaluateAll(list => list.map(item => item.dataset.run ?? item.className)), ["R50", "R51", "ar-arrow", "ag ended wait"], "the candidates in order, the arrow, then the judge that waits");
   assert.equal(await arena.locator(".tot b").textContent(), "1 of 2 ended");

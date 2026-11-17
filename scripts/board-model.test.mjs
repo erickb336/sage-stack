@@ -572,7 +572,7 @@ test("T305, T1135: the picker's list puts needs you first, then active in the la
     { key: "claude/gone-cccccc", name: "gone-cccccc", checkout: "/sample/work/gone", archived: true, diagnostics: [], tables: { tasks: [task("T1", "framed")] } },
     { key: "claude/broken-dddddd", name: "broken-dddddd", checkout: "/sample/work/broken", diagnostics: ["tasks: damaged table header"], tables: {} },
   ] }], { now });
-  assert.deepEqual(withActivity.projects.map(project => [project.list, project.name, project.needsOwner]), [["needs", "broken-dddddd", 1], ["needs", "seacc (Council Record)", 1], ["active", "fresh", 0], ["quiet", "old", 0], ["archived", "gone", 0]]);
+  assert.deepEqual(withActivity.projects.map(project => [project.list, project.name, project.needsOwner]), [["needs", "broken", 1], ["needs", "seacc (Council Record)", 1], ["active", "fresh", 0], ["quiet", "old", 0], ["archived", "gone", 0]]);
   const sdc = withActivity.projects[1];
   assert.equal(sdc.sub, "sample-org/seacc · folder product-demos");
   assert.deepEqual(sdc.terms, ["seacc (Council Record)", "sample-org/seacc", "sample-owner/seacc", "product-demos", "product-demos-1c0254", "claude/product-demos-1c0254"]);
@@ -760,9 +760,9 @@ test("T383 items 4 and 13: a proposed or changing milestone whose pilot is aband
 test("T383 item 7: when tasks.tsv and milestones.tsv of one logbook both fail, or every table has one error code, one item says why", () => {
   const broken = diagnostics => { const source = milestonesSource(); Object.assign(source.projects[0], { tables: {}, diagnostics }); return buildBoardModel([source], { now: MILESTONES_NOW }); };
   assert.deepEqual(needsOf(broken(["tasks: line 14 has 9 cells, and its header has 16", "milestones: line 2: the pilot of M1 is not a task id"])), [
-    ["logbook", "The Claude logbook cannot be read", "tasks.tsv line 14 has 9 cells, and its header has 16. milestones.tsv line 2: the pilot of M1 is not a task id. The board shows no task of sage-ff5ee2. Ask the chief to repair the logbook."]]);
+    ["logbook", "The Claude logbook cannot be read", "tasks.tsv line 14 has 9 cells, and its header has 16. milestones.tsv line 2: the pilot of M1 is not a task id. The board shows no task of sage (sample). Ask the chief to repair the logbook."]]);
   const folder = broken(["tasks", "runs", "findings", "ledger", "gates", "decisions", "milestones"].map(name => `${name}: EACCES`));
-  assert.deepEqual(needsOf(folder), [["logbook", "The Claude logbook cannot be read", "Its folder has no read permission. The board shows no task of sage-ff5ee2. Ask the chief to repair the logbook."]]);
+  assert.deepEqual(needsOf(folder), [["logbook", "The Claude logbook cannot be read", "Its folder has no read permission. The board shows no task of sage (sample). Ask the chief to repair the logbook."]]);
   assert.equal(folder.counts.needsOwner, 1);
   const read = broken(["tasks", "runs", "findings", "ledger", "gates", "decisions", "milestones", "releases", "programs", "chiefs", "observations", "checkout"].map(name => `${name}: EACCES`));
   assert.deepEqual(needsOf(read), needsOf(folder));

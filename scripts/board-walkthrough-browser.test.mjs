@@ -148,7 +148,7 @@ test("T1126 S15, S12: the tabs sit under the title with About first; a merged ta
   for (const width of [1440, 390]) {
     const { page, problems } = await open(t, w, taskPage("T3"), { width, height: 844 });
     await page.locator(".about-card").waitFor();
-    assert.deepEqual(await page.getByRole("tab").allTextContents(), ["About", "Artifacts 14", "Log 13", "Decisions 1"]);
+    assert.deepEqual(await page.getByRole("tab").allTextContents(), ["About", "Artifacts 14", "Log 14", "Decisions 1"]);
     assert.equal(await page.getByRole("tab", { name: "About" }).getAttribute("aria-selected"), "true");
     const tabs = (await page.locator('[role="tablist"]').boundingBox()).y;
     assert.ok(tabs < (width < 760 ? 700 : 400), `${width} px: the tabs start at ${tabs} px, before About's parts`);
@@ -286,10 +286,52 @@ test("T1126 F-T1126-13: one long word in a lead's RESULT wraps, and the task pag
 test("T1126 F-T1126-10: the arena card links the judge's report only when the logbook keeps it", async t => {
   for (const [judge, kept] of [["none", false], ["report", true]]) {
     const w = await board(t, { judge }), { page, problems } = await open(t, w, "/app/#agents");
-    const said = page.locator('section.acard.arena[aria-label="Arena of T11"] .ar-res');
+    const said = page.locator('section.acard.arena[aria-label="Arena of Sample sync build, T11"] .ar-res');
     await said.waitFor();
     assert.equal(await said.getByRole("link", { name: "the judge's report R52" }).count(), kept ? 1 : 0);
     assert.equal(/No report of R52/.test(await said.textContent()), !kept);
     assert.deepEqual(problems, []);
+  }
+});
+
+test("T1159 F-T1159-45, F-T1159-44: the first steps keep the pairing box, and a Copy that the browser blocks says so", async t => {
+  for (const kind of [{ noTasks: true }, { empty: true }]) {
+    const w = await board(t, kind);
+    const { page, problems } = await open(t, w, "/app/");
+    await page.locator("h2", { hasText: "Start your first task" }).waitFor();
+    assert.equal(await page.locator("form.pair").count(), 1, `${Object.keys(kind)[0]}: the start card keeps the pairing box, so the browser can pair before the first task`);
+    await page.evaluate(() => { navigator.clipboard.writeText = () => Promise.reject(new Error("sample: blocked")); });
+    const copy = kind.empty ? page.locator(".start .pair-cmd button") : page.locator("form.pair .pair-cmd button");
+    await copy.click();
+    await page.locator(kind.empty ? ".start [role=alert]" : "form.pair [role=alert]", { hasText: "This browser did not let the board copy. Select the text and copy it." }).waitFor();
+    assert.equal(await copy.textContent(), "Copy");
+    assert.deepEqual(problems, []);
+  }
+});
+
+test("T1159 F-T1159-13: a damaged board-seen value in the browser shows the last 24 hours, never Invalid Date", async t => {
+  const w = await board(t);
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "dark" });
+  t.after(() => context.close());
+  await context.addInitScript(() => { localStorage.setItem("board-seen", "sample garbage"); sessionStorage.setItem("board-seen", "not a time"); });
+  await context.route("**/*", route => route.request().url().startsWith(`${w.base}/`) ? route.continue() : route.abort());
+  const page = await context.newPage();
+  await page.goto(`${w.base}/app/`);
+  await page.locator("#counts-h").waitFor();
+  assert.equal(await page.locator("#counts-h").textContent(), "In the last 24 hours");
+});
+
+test("T1159 F-T1159-41, F-T1159-43: Back to the Overview from a page that a link or the page list opened returns to the same scroll place and link", async t => {
+  const w = await board(t);
+  const { page } = await open(t, w, "/app/", { width: 1440, height: 500 });
+  await page.locator(".ms .name a").first().waitFor();
+  for (const go of [() => page.locator(".ms .name a").first().click(), () => page.locator(".nav a", { hasText: "Tasks" }).click()]) {
+    await page.evaluate(() => scrollTo(0, 260));
+    await go();
+    await page.locator("main h1", { hasText: "Tasks" }).waitFor();
+    assert.equal(await page.evaluate(() => scrollY), 0, "the new page opens at its top");
+    await page.goBack();
+    await page.locator("main h1", { hasText: "Overview" }).waitFor();
+    await page.waitForFunction(() => Math.abs(scrollY - 260) < 2);
   }
 });

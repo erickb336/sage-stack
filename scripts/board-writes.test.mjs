@@ -384,12 +384,12 @@ test("F-T1059-52, F-T1059-28: the real board process answers a clear 500 and sta
   }
 });
 
-test("T1126: Stop from a paired browser closes the real board process: its port is free and its board.pid is gone; a browser that is not paired and a page on another port cannot stop it", async t => {
+test("T1126, F-T1159-40: Stop from a paired browser closes the real board process: its port is free, its board.pid is gone and the process ends; a browser that is not paired and a page on another port cannot stop it", async t => {
   const w = await board(t);
   const config = join(w.base, "serve", "board.json"), port = await boardCommandPort();
   await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify([{ id: "shared", path: w.env.SAGE_SHARED_HOME }])], { output: () => {}, env: w.env });
   const child = spawn(process.execPath, [TEST_CHILD, CLI, "board", "--serve", "--config", config], { env: w.env, stdio: ["ignore", "ignore", "pipe", "ipc"] });
-  const closed = new Promise(done => child.once("exit", done));
+  const closed = new Promise(done => child.once("exit", code => done(code)));
   try {
     await waitFor(async () => (await call(port, "/app/", { method: "GET" }).catch(() => null))?.status === 200, "the board process listens");
     assert.ok(existsSync(join(w.base, "serve", "board.pid")), "the running board keeps its board.pid");
@@ -405,6 +405,8 @@ test("T1126: Stop from a paired browser closes the real board process: its port 
     assert.match(stopped.json.text, /^The board stopped\. To start it again, type show board in a chief's chat\.$/);
     await waitFor(async () => (await call(port, "/app/", { method: "GET" }).catch(error => error.code)) === "ECONNREFUSED", "the port is free");
     await waitFor(() => !existsSync(join(w.base, "serve", "board.pid")), "board.pid is gone");
+    child.send({ kind: "stopped" });
+    assert.equal(await closed, 0, "F-T1159-40: the board process ends on its own after Stop, within 10 s, with nothing left that holds it");
   } finally {
     if (child.connected) child.send({ kind: "close-tree" }, () => {});
     await closed;

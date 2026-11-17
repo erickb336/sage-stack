@@ -369,3 +369,85 @@ test("T1137: a partial Archive from a missing checkout.txt that the board shows 
   assert.deepEqual(w.books(), [false, false]);
   assert.deepEqual(w.problems.filter(problem => !/status of 409/.test(problem)), []);
 });
+
+test("T1159 F-T1159-22, -37, -38, -19: the picker keeps the focus on its button after a keyboard pick and after Restore, names the project on Restore, and a plain link never reopens an archived project", async t => {
+  const w = await openBoard(t), { page } = w;
+  await page.goto(`${w.origin}/app/#pair=${startLink(w.stateDir)}&project=${basename(w.dirs.quarry)}`);
+  await page.getByText(/^This browser is paired\./).waitFor();
+  const onPicker = () => page.evaluate(() => document.activeElement?.matches("header .picker") ?? false);
+
+  await picker(page).click();
+  await page.locator(`.pick-menu a[data-project="${basename(w.dirs.orchard)}"]`).focus();
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => !document.querySelector(".pick-menu"));
+  await picker(page).filter({ hasText: "orchard" }).waitFor();
+  assert.equal(await onPicker(), true, "F-T1159-22: after a keyboard pick the focus is on the picker, not on the page body");
+
+  const row = await pick(page, "harbor");
+  await row.getByRole("button", { name: "Archive harbor" }).click();
+  await page.getByRole("dialog", { name: "Archive harbor?" }).getByRole("button", { name: "Archive", exact: true }).click();
+  await page.getByText("harbor is archived.").waitFor();
+  await picker(page).click();
+  const archivedRow = page.locator(".pick-menu details", { hasText: "Archived · 1 project" });
+  await archivedRow.locator("summary").click();
+  await archivedRow.getByRole("button", { name: "Restore harbor", exact: true }).click();
+  await page.getByText("harbor is restored.").waitFor();
+  await page.waitForFunction(() => !document.querySelector(".pick-menu"));
+  await page.waitForTimeout(1500);
+  assert.equal(await page.evaluate(() => document.activeElement === document.body), false, "F-T1159-37, -38: Restore names its project, and then the focus stays on the board's note, not on the page body");
+
+  const quarry = await pick(page, "quarry");
+  await quarry.getByRole("button", { name: "Archive quarry" }).click();
+  await page.getByRole("dialog", { name: "Archive quarry?" }).getByRole("button", { name: "Archive", exact: true }).click();
+  await page.getByText("quarry is archived.").waitFor();
+  await page.goto(`${w.origin}/app/#?project=${basename(w.dirs.quarry)}`);
+  await picker(page).filter({ hasText: "quarry" }).waitFor();
+  await page.locator(`.banner.archived[data-archived$="${basename(w.dirs.quarry)}"]`).waitFor();
+  await page.goto(`${w.origin}/app/`);
+  await page.getByRole("heading", { name: "Overview", level: 1 }).waitFor();
+  await page.reload();
+  await page.getByRole("heading", { name: "Overview", level: 1 }).waitFor();
+  assert.doesNotMatch(await picker(page).textContent(), /quarry/, "F-T1159-19: a plain link opens a project that is not archived, not the last one");
+  assert.deepEqual(w.problems, []);
+});
+
+test("F-T1159-31: after a reload, a project whose logbooks disagree still says so, and offers Archive and Restore", async t => {
+  const w = await openMeadow(t);
+  busy(w.dirs.meadowClaude);
+  await w.archive();
+  await partialNote(w, "shown", `Archived in 1 of 2 logbooks. The Claude logbook of meadow did not save. ${SHOWN}`, "the note right after the write");
+  assert.equal(await w.page.locator("[data-mixed]").count(), 0, "one note at a time: the banner waits while the note shows");
+  await w.page.reload();
+  const mixed = w.page.locator("[data-mixed]");
+  await mixed.waitFor();
+  assert.equal(await mixed.textContent(), "The Codex logbook of meadow is archived, and the Claude logbook is not. The project stays shown until both agree. Archive Restore", "the reload keeps the mixed state in view");
+  await w.page.locator(".nav a", { hasText: "Tasks" }).click();
+  await w.page.locator("main h1", { hasText: "Tasks" }).waitFor();
+  assert.equal(await mixed.count(), 1, "each page of the project shows it");
+  free(w.dirs.meadowClaude);
+  await mixed.getByRole("button", { name: "Archive" }).click();
+  await w.page.getByText("meadow is archived.").waitFor();
+  assert.deepEqual(w.books(), [true, true], "Archive brings the other logbook along");
+  await mixed.waitFor({ state: "detached" });
+  assert.deepEqual(w.problems.filter(problem => !/status of 409/.test(problem)), []);
+});
+
+test("F-T1159-36: an Archive that saves in no logbook keeps the confirm open with the reason and Try again; a lost connection says that the write may have landed", async t => {
+  const w = await openMeadow(t);
+  busy(w.dirs.meadowClaude); busy(w.dirs.meadow);
+  await w.archive();
+  const dialog = w.page.getByRole("dialog", { name: "Archive meadow?" }), refused = dialog.locator("p.refused");
+  await refused.waitFor();
+  assert.match(await refused.textContent(), /^Archive did not save\. \S/, "the head, then the state tool's reason");
+  assert.ok(!(await refused.textContent()).includes(w.dirs.meadow) && !(await refused.textContent()).includes(w.dirs.meadowClaude), "no full path of a logbook, only a short …/name");
+  assert.equal(await dialog.getByRole("button", { name: "Try again" }).count(), 1);
+  assert.deepEqual(w.books(), [false, false], "nothing changed");
+  free(w.dirs.meadowClaude); free(w.dirs.meadow);
+  await w.page.route("**/api/archive", route => route.abort());
+  await dialog.getByRole("button", { name: "Try again" }).click();
+  const pending = w.page.locator(".banner:not(.fail):not(.archived)", { hasText: "lost its connection" });
+  await pending.waitFor();
+  assert.equal(await pending.textContent(), "The board lost its connection to its server on this Mac, so it cannot say whether the write landed. Reload the board to see it before you try again.");
+  assert.equal(await pending.getByRole("button").count(), 0, "no Try again: the write may have landed");
+  assert.deepEqual(w.problems.filter(problem => !/status of 409|ERR_FAILED/.test(problem)), []);
+});

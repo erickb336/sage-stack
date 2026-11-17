@@ -90,7 +90,7 @@ function frameHtml(logbook, task, file) {
 <body><p role="note"><strong>Warning:</strong> ${SCRIPT_PAGE_NOTE} Only a link to another page of ${task} opens here. <a href="/pages/${logbook}/${task}/">All pages of ${task}</a></p><iframe src="${name}" sandbox="allow-scripts" title="${name}"></iframe></body></html>\n`;
 }
 
-export function servePages(request, response, { onMac, model }) {
+export function servePages(request, response, { onMac, model, reader = true }) {
   const send = (status, type, body, policy = pagePolicy(), alone = false) => {
     response.setHeader("Content-Security-Policy", policy);
     if (alone) response.setHeader("Cross-Origin-Opener-Policy", "same-origin");
@@ -112,7 +112,7 @@ export function servePages(request, response, { onMac, model }) {
   const folder = pageTaskFolder(target.logbook, target.task);
   if (!folder) return missing();
   const onBoard = model?.tasks?.find((task) => task.id === target.task && task.project.slice(task.project.indexOf("/") + 1) === target.logbook);
-  const read = (file) => onBoard && file.endsWith(".md") ? readerUrl(onBoard.key, "page", file) : null;
+  const read = (file) => reader && onBoard && file.endsWith(".md") ? readerUrl(onBoard.key, "page", file) : null;
   if (!target.file) { try { return send(200, "text/html; charset=utf-8", indexHtml(target.logbook, target.task, folder, read), INDEX_POLICY, true); } catch { return send(503, PLAIN, "This index is unavailable.\n"); } }
   const bytes = pageFile(folder, target.file, true)?.bytes;
   if (!bytes) return missing();

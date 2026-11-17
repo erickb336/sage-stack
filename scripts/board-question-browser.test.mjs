@@ -518,6 +518,10 @@ test("T1156 F-T1156-40, -47: an answer sent while the Archive write lands is ref
   w.config("archived=yes");
   await page.getByText(/^You answered G2: send them\. Recorded in the logbook\. The project is archived now, so it waits until you restore it\. Then Codex · C2 picks it up\./).waitFor();
   assert.equal(await page.locator(".send").getByRole("button", { name: "Undo" }).count(), 0, "F-T1156-46: no Undo that the archive would refuse");
+  await page.locator(".send").getByRole("button", { name: "Restore" }).waitFor({ timeout: 5000 });
+  await page.reload();
+  await page.getByText(/so it waits until you restore it/).waitFor();
+  assert.equal(await page.locator(".send").getByRole("button", { name: "Restore" }).count(), 1, "T1159 F-T1159-52: the line that says to restore offers Restore, also after a reload");
 });
 
 test("T1156 F-T1156-23: in a report in the frame, the link to the same question closes the file, and opens no second tab", async t => {
@@ -527,4 +531,27 @@ test("T1156 F-T1156-23: in a report in the frame, the link to the same question 
   await page.frameLocator(".viewer iframe").getByRole("link", { name: "Open G1" }).click();
   await page.locator(".viewer").waitFor({ state: "detached" });
   assert.equal(page.context().pages().length, 1);
+});
+
+test("T1159 F-T1159-4: when the message holds its answers in a section, the answers show there, in the message's order, and not again as a table", async t => {
+  const nested = { kind: "question", title: "Which copy rule?", blocks: [
+    { t: "field", label: "Where", text: "The sample task sets the copy rule." },
+    { t: "field", label: "Approve", text: "The copy rule." }, { t: "field", label: "Choice", text: "Does a viewer copy?" },
+    { t: "section", label: "Question 1: Copy rule", body: [{ t: "p", text: "Sample text before the answers." }, { t: "table", head: ["Answer", "Next", "Cost"], rows: [["A: copy", "The chief adds it.", "1 h"], ["B: no copy", "View only.", "none"]], pick: 0 }] },
+    { t: "field", label: "Default", text: "Sample default after the answers." }, { t: "field", label: "Due", text: "Sample: no time." }, { t: "field", label: "Next", text: "The chief builds the task." }] };
+  const w = await openBoard(t, SIZES[2], { setup: as => {
+    writeFileSync(join(tmpdir(), `t1159-nested-${process.pid}.json`), JSON.stringify(nested));
+    as("C1", "gate", "add", "T1", "--question", "Which copy rule?", "--options", "A: copy|B: no copy", "--recommend", "A: copy", "--message", join(tmpdir(), `t1159-nested-${process.pid}.json`));
+  } });
+  rmSync(join(tmpdir(), `t1159-nested-${process.pid}.json`), { force: true });
+  const { page } = w;
+  await page.goto(`${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G3`)}`);
+  await page.locator("#question-h", { hasText: "Which copy rule?" }).waitFor();
+  const order = await page.evaluate(() => {
+    const main = document.querySelector(".q-main"), at = node => [...main.querySelectorAll("*")].indexOf(node);
+    const text = words => [...main.querySelectorAll("p, h3")].find(node => node.textContent.includes(words));
+    return { section: at(text("Question 1: Copy rule")), before: at(text("Sample text before the answers.")), answers: at(main.querySelector(".answers")), after: at(text("Sample default after the answers.")), tables: main.querySelectorAll(".context table").length };
+  });
+  assert.ok(order.section >= 0 && order.section < order.before && order.before < order.answers && order.answers < order.after, `the answers sit where the message holds them: ${JSON.stringify(order)}`);
+  assert.equal(order.tables, 0, "the answers show once, as the answers, not again as a table");
 });

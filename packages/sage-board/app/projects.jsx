@@ -16,7 +16,12 @@ export function projectView(model, key) {
 }
 
 function useMenu() {
-  const [open, setOpen] = useState(false), box = useRef(null);
+  const [open, setOpen] = useState(false), box = useRef(null), was = useRef(false);
+  useEffect(() => {
+    const lost = document.activeElement === document.body || box.current?.contains(document.activeElement);
+    if (was.current && !open && lost) box.current?.querySelector("button")?.focus({ preventScroll: true });
+    was.current = open;
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const key = event => { if (event.key === "Escape") { setOpen(false); box.current?.querySelector("button")?.focus(); } };
