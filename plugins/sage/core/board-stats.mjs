@@ -1,3 +1,4 @@
+import { folderProblems } from "./board-model.mjs";
 import { projectNames } from "./board-overview.mjs";
 import { ENDED } from "./milestone-rules.mjs";
 import { WORDS } from "./state-words.mjs";
@@ -9,6 +10,9 @@ const title = text => text.charAt(0).toUpperCase() + text.slice(1);
 const TOKENS = /^[1-9]\d{0,11}$/;
 const mondayOf = at => { const day = new Date(at); day.setUTCHours(0, 0, 0, 0); return day.getTime() - ((day.getUTCDay() + 6) % 7) * DAY; };
 const hours = ms => Math.round(ms / 360000) / 10;
+const LEFT_OUT_BY_TABLE = { runs: "the agent time and tokens", decisions: "the merges", gates: "the questions" };
+const and = list => list.length > 1 ? `${list.slice(0, -1).join(", ")} and ${list.at(-1)}` : list[0];
+const leftOut = tables => tables.includes("tasks") ? "every task" : and(Object.keys(LEFT_OUT_BY_TABLE).filter(name => tables.includes(name)).map(name => LEFT_OUT_BY_TABLE[name])) ?? null;
 const median = list => { if (!list.length) return null; const sorted = [...list].sort((a, b) => a - b), mid = sorted.length >> 1; return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2; };
 
 export function boardStats(model, project = null) {
@@ -39,8 +43,8 @@ export function boardStats(model, project = null) {
     for (const key of ["merged", "open", "needs", "ms", "tokens"]) total[key] += row[key];
     return { ...row, hours: hours(row.ms) };
   });
-  const gaps = [...(model.sources ?? []).filter(source => source.diagnostics?.length).map(source => ({ what: `the ${title(source.label ?? source.id)} logbook folder` })),
-    ...shown.flatMap(item => (item.unread ?? []).map(label => ({ project: names.get(item.key), what: `the ${label} logbook of ${names.get(item.key)}` })))];
+  const gaps = [...(model.sources ?? []).filter(source => folderProblems(source).length).map(source => ({ what: `every project in the ${title(source.label ?? source.id)} logbook folder` })),
+    ...shown.flatMap(item => (item.unread ?? []).filter(book => leftOut(book.tables)).map(book => ({ project: names.get(item.key), what: `${leftOut(book.tables)} of the ${book.logbook} logbook of ${names.get(item.key)}` })))];
   return {
     at: model.at, project, weeks: Array.from({ length: STATS_WEEKS }, (_, i) => new Date(first + i * WEEK).toISOString().slice(0, 10)),
     logbooks: shown.reduce((n, item) => n + (item.books?.length ?? 0), 0), gaps,

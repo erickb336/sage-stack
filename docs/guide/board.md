@@ -216,25 +216,25 @@ The Pull requests page (`/app/#pull-requests`) groups the tasks with a PR by the
 
 Stats (`/app/#stats`) is the last link in the left column. It shows numbers and charts from the logbooks on this Mac, and never a task list.
 
-The **Show** list at the top picks **All projects** (the default) or one project; archived projects count too, with the mark "(archived)". The address keeps the choice, for example `/app/#stats?show=sage-43265b`.
+The **Show** list at the top picks **All projects** (the default) or one project; archived projects count too, with the mark "(archived)". The address keeps the choice, for example `/app/#stats?show=sage-43265b`. The Show list is the only scope on Stats: the top bar shows no picker there, and the chief chips do not show.
 
 | Number | What it counts |
 | --- | --- |
 | Pull requests merged | Tasks merged in the last 8 weeks, per week (weeks start on Monday, UTC), and by project. |
 | Open tasks | Open tasks now, by their state word: not started, waiting, needs you, in progress. |
 | Need you | Questions and merges that wait for you now, by project; the same count as the picker. |
-| Agent time | Hours from the start to the end of each ended run, per week and by project. A run that still runs does not count yet. |
+| Agent time | Hours from the start to the end of each ended run, per week and by project. A run that still runs does not count yet. The runs of a task that moved to the shared logbook stay in its old logbook, and they count in the project. |
 | Tokens | The token counts of the runs, per week and by project. A run with no count is left out, and the tile says how many. |
 | Repair rounds | The repair rounds of each pull request merged in the last 8 weeks: 0, 1, 2, 3 or more, and the median. |
 | Money spent, your own time | "not recorded yet": the logbooks do not keep them, so Stats does not guess them. |
 
-Each chart has a table with the same numbers for a screen reader, and a bar shows its number when you point at it.
+Each chart has a table with the same numbers for a screen reader, and a bar shows its number when you point at it. A column chart names what it counts on its side (for example "Hours") and under its columns (for example "Week that starts on Monday (UTC)"), and each week shows its day and month.
 
 - **Loading:** Stats says how many logbooks it reads.
 - **Empty:** with no task in any logbook, it says "No numbers yet".
-- **Part failed:** when a logbook cannot be read, a banner names it, and the numbers count the other logbooks.
+- **Part failed:** when a logbook file cannot be read, one banner says what the numbers leave out, for example "the agent time and tokens of the Claude logbook of sage" when only its runs cannot be read. The rest still counts. A config.json that cannot be read leaves out nothing.
 
-The board reads Stats from the logbooks when the page asks for it, not on each live update.
+The board reads Stats from the newest read of the logbooks, also while the other pages show the last good copy, and Stats reads again when its numbers change.
 
 ## The question view and the reader
 

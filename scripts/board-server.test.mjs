@@ -534,6 +534,21 @@ test("T1138: GET /app/stats gives the numbers of all projects or of one, names a
   appendFileSync(join(f.project, "tasks.tsv"), row("Sample new task", "T3"));
   let gaps = [];
   for (let i = 0; i < 100 && !gaps.length; i++) { await new Promise(done => setTimeout(done, 100)); gaps = (await get("/app/stats")).json.gaps; }
-  assert.deepEqual(gaps, [{ project: "project-abcdef", what: "the Sample source logbook of project-abcdef" }], "the stats read the new logbook, not the board's last good copy");
+  assert.deepEqual(gaps, [{ project: "project", what: "the agent time and tokens of the Sample source logbook of project" }], "the stats read the new logbook, not the board's last good copy; F-T1158-10: only the runs are left out; F-T1158-7: the project keeps its name");
   assert.equal((await get("/app/stats")).json.total.open, 2, "the rest still counts, with the new task");
+});
+
+test("F-T1158-3: while the board shows its last good copy, a read that changes the numbers still sends an event, so Stats fetches them", async t => {
+  const f = await fixture(t), stream = events(f);
+  t.after(() => stream.close());
+  const good = await stream.next(model => !model.stale);
+  assert.match(good.stats, /^[A-Za-z0-9+/]{43}=$/, "a digest of the numbers");
+  chmodSync(join(f.project, "runs.tsv"), 0);
+  appendFileSync(join(f.project, "tasks.tsv"), row("Sample second task", "T3"));
+  const stale = await stream.next(model => model.stale);
+  assert.notEqual(stale.stats, good.stats);
+  appendFileSync(join(f.project, "tasks.tsv"), row("Sample third task", "T4"));
+  const later = await stream.next(model => model.stale && model.stats !== stale.stats);
+  assert.equal(later.at, stale.at, "the board still shows its last good copy");
+  assert.equal(JSON.parse((await read(f, "/app/stats")).body).total.open, 3, "Stats of the newest read count the new tasks");
 });
