@@ -120,3 +120,21 @@ test("T1099 F-T1099-54: in the Tasks rows, a step that needs you carries ? and a
   assert.deepEqual([...new Set(of("fail").map(step => step.shown + step.heard))], ["!done · failed: "]);
   assert.deepEqual([...new Set(of("run").map(step => step.shown))], [""], "a step in progress needs no mark");
 });
+
+test("T1159 (F-T1159-50): on a phone the board's shell is compact and never covers the page: the header ends by 210 px (283 px before), scrolls away with the page, and keeps 44 px targets", async t => {
+  const base = await board(t);
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  t.after(() => context.close());
+  const page = await context.newPage();
+  for (const [name, path] of [["overview", "/app/#"], ["tasks", "/app/#tasks"], ["question", `/app/#question?key=${encodeURIComponent(KEY("G4"))}`], ["stats", "/app/#stats"]]) {
+    await page.goto(`${base}${path}`);
+    await page.locator("main h1").waitFor();
+    const shell = await page.evaluate(() => {
+      const top = document.querySelector("header.top"), box = element => element.getBoundingClientRect();
+      return { bottom: Math.round(box(top).bottom), position: getComputedStyle(top).position, small: [...document.querySelectorAll(".nav a, header.top button")].filter(item => box(item).height < 44).map(item => item.textContent) };
+    });
+    assert.ok(shell.bottom <= 210, `${name}: the header ends at ${shell.bottom} px, not by 210 px`);
+    assert.equal(shell.position, "static", `${name}: the header scrolls away, so it covers nothing`);
+    assert.deepEqual(shell.small, [], `${name}: each page link and header button is at least 44 px high`);
+  }
+});

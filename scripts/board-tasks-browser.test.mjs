@@ -553,5 +553,17 @@ test("T1159 (F-T1159-51): Tasks with no since value in the address shows no NaN,
   const { page } = await open(t, {}, "/app/#tasks");
   assert.equal(await page.locator(".focus-note").count(), 0, "no merged-since note without a since value");
   assert.doesNotMatch(await page.locator("main").innerText(), /NaN/);
+  assert.equal(await page.evaluate(() => document.querySelector(".toolbar").nextSibling?.className), "card group", "nothing, not even a 0, stands between the toolbar and the first group");
   assert.deepEqual((await page.locator("a.row .age").allTextContents()).filter(age => /unknown/.test(age)), [], "every task of the sample has an age");
+});
+
+test("T1159 (F-T1159-54): Stats has its own scope, so its top bar shows no count of agents in all projects, no picker and no chief chips; the Overview keeps them", async t => {
+  const { page } = await open(t, { agents: true, twin: true }, "/app/#");
+  const top = () => page.locator("header.top").innerText();
+  await page.locator("header.top .limit", { hasText: "in all projects" }).waitFor();
+  assert.equal(await page.locator(".picker").count(), 1);
+  await page.locator(".nav a", { hasText: "Stats" }).click();
+  await page.locator(".stat-tiles").waitFor();
+  assert.doesNotMatch(await top(), /in all projects/, "Stats counts its own scope only");
+  assert.equal(await page.locator(".picker, .chips").count(), 0, "Stats shows no picker and no chief chips");
 });

@@ -569,9 +569,15 @@ p.waits.never { color: var(--fail); }
   .row .chief { grid-column: 2; }
   .row .step { grid-column: 3 / -1; white-space: normal; }
   .row .text { white-space: normal; overflow-wrap: break-word; flex-basis: 100%; }
-  header.top { height: auto; flex-wrap: wrap; padding: 8px 16px; gap: 6px 10px; }
-  .crumb { flex-basis: 100%; }
-  header.top .grow { display: none; }
+  .side { padding: 4px 8px; gap: 0 6px; }
+  .brand, .live .at { display: none; }
+  .side > nav { flex: 1 1 100%; min-width: 0; }
+  .nav a { min-height: 44px; padding: 0 10px; white-space: nowrap; }
+  header.top { position: static; padding: 4px 16px; gap: 4px 10px; }
+  .crumb { min-width: 0; flex-wrap: wrap; }
+  header.top button { min-height: 44px; min-width: 44px; }
+  header.top > :is(.crumb, .grow) { order: -2; }
+  header.top > :is(.live, .theme) { order: -1; }
   .chips { gap: 6px; padding: 8px 16px; }
   .chips:not(.unfolded) > :not(.fold) { display: none; }
   .chip .faint { display: none; }

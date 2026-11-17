@@ -18,7 +18,7 @@ const PAGES = [
   { hash: "tasks", name: "Tasks", Icon: TasksIcon },
   { hash: "agents", name: "Agents", Icon: AgentsIcon },
   { hash: "pull-requests", name: "Pull requests", Icon: PullsIcon },
-  { hash: "stats", name: "Stats", Icon: StatsIcon },
+  { hash: "stats", name: "Stats", Icon: StatsIcon, own: true },
 ];
 const QUESTION = { hash: "question", name: OBJECTS.question.label, hidden: true };
 const TASK = { hash: "task", name: OBJECTS.task.label, hidden: true };
@@ -87,7 +87,7 @@ function Status({ model, link, lostAt, now }) {
   if (!model) return <span className="live bad" role="status"><span className="dot" />Cannot reach the board</span>;
   if (link === "lost") return <span className="live bad" role="status"><span className="dot" />Not updated since {age(dataAt(model, link, lostAt), now)} · trying again</span>;
   if (model.stale) return <span className="live bad" role="status"><span className="dot" />Not updated since {age(model.at, now)}</span>;
-  return <span className="live ok" role="status"><span className="dot" />Live · read {clock(model.at)}</span>;
+  return <span className="live ok" role="status"><span className="dot" />Live<span className="at"> · read {clock(model.at)}</span></span>;
 }
 
 function Banner({ model, link, lostAt, now, own }) {
@@ -159,7 +159,6 @@ export function App() {
     : page.hash === "stats" ? <Stats all={all} params={page.params} />
     : page.hash === "question" ? <QuestionView key={page.params.get("key")} needKey={page.params.get("key") ?? ""} openId={page.params.get("open")} model={model} theme={theme} project={current} />
     : page.hash === TASK.hash ? <TaskPage key={page.params.get("key")} taskKey={page.params.get("key") ?? ""} tab={page.params.get("tab")} at={model?.at} from={history.state?.from} /> : null;
-  const stats = page.hash === "stats";
   if (stopped) return <Stopped at={stopped} />;
   return (
     <div className="app">
@@ -184,19 +183,19 @@ export function App() {
       </aside>
       <div className="col">
         <header className="top">
-          <span className="crumb">{all && !stats && <><Picker projects={all.projects} current={current} page={LISTED.includes(page.hash) ? page.hash : ""} now={now} /><span aria-hidden="true">/</span></>}<b>{page.name}</b></span>
+          <span className="crumb">{all && !page.own && <><Picker projects={all.projects} current={current} page={LISTED.includes(page.hash) ? page.hash : ""} now={now} /><span aria-hidden="true">/</span></>}<b>{page.name}</b></span>
           {model && <Signal others={model.others} />}
           <span className="grow" />
-          {model && <LimitCounts agents={model.agents} all={all.agents} />}
+          {model && <LimitCounts agents={model.agents} all={page.own ? model.agents : all.agents} />}
           <Status model={model} link={link} lostAt={lostAt} now={now} />
           <button type="button" className="theme" onClick={flip} aria-label={`Switch to the ${next} theme`} title={`Switch to the ${next} theme`}>
             {theme === "dark" ? <SunIcon /> : <MoonIcon />}
           </button>
         </header>
-        {model && !["question", "stats"].includes(page.hash) && <ChiefChips chiefs={model.chiefs} filter={filter} setFilter={setFilter} />}
+        {model && !page.own && page.hash !== "question" && <ChiefChips chiefs={model.chiefs} filter={filter} setFilter={setFilter} />}
         <main className="main">
-          {model ? <><Banner model={model} link={link} lostAt={lostAt} now={now} own={stats} />{unknown && !stats && <p className="banner" role="status">This board shows no project {unknown}, so it opened {current.name}.</p>}
-            <ArchiveLayer all={all} current={stats || page.hash === "question" ? null : current} now={now} />{page.hash === "" && current && <WelcomeBack key={`${current.key} ${current.welcome}`} project={current} model={model} now={now} />}{body}{page.hash === "" && <ArchiveFoot project={current} />}</> : <NoData link={link} />}
+          {model ? <><Banner model={model} link={link} lostAt={lostAt} now={now} own={page.own} />{unknown && !page.own && <p className="banner" role="status">This board shows no project {unknown}, so it opened {current.name}.</p>}
+            <ArchiveLayer all={all} current={page.own || page.hash === "question" ? null : current} now={now} />{page.hash === "" && current && <WelcomeBack key={`${current.key} ${current.welcome}`} project={current} model={model} now={now} />}{body}{page.hash === "" && <ArchiveFoot project={current} />}</> : <NoData link={link} />}
         </main>
       </div>
     </div>

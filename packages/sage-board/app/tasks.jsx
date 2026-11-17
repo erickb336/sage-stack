@@ -147,7 +147,7 @@ export function Tasks({ model, params, chief = null }) {
         <span className="grow" />
         <span className="hint" role="status">{chief && `${chief.id}'s work · `}{open} open · {shown.length - open} ended</span>
       </div>
-      {(focus || since) && <p className="focus-note"><span className="badge">{focus ? `${OBJECTS.milestone.label}: ${milestones.get(focus)?.title ?? focus.split("/").pop()}` : `Merged since ${when(new Date(since).toISOString())}`}</span>{since > 0 && ` ${shown.length} ${shown.length === 1 ? "task" : "tasks"}${sort ? " · newest first" : ""}`} <a href={hashOf(params, { milestone: "", since: "" })}>Show all tasks</a></p>}
+      {(focus || since > 0) && <p className="focus-note"><span className="badge">{focus ? `${OBJECTS.milestone.label}: ${milestones.get(focus)?.title ?? focus.split("/").pop()}` : `Merged since ${when(new Date(since).toISOString())}`}</span>{since > 0 && ` ${shown.length} ${shown.length === 1 ? "task" : "tasks"}${sort ? " · newest first" : ""}`} <a href={hashOf(params, { milestone: "", since: "" })}>Show all tasks</a></p>}
       {lost && (
         <section className="card group focus lost" aria-labelledby="g-lost">
           <div className="card-h"><h2 id="g-lost">{milestones.get(focus)?.title ?? needsOf(focus)[0]?.question ?? "This milestone"}</h2></div>
