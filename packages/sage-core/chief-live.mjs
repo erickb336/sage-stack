@@ -117,6 +117,7 @@ export function clearLink({ project, native, pid, now, tool, env }) {
   } catch { return undefined; }
 }
 
+const ahead = (record, now) => record.at - now > SKEW_MS;
 export function sessionState(record, { running = 0, gates = 0 } = {}, now, probe) {
   if (!record) return { state: "quiet", reason: null };
   if (record.ended) return { state: "stopped", reason: "ended" };
@@ -125,7 +126,7 @@ export function sessionState(record, { running = 0, gates = 0 } = {}, now, probe
     if (gone) return { state: "stopped", reason: "gone" };
   }
   if (running > 0) return { state: "live", reason: null };
-  if (record.at === null) return { state: "quiet", reason: null };
+  if (record.at === null || ahead(record, now)) return { state: "quiet", reason: null };
   const age = now - record.at;
   if (age >= PASS_ON_MS) return gates > 0 ? { state: "quiet", reason: null } : { state: "stopped", reason: "quiet-8h" };
   return { state: age > STOPPED_MS ? "quiet" : "live", reason: null };
@@ -164,7 +165,7 @@ export function defaultChiefName(row, live) {
 
 export function boardChiefs({ rows, live = {}, names = {}, runs = [], waits = [], now }) {
   const chiefs = rows.map((row) => {
-    const record = live[row.id] ?? null, beat = record?.at != null && record.at - now > SKEW_MS ? null : record, heartbeat = beat?.at ?? null;
+    const record = live[row.id] ?? null, beat = record && ahead(record, now) ? null : record, heartbeat = beat?.at ?? null;
     const agents = runs.filter((run) => run.chief === row.id && run.status === "running" && !run.clock?.stale).length;
     const waiting = waits.filter((chief) => chief === row.id).length;
     const silent = heartbeat === null ? null : now - heartbeat > STOPPED_MS;

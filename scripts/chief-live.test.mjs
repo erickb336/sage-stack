@@ -463,6 +463,16 @@ test("T1170: the quiet rule (G227): 8 h with no beat stops a session only with n
   assert.deepEqual(sessionState(record, { running: 1 }, late + HOUR, null), { state: "live", reason: null }, "a running run of the chief keeps it live");
 });
 
+test("F-T1170-12: a record more than 5 minutes ahead of the clock is no beat: quiet, not live, in sessionState and on the board", (t) => {
+  const probe = { current: probeOf({}) }, w = fakeWorld(t, probe);
+  w.beat(undefined, T0 + 6 * MINUTE, 100);
+  const ahead = w.record();
+  assert.deepEqual(sessionState(ahead, {}, T0, null), { state: "quiet", reason: null }, "6 minutes ahead: quiet");
+  assert.deepEqual(sessionState(ahead, { running: 1 }, T0, null), { state: "live", reason: null }, "a running run of the chief still keeps it live");
+  assert.equal(boardChiefs({ rows: [{ id: "C1", provider: "claude", at: new Date(T0).toISOString() }], live: { C1: ahead }, now: T0 })[0].heartbeat, null, "the board reads the same record as no beat");
+  assert.deepEqual(sessionState(ahead, {}, T0 + 2 * MINUTE, null), { state: "live", reason: null }, "4 minutes ahead is clock skew: live");
+});
+
 const linkedAt = (t, pids = { [process.pid]: STARTED }) => {
   const w = linked(t);
   return { ...w, env: { ...w.env, SAGE_TEST_PIDS: JSON.stringify(pids) } };
