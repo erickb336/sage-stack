@@ -147,7 +147,9 @@ async function serve(t, w) {
 }
 
 test("T1121 R5: the app may frame only reader pages and the pages folder; a reader page opens in a frame only with ?in=board, without its top bar, and its links leave the frame; a pages file only in a frame of the board", async t => {
-  const w = world(t), base = await serve(t, w), origin = base;
+  const w = world(t);
+  writeFileSync(join(w.logbook, "briefs", "R5.md"), "Run R5 · task T3 (code-reviewer)\nGOAL review\n");
+  const base = await serve(t, w), origin = base;
   const app = await get(base, "/app/");
   assert.match(app.headers["content-security-policy"], new RegExp(`; frame-src ${origin}/read/ ${origin}/pages/; .*frame-ancestors 'none'`));
   const alone = await get(base, readerUrl(KEY("T10"), "page", "designs/v2/notes.md"));
