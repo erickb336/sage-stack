@@ -27,6 +27,7 @@ const commandPolicy = await import("./command-policy.mjs")
 const SP = String.raw`[^\S\r\n  ]`;
 const FILE_TOOLS = /^(Edit|Write|MultiEdit|NotebookEdit)$/;
 const AGENT_TOOLS = /^(Agent|Task)$/;
+const HANDBACK = "SubagentHandback";
 const LEAD_CHILDREN = new Set(["sage:implementer", "sage:code-reviewer", "sage:security-reviewer", "sage:ux-reviewer", "sage:qa"]);
 const LEAD_HELPERS = 9;
 const WAIT = join(ROOT, "hooks/wait.mjs");
@@ -142,6 +143,27 @@ function queueNote(input, state, out, slots) {
   return context(event, [given, ...notes].filter(Boolean).join("\n\n---\n\n"));
 }
 
+function withHandback(input, slots) {
+  const text = input.last_assistant_message;
+  if (typeof text === "string" && !core.missingFields(REPORT_FIELDS, text).length) return input;
+  const handed = slots.handbackOf(input.agent_id);
+  return handed === undefined ? input : { ...input, last_assistant_message: handed, handback: true };
+}
+
+function liveHelpers(input, slots) {
+  const lead = input.agent_type === "sage:lead" && slots.leadOf(input.agent_id);
+  const ended = lead && (() => { try { return logbookOf(lead.folder).leadRun(lead.task)?.id !== lead.run; } catch { return false; } })();
+  const live = lead && !ended ? slots.running(leadKey(lead)) : [];
+  if (live.length) return `sage: your helper${live.length === 1 ? "" : "s"} ${live.join(", ")} still run${live.length === 1 ? "s" : ""}, and a lead does not end while a helper runs. Run ${waitStep(lead.task)}: it returns at once with each helper that stopped and whose run you end, else when a helper stops or none runs, and after ${WAIT_MS / 60_000} minutes at the latest. It names once each run whose report the hook cannot read: the sage ends that run, so do not end it, and name it in FINDINGS of your report. Then go on with your steps.`;
+}
+
+function reportProblem(input, text, handback = false) {
+  const missing = core.missingFields(REPORT_FIELDS, text);
+  if (missing.length) return `sage: your report has no ${missing.join(", ")}. ${handback ? `Call ${HANDBACK} again with` : "End with"} the report of the sage:report skill: ${REPORT_FIELDS.join(", ")}, each at the start of a line that is not in a list or a code block, with "none" where a field has nothing.${input.agent_type === "sage:lead" && !handback ? " A lead that waits for its own background work may end its turn again instead: the work's notice wakes it, and it keeps its lead slot until its report." : ""}`;
+  const role = input.agent_type.slice("sage:".length).toLowerCase();
+  return (REVIEWERS.includes(role) && core.stopReason(text, input.cwd ?? process.cwd(), { who: "the hook", proof: TEAM.slice(1).includes(role) })) || undefined;
+}
+
 function handleEvent(input, state, slots) {
   const event = input.hook_event_name;
   if (modePolicy.error) state.autopilot = false;
@@ -175,20 +197,24 @@ function handleEvent(input, state, slots) {
     return undefined;
   }
   const ours = OURS.test(input.agent_type ?? "");
-  if (event === "SubagentStop") {
-    const lead = input.agent_type === "sage:lead" && slots.leadOf(input.agent_id);
-    const ended = lead && (() => { try { return logbookOf(lead.folder).leadRun(lead.task)?.id !== lead.run; } catch { return false; } })();
-    const live = lead && !ended ? slots.running(leadKey(lead)) : [];
-    if (live.length) return { decision: "block", reason: `sage: your helper${live.length === 1 ? "" : "s"} ${live.join(", ")} still run${live.length === 1 ? "s" : ""}, and a lead does not end while a helper runs. Run ${waitStep(lead.task)}: it returns at once with each helper that stopped and whose run you end, else when a helper stops or none runs, and after ${WAIT_MS / 60_000} minutes at the latest. It names once each run whose report the hook cannot read: the sage ends that run, so do not end it, and name it in FINDINGS of your report. Then go on with your steps.` };
-    if (ours && !input.stop_hook_active && typeof input.last_assistant_message === "string") {
-      const missing = core.missingFields(REPORT_FIELDS, input.last_assistant_message);
-      if (missing.length) return { decision: "block", reason: `sage: your report has no ${missing.join(", ")}. End with the report of the sage:report skill: ${REPORT_FIELDS.join(", ")}, each at the start of a line that is not in a list or a code block, with "none" where a field has nothing.${input.agent_type === "sage:lead" ? " A lead that waits for its own background work may end its turn again instead: the work's notice wakes it, and it keeps its lead slot until its report." : ""}` };
-      const role = input.agent_type.slice("sage:".length).toLowerCase();
-      const reason = REVIEWERS.includes(role) && core.stopReason(input.last_assistant_message, input.cwd ?? process.cwd(), { who: "the hook", proof: TEAM.slice(1).includes(role) });
-      if (reason) return { decision: "block", reason };
-    }
+  if (event === "SubagentStop") input = withHandback(input, slots);
+  if (event === "SubagentStop" && !input.handback) {
+    const reason = liveHelpers(input, slots) ?? (ours && !input.stop_hook_active && typeof input.last_assistant_message === "string" ? reportProblem(input, input.last_assistant_message) : undefined);
+    if (reason) return { decision: "block", reason };
   }
   if (!main && ours && input.agent_id) slots.touch(input.agent_id, input.agent_type);
+  if (event === "PreToolUse" && !main && ours && input.tool_name === HANDBACK && typeof input.agent_id === "string" && input.agent_id) {
+    const text = input.tool_input?.message;
+    if (typeof text !== "string") return undefined;
+    slots.keepHandback(input.agent_id, text);
+    const live = liveHelpers(input, slots);
+    const bare = (reason) => reason.replace(/^sage: /, "");
+    if (live) return deny(event, bare(live));
+    const reason = !slots.handbackRefused(input.agent_id) && reportProblem(input, text, true);
+    if (!reason) return undefined;
+    slots.refuseHandback(input.agent_id);
+    return deny(event, bare(reason));
+  }
   if (event === "SubagentStart") return void (ours && slots.bind(input.agent_id, input.agent_type));
   if (event === "Stop" && main && Array.isArray(input.background_tasks)) slots.reconcile(input.background_tasks.map((t) => t?.id));
   if (event === "Stop" && main && state.sage) {
@@ -1142,9 +1168,11 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
     return value;
   };
   const ownsAgent = (slot, agent) => has(slot, "exact") || mark(slot, "bound-") !== undefined ? mark(slot, "bound-") === hash(agent) : mark(slot, "agent-") === id(agent);
+  const handbackFile = (agent, kind = "handback") => join(events, `${kind}-${hash(agent)}`);
   const release = (agent, report) => {
     if (!valid(agent)) return;
     note(`ended-${hash(agent)}`);
+    for (const kind of ["handback", "handback-refused"]) rmSync(handbackFile(agent, kind), { force: true });
     for (const slot of ofSession()) {
       if (ownsAgent(slot, agent)) {
         const key = mark(slot, "helper-");
@@ -1274,6 +1302,14 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
       }
     }),
     touch: transaction(touch),
+    keepHandback: (agent, text) => valid(agent) && note(basename(handbackFile(agent)), text),
+    handbackOf: (agent) => {
+      if (!valid(agent)) return undefined;
+      try { return readFileSync(handbackFile(agent), "utf8"); }
+      catch (error) { if (error.code === "ENOENT") return undefined; throw error; }
+    },
+    refuseHandback: (agent) => valid(agent) && note(basename(handbackFile(agent, "handback-refused"))),
+    handbackRefused: (agent) => valid(agent) && noted(basename(handbackFile(agent, "handback-refused"))),
     helper: (key) => ({ owned: helperNote(`owned-${key}`) !== undefined, started: helperNote(`started-${key}`) !== undefined, stopped: parsed(helperNote(`stopped-${key}`)) }),
     told: (key) => helperNote(`told-${key}`) !== undefined,
     tell: (key) => note(`told-${key}`, "", helpers),
