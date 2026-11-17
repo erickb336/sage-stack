@@ -301,8 +301,9 @@ function Viewer({ item, gate, close, open, theme }) {
     const doc = event.target.contentDocument;
     if (!doc) return;
     const at = doc.location.pathname + doc.location.search, part = item.at && doc.getElementById(item.at);
-    if (at !== src.split("#")[0]) setMoved(doc.querySelector("h1")?.textContent || doc.title || null);
-    else if (part) doc.scrollingElement.scrollTop += part.getBoundingClientRect().top - 8;
+    const back = at === src.split("#")[0];
+    setMoved(back ? null : doc.querySelector("h1")?.textContent || doc.title || null);
+    if (back && part) doc.scrollingElement.scrollTop += part.getBoundingClientRect().top - 8;
     doc.addEventListener("click", click => {
       const link = click.target.closest?.("a[href]"), url = link && new URL(link.getAttribute("href"), doc.location.href);
       if (!url || url.origin !== location.origin) return;

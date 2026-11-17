@@ -231,6 +231,24 @@ test("T1121 F-T1121-2: in a framed reader page, a click on a link to another sit
   assert.deepEqual(w.writes, []);
 });
 
+test("T1156 F-T1156-50: after a link in the frame opens another page and a link there comes back, the header and Why it is here name the first page again", async t => {
+  const w = await openBoard(t), { page } = w, url = `${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G1`)}`;
+  writeFileSync(join(process.env.SAGE_WORKTREES, basename(w.dir), "pages", "T1", "notes.md"), "# Design notes\n\n[back to the hostile page](hostile.md)\n");
+  await page.goto(url);
+  await page.locator(".mat").filter({ hasText: "hostile.md" }).click();
+  const doc = page.frameLocator(".viewer iframe"), header = page.locator(".viewer h2"), why = page.locator(".viewer .hint");
+  await doc.getByRole("heading", { name: "Hostile sample" }).waitFor();
+  const first = await why.textContent();
+  await doc.getByRole("link", { name: "a safe page" }).click();
+  await doc.getByRole("heading", { name: "Design notes", level: 1 }).waitFor();
+  await page.waitForFunction(() => document.querySelector(".viewer h2").textContent === "Design notes");
+  await doc.getByRole("link", { name: "back to the hostile page" }).click();
+  await doc.getByRole("heading", { name: "Hostile sample" }).waitFor();
+  await page.waitForFunction(() => document.querySelector(".viewer h2").textContent === "hostile.md");
+  assert.equal(await header.textContent(), "hostile.md", "the header names the page that the frame shows");
+  assert.equal(await why.textContent(), first, "Why it is here gives the page's own reason again");
+});
+
 test("T1121 F-T1121-20, T1156 F-T1156-27: in the Design item, each link keeps the question view and the picked answer: the prototype opens in place, the pages index opens a new tab, the design notes open in the frame", async t => {
   const w = await openBoard(t), { page } = w, url = `${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G1`)}`;
   const context = page.context(), designUrl = `${url}&open=${encodeURIComponent("T1/design")}`;
