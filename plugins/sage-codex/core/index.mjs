@@ -1,7 +1,7 @@
 export { balancedModels, createStateTool } from "./state.mjs";
 export { sharedRoot } from "./shared-root.mjs";
 export { writerClass } from "./chiefs.mjs";
-export { chiefBeat, chiefEnd, clearLink, clearNote, sessionState } from "./chief-live.mjs";
+export { chiefBeat, chiefEnd, chiefResume, clearLink, clearNote, sessionState } from "./chief-live.mjs";
 export { readLocalGit } from "./local-git.mjs";
 export { KEPT_FILE_MAX, agentCaps } from "./logbook-fields.mjs";
 export { checkoutContains, resolveCheckoutPath, verifiedCheckout } from "./checkout-path.mjs";

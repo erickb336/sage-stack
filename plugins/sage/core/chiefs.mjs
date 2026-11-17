@@ -69,7 +69,7 @@ export const crossed = (p) => (p.fromProvider || p.from ? p.fromProvider !== p.t
 
 export const chiefsWhole = (cols, lines, rows) => cols.join("\t") === COLUMNS.join("\t") && lines.every((line) => line.split("\t").length === COLUMNS.length)
   && rows.every((r) => CHIEF.test(r.id) && r.provider && NATIVE.test(r.native))
-  && rows.every((r) => rows.find((o) => o.id === r.id).provider === r.provider) && new Set(rows.map((r) => `${r.provider}\t${r.native}`)).size === rows.length;
+  && new Set(rows.map((r) => r.id)).size === rows.length && new Set(rows.map((r) => `${r.provider}\t${r.native}`)).size === rows.length;
 
 export function createChiefs({ now, provider, readRegular, refuse, rowsOf, sheetText, swap }) {
   function chiefs(dir) {
@@ -87,13 +87,14 @@ export function createChiefs({ now, provider, readRegular, refuse, rowsOf, sheet
     return rows;
   }
   const rowOf = (dir, native) => chiefs(dir).find((r) => r.provider === provider && r.native === native);
-  function chiefRow(dir, native, chief) {
+  function chiefRow(dir, native, chief, from) {
     if (!provider || !NATIVE.test(native ?? "")) refuse("sage has no session identity for this chief, so it cannot name the chief of this write. Nothing changed.");
     const rows = chiefs(dir), found = rowOf(dir, native);
     if (found) return found;
-    if (chief !== undefined && !rows.some((r) => r.id === chief && r.provider === provider)) return undefined;
-    const row = { id: chief ?? `C${Math.max(0, ...rows.map((r) => Number(r.id.slice(1)))) + 1}`, provider, native, at: now() };
-    swap(join(dir, "chiefs.tsv"), `${[COLUMNS, ...[...rows, row].map((r) => COLUMNS.map((c) => r[c]))].map((cells) => cells.join("\t")).join("\n")}\n`);
+    const old = chief === undefined ? undefined : rows.find((r) => r.id === chief && r.provider === provider && r.native === from);
+    if (chief !== undefined && !old) return undefined;
+    const row = old ? { ...old, native } : { id: `C${Math.max(0, ...rows.map((r) => Number(r.id.slice(1)))) + 1}`, provider, native, at: now() };
+    swap(join(dir, "chiefs.tsv"), `${[COLUMNS, ...(old ? rows.map((r) => (r === old ? row : r)) : [...rows, row]).map((r) => COLUMNS.map((c) => r[c]))].map((cells) => cells.join("\t")).join("\n")}\n`);
     return row;
   }
   return { chiefs, chiefRow, rowOf };

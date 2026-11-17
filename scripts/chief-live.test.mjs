@@ -500,27 +500,39 @@ for (const [name, say] of [["Claude", claudeSay], ["Codex", codexSay]]) test(`T1
   assert.equal(chiefRows(w).length, 1);
 });
 
-test("T1170: a resumed native id is the same chief, live again, with no new row", (t) => {
+test("F-T1170-9: a resumed native id is the same chief, live again at its SessionStart(resume) in its new program, with no new row", (t) => {
+  const w = linkedAt(t, { [process.pid]: STARTED }), probe = probeOf({ [process.pid]: STARTED }, { machine: "test-machine" });
+  claudeSay(w, "sage mode");
+  writeFileSync(w.live("C1"), JSON.stringify({ ...json(w.live("C1")), pid: 4242, pidStart: STARTED - HOUR, seen: 0, confirmed: true }));
+  claudeEvent(w, { hook_event_name: "SessionEnd", reason: "prompt_input_exit" });
+  assert.equal(sessionState(recordOf(w, "C1"), {}, Date.now(), probe).state, "stopped");
+  claudeEvent(w, { hook_event_name: "SessionStart", source: "resume" });
+  const record = recordOf(w, "C1");
+  assert.deepEqual(chiefRows(w), ["C1 claude claude-1"], "the same chief, no new row");
+  assert.deepEqual([record.ended, record.pid, record.confirmed], [null, process.pid, false], "the old program and the end are gone; the new program starts its pair");
+  assert.deepEqual(sessionState(record, {}, Date.now(), probe), { state: "live", reason: null }, "live before its first prompt, also within a minute of its last beat");
+});
+
+test("F-T1170-9: a resumed session after the off phrase stays ended, and a resume of a session that was never a chief writes nothing", (t) => {
   const w = linkedAt(t);
   claudeSay(w, "sage mode");
-  claudeEvent(w, { hook_event_name: "SessionEnd", reason: "prompt_input_exit" });
-  assert.equal(sessionState(recordOf(w, "C1"), {}, Date.now(), null).state, "stopped");
-  beatDue(w);
-  claudeSay(w, "sage mode");
-  assert.deepEqual(chiefRows(w), ["C1 claude claude-1"], "the same chief, no new row");
-  assert.equal(claude.chiefFor(w.project, "claude-1", w.env), "C1");
-  assert.deepEqual([recordOf(w, "C1").ended, sessionState(recordOf(w, "C1"), {}, Date.now(), null).state], [null, "live"]);
+  claudeSay(w, "sage mode off");
+  claudeEvent(w, { hook_event_name: "SessionStart", source: "resume" });
+  assert.equal(recordOf(w, "C1").ended, "off");
+  other(w, { hook_event_name: "SessionStart", source: "resume" });
+  assert.deepEqual([chiefRows(w), readdirSync(join(w.dir, "live"))], [["C1 claude claude-1"], ["C1.json"]]);
 });
 
 const other = (w, event) => claudeEvent(w, { session_id: "claude-2", ...event });
-test("T1170: a Claude /clear keeps the chief: SessionEnd(clear) then SessionStart(clear) of the same program links the new session id", (t) => {
+test("T1170: a Claude /clear keeps the chief: SessionEnd(clear) then SessionStart(clear) of the same program moves the chief to the new session id", (t) => {
   const w = linkedAt(t);
   claudeSay(w, "sage mode");
   claudeEvent(w, { hook_event_name: "SessionEnd", reason: "clear" });
   other(w, { hook_event_name: "SessionStart", source: "clear" });
-  assert.deepEqual(chiefRows(w), ["C1 claude claude-1", "C1 claude claude-2"], "one chief, two native ids");
+  assert.deepEqual(chiefRows(w), ["C1 claude claude-2"], "one chief, one row, now with the new session id");
   other(w, { hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
   assert.equal(claude.chiefFor(w.project, "claude-2", w.env), "C1");
+  assert.equal(claude.chiefFor(w.project, "claude-1", w.env, true), undefined, "the cleared session id names no chief");
   assert.deepEqual(readdirSync(join(w.dir, "live")), ["C1.json"], "the note is used once and gone");
   const board = boardOf(w, Date.now()).project.chiefs;
   assert.deepEqual(board.map((chief) => chief.id), ["C1"], "the board shows the chief once");
@@ -544,6 +556,23 @@ test("T1170: a SessionStart(clear) with no note, or from another program, makes 
   claudeEvent(none, { session_id: "claude-4", hook_event_name: "SessionStart", source: "clear" });
   claudeEvent(none, { session_id: "claude-4", hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
   assert.deepEqual(chiefRows(w).at(-1), "C4 claude claude-4", "no known start time: no note and no link");
+});
+
+test("F-T1170-1: two sessions of one program that clear at the same time stay apart: neither takes a chief by the program", (t) => {
+  const w = linkedAt(t);
+  claudeSay(w, "sage mode");
+  other(w, { hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
+  assert.deepEqual(chiefRows(w), ["C1 claude claude-1", "C2 claude claude-2"]);
+  claudeEvent(w, { hook_event_name: "SessionEnd", reason: "clear" });
+  other(w, { hook_event_name: "SessionEnd", reason: "clear" });
+  for (const session of ["claude-3", "claude-4"]) {
+    claudeEvent(w, { session_id: session, hook_event_name: "SessionStart", source: "clear" });
+    claudeEvent(w, { session_id: session, hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
+  }
+  assert.deepEqual(chiefRows(w), ["C1 claude claude-1", "C2 claude claude-2", "C3 claude claude-3", "C4 claude claude-4"], "each new session id is a new chief; no chief moves to another session's id");
+  claudeEvent(w, { hook_event_name: "SessionEnd", reason: "clear" });
+  claudeEvent(w, { session_id: "claude-5", hook_event_name: "SessionStart", source: "clear" });
+  assert.deepEqual(chiefRows(w), ["C1 claude claude-1", "C2 claude claude-2", "C3 claude claude-3", "C4 claude claude-4"], "a third clear in the same 10 minutes links nothing either");
 });
 
 function codexThread(w, session) {

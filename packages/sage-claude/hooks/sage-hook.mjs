@@ -1374,6 +1374,7 @@ function sessionEdge(input) {
   if (input.hook_event_name === "SessionEnd" && input.reason === "clear") core.clearNote(edge);
   else if (input.hook_event_name === "SessionEnd" && ENDS.includes(input.reason)) core.chiefEnd({ ...edge, reason: input.reason });
   else if (input.hook_event_name === "SessionStart" && input.source === "clear") core.clearLink(edge);
+  else if (input.hook_event_name === "SessionStart" && input.source === "resume") core.chiefResume(edge);
 }
 const EDGES = ["SessionStart", "SessionEnd"];
 

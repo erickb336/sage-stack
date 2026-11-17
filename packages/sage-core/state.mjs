@@ -1746,7 +1746,7 @@ function releaseValue(value, releases, who) {
 
 const ROUND_CEILING = 5;
 const autopilotOf = (dir, chief, env) => {
-  const row = chief === undefined ? undefined : chiefs(dir).findLast((r) => r.id === chief);
+  const row = chief === undefined ? undefined : chiefs(dir).find((r) => r.id === chief);
   return row?.provider === provider && autopilot(row.native, env) === true;
 };
 const extraOf = (task) => (/^\d+$/.test(task.extra ?? "") && Number.isSafeInteger(Number(task.extra)) ? Number(task.extra) : 0);
@@ -2964,9 +2964,9 @@ function chiefFor(project, native, env = process.env, known = false) {
   return rowOf(dir, native)?.id ?? (known ? undefined : withLock(dir, () => chiefRow(dir, native).id));
 }
 
-function chiefLink(project, native, chief, env = process.env) {
+function chiefLink(project, native, chief, from, env = process.env) {
   const { dir, shared } = locate(project, env);
-  return shared && CHIEF.test(chief ?? "") ? withLock(dir, () => chiefRow(dir, native, chief)?.id) : undefined;
+  return shared && CHIEF.test(chief ?? "") && typeof from === "string" ? withLock(dir, () => chiefRow(dir, native, chief, from)?.id) : undefined;
 }
 
 function actorOptions(project, [cmd, ...rest], { native, leadTask }, env = process.env) {

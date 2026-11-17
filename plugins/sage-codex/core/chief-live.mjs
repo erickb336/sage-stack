@@ -76,6 +76,17 @@ export function chiefEnd({ project, native, reason, now, tool, env }) {
   } catch { return false; }
 }
 
+export function chiefResume({ project, native, pid, now, tool, env }) {
+  try {
+    const { dir, shared } = tool.locate(project, env), chief = shared && tool.chiefFor(project, native, env, true), file = chief && liveFile(dir, chief);
+    const prior = file ? readLive(file) : {};
+    if (prior.sageMode !== true) return false;
+    const { ended, pid: _pid, pidStart, machine, boot, seen, confirmed, ...rest } = prior;
+    writeLive(file, { ...rest, at: new Date(now).toISOString(), ...programOf(pid, tool.sessionProbe?.(dir), {}, now) });
+    return true;
+  } catch { return false; }
+}
+
 const noteFile = (dir, program) => join(dir, LIVE_FOLDER, `clear-${program.pid}-${program.pidStart}.json`);
 function programNow(dir, pid, tool) {
   const probe = tool.sessionProbe?.(dir), pidStart = Number.isSafeInteger(pid) && pid > 1 && probe ? probe.started(pid) : NaN;
@@ -85,7 +96,8 @@ export function clearNote({ project, native, pid, now, tool, env }) {
   try {
     const { dir, shared } = tool.locate(project, env), chief = shared && tool.chiefFor(project, native, env, true), program = chief && programNow(dir, pid, tool);
     if (!program || !liveFile(dir, chief)) return false;
-    writeLive(noteFile(dir, program), { chief, at: now });
+    const file = noteFile(dir, program), prior = readLive(file), clash = "chief" in prior && prior.chief !== chief && now - prior.at >= 0 && now - prior.at < CLEAR_MS;
+    writeLive(file, clash ? { chief: null, at: now } : { chief, native, at: now });
     return true;
   } catch { return false; }
 }
@@ -94,8 +106,9 @@ export function clearLink({ project, native, pid, now, tool, env }) {
     const { dir, shared } = tool.locate(project, env), program = shared && programNow(dir, pid, tool);
     if (!program) return undefined;
     const file = noteFile(dir, program), note = readLive(file);
+    if (note.chief === null && now - note.at >= 0 && now - note.at < CLEAR_MS) return undefined;
     rmSync(file, { force: true });
-    return typeof note.chief === "string" && now - note.at >= 0 && now - note.at < CLEAR_MS ? tool.chiefLink(project, native, note.chief, env) : undefined;
+    return typeof note.chief === "string" && now - note.at >= 0 && now - note.at < CLEAR_MS ? tool.chiefLink(project, native, note.chief, note.native, env) : undefined;
   } catch { return undefined; }
 }
 

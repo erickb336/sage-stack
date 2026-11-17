@@ -222,7 +222,7 @@ function readLogbook(directory, project, budget, { now, bound, chiefs = true, du
   if (chiefs) try {
     const found = sheet(join(directory, "chiefs.tsv"), budget);
     if (!chiefsWhole(found.cols, found.lines, found.rows)) throw damaged();
-    project.chiefs = found.rows.filter((row, i, rows) => rows.findIndex(other => other.id === row.id) === i);
+    project.chiefs = found.rows;
   } catch (error) { if (error.code !== "ENOENT") { project.chiefs = null; project.diagnostics.push(`chiefs: ${error.code ?? error.message}`); } }
   project.chiefLive = {}, project.chiefNames = {};
   if (project.chiefs?.length) {
