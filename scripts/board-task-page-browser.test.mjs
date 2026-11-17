@@ -1,7 +1,7 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { createRequire } from "node:module";
+import { requireBrowser } from "./browser-prerequisite.mjs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
@@ -10,15 +10,14 @@ import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.m
 import { ABOUT, writeTasksLogbook } from "./fixtures/board-app.mjs";
 import { measureContrast } from "./fixtures/contrast.mjs";
 
-const require = createRequire(import.meta.url);
-const { chromium } = require("playwright");
+const chromium = requireBrowser();
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const APP = loadBoardApp(join(ROOT, "plugins/sage/board/app"));
 const SHOTS = process.env.BOARD_SHOTS_DIR ?? null;
 const KEY = id => `shared/sample-app-abc123/${id}`;
 const taskPage = id => `/app/#task?key=${encodeURIComponent(KEY(id))}`;
 let browser;
-before(async () => { browser = await chromium.launch({ headless: true, ...(process.env.BOARD_BROWSER_PATH ? { executablePath: process.env.BOARD_BROWSER_PATH } : {}) }); });
+before(async () => { browser = await chromium.launch(); });
 after(async () => { await browser?.close(); });
 
 async function board(t) {
@@ -112,7 +111,7 @@ test("T1083 F-T1083-3, F-T1083-5: the question page and an old #tasks?task= addr
   await page.goto(`${base}/app/`);
   const question = page.locator('.needs a[href^="#question?"]').first();
   await question.click();
-  const link = page.locator('.facts-line a[href^="#task?key="]');
+  const link = page.locator('.fits a[href^="#task?key="]');
   await link.waitFor();
   assert.equal(await page.locator('main a[href*="?task="]').count(), 0, "no link uses the old address");
   const title = (await link.textContent()).split(" · ").slice(1).join(" · ");

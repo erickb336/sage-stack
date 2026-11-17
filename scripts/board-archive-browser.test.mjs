@@ -2,7 +2,7 @@ import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { requireBrowser } from "./browser-prerequisite.mjs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { after, before, test } from "node:test";
@@ -12,14 +12,13 @@ import { runBoardCli } from "../plugins/sage/board/cli.mjs";
 import { startLink } from "../plugins/sage/board/access.mjs";
 import { createBoardServer, loadBoardApp } from "../plugins/sage/board/server.mjs";
 
-const require = createRequire(import.meta.url);
-const { chromium } = require("playwright");
+const chromium = requireBrowser();
 const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
 const SHOTS = process.env.BOARD_SHOTS ?? null;
 const gitEnv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
 const PROJECTS = ["harbor", "orchard", "quarry", "summit", "tundra", "valley", "willow"];
 let browser;
-before(async () => { browser = await chromium.launch({ headless: true, ...(process.env.BOARD_BROWSER_PATH ? { executablePath: process.env.BOARD_BROWSER_PATH } : {}) }); });
+before(async () => { browser = await chromium.launch(); });
 after(async () => { await browser?.close(); });
 
 function repository(base, name) {
@@ -205,7 +204,8 @@ test("T1137: Archive from the picker asks first, names what the logbook keeps an
   await archivedRow.locator("summary").click();
   await w.shot("t1137-picker-archived");
   await archivedRow.getByRole("button", { name: "Restore" }).click();
-  await archivedRow.waitFor({ state: "detached" });
+  await page.getByText("harbor is restored.").waitFor();
+  assert.equal(await page.locator(".pick-menu").count(), 0, "F-T1156-39: Restore closes the picker");
   assert.equal(w.archived("harbor"), false);
 
   const link = startLink(w.stateDir);

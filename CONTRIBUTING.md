@@ -77,11 +77,17 @@ To add a principle, add `principles/<name>.md`. A principle adapted from pstack 
 7. Run the browser tests of the board. They are not in `npm test`, so that it stays fast. They use the Chromium headless shell of the pinned `playwright` devDependency. `npm ci` downloads no browser, so install it once:
 
    ```sh
-   npx playwright install --only-shell chromium
+   node scripts/browser-prerequisite.mjs setup
    npm run test:browser
    ```
 
-   To run one file: `node --test scripts/board-app-browser.test.mjs`. CI installs the same browser in each run, with no browser cache, as Playwright advises, and runs `npm run test:browser` after `npm run check`.
+   To run one file: `node --test scripts/board-app-browser.test.mjs`. Every browser test checks the same prerequisite before it starts a board or browser. The check requires matching Playwright 1.55.1 packages, the expected headless shell executable and its installation completion marker. It refuses `BOARD_BROWSER_PATH`; another cached revision is not a substitute. Tests never install a browser or skip an assertion when setup is incomplete.
+
+   Setup uses the pinned Playwright installer, with `pw:install` diagnostics. It keeps stdout and stderr through the child's close event. A ten-minute deadline requests termination through that child handle, unless its exit was already observed. Setup then waits at most ten seconds for close. A signal request or progress at 100% proves no completion. If close does not arrive, setup fails with cleanup unknown; its output snapshot covers the bounded wait. Do not start another installer until the host resolves that unknown cleanup. A direct child's close does not prove that every descendant stopped.
+
+   The prerequisite checks installation files. Only a successful browser startup and close checks that the browser can run on this host. CI uses a fresh Linux environment, installs with `node scripts/browser-prerequisite.mjs setup --with-deps`, and runs `npm run test:browser` after `npm run check`. Agents use their own scratch home and browser cache; they do not borrow the owner's browser or cache.
+
+   Run test commands in their own process and environment. `scripts/test-env.mjs` disables global Git configuration on purpose. Keep publication in the invoking authenticated context, outside that test process and its scratch home. Do not copy credentials or change Git configuration to publish from a test environment.
 
 ## A branch from before the sweep
 

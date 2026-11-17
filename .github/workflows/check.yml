@@ -15,7 +15,7 @@ jobs:
           node-version: 24
       - run: npm ci --ignore-scripts
       - run: npm run check
-      - run: npx playwright install --with-deps --only-shell chromium
+      - run: node scripts/browser-prerequisite.mjs setup --with-deps
       - run: npm run test:browser
   test:
     runs-on: ubuntu-24.04

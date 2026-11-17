@@ -6,12 +6,14 @@ Your task name is `sage_lead_t<n>_r<k>`, where `<n>` is the number of your task.
 
 1. Call `run_add` with `task`, `role` and `"usage-interface": "collaboration-tools"`. For an implementer, also give `branch`, the task's branch. When the task has no branch, set it first with `task_set`. It prints the run id `R<k>`.
 2. Run `<node> <role.mjs> <role>` with inspected absolute paths, and keep the whole unchanged output.
-3. Write the helper's brief, with the fields `GOAL` to `STANDING`. Include the [canonical first read](roles.md#canonical-first-read) for its recorded role, task and run: the exact installed command, checks, failure handling and authority limits. Call `brief` with the task name of step 4 and the whole brief. Fix each missing field. The gate starts the helper only in the 30 minutes after this check.
+3. Write the helper's brief, with the fields `GOAL` to `STANDING`. Include the [canonical first read](roles.md#canonical-first-read) for its recorded role, task and run: the exact installed command, checks, failure handling and authority limits. Apply its stop/no-fallback rule to canonical role and required instruction reads, not ordinary source output. Call `brief` with the task name of step 4 and the whole brief. Fix each missing field. The gate starts the helper only in the 30 minutes after this check.
 4. Call `spawn_agent` in the `collaboration` namespace with:
    - `task_name`: `sage_<role>_t<n>_r<k>`, with `_` for `-` in the role, for example `sage_code_reviewer_t12_r41`. The gate refuses another role, another task and another form. A name with no run still starts, but sage keeps no report for that run, and no verdict can use it, so always give the run.
    - `message`: the whole output of step 2, a blank line, then the brief.
    - `fork_turns: "none"`. Give no agent type and no model.
    - `reasoning_effort`: the level after `reasoning_effort` in the output of step 1, for example `"medium"`. When step 1 printed none, give no `reasoning_effort`.
+
+Ordinary code reads and source-discovery searches are not authorization evidence. Truncated source or search output is not a guard denial: narrow the query or read bounded sections. Actual permission or hook denials still require a stop, with no alternate route. Do not interrupt a helper solely for source truncation. If it stops for that reason, start a fresh bounded assignment with this distinction.
 
 **Wait and read.** Do not end your turn while a helper runs: a helper's report starts no turn, so you would never read it.
 
@@ -38,6 +40,8 @@ Use `status` for a logbook read, or the trusted literal command form in [command
 6. `round`: when a medium or high finding has `fix`, start the repair with it. First do steps 1 to 5 for each helper of the cycle: after `round`, the gate refuses a verdict on a run of an earlier round. When `round` prints held or replan, report blocked: the sage tools now refuse you. Start an implementer on the same branch for the keys that it names. After the repair's commit, call `finding_close` for each key, then move the task to reviewing, and start the roles that `round` named.
 
 **The pull request.** A Codex implementer commits and reports, and it does not push. After its first commit, send the branch with `git -C <worktree> push -u <remote> <branch>`, open the pull request with `gh pr create --head <branch> --title <title> --body <body>`, and record the number with `task_set`. Send the branch again after each repair. A verdict needs the pull request. Never merge.
+
+Run publication commands in the normal authenticated Git and gh context, outside the test process and its scratch HOME, isolated environment and fake tools. Test isolation disables global Git configuration on purpose; keep that protection. Do not copy credentials or change Git configuration to make publication work from a test environment. End the test command, then use the existing authenticated context for publication. Keep the task's publication authorization and all review and merge gates.
 
 **Wait for CI.** Start no review or QA on a head before CI passes there. After each push, run `<node> <ci-wait.mjs> T<n>` with the project folder as the working folder. It reaches GitHub, as `gh` does. It waits up to 9 minutes for CI on the head of your task's branch, on the PR of the logbook, and reads only that PR's head and its checks. It prints `CI pass`, `CI fail`, `CI none` (no checks) or `CI runs` (run it again), and the next step: do it. After `CI fail`, report STATUS blocked with `Left: the checks`.
 

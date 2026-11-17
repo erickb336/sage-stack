@@ -2,7 +2,7 @@ import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
-import { createRequire } from "node:module";
+import { requireBrowser } from "./browser-prerequisite.mjs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
@@ -11,8 +11,7 @@ import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.m
 import { renderMessage } from "../packages/sage-core/message-checks.mjs";
 import { SWITCH_SCRIPT } from "../packages/sage-core/message-page.mjs";
 
-const require = createRequire(import.meta.url);
-const { chromium } = require("playwright");
+const chromium = requireBrowser();
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HEADERS = ["id title size risk route state branch pr round keys", "id task role round candidate branch status tokens report started ended", "task key round source severity summary triage reason status", "task pr sha kind cycle run at", "id task question options recommendation default answer at", "at task decision why"];
 const NAMES = ["tasks", "runs", "findings", "ledger", "gates", "decisions"];
@@ -107,7 +106,7 @@ before(async () => {
   writeFileSync(join(pages, "switch-srcdoc.html"), refresh(`<iframe srcdoc="&lt;meta http&#45;equiv=&quot;refresh&quot; content=&quot;0;url=${otherSite}/switch-srcdoc?data=SAMPLE&quot;&gt;"></iframe>`));
   writeFileSync(join(pages, "prerender.html"), `<!DOCTYPE html><title>SAMPLE</title><link rel="prerender" href="${otherSite}/prerender?data=SAMPLE"><p>SAMPLE prerender</p>`);
   writeFileSync(join(pages, "switch-utf16.html"), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(`<!DOCTYPE html><meta http-equiv="refresh" content="0;url=${otherSite}/switch-utf16?data=SAMPLE"><p>SAMPLE</p>`, "utf16le"), Buffer.from(`<script>${SWITCH_SCRIPT}</script>`)]));
-  browser = await chromium.launch({ headless: true, ...(process.env.BOARD_BROWSER_PATH ? { executablePath: process.env.BOARD_BROWSER_PATH } : {}) });
+  browser = await chromium.launch();
 });
 
 after(async () => {
@@ -149,7 +148,7 @@ test("T1130: a design page's own script switches its tabs, and its pictures from
   const response = await page.goto(at("designs/final/tabs.html"));
   assert.equal(response.status(), 200);
   assert.equal(await page.title(), "tabs.html");
-  assert.match(await page.getByRole("note").textContent(), /^Warning: this page runs its own scripts in a sandbox/);
+  assert.match(await page.getByRole("note").textContent(), /^Warning: This page runs its own scripts in a sandbox/);
   const frame = await inner(page);
   await frame.waitForLoadState();
   assert.equal(await frame.locator("#two").isVisible(), false);
