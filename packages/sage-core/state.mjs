@@ -194,7 +194,11 @@ const unhex = (hex) => {
 };
 const looks = (s) => String(s).normalize("NFKC").replace(/[\p{Cc}\p{Cf}]/gu, "").replace(/\s+/g, " ").trim().toLowerCase();
 const checkout = (dir, project, env) => {
-  if (!isShared(dir, env)) put(join(dir, "checkout.txt"), `${projectRoot(resolve(project))}\n`);
+  const file = join(dir, "checkout.txt");
+  if (isShared(dir, env) || lstatSync(file, { throwIfNoEntry: false })) return;
+  const temporary = `${file}.${randomUUID()}`;
+  writeFileSync(temporary, `${projectRoot(resolve(project))}\n`, { flag: "wx" });
+  try { linkSync(temporary, file); } catch (e) { if (e.code !== "EEXIST") throw e; } finally { unlinkSync(temporary); }
 };
 
 
@@ -2139,7 +2143,6 @@ function adoptTask(dir, g, opt, project, env) {
   if (at.config) return ` · origin/main ${at.main.slice(0, 7)} has a root ${LINT_CONFIG} now, so sage frames no task.`;
   const languages = projectLanguages(at.top, at.main), tools = toolsDir(dir), own = astGrepBinary(at.top, tools);
   const task = frame(dir, `Add the no-comments lint rules for ${languageList(languages) || "the project"}`, "small", [], [], { priority: "P2", ...chiefTag(opt) });
-  checkout(dir, project, env);
   const folder = pagesDir(project, task.id, env), page = join(folder, "brief.md");
   mkdirSync(folder, { recursive: true, mode: 0o700 });
   writeFileSync(page, adoptBrief({ task: task.id, gate: g.id, top: at.top, main: at.main, languages, binary: own ?? join(tools, "node_modules", ".bin", "ast-grep"), standing: `sage standing --project ${shell(at.top)}` }), { mode: 0o600 });
@@ -2642,6 +2645,7 @@ function change(cmd, pos, opt, dir, env, skip, project, guarded) {
     if (guarded) opt.chief = guard(dir, cmd, pos, opt, project, env);
     if (!changeLoss && !skip.length && isShared(dir, env)) moveLimits(dir, env, cmd === "init");
     const out = act(cmd, pos, opt, dir, env, skip, project);
+    checkout(dir, project, env);
     if (!changeLoss) status(dir, true);
     return out;
   });
@@ -3117,7 +3121,6 @@ function act(cmd, pos, opt, dir, env, skip, project) {
     case "init":
       for (const t of Object.keys(TABLES).reverse()) if (!existsSync(join(dir, `${t}.tsv`))) write(dir, t, []);
       if (!existsSync(join(dir, "standing.md"))) put(join(dir, "standing.md"), STANDING);
-      checkout(dir, project, env);
       return `logbook ${dir}`;
     case "logbook": {
       if (sub !== "repair") return dir;
@@ -3207,7 +3210,6 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         if (noArena === "") refuse(`--no-arena needs the reason: --no-arena "<reason>". Nothing changed.`);
         const arena = byDefault && noArena === undefined;
         const task = frame(dir, need(opt.title, "--title"), size, risk, [...list(opt.add), ...(arena ? ["arena"] : [])], tags);
-        checkout(dir, project, env);
         const at = now(), joined = milestoneDecision(task, "", at, "task add", graph), count = config(env, dir).arena;
         const decided = [...(opt.add ? [{ at, task: task.id, decision: `added ${opt.add}`, why }] : []),
           ...(arena ? [{ at, task: task.id, decision: `added arena · ${count} candidates`, why: `by default: a large ${tags.kind} task` }] : []),
