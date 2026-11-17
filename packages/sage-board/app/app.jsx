@@ -52,8 +52,8 @@ function useHashPage(ready) {
       last = location.hash; setPage(next);
     };
     const keep = event => {
-      const link = event.target.closest?.('a[href^="#task?"]');
-      if (link && plainClick(event)) history.replaceState({ ...history.state, scroll: scrollY, focus: link.getAttribute("href"), nth: same(link.getAttribute("href")).indexOf(link) }, "");
+      const link = event.target.closest?.('a[href^="#"], a[href^="/read/"]');
+      if (link && plainClick(event) && link.target !== "_blank") history.replaceState({ ...history.state, scroll: scrollY, focus: link.getAttribute("href"), nth: same(link.getAttribute("href")).indexOf(link) }, "");
     };
     addEventListener("hashchange", changed); document.addEventListener("click", keep, true);
     return () => { removeEventListener("hashchange", changed); document.removeEventListener("click", keep, true); };

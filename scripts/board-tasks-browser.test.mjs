@@ -590,3 +590,13 @@ test("T1159 (F-T1159-48, F-T1159-49): a milestone with no task shows only its ow
   await page.goto(`${base}/app/#tasks?milestone=${encodeURIComponent(KEY("M1"))}`);
   await settles(() => page.locator(".focus-note .badge").textContent(), "Milestone 1: Board redesign");
 });
+
+test("T1159 (F-T1159-46): a reader page of a task whose title is one long token scrolls only up and down, at 390 and 1440 px", async t => {
+  const { page, base } = await open(t, { edge: true }, "/app/#tasks");
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`${base}${readerUrl(KEY("T60"), "design")}`);
+    await page.locator("h1").first().waitFor();
+    assert.deepEqual(await page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]), [width, width], `${width} px: no sideways scroll`);
+  }
+});

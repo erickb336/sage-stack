@@ -267,3 +267,11 @@ test("F-T1062-22, F-T1062-24, F-T1062-32: each chief's count is the same in the 
   await shoot(page, "agents-round2-dark.png");
   assert.deepEqual(problems, []);
 });
+
+test("T1159 (F-T1159-1): a screen reader names each lead card by its task's words first, then the ids", async t => {
+  const { page } = await open(t, {}, { path: "/app/#agents" });
+  await page.locator("section.acard").first().waitFor();
+  const names = await page.locator("section.acard:not(.own):not(.arena)").evaluateAll(cards => cards.map(card => card.getAttribute("aria-label")));
+  assert.ok(names.length > 0);
+  for (const name of names) assert.match(name, /^Sample [^:]+: lead R\d+ on T\d+$/, `words before ids: ${name}`);
+});

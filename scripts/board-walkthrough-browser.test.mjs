@@ -320,3 +320,18 @@ test("T1159 F-T1159-13: a damaged board-seen value in the browser shows the last
   await page.locator("#counts-h").waitFor();
   assert.equal(await page.locator("#counts-h").textContent(), "In the last 24 hours");
 });
+
+test("T1159 F-T1159-41, F-T1159-43: Back to the Overview from a page that a link or the page list opened returns to the same scroll place and link", async t => {
+  const w = await board(t);
+  const { page } = await open(t, w, "/app/", { width: 1440, height: 500 });
+  await page.locator(".ms .name a").first().waitFor();
+  for (const go of [() => page.locator(".ms .name a").first().click(), () => page.locator(".nav a", { hasText: "Tasks" }).click()]) {
+    await page.evaluate(() => scrollTo(0, 260));
+    await go();
+    await page.locator("main h1", { hasText: "Tasks" }).waitFor();
+    assert.equal(await page.evaluate(() => scrollY), 0, "the new page opens at its top");
+    await page.goBack();
+    await page.locator("main h1", { hasText: "Overview" }).waitFor();
+    await page.waitForFunction(() => Math.abs(scrollY - 260) < 2);
+  }
+});
