@@ -21,6 +21,11 @@ function route(message) {
     closing = true;
     for (const child of children) if (child.connected) child.send(message, () => {});
     void closeOwn();
+  } else if (message.kind === "stopped") {
+    // The board stopped itself (POST /api/stop). Let go of the test's channel, so the process can end on its own; if anything still holds it after 10 s, end with code 3, which the test sees.
+    serving = false;
+    setTimeout(() => process.exit(3), 10_000).unref();
+    release();
   } else if (message.kind === "close-pid") {
     if (message.pid === process.pid) { closing = true; void closeOwn(); }
     else for (const child of children) if (child.connected) child.send(message, () => {});
