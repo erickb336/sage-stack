@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import * as claude from "../plugins/sage/skills/sage/sage.mjs";
 import { tool as codex } from "../plugins/sage-codex/skills/sage/sage.mjs";
-import { boardChiefs, chiefBeat } from "../plugins/sage/core/chief-live.mjs";
+import { boardChiefs, chiefBeat, liveRecord, sessionState } from "../plugins/sage/core/chief-live.mjs";
 import { chiefsWhole } from "../plugins/sage/core/chiefs.mjs";
 import { readBoardSources } from "../plugins/sage/core/board-reader.mjs";
 import { buildBoardModel } from "../plugins/sage/core/board-model.mjs";
@@ -381,4 +381,194 @@ test("an older plugin still reads the logbook: chiefs.tsv keeps its exact column
   assert.ok(chiefsWhole(cols, lines, lines.map((line) => Object.fromEntries(cols.map((c, i) => [c, line.split("\t")[i]])))), "the column check of every plugin accepts chiefs.tsv");
   assert.match(claude.sage(["status", "--project", w.project], w.env), /./);
   assert.match(codex.sage(["status", "--project", w.project], w.env), /./);
+});
+
+const HOUR = 60 * MINUTE, T0 = Date.parse("2026-11-17T10:00:00.000Z"), STARTED = Date.parse("2026-11-17T08:00:00.000Z");
+function fakeWorld(t, probe) {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "sage-session-record-")));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const tool = { locate: () => ({ dir, shared: true, row: { root: "/work/app" } }), chiefFor: () => "C1", sessionProbe: () => probe.current };
+  const beat = (last, now, pid, mode = { sageMode: true, autopilot: false }) => chiefBeat({ last, mode, now, project: "/work/app", native: "s1", provider: "claude", tool, env: {}, pid });
+  return { dir, tool, beat, record: () => liveRecord(json(join(dir, "live", "C1.json"))) };
+}
+const probeOf = (pids, { machine = "mac-1", boot = T0 - 24 * HOUR } = {}) => ({ machine, boot, alive: (pid) => pids[pid] !== undefined && pids[pid] !== null, started: (pid) => pids[pid] ?? NaN });
+
+test("T1170: an unconfirmed record never stops by the probe: beat 1 from pid A, beat 2 from pid B (a short-lived shell)", (t) => {
+  const probe = { current: probeOf({ 100: STARTED, 200: STARTED + 5000 }) }, w = fakeWorld(t, probe);
+  const first = w.beat(undefined, T0, 100);
+  w.beat(first, T0 + MINUTE + 1, 200);
+  const record = w.record();
+  assert.deepEqual([record.pid, record.confirmed], [200, false], "a new pid resets the pair, so the record is not confirmed");
+  const gone = probeOf({});
+  assert.deepEqual(sessionState(record, {}, T0 + 2 * MINUTE, gone), { state: "live", reason: null }, "pid A and pid B are gone, and the session is not stopped by the probe");
+  assert.deepEqual(sessionState(record, {}, T0 + 2 * HOUR, gone), { state: "quiet", reason: null });
+  assert.deepEqual(sessionState(record, {}, T0 + MINUTE + 1 + 8 * HOUR, gone), { state: "stopped", reason: "quiet-8h" }, "only the 8 h quiet rule stops it");
+});
+
+test("T1170: the same pid and start time in two beats at least a minute apart confirm the program; a gone program then stops the session", (t) => {
+  const probe = { current: probeOf({ 100: STARTED }) }, w = fakeWorld(t, probe);
+  const first = w.beat(undefined, T0, 100);
+  assert.equal(w.record().confirmed, false, "one beat confirms nothing");
+  const changed = w.beat(first, T0 + 10_000, 100, { sageMode: true, autopilot: true });
+  assert.equal(w.record().confirmed, false, "a second beat 10 s later confirms nothing");
+  w.beat(changed, T0 + 10_000 + MINUTE, 100, { sageMode: true, autopilot: true });
+  const record = w.record();
+  assert.deepEqual([record.pid, record.pidStart, record.machine, record.confirmed], [100, STARTED, "mac-1", true]);
+  assert.deepEqual(sessionState(record, {}, T0 + 2 * MINUTE, probe.current), { state: "live", reason: null }, "the program runs");
+  assert.deepEqual(sessionState(record, { running: 1, gates: 1 }, T0 + 2 * MINUTE, probeOf({})), { state: "stopped", reason: "gone" }, "a confirmed program that is gone stops the session, also with a running run");
+});
+
+test("T1170: the start time is always compared: the same pid with another start time is gone, and a new start time on a beat resets the pair", (t) => {
+  const probe = { current: probeOf({ 100: STARTED }) }, w = fakeWorld(t, probe);
+  w.beat(w.beat(undefined, T0, 100), T0 + MINUTE, 100);
+  const record = w.record();
+  assert.equal(record.confirmed, true);
+  assert.deepEqual(sessionState(record, {}, T0 + 2 * MINUTE, probeOf({ 100: STARTED + 1500 })), { state: "live", reason: null }, "within 2 s is the same program");
+  assert.deepEqual(sessionState(record, {}, T0 + 2 * MINUTE, probeOf({ 100: STARTED + 3 * HOUR })), { state: "stopped", reason: "gone" }, "a reused pid is another program");
+  probe.current = probeOf({ 100: STARTED + 3 * HOUR });
+  w.beat({ sageMode: true, autopilot: false, at: T0 + MINUTE }, T0 + 2 * MINUTE, 100);
+  assert.equal(w.record().confirmed, false, "a beat from another start time clears confirmed");
+});
+
+test("T1170: a record from another machine id, or with none, is never stopped by the probe: only the quiet rule decides", (t) => {
+  const probe = { current: probeOf({ 100: STARTED }, { machine: "mac-other" }) }, w = fakeWorld(t, probe);
+  w.beat(w.beat(undefined, T0, 100), T0 + MINUTE, 100);
+  const other = w.record(), here = probeOf({}, { machine: "mac-1" });
+  assert.equal(other.confirmed, true);
+  assert.deepEqual(sessionState(other, {}, T0 + 2 * MINUTE, here), { state: "live", reason: null }, "its pid is not on this Mac, and that proves nothing");
+  assert.deepEqual(sessionState(other, {}, T0 + MINUTE + 9 * HOUR, probeOf({ 100: STARTED }, { machine: "mac-1" })), { state: "stopped", reason: "quiet-8h" }, "9 h quiet with a live pid of the same number: the quiet rule");
+  probe.current = probeOf({ 100: STARTED }, { machine: null });
+  w.beat(w.beat({ sageMode: true, autopilot: false, at: T0 }, T0 + 3 * MINUTE, 100), T0 + 5 * MINUTE, 100);
+  const none = w.record();
+  assert.deepEqual([none.machine, none.confirmed], [null, false], "no machine id: never confirmed");
+  assert.deepEqual(sessionState(none, {}, T0 + 6 * MINUTE, probeOf({}, { machine: null })), { state: "live", reason: null });
+});
+
+test("T1170: a reboot stops every confirmed record of this Mac", (t) => {
+  const probe = { current: probeOf({ 100: STARTED }) }, w = fakeWorld(t, probe);
+  w.beat(w.beat(undefined, T0, 100), T0 + MINUTE, 100);
+  const record = w.record();
+  assert.deepEqual(sessionState(record, {}, T0 + 2 * MINUTE, probeOf({ 100: STARTED }, { boot: T0 - 24 * HOUR + 30_000 })), { state: "live", reason: null }, "the boot time moves a little between reads");
+  assert.deepEqual(sessionState(record, {}, T0 + 2 * MINUTE, probeOf({ 100: STARTED }, { boot: T0 + MINUTE + 1 })), { state: "stopped", reason: "gone" }, "a new boot: also a pid with the same number and start is another program");
+});
+
+test("T1170: the quiet rule (G227): 8 h with no beat stops a session only with no open gate and no running run of its chief", (t) => {
+  const probe = { current: probeOf({}) }, w = fakeWorld(t, probe);
+  w.beat(undefined, T0, 100);
+  const record = w.record(), late = T0 + 8 * HOUR;
+  assert.deepEqual(sessionState(record, {}, T0 + 31 * MINUTE, null), { state: "quiet", reason: null }, "over 30 minutes with no beat: quiet");
+  assert.deepEqual(sessionState(record, {}, late - 1, null), { state: "quiet", reason: null }, "just under 8 h: quiet");
+  assert.deepEqual(sessionState(record, {}, late, null), { state: "stopped", reason: "quiet-8h" }, "8 h: stopped");
+  assert.deepEqual(sessionState(record, { gates: 1 }, late + HOUR, null), { state: "quiet", reason: null }, "an open gate of the chief keeps it quiet");
+  assert.deepEqual(sessionState(record, { running: 1 }, late + HOUR, null), { state: "live", reason: null }, "a running run of the chief keeps it live");
+});
+
+const linkedAt = (t, pids = { [process.pid]: STARTED }) => {
+  const w = linked(t);
+  return { ...w, env: { ...w.env, SAGE_TEST_PIDS: JSON.stringify(pids) } };
+};
+const recordOf = (w, id) => liveRecord(json(w.live(id)));
+const chiefRows = (w) => w.chiefs().trim().split("\n").slice(1).map((row) => row.split("\t").slice(0, 3).join(" "));
+
+for (const reason of ["prompt_input_exit", "logout", "other"]) test(`T1170: a clean Claude SessionEnd (${reason}) marks the chief ended, and the session stops with no probe`, (t) => {
+  const w = linkedAt(t);
+  claudeSay(w, "sage mode");
+  assert.equal(recordOf(w, "C1").ended, null);
+  assert.equal(claudeEvent(w, { hook_event_name: "SessionEnd", reason }), undefined, "the hook prints nothing at the end");
+  const record = recordOf(w, "C1");
+  assert.equal(record.ended, reason);
+  assert.deepEqual(sessionState(record, { running: 1 }, Date.now(), null), { state: "stopped", reason: "ended" });
+  assert.deepEqual(record.sageMode, true, "the end keeps the rest of the record");
+});
+
+test("T1170: a SessionEnd that is no clean exit (resume, clear) does not end the chief", (t) => {
+  const w = linkedAt(t);
+  claudeSay(w, "sage mode");
+  claudeEvent(w, { hook_event_name: "SessionEnd", reason: "resume" });
+  claudeEvent(w, { hook_event_name: "SessionEnd", reason: "clear" });
+  assert.equal(recordOf(w, "C1").ended, null);
+});
+
+for (const [name, say] of [["Claude", claudeSay], ["Codex", codexSay]]) test(`T1170: ${name}: the off phrase marks the chief ended; sage mode on again in the same session clears it`, (t) => {
+  const w = linkedAt(t);
+  say(w, "sage mode");
+  say(w, "sage mode off");
+  assert.equal(recordOf(w, "C1").ended, "off");
+  assert.deepEqual(sessionState(recordOf(w, "C1"), {}, Date.now(), null), { state: "stopped", reason: "ended" });
+  say(w, "sage mode");
+  assert.equal(recordOf(w, "C1").ended, null, "the session is a chief again");
+  assert.equal(chiefRows(w).length, 1);
+});
+
+test("T1170: a resumed native id is the same chief, live again, with no new row", (t) => {
+  const w = linkedAt(t);
+  claudeSay(w, "sage mode");
+  claudeEvent(w, { hook_event_name: "SessionEnd", reason: "prompt_input_exit" });
+  assert.equal(sessionState(recordOf(w, "C1"), {}, Date.now(), null).state, "stopped");
+  beatDue(w);
+  claudeSay(w, "sage mode");
+  assert.deepEqual(chiefRows(w), ["C1 claude claude-1"], "the same chief, no new row");
+  assert.equal(claude.chiefFor(w.project, "claude-1", w.env), "C1");
+  assert.deepEqual([recordOf(w, "C1").ended, sessionState(recordOf(w, "C1"), {}, Date.now(), null).state], [null, "live"]);
+});
+
+const other = (w, event) => claudeEvent(w, { session_id: "claude-2", ...event });
+test("T1170: a Claude /clear keeps the chief: SessionEnd(clear) then SessionStart(clear) of the same program links the new session id", (t) => {
+  const w = linkedAt(t);
+  claudeSay(w, "sage mode");
+  claudeEvent(w, { hook_event_name: "SessionEnd", reason: "clear" });
+  other(w, { hook_event_name: "SessionStart", source: "clear" });
+  assert.deepEqual(chiefRows(w), ["C1 claude claude-1", "C1 claude claude-2"], "one chief, two native ids");
+  other(w, { hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
+  assert.equal(claude.chiefFor(w.project, "claude-2", w.env), "C1");
+  assert.deepEqual(readdirSync(join(w.dir, "live")), ["C1.json"], "the note is used once and gone");
+  const board = boardOf(w, Date.now()).project.chiefs;
+  assert.deepEqual(board.map((chief) => chief.id), ["C1"], "the board shows the chief once");
+  const [head, ...lines] = w.chiefs().trim().split("\n"), cols = head.split("\t");
+  assert.ok(chiefsWhole(cols, lines, lines.map((line) => Object.fromEntries(cols.map((c, i) => [c, line.split("\t")[i]])))));
+});
+
+test("T1170: a SessionStart(clear) with no note, or from another program, makes a new chief", (t) => {
+  const w = linkedAt(t);
+  claudeSay(w, "sage mode");
+  other(w, { hook_event_name: "SessionStart", source: "clear" });
+  other(w, { hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
+  assert.deepEqual(chiefRows(w), ["C1 claude claude-1", "C2 claude claude-2"], "no note: a new chief");
+  claudeEvent(w, { hook_event_name: "SessionEnd", reason: "clear" });
+  const restarted = { ...w, env: { ...w.env, SAGE_TEST_PIDS: JSON.stringify({ [process.pid]: STARTED + HOUR }) } };
+  claudeEvent(restarted, { session_id: "claude-3", hook_event_name: "SessionStart", source: "clear" });
+  claudeEvent(restarted, { session_id: "claude-3", hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
+  assert.deepEqual(chiefRows(w).at(-1), "C3 claude claude-3", "the same pid with another start time is another program: no link");
+  const none = { ...w, env: { ...w.env, SAGE_TEST_PIDS: "{}" } };
+  claudeEvent(none, { session_id: "claude-2", hook_event_name: "SessionEnd", reason: "clear" });
+  claudeEvent(none, { session_id: "claude-4", hook_event_name: "SessionStart", source: "clear" });
+  claudeEvent(none, { session_id: "claude-4", hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
+  assert.deepEqual(chiefRows(w).at(-1), "C4 claude claude-4", "no known start time: no note and no link");
+});
+
+function codexThread(w, session) {
+  const transcript = join(w.base, `rollout-${session}.jsonl`);
+  writeFileSync(transcript, `${JSON.stringify({ type: "session_meta", payload: { id: session, session_id: session, cli_version: "0.164.0", source: "cli" } })}\n`);
+  for (const event of [{ hook_event_name: "SessionStart", source: "startup" }, { hook_event_name: "UserPromptSubmit", turn_id: `turn-${++turns}`, prompt: "sage mode" }]) codexEvent(w, { session_id: session, transcript_path: transcript, ...event });
+}
+test("T1170: two Codex threads in one app-server process (one pid and start time) stay two chiefs, each with the program in its record", (t) => {
+  const w = linkedAt(t);
+  codexThread(w, "codex-a");
+  codexThread(w, "codex-b");
+  assert.deepEqual(chiefRows(w), ["C1 codex codex-a", "C2 codex codex-b"]);
+  assert.deepEqual([recordOf(w, "C1"), recordOf(w, "C2")].map(({ pid, pidStart }) => [pid, pidStart]), [[process.pid, STARTED], [process.pid, STARTED]], "the pid that the start mark keeps");
+});
+
+test("T1170: agent actions renew the chief's record, in Claude and in Codex", (t) => {
+  const w = linkedAt(t);
+  claudeSay(w, "sage mode");
+  codexSay(w, "sage mode");
+  const stale = new Date(Date.now() - 2 * HOUR).toISOString();
+  for (const id of ["C1", "C2"]) writeFileSync(w.live(id), JSON.stringify({ ...json(w.live(id)), at: stale }));
+  beatDue(w);
+  const codexLast = join(w.env.CODEX_HOME, "sage", ".hooks", "codex", "live");
+  for (const name of readdirSync(codexLast)) writeFileSync(join(codexLast, name), JSON.stringify({ ...json(join(codexLast, name)), at: 0 }));
+  claudeEvent(w, { hook_event_name: "PreToolUse", agent_id: "agent-1", agent_type: "sage:implementer", tool_name: "Read", tool_input: { file_path: join(w.project, "x") } });
+  codexEvent(w, { hook_event_name: "PostToolUse", agent_id: "agent-1", tool_name: "read_file", tool_input: {}, tool_response: {} });
+  for (const id of ["C1", "C2"]) assert.ok(Date.now() - recordOf(w, id).at < MINUTE, `${id}: an agent action wrote a fresh beat`);
 });
