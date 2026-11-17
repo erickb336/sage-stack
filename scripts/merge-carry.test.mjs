@@ -259,3 +259,21 @@ for (const forge of ["grafts", "commit-graph"]) test(`j: a forged parent in the 
   assert.equal(w.git("merge-base", "--is-ancestor", side, m), "", "the test's own git now sees side on main");
   assert.equal(w.refused(stray), refusal, "sage reads the real parents");
 });
+
+test("F-T1159-9: the carry's merge-tree writes no object into the checkout, from the merge check or from the board", (t) => {
+  const w = world(t);
+  const h1 = w.work({ "src.js": "x\n" });
+  w.reviewed(h1);
+  for (const state of ["verifying", "verified"]) w.ok("task", "T1", "set", `state=${state}`);
+  const main = w.main({ "other.js": "m\n" });
+  const edited = w.git("commit-tree", `${h1}^{tree}`, "-p", h1, "-p", main, "-m", "a merge that drops main's file");
+  w.git("update-ref", "refs/heads/sage/t1", edited);
+  w.verdicts(edited, "checks-pass");
+  const objects = () => w.git("count-objects", "-v").split("\n").filter((line) => /^(?:count|in-pack): /.test(line)).join(", ");
+  const before = objects();
+  assert.equal(w.refused(edited), notCarried(h1, `${edited} is not the clean merge of its parents (it resolves a conflict or adds an edit)`), "the check made the clean merge's tree, which no commit of the checkout has");
+  assert.equal(objects(), before, "the merge check wrote no object into the checkout");
+  const sources = [{ id: "current", path: w.env.SAGE_HOME }];
+  assert.equal(buildBoardModel(readBoardSources(sources), { landing: landingRule(sources) }).tasks.find((c) => c.id === "T1").mergeCheck.ok, false, "the board read the same merge");
+  assert.equal(objects(), before, "the board wrote no object into the checkout");
+});

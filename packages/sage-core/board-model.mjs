@@ -309,7 +309,7 @@ function card(source, project, group, task, now, graph, landing) {
     const what = task.pr ? `review and merge PR ${task.pr}` : "review and merge it";
     reasons.push({ kind: "merge", mode: !!mode, text: mode ? `Autopilot is off, so ${what}.` : `The board cannot tell if autopilot is on, so ${what}.` });
   }
-  const carry = !repairing && build && head ? carryOver(isAbsolute(project.checkout ?? "") ? project.checkout : undefined, task, head, ledger.filter(row => String(row.pr) === task.pr)) : null;
+  const carry = !repairing && build && head ? carryOver(isAbsolute(project.checkout ?? "") ? project.checkout : undefined, task, head, ledger) : null;
   const current = repairing ? [] : build ? carry?.rows ?? [] : ledger.filter(row => !row.sha);
   const steps = [...(build ? ["checks"] : []), ...route.filter(block => CLEAN[block])];
   const required = Math.max(positive(source.config?.["cycles.small"]) ?? 1, task.size === "large" ? Math.max(2, positive(source.config?.["cycles.large"] ?? source.config?.autopilot_cycles) ?? 2) : 1, task.risk ? Math.max(2, positive(source.config?.["cycles.risk"]) ?? 2) : 1);
