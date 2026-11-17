@@ -117,6 +117,22 @@ test("first answer wins: a second answer to a plain or a takeover gate is refuse
   assert.equal(w.refused("claude", "gate", "answer", "G1", "--option", "1", "--via", "phone"), `--via is the place of the owner's answer: board, claude-card, codex-card, chat. Nothing changed.`);
 });
 
+test("T1156 F-T1156-40: in an archived project, gate answer is refused from every place and both providers, also after the board read the project as not archived; Restore lets the answer land", (t) => {
+  const w = shared(t);
+  w.as("claude", "task", "add", "--title", "a", ...ADD);
+  w.as("claude", "gate", "add", "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes");
+  w.owner("claude", "config", "archived=yes");
+  const before = readFileSync(join(w.dir, "gates.tsv"), "utf8");
+  const chat = "this project is archived, so it takes no answer: an archived project starts no agent and merges nothing. If this is new work that the owner asked for in this chat after the archive, restore the project first with sage config archived=no, tell the owner in one line that you restored it, then give the same command again. A lead does not restore a project: report blocked to your chief. Nothing changed.";
+  for (const provider of ["claude", "codex"]) {
+    for (const via of ["chat", "claude-card", "codex-card"]) assert.equal(w.refused(provider, "gate", "answer", "G1", "--option", "2", "--via", via), chat, `${provider} --via ${via}`);
+    assert.equal(w.refused(provider, "gate", "answer", "G1", "--option", "2", "--via", "board"), "This project is archived, so it takes no answer. Restore it, then answer again. Nothing changed.", `${provider} --via board: the owner's own words`);
+  }
+  assert.equal(readFileSync(join(w.dir, "gates.tsv"), "utf8"), before, "a refused answer writes nothing");
+  w.owner("claude", "config", "archived=no");
+  assert.match(w.owner("codex", "gate", "answer", "G1", "--option", "2", "--via", "board"), /^G1 recorded · no · from the board/, "after Restore the same answer lands");
+});
+
 for (const owning of ["claude", "codex"]) {
   test(`a board answer only records; the ${owning} chief's hook applies it at its next step and records the pickup, and the other chief's hook leaves it`, (t) => {
     const w = shared(t);

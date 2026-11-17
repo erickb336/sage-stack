@@ -3614,6 +3614,7 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         }
         const own = opt["other-hex"], via = opt.via ?? "chat";
         if (!Object.hasOwn(VIA, via)) refuse(`--via is the place of the owner's answer: ${Object.keys(VIA).join(", ")}. Nothing changed.`);
+        if (archivedIn(dir)) refuse(via === "board" ? "This project is archived, so it takes no answer. Restore it, then answer again. Nothing changed." : archivedBar("answer", "give the same command again"));
         const first = firstAnswer(g);
         if (first) refuse(first);
         if (opt.seen !== undefined && opt.seen !== gateDigest(g)) refuse(`${g.id} changed after the owner read it: its question or its options are not the ones that --seen ${visible(String(opt.seen))} names. Read ${g.id} again, and answer what it asks now. Nothing changed.`);
