@@ -222,7 +222,7 @@ test("T1061, T1083: the task page opens from the keyboard, its tabs move with th
   assert.equal(await page.evaluate(() => document.activeElement.tagName), "H1", "the focus moves to the page's title");
   await page.getByRole("tab", { name: /Artifacts/ }).click();
   await page.keyboard.press("ArrowRight");
-  assert.equal(await page.evaluate(() => document.activeElement.textContent), "Log 8");
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), "Log 9", "the log counts the task added row too");
   assert.equal(await page.getByRole("tab", { name: /Log/ }).getAttribute("aria-selected"), "true");
   await page.keyboard.press("End");
   assert.equal(await page.evaluate(() => document.activeElement.textContent), "Decisions 1", "End goes to the last tab (F-T1080-21)");
@@ -547,4 +547,58 @@ test("T1080: a row's age counts from now, so it grows while the logbook does not
   assert.equal(await row(page, "T3").locator(".age").textContent(), "30 min ago");
   await page.clock.runFor(2 * 3_600_000);
   await settles(() => row(page, "T3").locator(".age").textContent(), "3 h ago");
+});
+
+test("T1159 (F-T1159-51): Tasks with no since value in the address shows no NaN, and each sample row has an age, as a real logbook gives each task a task added row", async t => {
+  const { page } = await open(t, {}, "/app/#tasks");
+  assert.equal(await page.locator(".focus-note").count(), 0, "no merged-since note without a since value");
+  assert.doesNotMatch(await page.locator("main").innerText(), /NaN/);
+  assert.equal(await page.evaluate(() => document.querySelector(".toolbar").nextSibling?.className), "card group", "nothing, not even a 0, stands between the toolbar and the first group");
+  assert.deepEqual((await page.locator("a.row .age").allTextContents()).filter(age => /unknown/.test(age)), [], "every task of the sample has an age");
+});
+
+test("T1159 (F-T1159-54): Stats has its own scope, so its top bar shows no count of agents in all projects, no picker and no chief chips; the Overview keeps them", async t => {
+  const { page } = await open(t, { agents: true, twin: true }, "/app/#");
+  const top = () => page.locator("header.top").innerText();
+  await page.locator("header.top .limit", { hasText: "in all projects" }).waitFor();
+  assert.equal(await page.locator(".picker").count(), 1);
+  assert.match(await top(), /Agents\s+\d+ of \d+[^]*Leads\s+\d+ of \d+/, "the Overview names the open project's agent and lead counts");
+  await page.locator(".nav a", { hasText: "Stats" }).click();
+  await page.locator(".stat-tiles").waitFor();
+  assert.doesNotMatch(await top(), /in all projects/, "Stats counts its own scope only");
+  assert.equal(await page.locator("header.top .limit").count(), 0, "Stats shows no Agents or Leads chip of the project that the picker opened last, which it does not name");
+  assert.equal(await page.locator(".picker, .chips, .signal").count(), 0, "Stats shows no picker, no chief chips and no line about other projects than one it does not name");
+});
+
+test("T1159 (F-T1159-39, F-T1159-42): with a chief chip on, the Overview's Merged count and its list agree, and a group of only merged tasks counts them, not 0 open", async t => {
+  const { page } = await open(t, {}, "/app/#");
+  const merged = () => page.locator('[data-count="merged"] .n').textContent();
+  assert.equal(await merged(), "1", "T1 merged 2 h ago");
+  await page.locator('button.chip[data-chief="shared/sample-app-abc123/C2"]').click();
+  await settles(merged, "0", "C2 merged nothing");
+  await page.locator('[data-count="merged"] a').click();
+  await page.locator("main h1", { hasText: "Tasks" }).waitFor();
+  assert.equal(await page.locator("a.row").count(), 0, "the list agrees with the count");
+  await page.locator('button.chip[data-chief="shared/sample-app-abc123/C1"]').click();
+  await settles(() => page.locator("a.row .id").allTextContents(), ["T1"]);
+  assert.deepEqual(await page.locator(".group .card-h .hint").allTextContents(), ["1 ended"], "not done 0 open");
+});
+
+test("T1159 (F-T1159-48, F-T1159-49): a milestone with no task shows only its own note, and the milestone badge says the word milestone once", async t => {
+  const { page, base } = await open(t, { stuck: true }, `/app/#tasks?milestone=${encodeURIComponent(KEY("M10"))}`);
+  await page.locator(".lost").waitFor();
+  assert.equal(await page.locator(".empty").count(), 0, "no second note that the filters hide every task");
+  assert.equal(await page.locator(".focus-note .badge").textContent(), "Milestone 10: Empty stuck");
+  await page.goto(`${base}/app/#tasks?milestone=${encodeURIComponent(KEY("M1"))}`);
+  await settles(() => page.locator(".focus-note .badge").textContent(), "Milestone 1: Board redesign");
+});
+
+test("T1159 (F-T1159-46): a reader page of a task whose title is one long token scrolls only up and down, at 390 and 1440 px", async t => {
+  const { page, base } = await open(t, { edge: true }, "/app/#tasks");
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`${base}${readerUrl(KEY("T60"), "design")}`);
+    await page.locator("h1").first().waitFor();
+    assert.deepEqual(await page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]), [width, width], `${width} px: no sideways scroll`);
+  }
 });

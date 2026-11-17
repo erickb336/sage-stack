@@ -60,7 +60,7 @@ function LeadCard({ lead, helpers, queued, more, now, step }) {
   const shown = helpers.filter(run => run.status === "running" || run.look), ended = helpers.filter(run => !shown.includes(run));
   const look = shown.filter(run => run.look).length + more, mine = [lead, ...helpers];
   return (
-    <section className="acard" aria-label={`${lead.role} ${lead.id} on ${lead.task.id}`}>
+    <section className="acard" aria-label={`${lead.task.title}: ${lead.role} ${lead.id} on ${lead.task.id}`}>
       <header className="acard-h">
         <AgentRing run={lead} now={now} />
         <div className="lt">
@@ -86,7 +86,7 @@ function Arena({ runs, now }) {
   const judge = runs.filter(run => run.role === "arena-judge").at(-1), done = candidates.filter(run => run.status !== "running" && run.status !== "queued").length;
   const ended = judge && judge.status !== "running" && judge.status !== "queued";
   return (
-    <section className="acard arena" aria-label={`Arena of ${task.id}`}>
+    <section className="acard arena" aria-label={`Arena of ${task.title}, ${task.id}`}>
       <header className="acard-h">
         <Ring ring={ended ? "done" : "run"}><Glyph role="arena-judge" /></Ring>
         <div className="lt"><Title task={task} /><span className="sub">Arena · {plural(candidates.length, "candidate")}, one brief, then a judge · <span className="mono">{task.id}</span></span></div>

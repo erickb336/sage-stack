@@ -56,7 +56,7 @@ function trap(event) {
 export function RestoreButton({ project, primary, after }) {
   const { busy } = useArchive(), writes = useAccess();
   if (writes !== "paired") return null;
-  return <button type="button" className={`btn${primary ? " primary" : ""}`} disabled={!!busy} onClick={() => { send("restore", project); after?.(); }}>{busy === project.key ? "Restoring…" : "Restore"}</button>;
+  return <button type="button" className={`btn${primary ? " primary" : ""}`} disabled={!!busy} aria-label={busy === project.key ? undefined : `Restore ${project.name}`} onClick={() => { send("restore", project); after?.(); }}>{busy === project.key ? "Restoring…" : "Restore"}</button>;
 }
 
 function Kept({ project }) {
@@ -121,14 +121,26 @@ function Banner({ project, projects, now }) {
   );
 }
 
+function Mixed({ project }) {
+  const writes = useAccess(), { busy } = useArchive(), { archived, shown } = project.mixed, are = list => list.length > 1 ? "are" : "is";
+  return (
+    <div className="banner fail" role="status" data-mixed={project.key}><AlertIcon />
+      <div><b>{logbookNames(archived)} of {project.name} {are(archived)} archived, and {logbookNames(shown).replace("The", "the")} {are(shown)} not.</b> The project stays shown until {archived.length + shown.length > 2 ? "every logbook agrees" : "both agree"}.
+        {writes === "paired" && ["Archive", "Restore"].map(word => <span key={word}> <button type="button" className="btn" disabled={!!busy} onClick={() => send(word.toLowerCase(), project)}>{word}</button></span>)}
+      </div>
+    </div>
+  );
+}
+
 export function ArchiveLayer({ all, current, now }) {
-  const { asking, note, undone } = useArchive(), project = all.projects.find(item => item.key === asking);
+  const { asking, note, undone, busy } = useArchive(), project = all.projects.find(item => item.key === asking);
   const back = undone && all.projects.find(item => item.key === undone);
   useEffect(() => { if (back?.welcome && !back.archived) { closeWelcome(back); set({ undone: null }); } }, [back?.welcome, back?.archived]);
   return <>
     {project && <Confirm project={project} tasks={all.tasks} />}
     {note && !(note.again === "archive" && asking) && <Note note={note} shown={all.projects.find(item => item.key === note.project.key)} />}
     {current?.archived && <Banner project={current} projects={all.projects} now={now} />}
+    {current?.mixed && !current.archived && busy !== current.key && note?.project.key !== current.key && <Mixed project={current} />}
   </>;
 }
 

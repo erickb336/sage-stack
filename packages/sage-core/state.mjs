@@ -4,7 +4,7 @@ import { readLocalGit } from "./local-git.mjs";
 import { PENDING, recordedWrites, assertNoPendingWrite, hasPendingWrite, pendingRequest, pendingNames, settlePendingWrite, verifyPendingWrite, RecordedWriteError } from "./recorded-write.mjs";
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, constants, existsSync, fchmodSync, fstatSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, constants, existsSync, fchmodSync, fstatSync, linkSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, hostname, platform, tmpdir, uptime } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { boardView, sessionRoots, sessionSources } from "./board-view.mjs";
@@ -2013,13 +2013,15 @@ function cleanMergesOfMain(project, from, head, reviewed) {
     if (!other || more.length) return `${commit} is not a merge of two parents`;
     if (!yes(["merge-base", "--is-ancestor", other, main])) return `${commit} merges ${other}, which is not on origin/main (fetch origin if main moved)`;
     const tree = (() => {
+      const write = mkdtempSync(join(tmpdir(), "sage-merge-tree-"));
       try {
-        return out([`--attr-source=${other}`, "-c", "core.attributesFile=/dev/null", "merge-tree", "--write-tree", "--no-messages", first, other]).split("\n")[0];
+        const objects = { write, read: out(["rev-parse", "--path-format=absolute", "--git-path", "objects"]).trim() };
+        return readLocalGit(project, [`--attr-source=${other}`, "-c", "core.attributesFile=/dev/null", "merge-tree", "--write-tree", "--no-messages", first, other], undefined, { objects }).toString().split("\n")[0];
       } catch (e) {
         if (e?.status === 1) return "conflict";
         if (e?.status === 129) return "old git";
         throw e;
-      }
+      } finally { rmSync(write, { recursive: true, force: true }); }
     })();
     if (tree === "conflict") return `${commit} merges ${other} with a conflict`;
     if (tree === "old git") return "this Git has no --attr-source option, so it cannot read the merge with the attributes of main (update Git)";

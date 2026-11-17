@@ -352,7 +352,7 @@ test("F-T1158-7 and F-T1158-3: when a logbook cannot be read, Stats shows one ba
   addTask("T90");
   await page.getByText("The numbers below are not complete.").waitFor();
   assert.equal(await page.locator(".banner").count(), 1, "the board's stale banner does not show beside it");
-  assert.deepEqual(await page.locator(".banner li").allTextContents(), ["the agent time and tokens of the Sample logbook of sample-app"]);
+  assert.deepEqual(await page.locator(".banner li").allTextContents(), ["the agent time and tokens of sample-app (Sample logbook)"]);
   await until(() => openTasks().then(Number), before + 1);
   addTask("T91");
   await until(() => openTasks().then(Number), before + 2);

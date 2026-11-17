@@ -198,7 +198,7 @@ const CSS = `:root{--bg:#09090b;--card:#111114;--card-2:#17171b;--line:#222228;-
 *{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--text)}body{font:14px/1.55 var(--font)}a{color:inherit}h1,h2,h3,p{margin:0}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:4px}
 .top{display:flex;align-items:center;gap:12px;height:52px;padding:0 24px;border-bottom:1px solid var(--line);font-size:13.5px;color:var(--muted)}.top b{color:var(--text);font-weight:500}.grow{flex:1}
-main{max-width:1240px;margin:0 auto;padding:22px 32px 64px}.where{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:22px;color:var(--muted)}.back{color:var(--text);font-weight:500}
+main{max-width:1240px;margin:0 auto;padding:22px 32px 64px}.where{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:22px;color:var(--muted)}.where>span{min-width:0;overflow-wrap:anywhere}.back{color:var(--text);font-weight:500}
 .btn{display:inline-block;border:1px solid var(--line-2);border-radius:8px;padding:5px 12px;text-decoration:none;color:var(--text);background:var(--card)}.btn[aria-current]{border-color:var(--accent);background:var(--accent-fill)}
 .kind{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);font-weight:600}h1{font-size:26px;font-weight:600;margin:6px 0 14px;overflow-wrap:anywhere}
 .facts{display:flex;flex-wrap:wrap;gap:6px 40px;margin:0 0 22px}.facts div{min-width:0}.facts dt{color:var(--muted);font-size:12.5px}.facts dd{margin:2px 0 0;overflow-wrap:anywhere}

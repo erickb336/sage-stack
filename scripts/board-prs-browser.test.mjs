@@ -135,10 +135,10 @@ test("T1063: the list groups each PR by its next action and shows its task, chie
   const text = async id => (await row(page, id).innerText()).replace(/\s+/g, " ");
   assert.match(await text("T8"), /^PR 17 Sample search highlight Claude · C1 T8 may conflict · T3 · PR 12 Checks failed on the recorded PR head; the chief repairs it\. 0 of 1 clean cycles CI fails 0 open \d+ h ago$/);
   assert.match(await text("T3"), /^PR 12 Sample shared limits Codex · C2 T3 Milestone 1: Board redesign may conflict · T40 may conflict · T8 · PR 17 0 of 1 clean cycles CI passes 0 open \d+ min ago$/);
-  assert.match(await text("T7"), /^PR 16 Sample offline banner Codex · C2 T7 .* Clean cycles unknown · 1 needed CI unknown 0 open age unknown$/);
+  assert.match(await text("T7"), /^PR 16 Sample offline banner Codex · C2 T7 .* Clean cycles unknown · 1 needed CI unknown 0 open \d+ days ago$/);
   assert.match(await text("T5"), /^PR 14 Sample retry backoff Claude · C1 T5 .* 1 of 1 clean cycles CI passes 0 open \d+ h ago$/);
-  assert.match(await text("T6"), /^PR 15 Sample sync log .* Waits for T5 \(in progress\)\. 0 of 1 clean cycles CI unknown 0 open age unknown$/);
-  assert.match(await text("T13"), /^no PR Sample sync export .* Waits for T6 \(in progress\)\. age unknown$/);
+  assert.match(await text("T6"), /^PR 15 Sample sync log .* Waits for T5 \(in progress\)\. 0 of 1 clean cycles CI unknown 0 open \d+ days ago$/);
+  assert.match(await text("T13"), /^no PR Sample sync export .* Waits for T6 \(in progress\)\. \d+ days ago$/);
   assert.match(await text("T9"), /^PR 11 Sample conflict rule .* 1 clean cycle CI passes 0 open merged 5 h ago$/);
   assert.equal(await page.getByRole("status").filter({ hasText: /open PRs?$/ }).textContent(), "5 open PRs");
   assert.equal(await page.locator(".nav a", { hasText: "Pull requests" }).locator(".count").textContent(), "5");

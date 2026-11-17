@@ -57,7 +57,7 @@ test("T1061: the panel gives the route's steps with the current step, the clean-
   assert.deepEqual(panel.steps[2].parts, [{ name: "checks", status: "done" }, { name: "code review", status: "done" }, { name: "QA", status: "run" }]);
   assert.deepEqual(panel.cycles, { required: 1, clean: 0, reviews: true });
   assert.deepEqual(panel.lastEvent, { at: "2026-11-13T11:30:00.000Z", who: "R6", text: "qa started" });
-  assert.deepEqual(panel.log.map(event => event.text), ["qa started", "review-clean · cycle 1 on bbbbbbb", "code-reviewer ended: done", "checks-pass · cycle 1 on bbbbbbb", "code-reviewer started", "implementer ended: done", "implementer started", "state reviewing · the PR is open"], "newest first");
+  assert.deepEqual(panel.log.map(event => event.text), ["qa started", "review-clean · cycle 1 on bbbbbbb", "code-reviewer ended: done", "checks-pass · cycle 1 on bbbbbbb", "code-reviewer started", "implementer ended: done", "implementer started", "state reviewing · the PR is open", "task added · framed"], "newest first");
   assert.deepEqual(panel.decisions, [{ id: "G6", question: "Keep one limit for both providers?", answer: "A: yes", pending: null, recommendation: "A: yes", waits: false, at: "2026-11-13T04:00:00.000Z" }]);
   assert.deepEqual(panel.artifacts.map(item => [item.label, item.run, item.url]), [["Limits design note", "R7", "https://github.com/sample-owner/sample-app/pull/12"]]);
   assert.equal(panel.prUrl, "https://github.com/sample-owner/sample-app/pull/12", "from the PR observation's repository");

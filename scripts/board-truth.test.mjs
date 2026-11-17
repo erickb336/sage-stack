@@ -1,6 +1,6 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -8,10 +8,11 @@ import { boardOverview, buildBoardModel, readBoardSources, taskPanel } from "../
 import { writeSampleLogbooks } from "./board-sample.mjs";
 
 const NOW = new Date(Date.parse("2026-11-15T12:00:00Z")).toISOString();
-function sample(t) {
+function sample(t, change = null) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-truth-")));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const sources = writeSampleLogbooks(join(dir, "sample"), { now: NOW });
+  change?.(sources);
   const model = buildBoardModel(readBoardSources(sources, { now: Date.parse(NOW) }), { now: NOW }), overview = boardOverview(model);
   const row = id => overview.tasks.find(task => task.id === id && task.key.startsWith("claude/sage-"));
   return { model, overview, row };
@@ -49,4 +50,22 @@ test("T1120 S11: a merged PR counts the clean cycle that the merge check carried
   assert.notEqual(card.currentHead, reviewed, "the merged head is the clean merge of main, not the reviewed head");
   assert.deepEqual(row("T206").cycles, { required: 1, clean: 1, reviews: true, carriedFrom: reviewed });
   assert.deepEqual(row("T205").cycles, { required: 1, clean: null, reviews: true }, "a merged PR with no verdicts carries nothing, and its count stays unknown");
+});
+
+test("F-T1159-8: the board carries cycles from the task's verdict rows as the merge check does, also a row that names no PR", t => {
+  let reviewed;
+  const { row } = sample(t, sources => {
+    for (const source of sources) for (const name of readdirSync(source.path)) {
+      let text;
+      try { text = readFileSync(join(source.path, name, "ledger.tsv"), "utf8"); } catch { continue; }
+      const [head, ...rows] = text.trimEnd().split("\n"), cols = head.split("\t"), cells = rows.map(line => line.split("\t")), at = name => cols.indexOf(name);
+      const review = cells.find(row => row[at("task")] === "T206" && row[at("kind")] === "review-clean");
+      if (!review) continue;
+      reviewed = review[at("sha")];
+      for (const row of cells) if (row[at("task")] === "T206" && row[at("sha")] === reviewed) row[at("pr")] = "";
+      writeFileSync(join(source.path, name, "ledger.tsv"), `${[head, ...cells.map(row => row.join("\t"))].join("\n")}\n`);
+    }
+  });
+  assert.match(reviewed ?? "", /^[0-9a-f]{40}$/, "the sample has T206's reviewed head");
+  assert.deepEqual(row("T206").cycles, { required: 1, clean: 1, reviews: true, carriedFrom: reviewed }, "the reviewed head's rows were kept before the PR number: the merge check still counts them, so the board does too");
 });
