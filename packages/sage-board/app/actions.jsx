@@ -241,9 +241,12 @@ function Blocks({ blocks }) {
 }
 
 const same = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+const isAnswers = block => block.t === "table" && same(block.head[0], "Answer");
+const holdsAnswers = block => isAnswers(block) || block.t === "section" && block.body.some(holdsAnswers);
+const withoutAnswers = blocks => blocks.filter(block => !isAnswers(block)).map(block => block.t === "section" ? { ...block, body: withoutAnswers(block.body) } : block);
 function answerRows(message) {
   const found = { head: ["Answer", "Next", "Cost"], rows: [] };
-  const walk = blocks => (blocks ?? []).forEach(block => { if (block.t === "section") walk(block.body); if (block.t === "table" && same(block.head[0], "Answer")) { found.head = block.head; found.rows.push(...block.rows); } });
+  const walk = blocks => (blocks ?? []).forEach(block => { if (block.t === "section") walk(block.body); if (isAnswers(block)) { found.head = block.head; found.rows.push(...block.rows); } });
   walk(message?.blocks);
   return found;
 }
@@ -406,9 +409,9 @@ export function QuestionView({ needKey, openId, model, theme, project }) {
     setSaid(await post("answer", { logbook: gate.logbook, gate: gate.id, option: pick + 1, digest: gate.digest }));
     sending.current = false; setBusy(false);
   };
-  const blocks = gate.message?.blocks ?? [], table = blocks.findIndex(block => block.t === "table" && same(block.head[0], "Answer"));
+  const blocks = gate.message?.blocks ?? [], table = blocks.findIndex(holdsAnswers);
   const field = label => block => block.t === "field" && same(block.label, label);
-  const where = blocks.find(field("Where"))?.text, before = blocks.slice(0, table < 0 ? blocks.length : table).filter(block => !field("Where")(block)), after = table < 0 ? [] : blocks.slice(table + 1).filter(block => !(block.t === "table" && same(block.head[0], "Answer")));
+  const where = blocks.find(field("Where"))?.text, before = withoutAnswers(blocks.slice(0, table < 0 ? blocks.length : table + 1).filter(block => !field("Where")(block))), after = table < 0 ? [] : withoutAnswers(blocks.slice(table + 1));
   const restore = writes === "paired" ? <RestoreButton project={project} primary /> : <span className="hint">Pair this browser on the Overview to restore it here, or ask the chief in the chat.</span>;
   const waiting = archived ? restore : <UndoButton logbook={gate.logbook} gate={gate.id} onDone={done => done.ok && setSaid(null)} />;
   const top = archived && unanswered && !said?.ok;
