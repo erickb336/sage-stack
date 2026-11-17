@@ -375,6 +375,7 @@ test("T1159 F-T1159-22, -37, -38, -19: the picker keeps the focus on its button 
   await page.getByText("quarry is archived.").waitFor();
   await page.goto(`${w.origin}/app/#?project=${basename(w.dirs.quarry)}`);
   await picker(page).filter({ hasText: "quarry" }).waitFor();
+  await page.locator(`.banner.archived[data-archived$="${basename(w.dirs.quarry)}"]`).waitFor();
   await page.goto(`${w.origin}/app/`);
   await page.getByRole("heading", { name: "Overview", level: 1 }).waitFor();
   await page.reload();
