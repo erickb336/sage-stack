@@ -3,7 +3,7 @@ import { lstatSync, readFileSync, readdirSync, watch } from "node:fs";
 import { createServer } from "node:http";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AGENT_QUIET_MS, readActions, readHookNotes, readBoardSources, buildBoardModel, boardOverview, taskPanel, landingRule, pageTaskFolder, sharedRoot, BOARD_PORT } from "../core/index.mjs";
+import { AGENT_QUIET_MS, readActions, readHookNotes, readBoardSources, buildBoardModel, boardOverview, boardStats, taskPanel, landingRule, pageTaskFolder, sharedRoot, BOARD_PORT } from "../core/index.mjs";
 import { COOKIE, boardAccess, readJson } from "./access.mjs";
 import { gateMaterial } from "./material.mjs";
 import { failureOf, pagesRequest, servePages, taskFiles } from "./pages.mjs";
@@ -124,7 +124,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
   if (stateDir && (typeof pairCommand !== "string" || !pairCommand || /[\x00-\x1f\x7f]/.test(pairCommand))) throw new TypeError("a board that takes writes needs the pairing command that the owner runs in Terminal");
   const access = stateDir ? boardAccess(stateDir) : null;
   const watchers = new Map(), watchErrors = new Map(), clients = new Set();
-  let model, overview, lastGood, revision = 0, refreshTimer, boundaryTimer, settleTimer, startTimer, startPromise, closePromise, closed = false;
+  let model, fresh, overview, lastGood, revision = 0, refreshTimer, boundaryTimer, settleTimer, startTimer, startPromise, closePromise, closed = false;
   let lastRead = null, lightTimer, lightAt = 0, activity = new Map();
   const dirty = { hooks: new Set(), books: new Set(), folders: false };
 
@@ -307,6 +307,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
       next = buildBoardModel(read, { now: clock(), landing });
       next.diagnostics = [...next.diagnostics, ...watchErrors.values()];
     } catch { next = { ...buildBoardModel([], { now: clock() }), diagnostics: unavailable }; }
+    fresh = next;
     const changing = next.changing ?? [];
     if (changing.length && !model?.changing?.length) settle();
     if (!next.diagnostics.length && !changing.length) { lastGood = next; model = { ...next, stale: false }; }
@@ -458,6 +459,16 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Content-Length": body.length });
         return response.end(request.method === "HEAD" ? undefined : body);
       } catch { return fail(503, "The board snapshot is unavailable."); }
+    }
+    if (name === "stats" || name.startsWith("stats?")) {
+      const query = new URLSearchParams(name.slice("stats?".length)), asked = query.get("project");
+      if ([...query.keys()].some(key => key !== "project") || query.getAll("project").length > 1) return fail(400, "Stats takes one project key, or none for all projects.");
+      if (!fresh || fresh.diagnostics === unavailable) return fail(503, "The board cannot read the logbooks now. It reads again when a logbook changes.");
+      const stats = boardStats(fresh, asked);
+      if (!stats) return fail(404, "This project is not on the board.");
+      const body = Buffer.from(JSON.stringify(stats));
+      response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Content-Length": body.length });
+      return response.end(request.method === "HEAD" ? undefined : body);
     }
     if (name.startsWith("gate/")) {
       const key = taskKey(name.slice("gate/".length)), detail = key && model && gateDetail(key);

@@ -78,7 +78,7 @@ function findingsOf(task) {
   return { open: open.length, closed: task.findings.filter(row => row.status === "closed").length, worst: SEVERITIES.find(severity => open.some(row => row.severity === severity)) ?? null };
 }
 
-function projectNames(model) {
+export function projectNames(model) {
   const projects = model.projects ?? [], count = name => projects.filter(project => project.name === name).length;
   return new Map(projects.map(project => [project.key, count(project.name) > 1 ? `${project.name} (${project.key})` : project.name]));
 }

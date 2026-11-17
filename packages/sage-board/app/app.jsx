@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { TaskPage, taskLink } from "./task.jsx";
 import { ChiefChips, QuestionView, StopBoard, Stopped, useStopped } from "./actions.jsx";
 import { Agents, LimitCounts } from "./agents.jsx";
-import { AgentsIcon, AlertIcon, LeafIcon, MoonIcon, OverviewIcon, PullsIcon, SunIcon, TasksIcon } from "./icons.jsx";
+import { AgentsIcon, AlertIcon, LeafIcon, MoonIcon, OverviewIcon, PullsIcon, StatsIcon, SunIcon, TasksIcon } from "./icons.jsx";
 import { Overview, ago } from "./overview.jsx";
 import { Pulls } from "./pulls.jsx";
+import { Stats } from "./stats.jsx";
 import { Tasks } from "./tasks.jsx";
 import { Picker, Signal, projectNamed, projectOfKey, projectView } from "./projects.jsx";
 import { ArchiveFoot, ArchiveLayer, WelcomeBack } from "./archive.jsx";
@@ -17,6 +18,7 @@ const PAGES = [
   { hash: "tasks", name: "Tasks", Icon: TasksIcon },
   { hash: "agents", name: "Agents", Icon: AgentsIcon },
   { hash: "pull-requests", name: "Pull requests", Icon: PullsIcon },
+  { hash: "stats", name: "Stats", Icon: StatsIcon },
 ];
 const QUESTION = { hash: "question", name: OBJECTS.question.label, hidden: true };
 const TASK = { hash: "task", name: OBJECTS.task.label, hidden: true };
@@ -154,6 +156,7 @@ export function App() {
   const body = page.hash === "" ? <Overview model={model} shown={shown} /> : page.hash === "tasks" ? <Tasks model={model} params={page.params} chief={picked} />
     : page.hash === "pull-requests" ? <Pulls model={model} chief={picked} />
     : page.hash === "agents" ? <Agents model={model} chief={picked} />
+    : page.hash === "stats" ? <Stats all={all} params={page.params} />
     : page.hash === "question" ? <QuestionView key={page.params.get("key")} needKey={page.params.get("key") ?? ""} model={model} theme={theme} archived={!!current?.archived} />
     : page.hash === TASK.hash ? <TaskPage key={page.params.get("key")} taskKey={page.params.get("key") ?? ""} tab={page.params.get("tab")} at={model?.at} from={history.state?.from} /> : null;
   if (stopped) return <Stopped at={stopped} />;
@@ -192,7 +195,7 @@ export function App() {
         {model && <ChiefChips chiefs={model.chiefs} filter={filter} setFilter={setFilter} />}
         <main className="main">
           {model ? <><Banner model={model} link={link} lostAt={lostAt} now={now} />{unknown && <p className="banner" role="status">This board shows no project {unknown}, so it opened {current.name}.</p>}
-            <ArchiveLayer all={all} current={current} now={now} />{page.hash === "" && current && <WelcomeBack key={`${current.key} ${current.welcome}`} project={current} model={model} now={now} />}{body}{page.hash === "" && <ArchiveFoot project={current} />}</> : <NoData link={link} />}
+            <ArchiveLayer all={all} current={page.hash === "stats" ? null : current} now={now} />{page.hash === "" && current && <WelcomeBack key={`${current.key} ${current.welcome}`} project={current} model={model} now={now} />}{body}{page.hash === "" && <ArchiveFoot project={current} />}</> : <NoData link={link} />}
         </main>
       </div>
     </div>
