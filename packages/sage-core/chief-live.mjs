@@ -16,10 +16,14 @@ export const PASS_ON_MS = 8 * 60 * 60_000;
 const START_MS = 2000, BOOT_MS = 60_000, CLEAR_MS = 10 * 60_000;
 export const END_REASONS = ["prompt_input_exit", "logout", "other", "off"];
 
-function liveFile(dir, chief) {
+function liveDir(dir) {
   const live = join(dir, LIVE_FOLDER);
   try { mkdirSync(live); } catch (error) { if (error.code !== "EEXIST") throw error; }
-  return lstatSync(live).isDirectory() ? join(live, `${chief}.json`) : null;
+  return lstatSync(live).isDirectory() ? live : null;
+}
+function liveFile(dir, chief) {
+  const live = liveDir(dir);
+  return live && join(live, `${chief}.json`);
 }
 function readLive(file) {
   try {
@@ -94,10 +98,11 @@ function programNow(dir, pid, tool) {
 }
 export function clearNote({ project, native, pid, now, tool, env }) {
   try {
-    const { dir, shared } = tool.locate(project, env), chief = shared && tool.chiefFor(project, native, env, true), program = chief && programNow(dir, pid, tool);
-    if (!program || !liveFile(dir, chief)) return false;
-    const file = noteFile(dir, program), prior = readLive(file), clash = "chief" in prior && prior.chief !== chief && now - prior.at >= 0 && now - prior.at < CLEAR_MS;
-    writeLive(file, clash ? { chief: null, at: now } : { chief, native, at: now });
+    const { dir, shared } = tool.locate(project, env), program = shared && programNow(dir, pid, tool);
+    if (!program || !liveDir(dir)) return false;
+    const chief = tool.chiefFor(project, native, env, true) ?? null, file = noteFile(dir, program), prior = readLive(file);
+    const clash = now - prior.at >= 0 && now - prior.at < CLEAR_MS && prior.native !== native;
+    writeLive(file, clash ? { clash: true, at: now } : { chief, native, at: now });
     return true;
   } catch { return false; }
 }
@@ -105,10 +110,10 @@ export function clearLink({ project, native, pid, now, tool, env }) {
   try {
     const { dir, shared } = tool.locate(project, env), program = shared && programNow(dir, pid, tool);
     if (!program) return undefined;
-    const file = noteFile(dir, program), note = readLive(file);
-    if (note.chief === null && now - note.at >= 0 && now - note.at < CLEAR_MS) return undefined;
+    const file = noteFile(dir, program), note = readLive(file), fresh = now - note.at >= 0 && now - note.at < CLEAR_MS;
+    if (note.clash === true && fresh) return undefined;
     rmSync(file, { force: true });
-    return typeof note.chief === "string" && now - note.at >= 0 && now - note.at < CLEAR_MS ? tool.chiefLink(project, native, note.chief, note.native, env) : undefined;
+    return typeof note.chief === "string" && fresh ? tool.chiefLink(project, native, note.chief, note.native, env) : undefined;
   } catch { return undefined; }
 }
 

@@ -575,6 +575,32 @@ test("F-T1170-1: two sessions of one program that clear at the same time stay ap
   assert.deepEqual(chiefRows(w), ["C1 claude claude-1", "C2 claude claude-2", "C3 claude claude-3", "C4 claude claude-4"], "a third clear in the same 10 minutes links nothing either");
 });
 
+const said = (w, session, prompt) => claudeEvent(w, { session_id: session, hook_event_name: "UserPromptSubmit", prompt });
+const edge = (w, session, event) => claudeEvent(w, { session_id: session, ...event });
+for (const ends of [["claude-1", "claude-2"], ["claude-2", "claude-1"]]) for (const starts of [["claude-2b", "claude-1b"], ["claude-1b", "claude-2b"]])
+test(`F-T1170-11: a chief and a session that is no chief, in one program, clear at once: no chief moves (ends ${ends.join(", ")}; starts ${starts.join(", ")})`, (t) => {
+  const w = linkedAt(t);
+  said(w, "claude-1", "sage mode");
+  said(w, "claude-2", "hello");
+  for (const session of ends) edge(w, session, { hook_event_name: "SessionEnd", reason: "clear" });
+  for (const session of starts) edge(w, session, { hook_event_name: "SessionStart", source: "clear" });
+  assert.deepEqual(chiefRows(w), ["C1 claude claude-1"], "C1 keeps its old session id: neither new session takes it");
+  for (const session of starts) said(w, session, "sage mode");
+  assert.deepEqual(chiefRows(w), ["C1 claude claude-1", `C2 claude ${starts[0]}`, `C3 claude ${starts[1]}`], "when in doubt, a new chief");
+});
+
+test("F-T1170-11: one session that is no chief clears; its new session turns sage mode on and clears again in 10 minutes: the chief moves to the next session", (t) => {
+  const w = linkedAt(t);
+  said(w, "claude-1", "hello");
+  edge(w, "claude-1", { hook_event_name: "SessionEnd", reason: "clear" });
+  edge(w, "claude-2", { hook_event_name: "SessionStart", source: "clear" });
+  assert.deepEqual(readdirSync(join(w.dir, "live")), [], "the new session used the note of the clear");
+  said(w, "claude-2", "sage mode");
+  edge(w, "claude-2", { hook_event_name: "SessionEnd", reason: "clear" });
+  edge(w, "claude-3", { hook_event_name: "SessionStart", source: "clear" });
+  assert.deepEqual(chiefRows(w), ["C1 claude claude-3"]);
+});
+
 function codexThread(w, session) {
   const transcript = join(w.base, `rollout-${session}.jsonl`);
   writeFileSync(transcript, `${JSON.stringify({ type: "session_meta", payload: { id: session, session_id: session, cli_version: "0.164.0", source: "cli" } })}\n`);
