@@ -90,13 +90,13 @@ function Status({ model, link, lostAt, now }) {
   return <span className="live ok" role="status"><span className="dot" />Live · read {clock(model.at)}</span>;
 }
 
-function Banner({ model, link, lostAt, now }) {
+function Banner({ model, link, lostAt, now, own }) {
   if (link === "lost" && model) return (
     <div className="banner fail" role="alert"><AlertIcon />
       <div><b>The board lost its link to the server on this Mac.</b> The data below is from {age(dataAt(model, link, lostAt), now)}. It tries again on its own.</div>
     </div>
   );
-  if (model?.stale) return (
+  if (model?.stale && !own) return (
     <div className="banner fail" role="alert"><AlertIcon />
       <div><b>The board cannot read the logbook.</b> The data below is from {age(model.at, now)}. It reads again when the logbook changes.
         {model.problems.length > 0 && <ul>{model.problems.slice(0, 3).map(problem => <li key={problem}>{problem}</li>)}</ul>}
@@ -159,6 +159,7 @@ export function App() {
     : page.hash === "stats" ? <Stats all={all} params={page.params} />
     : page.hash === "question" ? <QuestionView key={page.params.get("key")} needKey={page.params.get("key") ?? ""} openId={page.params.get("open")} model={model} theme={theme} project={current} />
     : page.hash === TASK.hash ? <TaskPage key={page.params.get("key")} taskKey={page.params.get("key") ?? ""} tab={page.params.get("tab")} at={model?.at} from={history.state?.from} /> : null;
+  const stats = page.hash === "stats";
   if (stopped) return <Stopped at={stopped} />;
   return (
     <div className="app">
@@ -183,7 +184,7 @@ export function App() {
       </aside>
       <div className="col">
         <header className="top">
-          <span className="crumb">{all && <Picker projects={all.projects} current={current} page={LISTED.includes(page.hash) ? page.hash : ""} now={now} />}<span aria-hidden="true">/</span><b>{page.name}</b></span>
+          <span className="crumb">{all && !stats && <><Picker projects={all.projects} current={current} page={LISTED.includes(page.hash) ? page.hash : ""} now={now} /><span aria-hidden="true">/</span></>}<b>{page.name}</b></span>
           {model && <Signal others={model.others} />}
           <span className="grow" />
           {model && <LimitCounts agents={model.agents} all={all.agents} />}
@@ -192,10 +193,10 @@ export function App() {
             {theme === "dark" ? <SunIcon /> : <MoonIcon />}
           </button>
         </header>
-        {model && page.hash !== "question" && <ChiefChips chiefs={model.chiefs} filter={filter} setFilter={setFilter} />}
+        {model && !["question", "stats"].includes(page.hash) && <ChiefChips chiefs={model.chiefs} filter={filter} setFilter={setFilter} />}
         <main className="main">
-          {model ? <><Banner model={model} link={link} lostAt={lostAt} now={now} />{unknown && <p className="banner" role="status">This board shows no project {unknown}, so it opened {current.name}.</p>}
-            <ArchiveLayer all={all} current={["stats", "question"].includes(page.hash) ? null : current} now={now} />{page.hash === "" && current && <WelcomeBack key={`${current.key} ${current.welcome}`} project={current} model={model} now={now} />}{body}{page.hash === "" && <ArchiveFoot project={current} />}</> : <NoData link={link} />}
+          {model ? <><Banner model={model} link={link} lostAt={lostAt} now={now} own={stats} />{unknown && !stats && <p className="banner" role="status">This board shows no project {unknown}, so it opened {current.name}.</p>}
+            <ArchiveLayer all={all} current={stats || page.hash === "question" ? null : current} now={now} />{page.hash === "" && current && <WelcomeBack key={`${current.key} ${current.welcome}`} project={current} model={model} now={now} />}{body}{page.hash === "" && <ArchiveFoot project={current} />}</> : <NoData link={link} />}
         </main>
       </div>
     </div>

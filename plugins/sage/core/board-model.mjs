@@ -444,7 +444,7 @@ function projectGroups(sources) {
     for (const book of own) for (const name of book.project.foreignCheckouts ?? NONE) note([book], `A checkout named ${name} is linked to this logbook, but it has no first commit in common with it. sage does not use that link: commands in ${name} stop and offer a new link. Ask the chief in ${name}.`);
     const sub = merged.checkout || remote ? [remote ?? "no GitHub remote", where] : [`logbook ${merged.name}`];
     Object.assign(group, {
-      name: all.every(project => unreadable(project).length) ? merged.name : projectName(merged),
+      name: all.every(project => unreadable(project).some(message => !ROW_TABLE.test(message))) ? merged.name : projectName(merged),
       remote, path: merged.checkout ?? null,
       archived: archived.length > 0 && archived.length === trusted.length, problem: problem && plainProblem(problem),
       providers: unique(group.books.flatMap(book => book.project.old ? [title(book.project.old.provider)] : book.project.shared ? (book.project.chiefs ?? []).map(chief => title(chief.provider)) : [title(standIn(book.source))])),
@@ -678,14 +678,16 @@ function missingMilestones(source, project, group, graph) {
   }
   return items;
 }
+export const folderProblems = source => (source.diagnostics ?? NONE).filter(message => message !== "ENOENT" && !message.startsWith("config: "));
 function sourceNeeds(source) {
-  const problems = source.diagnostics.filter(message => message !== "ENOENT" && !message.startsWith("config: "));
+  const problems = folderProblems(source);
   return problems.length ? [{ kind: "source", title: `The ${title(source.label)} logbooks cannot be read`, text: `${problems.map(message => title(plainProblem(message))).join(". ")}. The board shows no ${title(source.label)} logbook. Check that the board can read the folder.`,
     key: `${source.id}/source`, source: source.id, sourceLabel: source.label, projectName: "every project", group: null, archived: false }] : [];
 }
 
 const TABLE_NAMES = ["tasks", "runs", "findings", "ledger", "gates", "decisions", "milestones"];
 const TABLE_FILE = new RegExp(`^(${[...TABLE_NAMES, "releases", "programs"].join("|")}): (.*)$`);
+const ROW_TABLE = /^(runs|findings|ledger|gates|decisions): /;
 const unreadable = project => project.diagnostics.filter(message => !/^(milestones|programs|releases|observations|checkout|bindings|chiefs|sources|artifact [^:]*): /.test(message));
 function reasonOf(message) {
   const [, name, rest] = TABLE_FILE.exec(message) ?? [];
@@ -752,7 +754,7 @@ export function buildBoardModel(input,{ now = new Date().toISOString(), landing 
     const own = tasks.filter(task => task.group === group.key), live = shown.filter(task => task.group === group.key);
     const last = Math.max(0, ...own.map(recent), ...group.books.flatMap(book => bookTimes(book.project))), extra = milestoneNeeds.filter(need => need.group === group.key).length, needsOwner = live.filter(task => task.reasons.length).length + extra;
     const chiefs = group.books.filter(book => book.project.shared && !book.project.old).flatMap(({ project }) => boardChiefs({ rows: project.chiefs ?? NONE, live: project.chiefLive, names: project.chiefNames, runs: own.filter(task => task.project === project.key).flatMap(task => task.runs), waits: own.filter(task => task.project === project.key && !ENDED.includes(task.state)).flatMap(task => task.reasons.filter(reason => reason.owner).map(reason => reason.owner)), now: at }).map(chief => ({ key: `${project.key}/${chief.id}`, ...chief })));
-    return { key: group.key, name: group.name, sub: group.sub, pathSub: group.pathSub ?? null, terms: group.terms, paths: group.paths, books: group.books.map(book => book.project.key), providers: group.providers, chiefs, archived: group.archived, problem: group.problem, unread: group.books.filter(book => cannotRead(book.project, "tasks") || cannotRead(book.project, "runs")).map(book => book.project.old ? `old ${title(book.project.old.provider)}` : title(book.source.label)), tasks: own.length, needsOwner, agents: live.reduce((n, task) => n + task.agents.filter(agent => !agent.stale).length, 0), lastActivity: last ? new Date(last).toISOString() : null,
+    return { key: group.key, name: group.name, sub: group.sub, pathSub: group.pathSub ?? null, terms: group.terms, paths: group.paths, books: group.books.map(book => book.project.key), providers: group.providers, chiefs, archived: group.archived, problem: group.problem, unread: group.books.map(book => ({ logbook: book.project.old ? `old ${title(book.project.old.provider)}` : title(book.source.label), tables: TABLE_NAMES.filter(name => cannotRead(book.project, name)) })).filter(book => book.tables.length), tasks: own.length, needsOwner, agents: live.reduce((n, task) => n + task.agents.filter(agent => !agent.stale).length, 0), lastActivity: last ? new Date(last).toISOString() : null,
       list: listOf(group.archived, needsOwner, last, at), ...archiveFacts(group.books.filter(book => !book.project.old), own) };
   }).sort((a, b) => LISTS.indexOf(a.list) - LISTS.indexOf(b.list) || (a.list === "needs" ? b.needsOwner - a.needsOwner : 0) || (Date.parse(b.lastActivity ?? 0) || 0) - (Date.parse(a.lastActivity ?? 0) || 0) || a.name.localeCompare(b.name));
   const archived = projects.filter(project => project.archived).map(project => ({ key: project.key, name: project.name, tasks: project.tasks, needsOwner: project.needsOwner }));

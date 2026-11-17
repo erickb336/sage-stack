@@ -312,7 +312,8 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     if (!next.diagnostics.length && !changing.length) { lastGood = next; model = { ...next, stale: false }; }
     else if (!next.diagnostics.length) model = lastGood ? { ...lastGood, stale: false, changing: changing.map(item => ({ project: item.project, at: lastGood.at })) } : { ...next, stale: false };
     else model = { ...(lastGood ?? next), stale: true, diagnostics: next.diagnostics, changing };
-    overview = boardOverview(model);
+    const numbers = [null, ...next.projects.map(project => project.key)].map(key => ({ ...boardStats(next, key), at: null }));
+    overview = { ...boardOverview(model), stats: digest(JSON.stringify(numbers)).toString("base64") };
     for (const book of overview.agents) for (const run of book.runs) if (run.status === "failed" || run.role === "arena-judge") {
       const task = model.tasks.find(item => item.key === run.task.key), row = task?.runs.find(item => item.id === run.id), dir = task && logbookDir(configured, task);
       if (row && run.status === "failed") run.why = failureOf({ dir, task, run: row })?.text ?? null;

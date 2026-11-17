@@ -1,6 +1,6 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { requireBrowser } from "./browser-prerequisite.mjs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -301,5 +301,62 @@ test("T1138: Stats in the left column shows all projects or one, with a table fo
   }
   await page.locator(".nav a", { hasText: "Tasks" }).click();
   await until(() => page.locator(".stat-tiles").count(), 0);
+  assert.deepEqual(problems, []);
+});
+
+function eightProjects(sample, root) {
+  const at = hours => new Date(Date.now() - DAY - hours * 3_600_000).toISOString(), end = new Date(Date.now() - DAY).toISOString();
+  for (const [i, hours] of [5, 5, 5, 5, 5, 0.1, 0.2].entries()) {
+    const folder = join(root, `busy-${i}-${"a".repeat(6)}`);
+    mkdirSync(folder);
+    const rows = { tasks: [{ id: "T1", title: "Sample busy task", size: "small", route: "build", state: "building", round: "0" }], runs: [{ id: "R1", task: "T1", role: "implementer", round: "0", status: "done", tokens: "1000", started: at(hours), ended: end }] };
+    for (const [name, columns] of Object.entries(TABLES)) writeFileSync(join(folder, `${name}.tsv`), [columns, ...(rows[name] ?? []).map(row => columns.map(column => row[column] ?? ""))].map(cells => cells.join("\t")).join("\n") + "\n");
+  }
+}
+
+const statsPage = async (t, options) => {
+  const opened = await open(t, options);
+  await opened.page.locator(".nav a", { hasText: "Stats" }).click();
+  await opened.page.locator(".chart").first().waitFor();
+  return opened;
+};
+
+test("F-T1158-4: the Others row of agent time by project is in tenths of an hour, like the other rows", async t => {
+  const { page, problems } = await statsPage(t, { edit: eightProjects });
+  const hours = page.locator(".chart", { hasText: "Agent time and tokens by project" }).locator(".hbars > div");
+  assert.equal(await hours.count(), 7, "6 projects and one Others row of 0.1 h and 0.2 h");
+  assert.match(await hours.last().locator(".n").textContent(), /^\d others$/);
+  for (const value of await hours.locator(".v").allTextContents()) assert.match(value, /^\d+(\.\d)? h · /, `in tenths of an hour: ${value}`);
+  assert.deepEqual(problems, []);
+});
+
+test("F-T1158-8: each column chart has a title on both axes, and each week tick has its day and its month, also at 390 px", async t => {
+  const { page, problems } = await statsPage(t);
+  const merges = page.locator(".chart", { hasText: "Merged pull requests per week" });
+  assert.deepEqual(await merges.locator(".u").allTextContents(), ["Pull requests", "Week that starts on Monday (UTC)"]);
+  assert.deepEqual(await page.locator(".chart", { hasText: "Repair rounds per merged pull request" }).locator(".u").allTextContents(), ["Pull requests", "Repair rounds"]);
+  const ticks = await merges.locator(".xs span").allTextContents();
+  assert.equal(ticks.length, 8);
+  for (const tick of ticks) assert.match(tick, /^(\d{1,2} [A-Z][a-z]{2}|[A-Z][a-z]{2} \d{1,2})$/, `each tick has its day and its month: ${tick}`);
+  await page.setViewportSize({ width: 390, height: 900 });
+  assert.ok((await merges.locator(".xs span").evaluateAll(items => items.map(item => item.scrollWidth <= item.clientWidth + 1))).every(Boolean), "the ticks fit at 390 px");
+  assert.deepEqual(problems, []);
+});
+
+test("F-T1158-7 and F-T1158-3: when a logbook cannot be read, Stats shows one banner that says what it leaves out, and fetches again on each read", async t => {
+  const { page, project, problems } = await statsPage(t);
+  const openTasks = () => page.locator(".stat-tiles .kpi", { hasText: "open tasks" }).locator(".n").textContent();
+  const before = Number(await openTasks());
+  const addTask = id => writeFileSync(join(project, "tasks.tsv"), readFileSync(join(project, "tasks.tsv"), "utf8") + TABLES.tasks.map(column => ({ id, title: "Sample new task", size: "small", route: "build", state: "framed", round: "0" })[column] ?? "").join("\t") + "\n");
+  chmodSync(join(project, "runs.tsv"), 0);
+  addTask("T90");
+  await page.getByText("The numbers below are not complete.").waitFor();
+  assert.equal(await page.locator(".banner").count(), 1, "the board's stale banner does not show beside it");
+  assert.deepEqual(await page.locator(".banner li").allTextContents(), ["the agent time and tokens of the Sample logbook of sample-app"]);
+  await until(() => openTasks().then(Number), before + 1);
+  addTask("T91");
+  await until(() => openTasks().then(Number), before + 2);
+  assert.match(await page.locator("header.top").textContent(), /Not updated since/, "the top bar still says that the board shows its last good copy");
+  chmodSync(join(project, "runs.tsv"), 0o644);
   assert.deepEqual(problems, []);
 });
