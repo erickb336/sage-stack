@@ -286,7 +286,7 @@ test("T1126 F-T1126-13: one long word in a lead's RESULT wraps, and the task pag
 test("T1126 F-T1126-10: the arena card links the judge's report only when the logbook keeps it", async t => {
   for (const [judge, kept] of [["none", false], ["report", true]]) {
     const w = await board(t, { judge }), { page, problems } = await open(t, w, "/app/#agents");
-    const said = page.locator('section.acard.arena[aria-label="Arena of T11"] .ar-res');
+    const said = page.locator('section.acard.arena[aria-label="Arena of Sample sync build, T11"] .ar-res');
     await said.waitFor();
     assert.equal(await said.getByRole("link", { name: "the judge's report R52" }).count(), kept ? 1 : 0);
     assert.equal(/No report of R52/.test(await said.textContent()), !kept);

@@ -138,8 +138,8 @@ export const Stopped = ({ at }) => (
 
 const SEEN_KEY = "board-seen", AWAY_MS = 5 * 60_000;
 const keep = (name, value) => { try { if (value !== undefined) window[name].setItem(SEEN_KEY, value); return window[name].getItem(SEEN_KEY); } catch { return null; } };
-const time = value => Number.isFinite(Date.parse(value ?? "")) ? value : null;
-const seen = { previous: time(keep("sessionStorage")) ?? time(keep("localStorage")) ?? "", listeners: new Set() };
+const time = value => Number.isFinite(Date.parse(value)) ? value : "", session = keep("sessionStorage");
+const seen = { previous: time(session ?? keep("localStorage")), listeners: new Set() };
 keep("sessionStorage", seen.previous);
 let away = null, timer;
 addEventListener("pagehide", () => keep("localStorage", new Date().toISOString()));
