@@ -60,12 +60,12 @@ function sampleRoot(base) {
   return root;
 }
 
-async function fixture(t) {
+async function fixture(t, more = {}) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-pages-"))), source = join(base, "source");
   logbook(source, LOGBOOK);
   const root = sampleRoot(base), before = process.env.SAGE_WORKTREES;
   process.env.SAGE_WORKTREES = root;
-  const server = createBoardServer({ sources: [{ id: "sample", path: source, label: "Sample" }], port: 0, app: loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", import.meta.url))) });
+  const server = createBoardServer({ sources: [{ id: "sample", path: source, label: "Sample" }], port: 0, app: loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", import.meta.url))), ...more });
   t.after(async () => { await server.close(); if (before === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = before; rmSync(base, { recursive: true, force: true }); });
   const { port } = await server.start();
   return { base, root, port, t1: join(root, LOGBOOK, "pages", "T1") };
@@ -368,6 +368,14 @@ test("T1116: a person's click on a Markdown page's link opens the page in the re
   assert.equal((await get(f, `/pages/${LOGBOOK}/T2/off-board.md`, { headers: DOCUMENT })).status, 200, "a task that is not on the board has no reader page, so its file opens as it is");
   assert.equal((await get(f, `/pages/${LOGBOOK}/T1/notes.txt`, { headers: DOCUMENT })).headers["content-type"], "text/plain; charset=utf-8", "only Markdown opens in the reader");
   assert.match((await get(f, `/pages/${LOGBOOK}/T1/`)).body, new RegExp(`<a href="${reader}">notes\\.md</a>`), "the index links a Markdown page to the reader");
+});
+
+test("T1159 F-T1159-24: a copy of the board without its Markdown renderer opens a Markdown page as its file, and the index links the file", async (t) => {
+  const f = await fixture(t, { markdown: null }), page = `/pages/${LOGBOOK}/T1/notes.md`;
+  writeFileSync(join(f.t1, "notes.md"), "# SAMPLE notes\n");
+  const r = await get(f, page, { headers: DOCUMENT });
+  assert.deepEqual([r.status, r.headers["content-type"], r.body], [200, "text/plain; charset=utf-8", "# SAMPLE notes\n"], "no 303 to a reader that would answer 503");
+  assert.match((await get(f, `/pages/${LOGBOOK}/T1/`)).body, new RegExp(`<a href="/pages/${LOGBOOK}/T1/notes\\.md">notes\\.md</a>`), "the index links the file itself");
 });
 
 test("a message's Page block prints the board's link, and the link opens the page on the board", async (t) => {

@@ -136,9 +136,31 @@ test("T770: the board's address sends the browser to the app, the old board's pa
   const app = await read(f, "/app/"); assert.equal(app.status, 200); assert.match(app.body, /<div id="root"><\/div>/);
   assert.doesNotMatch(app.headers["content-security-policy"], /unsafe-inline|unsafe-eval|https:/);
   const panel = await read(f, `/app/task/${key}`); assert.equal(panel.status, 200); assert.equal(JSON.parse(panel.body).title, "Sample first task");
-  const old = ["/agents", "/milestones", "/releases", "/programs", `/task/${key}`, `/milestone/${key}`, `/program/${key}`, "/?events=1", `/?events=1&task=${key}`, "/agents?events=1", "/milestones?events=1", "/releases?events=1"];
+  const old = ["/agents", "/milestones", "/releases", "/programs", `/task/${key}`, `/milestone/${key}`, `/program/${key}`];
   for (const path of old) { const gone = await read(f, path); assert.equal(gone.status, 404, path); assert.doesNotMatch(gone.body, /Sample first task/, path); }
+  for (const path of ["/?events=1", `/?events=1&task=${key}`, "/agents?events=1", "/milestones?events=1", "/releases?events=1", `/milestone/${key}?events=1`]) {
+    const stream = await read(f, path);
+    assert.deepEqual([stream.status, stream.headers["content-type"]], [200, "text/event-stream; charset=utf-8"], `${path}: a tab of the old board gets an event, not a 404 that leaves it on "Reconnecting" for ever (F-T1159-6)`);
+    const [retry, event, data] = stream.body.split("\n");
+    assert.deepEqual([retry, event], ["retry: 86400000", "event: board"], `${path}: the old tab asks again only after a day`);
+    const { stale, html } = JSON.parse(data.slice("data: ".length));
+    assert.equal(stale, true);
+    assert.match(html, /^<div id="board-content" data-at="[^"]+"><p><b>The board was updated, and this old page no longer updates\.<\/b> <a href="\/app\/">Open the new board<\/a>\.<\/p><\/div>$/, "the old page replaces its content with the note");
+    assert.doesNotMatch(stream.body, /Sample first task/);
+  }
   assert.deepEqual(readFileSync(file), before);
+});
+
+test("F-T1159-15: a query on the board's address still opens the app, so the app can read the pair key in the link", async t => {
+  const f = await fixture(t);
+  for (const path of ["/app/?from=chat", "/app/?"]) {
+    const app = await read(f, path);
+    assert.equal(app.status, 200, path); assert.match(app.body, /<div id="root"><\/div>/, path);
+    assert.match(app.headers["content-security-policy"], /^default-src 'none'; script-src http:\/\/127\.0\.0\.1:\d+\/app\//, path);
+  }
+  const root = await read(f, "/?from=chat");
+  assert.deepEqual([root.status, root.headers.location], [302, "/app/"]);
+  assert.equal((await read(f, "/app/nothing-here?x=1")).status, 404, "another name under /app/ is still not a page");
 });
 
 test("T1053: a request with any other Host gets 403 on every page and event route, also with a sign-in header, and discloses nothing", async t => {
@@ -231,7 +253,7 @@ test("T308, T770: the app stream follows the hook's slots: a new running agent r
 
 test("board server exposes only canonical read routes and refuses invalid configuration", async t => {
   const f = await fixture(t);
-  for (const path of ["/tasks.tsv", "/../config.json", "/%2e%2e/config.json", "/?x=1", "//", "/index.html", "/app/x.js", `/app/task/${key}=`, "/app/task/_w", `/app/task/${Buffer.from("missing").toString("base64url")}`, "/app/task/YR"]) {
+  for (const path of ["/tasks.tsv", "/../config.json", "/%2e%2e/config.json", "//", "/index.html", "/app/x.js", `/app/task/${key}=`, "/app/task/_w", `/app/task/${Buffer.from("missing").toString("base64url")}`, "/app/task/YR"]) {
     const result = await read(f, path); assert.equal(result.status, 404, path); assert.doesNotMatch(result.body, /Sample first task/);
   }
   for (const method of ["POST", "PUT", "DELETE", "PATCH", "OPTIONS"]) for (const path of ["/", "/app/", "/app/events", `/app/task/${key}`]) {
