@@ -29,7 +29,7 @@ function repository(base, name) {
   return realpathSync(path);
 }
 
-async function openBoard(t, { viewport = { width: 1440, height: 1000 } } = {}) {
+async function openBoard(t, { viewport = { width: 1440, height: 1000 }, duringRead = null } = {}) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-archive-browser-")));
   const saved = { ...process.env };
   const fakes = join(base, "fakes");
@@ -62,7 +62,7 @@ async function openBoard(t, { viewport = { width: 1440, height: 1000 } } = {}) {
   dirs.meadowClaude = claude.storeDir(meadow, inClaude);
   const sources = [{ id: "claude", label: "Claude", provider: "claude", path: inClaude.SAGE_HOME }, { id: "codex", label: "Codex", provider: "codex", path: inCodex.SAGE_HOME }, { id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }];
   const config = join(base, "home", ".config", "sage-board", "board.json"), stateDir = join(base, "home", ".config", "sage-board", "state");
-  const server = createBoardServer({ sources, port: 0, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair" });
+  const server = createBoardServer({ sources, port: 0, app: APP, settleReads: [], duringRead, stateDir, pairCommand: "node /sample/board/cli.mjs board --pair" });
   const { port } = await server.start();
   await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify(sources)], { output: () => {}, env });
   const context = await browser.newContext({ viewport, colorScheme: "dark", timezoneId: "America/New_York" });
@@ -95,7 +95,8 @@ const contrast = locator => locator.evaluate(element => {
   const [a, b] = [lum(color), lum(backgroundColor)].sort((x, y) => y - x);
   return (a + 0.05) / (b + 0.05);
 });
-const clear = (page, selector) => page.evaluate(selector => document.querySelector(selector).getBoundingClientRect().top - document.querySelector("header.top").getBoundingClientRect().bottom, selector);
+const clear = (page, target) => (typeof target === "string" ? page.locator(target).first() : target).evaluate(element => element.getBoundingClientRect().top - document.querySelector("header.top").getBoundingClientRect().bottom);
+const archiveAlert = page => page.getByRole("alert").filter({ has: page.getByRole("button", { name: "Try again", exact: true }) });
 async function pick(page, name) {
   if (!await page.locator(".pick-menu").count()) await picker(page).click();
   const row = page.locator(".pick-menu .pick-row", { has: page.locator(`b:text-is("${name}")`) });
@@ -225,8 +226,9 @@ test("T1137: Archive from the picker asks first, names what the logbook keeps an
   assert.deepEqual(w.problems, []);
 });
 
-test("T1137 at 390 px: the confirm and the notes clear the header; a partial archive names the logbook that did not save and tries again", async t => {
-  const w = await openBoard(t, { viewport: { width: 390, height: 844 } }), { page } = w;
+test("T1137 at 390 px: a stale notice cannot satisfy the partial archive assertion; the archive note clears the header and tries again", { timeout: 60_000 }, async t => {
+  let readFailure = false;
+  const w = await openBoard(t, { viewport: { width: 390, height: 844 }, duringRead: () => { if (readFailure) throw new Error("Sample controlled read failure"); } }), { page } = w;
   await page.goto(`${w.origin}/app/#?project=${basename(w.dirs.meadow)}`);
   await page.getByRole("heading", { name: "Overview", level: 1 }).waitFor();
   await page.getByPlaceholder("ABCD-EFGH").fill(await w.code());
@@ -244,22 +246,47 @@ test("T1137 at 390 px: the confirm and the notes clear the header; a partial arc
   await archiveButton.hover();
   assert.ok(await contrast(archiveButton) >= 4.5, `F-T1137-5: the hovered primary button is readable in the light theme (${await contrast(archiveButton)})`);
 
+  assert.equal(await page.locator(".banner.fail").count(), 0, "the board has a good model before the controlled read failure");
   rmSync(join(w.dirs.meadow, "config.json"), { force: true });
   mkdirSync(join(w.dirs.meadow, "config.json"));
-  await archiveButton.click();
-  const partial = page.locator(".banner.fail");
+  readFailure = true;
+  const tasks = join(w.dirs.meadow, "tasks.tsv");
+  writeFileSync(tasks, readFileSync(tasks));
+  const stale = page.getByRole("alert").filter({ hasText: "The board cannot read the logbook." });
+  await stale.waitFor();
+  assert.match(await stale.textContent(), /Sample controlled read failure/);
+  const reached = Promise.withResolvers(), release = Promise.withResolvers();
+  t.after(() => release.resolve());
+  await page.route("**/api/archive", async route => { reached.resolve(); await release.promise; await route.continue(); }, { times: 1 });
+  const response = page.waitForResponse(reply => reply.url() === `${w.origin}/api/archive` && reply.request().method() === "POST");
+  const partial = archiveAlert(page);
+  try {
+    await archiveButton.click();
+    await reached.promise;
+    assert.match(await page.locator(".banner.fail").textContent(), /The board cannot read the logbook\./, "the old broad selector accepts the unrelated stale notice before the archive response");
+    assert.equal(await partial.count(), 0, "the scoped archive alert waits for the real archive response");
+  } finally { release.resolve(); }
+  const result = await response, body = await result.json();
+  assert.equal(result.status(), 409);
+  assert.equal(body.landed, 1);
+  assert.equal(body.logbooks, 2);
+  assert.deepEqual(body.failed, ["Codex"]);
   await partial.waitFor();
   assert.equal(await partial.textContent(), "Archived in 1 of 2 logbooks. The Codex logbook of meadow did not save. The project stays shown until both agree. Try again", "F-T1137-7, F-T1137-16: the partial note names the logbook that did not save, in the words of the design");
   assert.equal((await focused(page)).text, "Try again", "F-T1137-11: the partial note has Try again, with focus on it");
-  assert.ok(await clear(page, ".banner.fail") >= 0, "F-T1137-8: the header does not cover the partial note");
+  assert.ok(await clear(page, partial) >= 0, "F-T1137-8: the header does not cover the partial note");
   await w.shot("t1137-partial-390");
   assert.equal(w.archived("meadowClaude"), true, "the Claude logbook of meadow landed");
 
+  readFailure = false;
   rmSync(join(w.dirs.meadow, "config.json"), { recursive: true });
   await partial.getByRole("button", { name: "Try again" }).click();
   await page.getByText("meadow is archived.").waitFor();
+  await partial.waitFor({ state: "detached" });
   assert.equal(w.archived("meadow"), true, "Try again archives the logbook that did not save");
-  assert.ok(await clear(page, ".banner") >= 0, `F-T1137-8: the header does not cover the Undo note (${await clear(page, ".banner")} px)`);
+  assert.equal(w.archived("meadowClaude"), true, "Try again preserves the Claude archive write");
+  const undo = page.getByRole("status").filter({ has: page.getByRole("button", { name: "Undo", exact: true }) });
+  assert.ok(await clear(page, undo) >= 0, `F-T1137-8: the header does not cover the Undo note (${await clear(page, undo)} px)`);
   await w.shot("t1137-undo-390");
   assert.deepEqual(w.problems.filter(problem => !/status of 409/.test(problem)), []);
 });
@@ -274,13 +301,13 @@ async function openMeadow(t) {
   await page.getByRole("button", { name: "Pair", exact: true }).click();
   const archive = async () => { await page.getByRole("button", { name: "Archive project" }).click(); await page.getByRole("dialog", { name: "Archive meadow?" }).getByRole("button", { name: "Archive", exact: true }).click(); };
   const restore = () => page.locator(".banner.archived").getByRole("button", { name: "Restore" }).click();
-  const again = () => page.locator(".banner.fail").getByRole("button", { name: "Try again" }).click();
+  const again = () => archiveAlert(page).getByRole("button", { name: "Try again" }).click();
   const books = () => [w.archived("meadowClaude"), w.archived("meadow")];
   const settled = async want => { for (let i = 0; i < 100 && JSON.stringify(books()) !== JSON.stringify(want); i++) await page.waitForTimeout(100); return books(); };
   return { ...w, archive, restore, again, books, settled };
 }
 async function partialNote({ page }, shown, expected, message) {
-  const note = page.locator(".banner.fail");
+  const note = archiveAlert(page);
   await note.waitFor();
   await page.locator(".banner.archived").waitFor({ state: shown === "archived" ? "attached" : "detached" });
   const text = await note.textContent();
