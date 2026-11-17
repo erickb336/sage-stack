@@ -89,7 +89,7 @@ export function CopyCommand({ text }) {
 export function PairBox({ id = "pair-h" }) {
   const writes = useAccess(), [code, setCode] = useState(""), [problem, setProblem] = useState(null);
   if (writes === "paired") return null;
-  if (writes === "off") return <p className="note">This board only reads. Answer in the chief's chat, or stop this board and ask for it again.</p>;
+  if (writes === "off") return <p className="note">This board only reads. Answer in the chief's chat.</p>;
   const pair = async event => {
     event.preventDefault();
     const result = await post("pair", { code });
