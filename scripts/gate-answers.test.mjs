@@ -161,6 +161,24 @@ for (const owning of ["claude", "codex"]) {
   });
 }
 
+for (const owning of ["claude", "codex"]) {
+  test(`T1156 F-T1156-49: a board answer recorded before an archive waits while the project is archived; the ${owning} chief's hook applies it only after Restore`, (t) => {
+    const w = shared(t);
+    w.as(owning, "task", "add", "--title", "a", ...ADD);
+    w.as(owning, "gate", "add", "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes");
+    w.owner(other(owning), "gate", "answer", "G1", "--option", "2", "--via", "board");
+    w.owner(other(owning), "config", "archived=yes");
+    assert.equal(contextOf(HOOKS[owning].step(w)), "", "no pickup while archived");
+    assert.equal(contextOf(HOOKS[owning].say(w, "go on")), "", "no pickup at a message either");
+    const g = w.gate("G1");
+    assert.deepEqual([g.answer, g.answered.answer, g.picked], ["", "no", ""], "the answer still waits, not applied and not cleared");
+    assert.ok(!w.decisions().some((d) => d.includes("G1")), "no decision while archived");
+    w.owner(other(owning), "config", "archived=no");
+    assert.match(contextOf(HOOKS[owning].step(w)), /- G1 \(T1\): the owner answered "no" on the board at .*G1 answered · no$/s, "after Restore the hook applies the waiting answer");
+    assert.equal(w.gate("G1").answer, "no");
+  });
+}
+
 test("a board answer and a card answer race under the logbook lock, from both providers: the first one wins, and the other names it", async (t) => {
   const w = shared(t);
   w.as("claude", "task", "add", "--title", "a", ...ADD);

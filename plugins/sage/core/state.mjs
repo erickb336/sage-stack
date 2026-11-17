@@ -2752,14 +2752,16 @@ function ownGates(project, { native, chief } = {}, env = process.env) {
   const place = locate(project, env), { dir } = place;
   const me = !place.shared ? "" : chief !== undefined ? (CHIEF.test(chief) ? chief : undefined) : rowOf(dir, native)?.id;
   const gates = me === undefined || !existsSync(join(dir, "tasks.tsv")) ? [] : openOf(dir, me);
-  return { dir, me, gates, open: gates.filter((g) => !pendingOf(g)).map((g) => g.id), pending: gates.filter(pendingOf).map((g) => ({ id: g.id, task: g.task, ...pendingOf(g) })) };
+  return { dir, me, gates, open: gates.filter((g) => !pendingOf(g)).map((g) => g.id), pending: pickable(dir, gates).map((g) => ({ id: g.id, task: g.task, ...pendingOf(g) })) };
 }
+// A board answer waits in an archived project: no hook picks it up until Restore.
+const pickable = (dir, gates) => (archivedIn(dir) ? [] : gates.filter(pendingOf));
 function pickupAnswers(project, native, env = process.env) {
   const { dir, me, pending } = ownGates(project, { native }, env);
   if (!pending.length) return [];
   return withLock(dir, () => {
     ready(dir, env);
-    const lines = openOf(dir, me).filter(pendingOf).map((g) => pickOne(dir, g.id, me, project, env));
+    const lines = pickable(dir, openOf(dir, me)).map((g) => pickOne(dir, g.id, me, project, env));
     status(dir, true);
     return lines;
   });
