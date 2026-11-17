@@ -21,7 +21,6 @@ function trustedGit() {
   throw Error("no trusted system Git executable is available");
 }
 
-// objects: a folder for the objects that the command writes, such as merge-tree's trees, so that a read writes nothing into the checkout.
 export function readLocalGit(project, args, input, { timeout = 5000, maxBuffer = 32 * 1024 * 1024, objects = null } = {}) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
   Object.assign(env, {

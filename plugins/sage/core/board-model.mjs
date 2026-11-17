@@ -393,7 +393,6 @@ const DAY_MS = 86400000, ACTIVE_DAYS = 14, OLDER_DAYS = 30;
 const PROBLEM_NEEDS = ["logbook", "milestones", "releases", "missing", "source"];
 const bookTimes = project => [...(project.tables.decisions ?? NONE).map(row => row.at), ...(project.tables.gates ?? NONE).flatMap(gate => [gate.at, boardAnswer(gate)?.at])].map(time).filter(at => at !== null);
 const ARCHIVE_ROWS = ["project archived", "project restored"];
-// The name of a logbook in an archive note, as the board server names the logbook of a failed write.
 const logbookLabel = ({ source }) => source.provider ? source.label ?? source.provider : "shared";
 function archiveFacts(books, tasks) {
   let archivedAt = null, restoredAt = null, restored = true, archives = 0;

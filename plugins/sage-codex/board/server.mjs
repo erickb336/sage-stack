@@ -72,8 +72,6 @@ function appPolicy(origin) {
   return `default-src 'none'; script-src ${origin}/app/; style-src ${origin}/app/; connect-src 'self'; img-src 'self'; frame-src ${origin}/read/ ${origin}/pages/; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'`;
 }
 
-// A tab of the board before T770 still asks its old stream (/?events=1, /agents?events=1, ...). A 404 leaves it on "Reconnecting" for ever,
-// so the stream answers once: the old page puts this note in its content, and the browser asks again only after a day.
 const RETIRED_STREAM = `retry: 86400000\nevent: board\ndata: ${JSON.stringify({ stale: true, html: '<div id="board-content" data-at="before the board\'s update"><p><b>The board was updated, and this old page no longer updates.</b> <a href="/app/">Open the new board</a>.</p></div>' })}\n\n`;
 
 const forwarded = name => name === "forwarded" || name.startsWith("x-forwarded-");
@@ -398,7 +396,6 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     return reply(done.pending ? 202 : done.code ? 409 : 200, { ok: !done.code, ...(done.pending && { pending: true }), text: withoutPaths(String(done.text).replace(/^sage: /, "")) });
   }
 
-  // One archive or restore at a time: two tabs that archive and restore at once must not leave the logbooks of one project mixed.
   async function archiveWrite(key, argv) {
     const project = typeof key === "string" && model?.projects?.find(item => item.key === key);
     const shared = configured.find(item => model?.sources.some(source => source.id === item.id && source.shared))?.path ?? sharedRoot();
@@ -446,7 +443,6 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
   function serveApp(request, response, fail) {
     if (request.url === "/app") { response.writeHead(301, { Location: "/app/" }); return response.end(); }
     if (!app) return fail(503, NO_APP);
-    // A query on the board's own address (a link that a chat or a browser added to) still opens the app, which then reads its pair key.
     const name = /^\?/.test(request.url.slice("/app/".length)) ? "" : request.url.slice("/app/".length);
     if (name === "events") {
       if (clients.size >= MAX_CLIENTS && request.method !== "HEAD") return fail(503, "There are too many open board streams.");

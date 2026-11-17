@@ -18,7 +18,6 @@ export let linkProject = null;
 let linkNote = { outcome: null };
 const noteListeners = new Set();
 const setNote = (outcome, detail) => { linkNote = { outcome, detail }; noteListeners.forEach(fn => fn()); };
-// The chat's link opens the board with #pair=<key>: at the start, and also when it is pasted into a board tab that is open already.
 function readLink() {
   const [, link, project] = /^#pair=([\w-]{1,64})(?:&project=([^&]*))?$/.exec(location.hash) ?? [];
   if (!link) return;

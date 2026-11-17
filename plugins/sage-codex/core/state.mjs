@@ -2013,7 +2013,6 @@ function cleanMergesOfMain(project, from, head, reviewed) {
     if (!other || more.length) return `${commit} is not a merge of two parents`;
     if (!yes(["merge-base", "--is-ancestor", other, main])) return `${commit} merges ${other}, which is not on origin/main (fetch origin if main moved)`;
     const tree = (() => {
-      // merge-tree --write-tree writes its trees: keep them in a scratch folder, so that the check writes nothing into the checkout.
       const write = mkdtempSync(join(tmpdir(), "sage-merge-tree-"));
       try {
         const objects = { write, read: out(["rev-parse", "--path-format=absolute", "--git-path", "objects"]).trim() };

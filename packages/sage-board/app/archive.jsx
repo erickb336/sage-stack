@@ -121,7 +121,6 @@ function Banner({ project, projects, now }) {
   );
 }
 
-// The logbooks of a project disagree (one archived, one not), also after a reload: say so, and offer both writes.
 function Mixed({ project }) {
   const writes = useAccess(), { busy } = useArchive(), { archived, shown } = project.mixed, are = list => list.length > 1 ? "are" : "is";
   return (

@@ -153,7 +153,6 @@ test("F-T1065-14: the app stream sends a model only when it changed, and refuses
     writeFileSync(file, text);
   });
   assert.deepEqual(frames.map(frame => frame.stale), [false, true, false], "a second read of the same damaged table, with the same last good data, sent nothing");
-  // F-T1159-2: the stream above is aborted, but the server frees its slot only at its close event, a little later. Count on a board with no earlier stream.
   const { base: fresh } = await board(t), streams = [];
   t.after(() => Promise.all(streams.map(stream => stream.body.cancel())));
   for (let count = 0; count < 16; count++) {
