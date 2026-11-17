@@ -420,6 +420,27 @@ test("the hooks keep each run's brief and report as briefs/R<n>.md and reports/R
   assert.equal(readFileSync(join(w.dir, "reports", "R2.md"), "utf8"), forged, "the run comes from the agent's name");
 });
 
+test("the Claude hook keeps a report that the agent delivers through SubagentHandback, and a plain-text report with every field still wins", (t) => {
+  const w = shared(t);
+  w.as("claude", "task", "add", "--title", "a", ...ADD);
+  w.as("claude", "task", "T1", "set", "state=briefed");
+  w.as("claude", "task", "T1", "set", "state=building", "branch=sage/t1-a");
+  const handed = REPORT.replace("RESULT PASS", "RESULT handed back");
+  for (const [n, last] of [[1, undefined], [2, REPORT]]) {
+    w.as("claude", "run", "add", "T1", "--role", "implementer", "--branch", "sage/t1-a");
+    const start = { subagent_type: "sage:implementer", description: "build", prompt: brief(`R${n}`, "T1"), run_in_background: true };
+    assert.equal(claudeEvent(w, { hook_event_name: "PreToolUse", tool_name: "Agent", tool_input: start, tool_use_id: `start-${n}` })?.hookSpecificOutput?.permissionDecision, undefined);
+    claudeEvent(w, { hook_event_name: "PostToolUse", tool_name: "Agent", tool_use_id: `start-${n}`, tool_response: { status: "async_launched", agentId: `agent-${n}` } });
+    claudeEvent(w, { hook_event_name: "SubagentStart", agent_id: `agent-${n}`, agent_type: "sage:implementer" });
+    const call = claudeEvent(w, { hook_event_name: "PreToolUse", tool_name: "SubagentHandback", tool_input: { message: handed }, tool_use_id: `hb-${n}`, agent_id: `agent-${n}`, agent_type: "sage:implementer" });
+    assert.equal(call?.hookSpecificOutput?.permissionDecision, undefined, "a full report goes through");
+    claudeEvent(w, { hook_event_name: "SubagentStop", agent_id: `agent-${n}`, agent_type: "sage:implementer", stop_hook_active: false, ...(last === undefined ? {} : { last_assistant_message: last }) });
+    w.as("claude", "run", "done", `R${n}`, "--status", "done", "--tokens", "1");
+  }
+  assert.equal(readFileSync(join(w.dir, "reports", "R1.md"), "utf8"), handed, "the stop after a handback has no last_assistant_message: the hook keeps the handback's message");
+  assert.equal(readFileSync(join(w.dir, "reports", "R2.md"), "utf8"), REPORT, "a last plain text with every report field is the report");
+});
+
 test("old gates.tsv rows still read and answer once; a logbook with no chiefs gets no new column from a card answer; the board reads the new columns", (t) => {
   const w = scratch(t);
   const run = (...args) => claude.sage([...args, "--project", w.project], w.env);

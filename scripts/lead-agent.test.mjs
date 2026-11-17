@@ -153,7 +153,7 @@ function project({ size = "small", config = [], framed = false, add = [], env: m
   return p;
 }
 
-function play(lines, p) {
+function play(lines, p, { handback = false } = {}) {
   const roles = {}, ran = [], sage = [], moves = [];
   let printed, last, logbook, recheck = new Set();
   let blocked = false;
@@ -198,7 +198,11 @@ function play(lines, p) {
       if (who === "lead-T1") assert.ok(LEAD_RESULTS.includes(result), `${line}: the file gives the lead's RESULT only as ${LEAD_RESULTS.join(", ")}`);
       if (who === "lead-T1" && result === "blocked") blocked = true;
       recheck.delete(agent.agent_type.slice("sage:".length));
-      const out = p.send({ hook_event_name: "SubagentStop", ...agent, stop_hook_active: false, last_assistant_message: report(result, findings) });
+      if (handback) {
+        const call = { hook_event_name: "PreToolUse", tool_name: "SubagentHandback", tool_input: { message: report(result, findings) }, tool_use_id: `handback-${who}`, ...agent };
+        assert.equal(denied(p.send(call)), undefined, `the hook refuses ${who}'s SubagentHandback`);
+      }
+      const out = p.send({ hook_event_name: "SubagentStop", ...agent, stop_hook_active: false, ...(handback ? {} : { last_assistant_message: report(result, findings) }) });
       assert.equal(out?.decision, undefined, `the stop gate blocks ${who}'s report: ${out?.reason}`);
       if (who === "lead-T1") p.lead = undefined;
     } else if (mark === "!" && rest[0] === "sage") {
@@ -242,6 +246,15 @@ test("T301: each example of the lead file runs through the hook, from lead-T1's 
   for (const form of taught) {
     const shape = new RegExp(`^${form.split(/(<[^>]+>)/).map((part) => (/^<[^>]+>$/.test(part) ? "\\S+" : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))).join("")}$`);
     assert.ok(ran.some((command) => shape.test(command)), `agents/lead.md teaches "${form}", and no example runs it in full`);
+  }
+});
+
+test("an agent that reports through SubagentHandback: each example still runs to a passing merge check, because the hook keeps each helper's and the lead's report from the handback's message", () => {
+  for (const [heading, options] of EXAMPLES) {
+    const p = project(options);
+    const { sage, printed } = play(block(heading), p, { handback: true });
+    assert.match(sage.at(-1), /^sage merge-check --sha [0-9a-f]{40} --pr 12$/, `"${heading}" ends with the merge check`);
+    assert.match(printed, /^T1 may merge/, `and the merge check of "${heading}" passes with reports from SubagentHandback`);
   }
 });
 
