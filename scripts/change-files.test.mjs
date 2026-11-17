@@ -1,17 +1,14 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
-import { ROOT } from "./build.mjs";
+import { copyRepo } from "./repo-copy.mjs";
 
 test("npm run check fails on a change file and a CHANGELOG.md with the rule's text, ignores a dot file, and passes once they are gone", (t) => {
-  const dir = mkdtempSync(join(realpathSync(tmpdir()), "sage-change-files-"));
+  const dir = copyRepo("sage-change-files-");
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  cpSync(ROOT, dir, { recursive: true, filter: (src) => ![".git", ".claude", "node_modules"].includes(relative(ROOT, src)) });
-  symlinkSync(join(ROOT, "node_modules"), join(dir, "node_modules"), "dir");
   const check = () => spawnSync("node", [join(dir, "scripts/check.mjs")], { encoding: "utf8" });
   assert.equal(existsSync(join(dir, "changes")), false, "the repository has no changes/ folder");
   assert.equal(existsSync(join(dir, "CHANGELOG.md")), false, "the repository has no CHANGELOG.md");

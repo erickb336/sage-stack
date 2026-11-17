@@ -11,6 +11,7 @@ import { test } from "node:test";
 import { createInterface } from "node:readline";
 import { createHash } from "node:crypto";
 import { ROOT, filesUnder, outputs } from "./build.mjs";
+import { copyRepo } from "./repo-copy.mjs";
 import { createStateTool } from "../packages/sage-core/index.mjs";
 import { stateKey } from "../plugins/sage-codex/hooks/hook-state.mjs";
 
@@ -596,10 +597,8 @@ test("Codex hook state keys hash the session and the child, so a child gets its 
 });
 
 test("check rejects a foreign file and build removes it from an assembled plugin", (t) => {
-  const dir = mkdtempSync(join(realpathSync(tmpdir()), "sage-build-"));
+  const dir = copyRepo("sage-build-");
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  cpSync(ROOT, dir, { recursive: true, filter: (path) => ![".git", "node_modules"].includes(relative(ROOT, path)) });
-  symlinkSync(join(ROOT, "node_modules"), join(dir, "node_modules"), "dir");
   const foreign = join(dir, "plugins/sage/hooks/codex-only.mjs");
   writeFileSync(foreign, "throw new Error('foreign adapter');\n");
   const run = (name) => spawnSync(process.execPath, [join(dir, "scripts", `${name}.mjs`)], { encoding: "utf8" });
@@ -614,10 +613,8 @@ test("check rejects a foreign file and build removes it from an assembled plugin
 });
 
 test("a mismatched core pin fails the build before replacing plugin files", (t) => {
-  const dir = mkdtempSync(join(realpathSync(tmpdir()), "sage-pin-"));
+  const dir = copyRepo("sage-pin-");
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  cpSync(ROOT, dir, { recursive: true, filter: (path) => ![".git", "node_modules"].includes(relative(ROOT, path)) });
-  symlinkSync(join(ROOT, "node_modules"), join(dir, "node_modules"), "dir");
   const manifest = join(dir, "packages/sage-codex/package.json");
   const meta = JSON.parse(readFileSync(manifest, "utf8"));
   meta.dependencies["sage-core"] = "999.0.0";
@@ -631,10 +628,8 @@ test("a mismatched core pin fails the build before replacing plugin files", (t) 
 });
 
 test("check rejects a hook change made only in the generated Claude plugin", (t) => {
-  const dir = mkdtempSync(join(realpathSync(tmpdir()), "sage-stale-hook-"));
+  const dir = copyRepo("sage-stale-hook-");
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  cpSync(ROOT, dir, { recursive: true, filter: (path) => ![".git", "node_modules"].includes(relative(ROOT, path)) });
-  symlinkSync(join(ROOT, "node_modules"), join(dir, "node_modules"), "dir");
   const hook = join(dir, "plugins/sage/hooks/sage-hook.mjs");
   writeFileSync(hook, `${readFileSync(hook, "utf8")}\n// A change in the old source path.\n`);
   const checked = spawnSync(process.execPath, [join(dir, "scripts/check.mjs")], { encoding: "utf8" });

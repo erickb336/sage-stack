@@ -1,12 +1,13 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import { test } from "node:test";
 import { ROOT } from "./build.mjs";
 import { anchors, linkProblems, paragraphProblems, readmeProblems, RELEASES, slug } from "./readme-checks.mjs";
+import { copyRepo } from "./repo-copy.mjs";
 
 const README = (lines = {}) => [
   "<p>", "  <img alt=\"a graphic\" src=\"x.svg\">", "</p>", "",
@@ -152,10 +153,8 @@ test("a link to the repository root, a query and a link to a folder on GitHub pa
 });
 
 test("npm run check fails on a README with no link to the releases page, a missing screenshot and a stale screenshot record", (t) => {
-  const dir = mkdtempSync(join(realpathSync(tmpdir()), "sage-readme-"));
+  const dir = copyRepo("sage-readme-");
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  cpSync(ROOT, dir, { recursive: true, filter: (src) => ![".git", ".claude", "node_modules"].includes(relative(ROOT, src)) });
-  symlinkSync(join(ROOT, "node_modules"), join(dir, "node_modules"), "dir");
   const readme = readFileSync(join(dir, "README.md"), "utf8");
   writeFileSync(join(dir, "README.md"), readme.replaceAll(`](${RELEASES})`, "](docs/README.md)"));
   rmSync(join(dir, "docs/assets/board-dark.png"));

@@ -1,12 +1,11 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { ROOT } from "./build.mjs";
 import { principleRows } from "./principles-table.mjs";
+import { copyRepo } from "./repo-copy.mjs";
 
 test("each principle gets its attribution from its source: from pstack; or sage's own", () => {
   const rows = principleRows([
@@ -22,10 +21,8 @@ test("each principle gets its attribution from its source: from pstack; or sage'
 });
 
 function copy(t) {
-  const dir = mkdtempSync(join(realpathSync(tmpdir()), "sage-principles-"));
+  const dir = copyRepo("sage-principles-");
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  cpSync(ROOT, dir, { recursive: true, filter: (src) => ![".git", ".claude", "node_modules"].includes(relative(ROOT, src)) });
-  symlinkSync(join(ROOT, "node_modules"), join(dir, "node_modules"), "dir");
   const run = (script) => spawnSync("node", [join(dir, "scripts", `${script}.mjs`)], { encoding: "utf8" });
   const read = (rel) => readFileSync(join(dir, rel), "utf8");
   const write = (rel, text) => (mkdirSync(dirname(join(dir, rel)), { recursive: true }), writeFileSync(join(dir, rel), text));
