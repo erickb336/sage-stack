@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -212,22 +211,15 @@ test("the board server: a config with only the two old sources shows the shared 
   const old = w.sources.slice(0, 2);
   assert.deepEqual(readSources(old, env).map(source => source.id), ["claude", "codex", "shared"]);
   assert.deepEqual(readSources(w.sources, env), w.sources, "a config that names the shared root keeps its sources");
-  const port = await freePort(), server = createBoardServer({ sources: readSources(old, env), port, app: APP });
+  const server = createBoardServer({ sources: readSources(old, env), port: 0, app: APP });
   t.after(() => server.close());
-  await server.start();
+  const { port } = await server.start();
   const model = await boardModel(port), row = id => model.tasks.find(item => item.id === id);
   assert.deepEqual([row("T321").key, row("T321").chief.id, row("T321").chief.provider], [`shared/${FOLDER}/T321`, "C1", "Claude"]);
   assert.ok(row("T96").key.startsWith("codex/"), "the old Codex task shows from the old logbook");
   assert.deepEqual(model.problems, []);
 });
 
-async function freePort() {
-  const socket = createServer();
-  await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-  const { port } = socket.address();
-  await new Promise(accept => socket.close(accept));
-  return port;
-}
 const APP = loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", import.meta.url)));
 async function boardModel(port) {
   const controller = new AbortController(), guard = setTimeout(() => controller.abort(), 120_000);
@@ -265,10 +257,9 @@ test("a table that changes during a read gives a retry; after two more differenc
 test("the server keeps its last good read, not stale, while the logbook changes, and the next read with no change shows it", async t => {
   const w = world(t), dir = join(w.claudeRoot, HARBOR);
   let churn = false, n = 0;
-  const port = await freePort();
-  const server = createBoardServer({ sources: [w.sources[0]], port, settleReads: [], app: APP, duringRead: key => { if (churn && key.endsWith(HARBOR)) rewrite(dir, `Busy write ${++n}`); } });
+  const server = createBoardServer({ sources: [w.sources[0]], port: 0, settleReads: [], app: APP, duringRead: key => { if (churn && key.endsWith(HARBOR)) rewrite(dir, `Busy write ${++n}`); } });
   t.after(() => server.close());
-  await server.start();
+  const { port } = await server.start();
   assert.match(JSON.stringify(await boardModel(port)), /Legacy task at work/);
   churn = true;
   rewrite(dir, "Trigger title");
@@ -393,9 +384,9 @@ test("F-T624-12: a milestone that moved with its open task leaves the old logboo
 
 test("F-T624-13: the board server reads an old logbook under a provider root that its config leaves out, as the one-shot board does", async t => {
   const w = world(t);
-  const port = await freePort(), server = createBoardServer({ sources: [w.sources[0], w.sources[2]], port, settleReads: [], app: APP, providerRoots: [{ path: w.codexRoot, provider: "codex" }] });
+  const server = createBoardServer({ sources: [w.sources[0], w.sources[2]], port: 0, settleReads: [], app: APP, providerRoots: [{ path: w.codexRoot, provider: "codex" }] });
   t.after(() => server.close());
-  await server.start();
+  const { port } = await server.start();
   const model = await boardModel(port);
   assert.ok(model.tasks.find(item => item.id === "T96")?.key.startsWith("old-codex/"), JSON.stringify(model.tasks.map(item => item.key)));
   assert.deepEqual(model.problems, []);
@@ -609,10 +600,10 @@ test("F-T624-16: a source of another id at the shared root's path reads as the s
 });
 
 test("F-T624-20: a sources.tsv row that stays refused is a note: the server stays live for every project", async t => {
-  const w = world(t), port = await freePort(), dir = join(w.claudeRoot, HARBOR);
-  const server = createBoardServer({ sources: w.sources, port, settleReads: [], app: APP });
+  const w = world(t), dir = join(w.claudeRoot, HARBOR);
+  const server = createBoardServer({ sources: w.sources, port: 0, settleReads: [], app: APP });
   t.after(() => server.close());
-  await server.start();
+  const { port } = await server.start();
   assert.match(JSON.stringify(await boardModel(port)), /Legacy task at work/);
   rmSync(join(w.codexRoot, FOLDER), { recursive: true, force: true });
   await until(port, (text, model) => !model.tasks.some(item => item.key.startsWith("codex/")));

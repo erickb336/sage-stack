@@ -2,7 +2,6 @@ import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
@@ -23,23 +22,13 @@ let browser;
 before(async () => { browser = await chromium.launch({ headless: true, ...(process.env.BOARD_BROWSER_PATH ? { executablePath: process.env.BOARD_BROWSER_PATH } : {}) }); });
 after(async () => { await browser?.close(); });
 
-async function freePort() {
-  for (;;) {
-    const socket = createServer();
-    await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-    const { port } = socket.address();
-    await new Promise(accept => socket.close(accept));
-    if (![4173, 43123].includes(port)) return port;
-  }
-}
-
 function addRows(dir, table, rows) {
   const columns = readFileSync(join(dir, `${table}.tsv`), "utf8").split("\n")[0].split("\t");
   appendFileSync(join(dir, `${table}.tsv`), rows.map(row => columns.map(column => row[column] ?? "").join("\t")).join("\n") + "\n");
 }
 
 async function board(t, { empty = false, noTasks = false, judge = null } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), "sage-board-walkthrough-")), port = await freePort(), saved = process.env.SAGE_WORKTREES, now = new Date().toISOString();
+  const dir = mkdtempSync(join(tmpdir(), "sage-board-walkthrough-")), saved = process.env.SAGE_WORKTREES, now = new Date().toISOString();
   const at = hours => new Date(Date.parse(now) - hours * HOUR).toISOString();
   process.env.SAGE_WORKTREES = join(dir, "worktrees");
   mkdirSync(join(dir, "logbooks"), { recursive: true });
@@ -62,8 +51,8 @@ async function board(t, { empty = false, noTasks = false, judge = null } = {}) {
   }
   const stateDir = join(dir, "state"), stops = [];
   mkdirSync(stateDir);
-  const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair", onStop: () => { stops.push(Date.now()); } });
-  await server.start();
+  const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port: 0, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair", onStop: () => { stops.push(Date.now()); } });
+  const { port } = await server.start();
   t.after(async () => { await server.close(); if (saved === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = saved; rmSync(dir, { recursive: true, force: true }); });
   return { base: `http://127.0.0.1:${port}`, stateDir, stops, logbook };
 }

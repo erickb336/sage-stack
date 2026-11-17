@@ -2,7 +2,6 @@ import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -20,14 +19,8 @@ test("task links reach arena-only, mixed and artifact-free arenas without changi
   const artifacts = process.env.ARENA_SCREENSHOTS;
   if (artifacts) mkdirSync(artifacts, { recursive: true });
   try {
-    do {
-      const socket = createServer();
-      await new Promise((resolve, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", resolve); });
-      port = socket.address().port;
-      await new Promise(resolve => socket.close(resolve));
-    } while ([4173, 43123].includes(port));
-    board = createBuiltBoardServer({ sources: fixture.sources, port });
-    await board.start();
+    board = createBuiltBoardServer({ sources: fixture.sources, port: 0 });
+    ({ port } = await board.start());
     browser = await chromium.launch({ headless: true, ...(process.env.BOARD_BROWSER_PATH ? { executablePath: process.env.BOARD_BROWSER_PATH } : {}) });
     const page = await browser.newPage();
     const origin = `http://127.0.0.1:${port}`, task = `${origin}/app/#task?key=${encodeURIComponent(ARENA_KEY)}&tab=artifacts`;
@@ -110,14 +103,8 @@ test("fictional arena route preserves failed candidates and unknown evidence on 
   const artifacts = process.env.ARENA_SCREENSHOTS;
   if (artifacts) mkdirSync(artifacts, { recursive: true });
   try {
-    do {
-      const socket = createServer();
-      await new Promise((resolve, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", resolve); });
-      port = socket.address().port;
-      await new Promise(resolve => socket.close(resolve));
-    } while ([4173, 43123].includes(port));
-    board = createBoardServer({ sources: fixture.sources, port });
-    await board.start();
+    board = createBoardServer({ sources: fixture.sources, port: 0 });
+    ({ port } = await board.start());
     browser = await chromium.launch({ headless: true, ...(process.env.BOARD_BROWSER_PATH ? { executablePath: process.env.BOARD_BROWSER_PATH } : {}) });
     const page = await browser.newPage();
     const url = `http://127.0.0.1:${port}${readerUrl(ARENA_KEY, "arena")}`;

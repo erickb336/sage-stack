@@ -2,7 +2,6 @@ import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
@@ -20,20 +19,12 @@ let browser;
 before(async () => { browser = await chromium.launch({ headless: true, ...(process.env.BOARD_BROWSER_PATH ? { executablePath: process.env.BOARD_BROWSER_PATH } : {}) }); });
 after(async () => { await browser?.close(); });
 
-async function freePort() {
-  const socket = createServer();
-  await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-  const { port } = socket.address();
-  await new Promise(accept => socket.close(accept));
-  return port;
-}
-
 async function open(t, { viewport = { width: 1440, height: 1000 }, clock = false, edit, path = "/app/" } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), "sage-board-app-browser-")), root = join(dir, "logbooks"), port = await freePort();
+  const dir = mkdtempSync(join(tmpdir(), "sage-board-app-browser-")), root = join(dir, "logbooks");
   const project = writeAppLogbook(root, new Date().toISOString());
   edit?.(project, root);
-  const server = createBoardServer({ sources: [{ id: "sample", path: root, label: "Sample" }], port, app: APP, settleReads: [] });
-  await server.start();
+  const server = createBoardServer({ sources: [{ id: "sample", path: root, label: "Sample" }], port: 0, app: APP, settleReads: [] });
+  const { port } = await server.start();
   const base = `http://127.0.0.1:${port}`;
   const context = await browser.newContext({ viewport, colorScheme: "dark" });
   t.after(async () => { await context.close(); await server.close(); rmSync(dir, { recursive: true, force: true }); });

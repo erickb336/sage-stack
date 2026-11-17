@@ -2,7 +2,6 @@ import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -354,23 +353,16 @@ test("T1064: heading ids keep their form for repeated headings, and a page of 40
   assert.ok(took < 5_000, `40,000 headings took ${Math.round(took)} ms (timing-ok: the bound is wide on purpose; a linear id loop takes well under 1 s on a busy machine, and the quadratic loop that this test guards against took about 85 s)`);
 });
 
-async function freePort() {
-  const socket = createServer();
-  await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-  const { port } = socket.address();
-  await new Promise(accept => socket.close(accept));
-  return port;
-}
 const get = (base, path, headers = {}) => new Promise((accept, reject) => {
   const req = request(`${base}${path}`, { headers }, response => { let body = ""; response.setEncoding("utf8"); response.on("data", part => { body += part; }); response.on("end", () => accept({ status: response.statusCode, headers: response.headers, body })); });
   req.on("error", reject); req.end();
 });
 
 test("T1064: the server serves the reader script-free under the sandbox policy, pictures only from the task's pages folder, and the task panel lists the design and the recorded pages", async t => {
-  const w = world(t, { hostile: true }), port = await freePort(), base = `http://127.0.0.1:${port}`;
-  const server = createBoardServer({ sources: w.sources, port, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [] });
+  const w = world(t, { hostile: true });
+  const server = createBoardServer({ sources: w.sources, port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [] });
   t.after(() => server.close());
-  await server.start();
+  const base = `http://127.0.0.1:${(await server.start()).port}`;
   const page = await get(base, readerUrl(KEY("T3"), "page", "hostile.md"));
   assert.equal(page.status, 200);
   const policy = page.headers["content-security-policy"];
@@ -386,7 +378,7 @@ test("T1064: the server serves the reader script-free under the sandbox policy, 
   assert.deepEqual(panel.files.designs, { versions: 2, arena: true });
   const limits = JSON.parse((await get(base, `/app/task/${Buffer.from(KEY("T3")).toString("base64url")}`)).body);
   assert.deepEqual(limits.files.recorded.map(item => [item.file, item.state]), [["gone-plan.md", "gone"], ["notes.md", "changed"]]);
-  const bare = createBoardServer({ sources: w.sources, port: await freePort(), app: null, markdown: null, settleReads: [] });
+  const bare = createBoardServer({ sources: w.sources, port: 0, app: null, markdown: null, settleReads: [] });
   t.after(() => bare.close());
   const { port: barePort } = await bare.start(), missing = await get(`http://127.0.0.1:${barePort}`, readerUrl(KEY("T3"), "brief", "R7"));
   assert.deepEqual([missing.status, missing.body], [503, "The reader's Markdown renderer is not in this copy of the board. Run the board from the sage plugin, or run npm ci and npm run build.\n"], "a copy of the board without its built renderer still starts, and says why it has no reader");
@@ -398,7 +390,7 @@ function addRows(logbook, table, rows) {
 }
 
 test("T1126: the task panel says which runs have a brief or a report, the same as the reader; a merged task gives the PR's text for users, else the newest lead's RESULT, else none", async t => {
-  const w = world(t), port = await freePort(), base = `http://127.0.0.1:${port}`;
+  const w = world(t);
   const at = hours => new Date(Date.parse(NOW) - hours * 3_600_000).toISOString();
   addRows(w.logbook, "runs", [
     { id: "R80", task: "T20", role: "lead", round: "0", status: "done", started: at(9), ended: at(8) },
@@ -411,9 +403,9 @@ test("T1126: the task panel says which runs have a brief or a report, the same a
   writeFileSync(join(w.logbook, "reports", "R80.md"), "STATUS done\nRESULT ready. Sign-in shows one message\n  when a session ends.\nEVIDENCE none\n");
   writeFileSync(join(w.logbook, "reports", "R81.md"), "STATUS done\nRESULT an older lead's result\n");
   writeFileSync(join(w.logbook, "reports", "R83.md"), "STATUS done\nRESULT the lead's result, which the PR's text replaces\n");
-  const server = createBoardServer({ sources: w.sources, port, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [] });
+  const server = createBoardServer({ sources: w.sources, port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [] });
   t.after(() => server.close());
-  await server.start();
+  const base = `http://127.0.0.1:${(await server.start()).port}`;
   const panel = async id => JSON.parse((await get(base, `/app/task/${Buffer.from(KEY(id)).toString("base64url")}`)).body);
   const limits = await panel("T3");
   assert.deepEqual(Object.fromEntries(limits.runs.map(run => [run.id, [run.brief, run.report]])), { R5: [false, true], R6: [true, false], R7: [true, false], R4: [false, false] });
