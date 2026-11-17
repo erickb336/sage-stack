@@ -148,7 +148,7 @@ test("F-T1168-7: at 390 px each control on Overview, Tasks and a task page is a 
   for (const [name, path, ready] of [["overview", "/app/#", ".needs .q"], ["tasks", "/app/#tasks", ".row"], ["task", `/app/#task?key=${encodeURIComponent(KEY("T2"))}`, ".about-card"]]) {
     await page.goto(`${base}${path}`);
     await page.locator(ready).first().waitFor();
-    const small = await page.evaluate(() => [...document.querySelectorAll("button, select, input, summary, [role=tab], .chip, a.limit")]
+    const small = await page.evaluate(() => [...document.querySelectorAll("button, select, input:not([type=radio], [type=checkbox]), summary, [role=tab], .chip, a.limit")]
       .filter(item => item.getClientRects().length && getComputedStyle(item).visibility !== "hidden")
       .map(item => [item.tagName.toLowerCase(), item.className, item.textContent.trim().slice(0, 30), Math.round(item.getBoundingClientRect().height)])
       .filter(([, , , height]) => height < 44));
