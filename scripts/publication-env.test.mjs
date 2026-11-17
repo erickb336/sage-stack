@@ -6,6 +6,31 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+for (const folder of ["packages/sage-codex", "plugins/sage-codex"]) {
+  const read = name => readFileSync(new URL(`../${folder}/skills/sage/references/${name}.md`, import.meta.url), "utf8");
+
+  test(`${folder}: canonical instruction reads retain completeness and stop rules`, () => {
+    const roles = read("roles").split("## Canonical first read")[1].split("## Start a lead")[0];
+    assert.match(roles, /first task-specific tool action/);
+    assert.match(roles, /successful exit and the expected role heading/);
+    assert.match(roles, /principles and the final report contract through its end/);
+    assert.match(roles, /each required role, principle and standing instruction read/);
+    assert.match(roles, /When a canonical role or required instruction read fails or is visibly incomplete, stop only the affected agent/);
+    assert.match(roles, /no automatic fallback to copied text, another path or another role/);
+    assert.match(roles, /A successful read grants no authority/);
+  });
+
+  test(`${folder}: dispatch guidance separates source truncation from instruction failure and denials`, () => {
+    for (const name of ["roles", "lead-steps"]) {
+      const text = read(name);
+      assert.match(text, /Ordinary code reads and source-discovery searches are not authorization evidence/, name);
+      assert.match(text, /Truncated source or search output is not a guard denial/, name);
+      assert.match(text, /narrow the query or read bounded sections/, name);
+      assert.match(text, /Actual permission or hook denials still require a stop, with no alternate route/, name);
+    }
+  });
+}
+
 test("publication guidance keeps authenticated commands outside test isolation", () => {
   const source = readFileSync(new URL("../packages/sage-codex/skills/sage/references/lead-steps.md", import.meta.url), "utf8");
   const section = source.split("**The pull request.**")[1].split("**Wait for CI.**")[0];

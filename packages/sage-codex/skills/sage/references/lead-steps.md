@@ -6,12 +6,14 @@ Your task name is `sage_lead_t<n>_r<k>`, where `<n>` is the number of your task.
 
 1. Call `run_add` with `task`, `role` and `"usage-interface": "collaboration-tools"`. For an implementer, also give `branch`, the task's branch. When the task has no branch, set it first with `task_set`. It prints the run id `R<k>`.
 2. Run `<node> <role.mjs> <role>` with inspected absolute paths, and keep the whole unchanged output.
-3. Write the helper's brief, with the fields `GOAL` to `STANDING`. Include the [canonical first read](roles.md#canonical-first-read) for its recorded role, task and run: the exact installed command, checks, failure handling and authority limits. Call `brief` with the task name of step 4 and the whole brief. Fix each missing field. The gate starts the helper only in the 30 minutes after this check.
+3. Write the helper's brief, with the fields `GOAL` to `STANDING`. Include the [canonical first read](roles.md#canonical-first-read) for its recorded role, task and run: the exact installed command, checks, failure handling and authority limits. Apply its stop/no-fallback rule to canonical role and required instruction reads, not ordinary source output. Call `brief` with the task name of step 4 and the whole brief. Fix each missing field. The gate starts the helper only in the 30 minutes after this check.
 4. Call `spawn_agent` in the `collaboration` namespace with:
    - `task_name`: `sage_<role>_t<n>_r<k>`, with `_` for `-` in the role, for example `sage_code_reviewer_t12_r41`. The gate refuses another role, another task and another form. A name with no run still starts, but sage keeps no report for that run, and no verdict can use it, so always give the run.
    - `message`: the whole output of step 2, a blank line, then the brief.
    - `fork_turns: "none"`. Give no agent type and no model.
    - `reasoning_effort`: the level after `reasoning_effort` in the output of step 1, for example `"medium"`. When step 1 printed none, give no `reasoning_effort`.
+
+Ordinary code reads and source-discovery searches are not authorization evidence. Truncated source or search output is not a guard denial: narrow the query or read bounded sections. Actual permission or hook denials still require a stop, with no alternate route. Do not interrupt a helper solely for source truncation. If it stops for that reason, start a fresh bounded assignment with this distinction.
 
 **Wait and read.** Do not end your turn while a helper runs: a helper's report starts no turn, so you would never read it.
 
