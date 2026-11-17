@@ -106,7 +106,7 @@ function jsonBody(request) {
 }
 
 export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () => new Date().toISOString(), settleReads = SETTLE_READS, lightEvery = LIGHT_EVERY, duringRead = null, providerRoots = [], app = loadBoardApp(), markdown = MARKDOWN, stateDir = null, pairCommand = null, write = writeInWorker, onStop = null } = {}) {
-  if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) throw new TypeError("board port must be an integer from 1024 through 65535");
+  if (!Number.isSafeInteger(port) || port !== 0 && (port < 1024 || port > 65535)) throw new TypeError("board port must be an integer from 1024 through 65535, or 0 for a free port that the system picks");
   if (typeof clock !== "function") throw new TypeError("the board clock must be a function that gives an ISO time");
   if (!Array.isArray(sources) || !sources.length || sources.length > 32) throw new TypeError("board needs 1 to 32 explicit sources");
   const ids = new Set();
@@ -118,8 +118,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
   });
   const landing = landingRule(configured);
   if (id !== undefined && (typeof id !== "string" || !/^[a-f0-9]{16,64}$/.test(id))) throw new TypeError("the board id must be 16 to 64 lowercase hex characters");
-  const local = new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
-  const origins = new Map([...local].map(host => [host, `http://${host}`]));
+  const local = new Set(), origins = new Map();
   let boardHeader = null;
   if (stateDir && (typeof pairCommand !== "string" || !pairCommand || /[\x00-\x1f\x7f]/.test(pairCommand))) throw new TypeError("a board that takes writes needs the pairing command that the owner runs in Terminal");
   const access = stateDir ? boardAccess(stateDir) : null;
@@ -518,6 +517,8 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
           refresh();
           server.listen(port, "127.0.0.1", () => {
             server.off("error", failed);
+            const bound = server.address().port;
+            for (const host of [`127.0.0.1:${bound}`, `localhost:${bound}`, `[::1]:${bound}`]) { local.add(host); origins.set(host, `http://${host}`); }
             if (id) boardHeader = `id=${id}; pid=${process.pid}; started=${Date.now()}`;
             accept(server.address());
           });
