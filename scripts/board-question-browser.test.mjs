@@ -404,6 +404,36 @@ test("T1156: with a file open, the answers stay in view: beside the file at 1440
   assert.equal(await covered(page, ".q-form h2"), null, "F-T1156-17: after the viewer closes, nothing covers the Answers label");
 });
 
+test("T1156 F-T1156-53: at 390 px each standalone link of the question view is at least 44 px tall", async t => {
+  const w = await openBoard(t, SIZES[0]), { page } = w, url = `${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G1`)}`;
+  const tall = async (locator, name) => { const box = await locator.boundingBox(); assert.ok(box.height >= 44, `${name} is ${box.height} px tall`); };
+  await page.goto(url);
+  await tall(page.getByRole("link", { name: "T1 · Sample shared list permissions" }), "the task link in Where it fits");
+  await tall(page.getByRole("link", { name: "Read the full question" }), "Read the full question");
+  await w.shot("t1156-links-390");
+  await page.locator(".mat").filter({ hasText: "Design notes" }).click();
+  await tall(page.getByRole("link", { name: "Open in a new tab" }), "Open in a new tab");
+});
+
+test("T1156 F-T1156-54: from 1100 to 1279 px an open file takes the whole width, and the answers go to the bar beside the side column", async t => {
+  const w = await openBoard(t, { width: 1100, height: 900 }), { page } = w, url = `${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G1`)}&open=${encodeURIComponent("T1/notes.md")}`;
+  for (const width of [1100, 1150, 1200, 1279]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`${w.origin}/app/#`);
+    await page.goto(url);
+    await page.frameLocator(".viewer iframe").getByRole("heading", { name: "The rule" }).waitFor();
+    const pane = await page.locator(".viewer iframe").boundingBox(), side = await page.locator(".side").boundingBox(), bar = await page.locator(".qbar").boundingBox();
+    assert.ok(pane.width >= width - 232 - 64 - 60, `at ${width} px the file is ${pane.width} px wide: the main column less its padding and the viewer's own`);
+    await inView(page, page.locator(".qbar").getByRole("button", { name: "Send" }), `at ${width} px the bar offers the answers`);
+    assert.ok(bar.x >= side.x + side.width, `at ${width} px the bar starts at ${bar.x} px, after the side column`);
+    await w.shot(`t1156-reading-${width}`);
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(`${w.origin}/app/#`);
+  await page.goto(url);
+  await inView(page, page.locator(".q-side .answer").first(), "at 1280 px the answers are beside the file");
+});
+
 test("T1156 F-T1156-40, -47: an answer sent while the Archive write lands is refused by the state tool, and the board shows the refusal; an answer sent before the archive says that it waits for Restore and offers no Undo", async t => {
   let w;
   w = await openBoard(t, SIZES[2], { before: job => { if (job.argv[2] === "G1") w.config("archived=yes"); } });

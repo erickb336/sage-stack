@@ -265,14 +265,22 @@ input:not([type]), input[type="text"] { font: inherit; color: inherit; backgroun
 .qbar { display: none; }
 .failed-run { display: grid; gap: 4px; margin: 0 0 14px; padding: 8px 12px; border-left: 3px solid var(--fail); }
 .failed-run .lbl { margin: 0; }
-@media (max-width: 1099px) {
-  .question, .question.reading { grid-template-columns: minmax(0, 1fr); }
-  .q-side, .reading .q-side { position: static; max-height: none; display: grid; overflow: visible; }
+/* With a file open, the file takes the whole width below 1280 px, and the answers go to the bar: beside a 340 px column the file was too narrow to read. */
+@media (max-width: 1279px) {
+  .question.reading { grid-template-columns: minmax(0, 1fr); padding-bottom: calc(var(--qbar, 64px) + 12px); }
+  .reading .q-side { position: static; max-height: none; display: grid; overflow: visible; }
   .reading .qbar { display: grid; gap: 6px; position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; padding: 8px 12px; background: var(--card); border-top: 1px solid var(--line-2); }
   .qbar > p { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; }
-  .question.reading { padding-bottom: calc(var(--qbar, 64px) + 12px); }
   .viewer { scroll-margin-top: 120px; }
+}
+@media (min-width: 900px) { .reading .qbar { left: 232px; } } /* beside the side column, so that the bar covers none of it */
+@media (max-width: 1099px) {
+  .question { grid-template-columns: minmax(0, 1fr); }
+  .q-side { position: static; max-height: none; display: grid; overflow: visible; }
   .viewer iframe { height: 60vh; }
+}
+@media (max-width: 760px) {
+  .question :is(.facts-line, .fits, .viewer-h, .material, .send, .qbar) a { display: inline-flex; align-items: center; min-height: 44px; }
 }
 .question .btn { min-height: 44px; min-width: 44px; justify-content: center; }
 .question .back { display: inline-flex; align-items: center; min-height: 44px; justify-self: start; color: var(--accent); }
