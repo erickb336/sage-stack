@@ -465,12 +465,12 @@ test("T1136 G200, G201: archive needs no chief; it ends queued and admitted runs
   assert.deepEqual([task, decision, why], ["", "project archived", "config archived=yes; ended as failed: R4, R5"]);
   assert.ok(Math.abs(Date.parse(at) - Date.now()) < 10 * 60_000, "the decision row is dated now");
 
-  const refusal = (what) => new RegExp(`this project is archived, so it takes no new ${what}: .* If the owner asked for new work here, restore it first with sage config archived=no, tell the owner in one line that you restored it, then add the ${what} again\\. A lead does not restore a project: report blocked to your chief\\. Nothing changed\\.$`);
+  const refusal = (what) => new RegExp(`this project is archived, so it takes no new ${what}: .* If this is new work that the owner asked for in this chat after the archive, restore the project first with sage config archived=no, tell the owner in one line that you restored it, then ${what === "run" ? "add the run" : "give the same command"} again\\. A lead does not restore a project: report blocked to your chief\\. Nothing changed\\.$`);
   assert.throws(() => w.claude("run", "add", "T1", "--role", "qa"), refusal("run"));
   assert.throws(() => w.codex("run", "add", "T2", "--role", "qa"), refusal("run"));
   assert.throws(() => w.codex("task", "add", "--title", "new work", "--size", "tiny", "--priority", "P2"), refusal("task"));
   w.hook({ hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
-  const noStart = /this project is archived, so no agent starts, also not for R3\. If the owner asked for new work here, restore it first with sage config archived=no, tell the owner in one line that you restored it, then add a new run\.$/;
+  const noStart = /this project is archived, so no agent starts, also not for R3\. If this is new work that the owner asked for in this chat after the archive, restore the project first with sage config archived=no, tell the owner in one line that you restored it, then add a new run\.$/;
   assert.match(denied(w.hook(claudeSpawn("R3", "T1"))) ?? "", noStart, "Claude starts no agent, also for a run that still runs");
   assert.match(denied(await w.spawnCodex("sage_qa_t2_r4")) ?? "", /this project is archived, so no agent starts, also not for R4\./, "Codex starts no agent for the admitted run");
 
@@ -478,7 +478,7 @@ test("T1136 G200, G201: archive needs no chief; it ends queued and admitted runs
   assert.match(w.codex("finding", "add", "T2", "--source", "qa", "--severity", "low", "--summary", "a late finding", "--run", "R2", "--class", "other"), /F-T2-1/);
   assert.equal(w.codex("run", "done", "R2", "--status", "done", "--tokens", "1000"), "R2 done");
   w.claude("verdict", "T1", "--sha", sha, "--kind", "checks-pass");
-  assert.throws(() => w.claude("merge-check", "--sha", sha), /T1 is in an archived project, so it does not merge: an archived project merges nothing\. When the owner asks for work here again, restore it first with sage config archived=no/);
+  assert.throws(() => w.claude("merge-check", "--sha", sha), /T1 is in an archived project, so it does not merge: an archived project merges nothing\. If this is new work that the owner asked for in this chat after the archive, restore the project first with sage config archived=no/);
   assert.match(asOwner(w, "archived=yes"), /\nThe project is archived already, so archived=yes changes nothing\.$/);
 
   assert.equal(asOwner(w, "archived=no"), "name= archived=no start=normal\nRestored: the project takes new tasks and runs, and the merge check judges its commits again.");

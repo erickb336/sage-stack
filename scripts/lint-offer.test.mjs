@@ -133,6 +133,19 @@ test("add the rules frames one small task, writes its brief with the detected la
   assert.doesNotMatch(brief, /Ruby|Bash|Json|Markdown/, "a vendored file, a dotfile with no extension, JSON and Markdown add no language");
 });
 
+test("T1147 F-T1147-1: in an archived project, a yes to the lint offer frames no task and keeps the offer open, with task add's restore text; after a restore the yes frames it", () => {
+  const p = project(JS);
+  assert.match(p.lint(), /\nG1 open · /);
+  p.ok("config", "archived=yes");
+  const bar = "sage: this project is archived, so it takes no new task: an archived project starts no agent and merges nothing. If this is new work that the owner asked for in this chat after the archive, restore the project first with sage config archived=no, tell the owner in one line that you restored it, then give the same command again. A lead does not restore a project: report blocked to your chief. Nothing changed.";
+  assert.equal(p.sage("gate", "answer", "G1", "--option", "1").stderr.trim(), bar);
+  assert.equal(p.sage("task", "add", "--priority", "P2", "--title", "later", "--size", "small").stderr.trim(), bar, "task add gives the same refusal");
+  assert.deepEqual(p.table("tasks").map((t) => t.id), ["T1"], "no task framed");
+  assert.deepEqual(p.offers().map((g) => [g.id, g.answer]), [["G1", ""]], "the offer stays open");
+  p.ok("config", "archived=no");
+  assert.match(answer(p, "G1", 1), /^G1 answered · add the rules\nT2 framed · small/);
+});
+
 test("the offer detects each project's own languages: a JavaScript project, a Python project and a project with both", () => {
   const ask = (files) => /for (.*)\? A yes/.exec(project(files).lint())?.[1];
   assert.equal(ask({ ...JS, ...DOCS }), "JavaScript");

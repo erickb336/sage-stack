@@ -4438,6 +4438,35 @@ test("T314: config name= and archived= set one logbook's own config.json, never 
   assert.equal(s.ok("config"), "max_agents=10 max_leads=5 cycles.small=1 cycles.large=2 cycles.risk=2 max_rounds=3 arena=3 arena_models=opus,sonnet,sonnet cap_total=20 " + MODEL_DEFAULTS, "config alone still prints the config for all projects");
 });
 
+const RESTORE_ASKED = "If this is new work that the owner asked for in this chat after the archive, restore the project first with sage config archived=no, tell the owner in one line that you restored it";
+
+test("T1147 F-T1147-1: in an archived project, finding move --to frames no follow-up task, with task add's restore text; after a restore it moves", () => {
+  const s = store();
+  s.ok("task", "add", "--priority", "P2", "--title", "t", "--size", "small");
+  finding(s, "T1", "--severity", "low", "--source", "qa", "--summary", "a slow export");
+  s.ok("config", "archived=yes");
+  const bar = `sage: this project is archived, so it takes no new task: an archived project starts no agent and merges nothing. ${RESTORE_ASKED}, then give the same command again. A lead does not restore a project: report blocked to your chief. Nothing changed.`;
+  assert.equal(s.no("finding", "move", "T1", "F-T1-1", "--to", "Export faster"), bar);
+  assert.equal(s.no("task", "add", "--priority", "P2", "--title", "later", "--size", "small"), bar, "task add gives the same refusal");
+  assert.deepEqual(rows(s.dir, "tasks").map((t) => t.id), ["T1"], "no follow-up task");
+  assert.deepEqual(rows(s.dir, "findings").map((f) => [f.task, f.key, f.status]), [["T1", "F-T1-1", "open"]], "the finding stays on T1");
+  s.ok("config", "archived=no");
+  assert.equal(s.ok("finding", "move", "T1", "F-T1-1", "--to", "Export faster"), "F-T1-1 moved to T2 as F-T2-1 · T2 framed · small · route build,code-review,qa · P2");
+});
+
+test("T1147 F-T1147-3: with verdicts in two logbooks, the merge check names the archived logbook, and does not send this chat to restore that project", () => {
+  const real = store();
+  real.ok("task", "add", "--priority", "P2", "--title", "t", "--size", "tiny");
+  real.ok("verdict", "T1", "--sha", SHA, "--kind", "checks-pass");
+  const old = store(real.home, "aa-");
+  old.ok("task", "add", "--priority", "P2", "--title", "old", "--size", "tiny");
+  old.ok("verdict", "T1", "--sha", SHA, "--kind", "checks-pass");
+  old.ok("config", "archived=yes");
+  const folder = basename(old.dir);
+  assert.equal(real.no("merge-check", "--sha", SHA), `sage: 2 tasks have verdicts on a1b2c3d, and each must pass; 1 fails. ${old.dir} T1 is in the logbook ${folder}, and that project is archived, so T1 does not merge: an archived project merges nothing. A chat restores only its own project, so do not restore that one from here. To merge the change, push a new commit, and record its verdicts only under this project's tasks. If the owner wants that project back, the owner restores it on the board or in that project's own chat. To merge, make each one pass, or push a new commit and record its verdicts under the live tasks only.`);
+  assert.match(old.no("merge-check", "--sha", SHA), new RegExp(`T1 is in an archived project, so it does not merge: an archived project merges nothing\\. ${RESTORE_ASKED}, then check again\\.`), "in its own chat, the archived project names its own restore");
+});
+
 test("T948: config start=sage-mode starts each new session of the project in sage mode; start=normal and a bad file start it off", () => {
   const s = store();
   const own = join(s.dir, "config.json"), starts = () => startsInSageMode(s.dir);

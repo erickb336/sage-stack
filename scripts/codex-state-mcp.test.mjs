@@ -1250,6 +1250,34 @@ test("T930: milestone_propose (new and again) and task_set milestone= give the C
   assert.match(await both("status", {}, ["status"]), /M1/);
 });
 
+test("T1147 F-T1147-1: in an archived project, finding_move to and a yes to the lint offer frame no task through the Codex server, with the Claude state tool's refusal", async (t) => {
+  const s = await milestoneWorld(t), { both, claude } = s;
+  for (const folder of [s.project, join(s.dir, "claude", "project")]) {
+    const git = (...args) => execFileSync("git", ["-C", folder, "-c", "user.name=t", "-c", "user.email=t@t", ...args]);
+    writeFileSync(join(folder, "a.js"), "export const a = 1;\n");
+    git("add", "-A");
+    git("commit", "-q", "-m", "base");
+    git("update-ref", "refs/remotes/origin/main", "HEAD");
+  }
+  assert.match(await s.call("lint", { task: "T1", sha: SHA }), /\nG1 open · Add sage's no-comments lint rules to this project, for JavaScript\?/);
+  assert.match(claude("lint", "T1", "--sha", SHA), /\nG1 open · Add sage's no-comments lint rules to this project, for JavaScript\?/);
+  assert.match(await s.call("run_add", { task: "T1", role: "qa" }), /^R1 running · qa on T1/);
+  assert.match(claude("run", "add", "T1", "--role", "qa"), /^R1 running · qa on T1/);
+  await both("run_done", { run: "R1", status: "done", tokens: "1" }, ["run", "done", "R1", "--status", "done", "--tokens", "1"]);
+  await both("finding_add", { task: "T1", source: "qa", severity: "low", summary: "a slow export", run: "R1", class: "speed" }, ["finding", "add", "T1", "--source", "qa", "--severity", "low", "--summary", "a slow export", "--run", "R1", "--class", "speed"]);
+  await both("config", { settings: { archived: "yes" } }, ["config", "archived=yes"]);
+
+  const bar = "sage: this project is archived, so it takes no new task: an archived project starts no agent and merges nothing. If this is new work that the owner asked for in this chat after the archive, restore the project first with sage config archived=no, tell the owner in one line that you restored it, then give the same command again. A lead does not restore a project: report blocked to your chief. Nothing changed.";
+  assert.equal((await both("finding_move", { task: "T1", key: "F-T1-1", to: "Export faster" }, ["finding", "move", "T1", "F-T1-1", "--to", "Export faster"])).error, bar);
+  assert.equal((await both("gate_answer", { gate: "G1", option: 1 }, ["gate", "answer", "G1", "--option", "1"])).error, bar);
+  assert.equal((await both("task_add", { title: "later", size: "small", priority: "P2" }, ["task", "add", "--title", "later", "--size", "small", "--priority", "P2"])).error, bar, "task add gives the same refusal");
+
+  await both("config", { settings: { archived: "no" } }, ["config", "archived=no"]);
+  assert.equal(await both("finding_move", { task: "T1", key: "F-T1-1", to: "Export faster" }, ["finding", "move", "T1", "F-T1-1", "--to", "Export faster"]),
+    "F-T1-1 moved to T4 as F-T4-1 · T4 framed · small · route build,code-review,qa · P2", "the refused calls framed no task: the next one is T4");
+  assert.match(await s.call("gate_answer", { gate: "G1", option: 1 }), /^G1 answered · add the rules\nT5 framed · small/, "the offer stayed open");
+});
+
 test("T1003: release_add, milestone_set and task_set release= give the Claude state tool's own lines through the Codex server", async (t) => {
   const { both } = await milestoneWorld(t);
   assert.match(await both("release_add", { name: "1.0", goal: "Ship the first version" }, ["release", "add", "--name", "1.0", "--goal", "Ship the first version"]), /^release 1\.0 added · goal: Ship the first version\./);
@@ -1265,7 +1293,7 @@ test("T930: config sets the board name, the archive, the cycle counts and max_le
   const s = await milestoneWorld(t), { both } = s;
   assert.equal(await both("config", { settings: { name: "Council Record" } }, ["config", "name=Council Record"]), "name=Council Record archived=no start=normal");
   assert.equal(await both("config", { settings: { archived: "yes" } }, ["config", "archived=yes"]), "name=Council Record archived=yes start=normal\nArchived: the project starts no agent and merges nothing; agents that run now finish, and their reports, findings and verdicts still record. To restore it: sage config archived=no.");
-  const restore = /^sage: this project is archived, so it takes no new (task|run): an archived project starts no agent and merges nothing\. If the owner asked for new work here, restore it first with sage config archived=no, tell the owner in one line that you restored it, then add the \1 again\. A lead does not restore a project: report blocked to your chief\. Nothing changed\.$/;
+  const restore = /^sage: this project is archived, so it takes no new (task|run): an archived project starts no agent and merges nothing\. If this is new work that the owner asked for in this chat after the archive, restore the project first with sage config archived=no, tell the owner in one line that you restored it, then (give the same command|add the run) again\. A lead does not restore a project: report blocked to your chief\. Nothing changed\.$/;
   assert.match((await both("task_add", { title: "later", size: "small", priority: "P2" }, ["task", "add", "--title", "later", "--size", "small", "--priority", "P2"])).error, restore, "T1136 G201: Codex and Claude refuse new work in an archived project, and name the restore");
   assert.match((await both("run_add", { task: "T1", role: "qa" }, ["run", "add", "T1", "--role", "qa"])).error, restore);
   assert.equal(await both("config", { settings: { name: "", archived: "no" } }, ["config", "name=", "archived=no"]), "name= archived=no start=normal\nRestored: the project takes new tasks and runs, and the merge check judges its commits again.");
