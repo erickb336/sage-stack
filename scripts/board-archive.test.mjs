@@ -268,7 +268,7 @@ test("F-T1137-12: the server records no answer or other write for an archived pr
   for (const [job, write] of [["answer", body], ["undo", { logbook: need.logbook, gate: "G1" }], ["name", { logbook: need.logbook, chief: "C1", name: "Sample" }]]) {
     const refused = await call(w.port, `/api/${job}`, { headers, body: write });
     assert.equal(refused.status, 409, `${job}: ${refused.text}`);
-    assert.equal(refused.json.text, "lantern is archived, so the board records no answer or other write for it. Restore it first, or answer in the chief's chat. Nothing changed.");
+    assert.equal(refused.json.text, "lantern is archived, so the board records no answer or other write for it. Restore it first, then try again. Nothing changed.");
   }
   assert.equal(gates(), before, "the answer did not reach the logbook");
   assert.equal((await call(w.port, "/api/restore", { headers, body: { project: key } })).status, 200);
