@@ -27,6 +27,7 @@ const commandPolicy = await import("./command-policy.mjs")
 const SP = String.raw`[^\S\r\n  ]`;
 const FILE_TOOLS = /^(Edit|Write|MultiEdit|NotebookEdit)$/;
 const AGENT_TOOLS = /^(Agent|Task)$/;
+const HANDBACK = "SubagentHandback";
 const LEAD_CHILDREN = new Set(["sage:implementer", "sage:code-reviewer", "sage:security-reviewer", "sage:ux-reviewer", "sage:qa"]);
 const LEAD_HELPERS = 9;
 const WAIT = join(ROOT, "hooks/wait.mjs");
@@ -175,18 +176,21 @@ function handleEvent(input, state, slots) {
     return undefined;
   }
   const ours = OURS.test(input.agent_type ?? "");
+  if (event === "PreToolUse" && input.tool_name === HANDBACK) {
+    if (!ours || !input.agent_id) return undefined;
+    const text = input.tool_input?.message, reason = !slots.handback(input.agent_id) && reportProblem(input, text);
+    slots.handback(input.agent_id, reason ? {} : { text });
+    return reason ? deny(event, reason.replace(/^sage: /, "")) : undefined;
+  }
   if (event === "SubagentStop") {
     const lead = input.agent_type === "sage:lead" && slots.leadOf(input.agent_id);
     const ended = lead && (() => { try { return logbookOf(lead.folder).leadRun(lead.task)?.id !== lead.run; } catch { return false; } })();
     const live = lead && !ended ? slots.running(leadKey(lead)) : [];
     if (live.length) return { decision: "block", reason: `sage: your helper${live.length === 1 ? "" : "s"} ${live.join(", ")} still run${live.length === 1 ? "s" : ""}, and a lead does not end while a helper runs. Run ${waitStep(lead.task)}: it returns at once with each helper that stopped and whose run you end, else when a helper stops or none runs, and after ${WAIT_MS / 60_000} minutes at the latest. It names once each run whose report the hook cannot read: the sage ends that run, so do not end it, and name it in FINDINGS of your report. Then go on with your steps.` };
-    if (ours && !input.stop_hook_active && typeof input.last_assistant_message === "string") {
-      const missing = core.missingFields(REPORT_FIELDS, input.last_assistant_message);
-      if (missing.length) return { decision: "block", reason: `sage: your report has no ${missing.join(", ")}. End with the report of the sage:report skill: ${REPORT_FIELDS.join(", ")}, each at the start of a line that is not in a list or a code block, with "none" where a field has nothing.${input.agent_type === "sage:lead" ? " A lead that waits for its own background work may end its turn again instead: the work's notice wakes it, and it keeps its lead slot until its report." : ""}` };
-      const role = input.agent_type.slice("sage:".length).toLowerCase();
-      const reason = REVIEWERS.includes(role) && core.stopReason(input.last_assistant_message, input.cwd ?? process.cwd(), { who: "the hook", proof: TEAM.slice(1).includes(role) });
-      if (reason) return { decision: "block", reason };
-    }
+    const handed = ours && input.agent_id ? slots.handback(input.agent_id)?.text : undefined;
+    if (typeof handed === "string") input = { ...input, last_assistant_message: handed, stop_hook_active: true };
+    const reason = ours && !input.stop_hook_active && reportProblem(input, input.last_assistant_message);
+    if (reason) return { decision: "block", reason };
   }
   if (!main && ours && input.agent_id) slots.touch(input.agent_id, input.agent_type);
   if (event === "SubagentStart") return void (ours && slots.bind(input.agent_id, input.agent_type));
@@ -709,6 +713,13 @@ function chiefEnded(input, slots) {
     const leads = [view.leadRun(run.task), ...view.endedLeadRuns().filter((r) => r.task === run.task)].filter(Boolean);
     slots.endHelpers(leads.map((lead) => helperOf({ logbook: digest(view.dir), run: lead.id }, run.id)));
   } catch {}
+}
+function reportProblem(input, text) {
+  if (typeof text !== "string") return false;
+  const missing = core.missingFields(REPORT_FIELDS, text);
+  if (missing.length) return `sage: your report has no ${missing.join(", ")}. End with the report of the sage:report skill: ${REPORT_FIELDS.join(", ")}, each at the start of a line that is not in a list or a code block, with "none" where a field has nothing.${input.agent_type === "sage:lead" ? " A lead that waits for its own background work may end its turn again instead: the work's notice wakes it, and it keeps its lead slot until its report." : ""}`;
+  const role = input.agent_type.slice("sage:".length).toLowerCase();
+  return REVIEWERS.includes(role) && core.stopReason(text, input.cwd ?? process.cwd(), { who: "the hook", proof: TEAM.slice(1).includes(role) });
 }
 function keepRunText(cwd, kind, runOf, text, task) {
   if (typeof text !== "string" || stateTool.error) return;
@@ -1264,6 +1275,13 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
       else utimesSync(join(dir, slot), new Date(now), new Date(now));
     }),
     release: transaction(release),
+    handback: (agent, entry) => {
+      if (!valid(agent)) return undefined;
+      const name = `handback-${hash(agent)}`;
+      if (entry) return void note(name, JSON.stringify(entry));
+      if (!noted(name)) return undefined;
+      try { return parsed(readFileSync(join(events, name), "utf8")); } finally { rmSync(join(events, name), { force: true }); }
+    },
     drop: transaction((tool, caller) => {
       const slot = ofSession().find(slot => mark(slot, "call-") === callKey(tool, caller))
         ?? (caller === undefined ? ofSession().find(slot => !has(slot, "exact") && mark(slot, "pending-") === id(tool)) : undefined);
