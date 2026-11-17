@@ -21,9 +21,9 @@ export { renderRoleInstructions, renderReportInstructions, renderChiefInstructio
 export { askingRun, commitIdentity, FINDING_CLASSES, PRIORITIES, PRIORITY_SCALE, startsInSageMode } from "./logbook-fields.mjs";
 export { readActions, readBoardSources, readHookNotes } from "./board-reader.mjs";
 export { AGENT_QUIET_MS, buildBoardModel } from "./board-model.mjs";
-export { boardOverview, taskPanel } from "./board-overview.mjs";
+export { boardOverview, runFailure, taskPanel } from "./board-overview.mjs";
 export { boardStats } from "./board-stats.mjs";
-export { chiefName, prName, runWord, taskWord, milestoneWord, releaseWord } from "./state-words.mjs";
+export { SCRIPT_PAGE_NOTE, chiefName, headingId, prName, runWord, taskWord, milestoneWord, releaseWord } from "./state-words.mjs";
 export { renderBoardText, renderTaskText, renderBoardStatus } from "./board-render.mjs";
 export { boardProjectKey, boardView, landingRule } from "./board-view.mjs";
 export { BOARD_PORT, KINDS, LONG_WIDTH, PAGE_MAX, PAGE_TYPES, WIDTH, frameLines, pageBlock, pageType } from "./message.mjs";

@@ -127,7 +127,7 @@ test("the pages route serves each page type with its own type and the sandbox po
     assert.equal(frame.headers["content-security-policy"], `default-src 'none'; style-src 'unsafe-inline'; frame-src ${own}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`);
     assert.equal(frame.headers["cross-origin-opener-policy"], "same-origin");
     assert.match(frame.body, new RegExp(`<iframe src="${name}" sandbox="allow-scripts"`), name);
-    assert.match(frame.body, /role="note"><strong>Warning:<\/strong> this page runs its own scripts in a sandbox/);
+    assert.match(frame.body, /role="note"><strong>Warning:<\/strong> This page runs its own scripts in a sandbox/);
     assert.doesNotMatch(frame.body, /SAMPLE|<script/, "the frame page holds none of the page");
   }
   const scripted = await get(f, `/pages/${LOGBOOK}/T1/scripted.html`, { headers: FRAME });

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { KEPT_FILE_MAX, PAGE_POLICY, PAGE_TYPES, REPORT_FIELDS, SWITCH_SCRIPT, fieldsOf, pageFile, pageTaskFolder, pageType } from "../sage-core/index.mjs";
+import { KEPT_FILE_MAX, PAGE_POLICY, PAGE_TYPES, REPORT_FIELDS, SCRIPT_PAGE_NOTE, SWITCH_SCRIPT, runFailure, fieldsOf, pageFile, pageTaskFolder, pageType } from "../sage-core/index.mjs";
 import { readerUrl } from "./reader.mjs";
 
 const SCAN = 2000, LIST = 200;
@@ -87,7 +87,7 @@ function frameHtml(logbook, task, file) {
   const name = file.split("/").at(-1);
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${name}</title>
 <style>:root{color-scheme:light dark}html,body{height:100%;margin:0}body{display:flex;flex-direction:column;font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}p{margin:0;padding:5px 12px;border-bottom:3px solid #c99a00}iframe{flex:1;border:0;width:100%;background:#fff}</style></head>
-<body><p role="note"><strong>Warning:</strong> this page runs its own scripts in a sandbox. They cannot read the board, your files or other pages, but they can send the text of this page to another site. Only a link to another page of ${task} opens here. <a href="/pages/${logbook}/${task}/">All pages of ${task}</a></p><iframe src="${name}" sandbox="allow-scripts" title="${name}"></iframe></body></html>\n`;
+<body><p role="note"><strong>Warning:</strong> ${SCRIPT_PAGE_NOTE} Only a link to another page of ${task} opens here. <a href="/pages/${logbook}/${task}/">All pages of ${task}</a></p><iframe src="${name}" sandbox="allow-scripts" title="${name}"></iframe></body></html>\n`;
 }
 
 export function servePages(request, response, { onMac, model }) {
@@ -133,13 +133,10 @@ function keptReport(file) {
 const RUN = /(?:^|[^a-z0-9])(r[1-9]\d*)(?![0-9])/gi;
 const resultOf = data => fieldsOf(data.text, REPORT_FIELDS).find(item => item.name === "RESULT")?.rest.slice(0, 300) || null;
 
-export function failureOf({ dir, task, run }) {
-  if (run.failure) return { text: String(run.failure).slice(0, 300), from: "failure" };
-  const data = dir && /^R[1-9]\d*$/.test(run.id) ? keptReport(join(dir, "kept", `${run.id}.json`)) : null, result = data?.task === task.id && data.run === run.id && typeof data.text === "string" ? resultOf(data) : null;
-  if (result) return { text: result, from: "report" };
-  const decision = (task.decisionRows ?? []).findLast(row => String(row.decision ?? "").startsWith(`${run.id} failed: `))?.decision.slice(`${run.id} failed: `.length);
-  return decision ? { text: decision.slice(0, 300), from: "decision" } : null;
-}
+export const failureOf = ({ dir, task, run }) => runFailure(task, run, () => {
+  const data = dir && /^R[1-9]\d*$/.test(run.id) ? keptReport(join(dir, "kept", `${run.id}.json`)) : null;
+  return data?.task === task.id && data.run === run.id && typeof data.text === "string" ? resultOf(data) : null;
+});
 
 export function taskFiles({ dir, logbook, task, runs }) {
   const folder = pageTaskFolder(logbook, task), ids = new Set(runs.map(run => run.id));
