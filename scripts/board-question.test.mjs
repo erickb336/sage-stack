@@ -7,6 +7,8 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { buildBoardModel } from "../packages/sage-core/board-model.mjs";
+import { runFailure } from "../packages/sage-core/board-overview.mjs";
+import { headingId } from "../packages/sage-core/state-words.mjs";
 import { readBoardSources } from "../packages/sage-core/board-reader.mjs";
 import { renderMarkdown } from "../packages/sage-board/markdown.mjs";
 import { MAX, gateMaterial } from "../packages/sage-board/material.mjs";
@@ -75,16 +77,16 @@ test("T1121 R6: the material of a question lists the pages that it names, then i
   assert.equal(list.items[5].why, "R8 asked G4: its report.");
 });
 
-test("T1121 R6: the list stops at 8 and counts the rest; the asking run's report and brief keep their places, task pages go first; a named page that is gone stays in the list, marked gone", t => {
+test("T1121 R6, T1156 F-T1156-31: the list keeps 8 places for pages that it can show and counts the rest; the asking run's report and brief keep their places, task pages go first; a named page that is gone or of an unknown task stays in the list, marked, and takes no place", t => {
   const w = world(t);
   for (let i = 1; i <= 9; i++) writeFileSync(join(w.pages, "T10", `page-${i}.md`), `# Page ${i}\n`);
-  message(w, "G4", [{ t: "page", title: "A plan that is gone", task: "T10", file: "gone.md" }]);
+  message(w, "G4", [{ t: "page", title: "A plan that is gone", task: "T10", file: "gone.md" }, { t: "page", title: "Far page", task: "T999", file: "far.md" }]);
   const list = material(w);
   assert.equal(MAX, 8);
-  assert.equal(list.items.length, 8);
-  assert.equal(list.more, 15 - 8, "named 2, design and prototype 2, pages 9, the run's report and brief 2: 15 in all");
-  assert.deepEqual(list.items.slice(0, 2).map(item => [item.file, !!item.gone]), [["designs/v2/notes.md", false], ["gone.md", true]]);
-  assert.deepEqual(list.items.map(item => item.group), ["named", "named", "task", "task", "task", "task", "run", "run"], "F-T1121-12: the task pages are cut, not the asking run");
+  assert.equal(list.items.filter(item => !item.gone && item.frame !== null).length, 8, "8 pages that the board can show");
+  assert.equal(list.more, 14 - 8, "named 1, design and prototype 2, pages 9, the run's report and brief 2: 14 that the board can show");
+  assert.deepEqual(list.items.slice(0, 3).map(item => [item.file, !!item.gone]), [["designs/v2/notes.md", false], ["gone.md", true], ["far.md", false]]);
+  assert.deepEqual(list.items.map(item => item.group), ["named", "named", "named", "task", "task", "task", "task", "task", "run", "run"], "F-T1121-12: the task pages are cut, not the asking run");
   assert.deepEqual(list.items.slice(-2).map(item => item.title), ["Report of R8", "Brief of R8"]);
 });
 
@@ -120,6 +122,34 @@ test("T1121 S7: a failed run's reason comes from its failure line, then its kept
   assert.deepEqual(failureOf({ dir, task, run: { id: "R5", failure: "" } }).from, "report", "the kept report wins over the decision");
   assert.deepEqual(failureOf({ dir: null, task, run: { id: "R5", failure: "" } }), { text: "the chief's reason", from: "decision" });
   assert.equal(failureOf({ dir, task: { id: "T3" }, run: { id: "R6", failure: "" } }), null);
+});
+
+test("T1156 F-T1156-10: the question of a task with an arena lists the arena and the final's prototype", t => {
+  const w = world(t), designs = join(w.pages, "T10", "designs");
+  for (const name of ["v1", "v2"]) rmSync(join(designs, name), { recursive: true, force: true });
+  const items = material(w).items.filter(item => item.group === "task");
+  assert.deepEqual(items.map(item => [item.kind, item.title, item.src]), [
+    ["arena", "Arena · 2 candidates and the final", readerUrl(KEY("T10"), "arena", null, { in: "board" })],
+    ["prototype", "The judge's final prototype", "/pages/sample-app-abc123/T10/designs/final/index.html"]], "a task with only an arena, no plain design version, shows the arena and the final's prototype");
+});
+
+test("T1156 F-T1156-11, -33: a part link opens at the reader's own heading id; the reader's question page of an archived project offers Restore on the board, not an answer", t => {
+  const w = world(t), heading = "Ünïcode: the rule (v2) & more";
+  const rendered = renderMarkdown(`# T\n\n## ${heading}\n`, { href: () => null, picture: () => null });
+  assert.equal(rendered.headings[0].id, headingId(heading), "the material's part id is the id that the Markdown renderer gives the heading");
+  writeFileSync(join(w.logbook, "config.json"), JSON.stringify({ archived: true }));
+  const question = readerPage({ model: w.model(), configured: w.sources, url: readerUrl(KEY("T10"), "question", "G4"), origin: ORIGIN, render: renderMarkdown }).rest;
+  assert.match(question, /<b>sample-app is archived\.<\/b> It takes no answer\. Restore brings the project back where it was, and you answer on the board\. <a class="btn" href="\/app\/#question\?key=shared%2Fsample-app-abc123%2FG4">Open it on the board<\/a>/);
+  assert.doesNotMatch(question, /Answer on the board or in the chat/);
+});
+
+test("T1156 F-T1156-1, -19: one rule gives a failed run's reason to the chat board and the web board: its failure line first", t => {
+  const task = { id: "T3", decisionRows: [{ decision: "R5 failed: the chief's reason" }] }, run = { id: "R5", failure: "its own line" };
+  for (const reason of [runFailure, (task, run) => failureOf({ dir: null, task, run })]) {
+    assert.deepEqual(reason(task, run), { text: "its own line", from: "failure" });
+    assert.deepEqual(reason(task, { id: "R5", failure: "" }), { text: "the chief's reason", from: "decision" });
+    assert.equal(reason(task, { id: "R6", failure: "" }), null, "a run with no failure line and no decision has no reason");
+  }
 });
 
 const get = (base, path, headers = {}) => new Promise((accept, reject) => {

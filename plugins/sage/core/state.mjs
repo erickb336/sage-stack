@@ -2756,14 +2756,15 @@ function ownGates(project, { native, chief } = {}, env = process.env) {
   const place = locate(project, env), { dir } = place;
   const me = !place.shared ? "" : chief !== undefined ? (CHIEF.test(chief) ? chief : undefined) : rowOf(dir, native)?.id;
   const gates = me === undefined || !existsSync(join(dir, "tasks.tsv")) ? [] : openOf(dir, me);
-  return { dir, me, gates, open: gates.filter((g) => !pendingOf(g)).map((g) => g.id), pending: gates.filter(pendingOf).map((g) => ({ id: g.id, task: g.task, ...pendingOf(g) })) };
+  return { dir, me, gates, open: gates.filter((g) => !pendingOf(g)).map((g) => g.id), pending: pickable(dir, gates).map((g) => ({ id: g.id, task: g.task, ...pendingOf(g) })) };
 }
+const pickable = (dir, gates) => (archivedIn(dir) ? [] : gates.filter(pendingOf));
 function pickupAnswers(project, native, env = process.env) {
   const { dir, me, pending } = ownGates(project, { native }, env);
   if (!pending.length) return [];
   return withLock(dir, () => {
     ready(dir, env);
-    const lines = openOf(dir, me).filter(pendingOf).map((g) => pickOne(dir, g.id, me, project, env));
+    const lines = pickable(dir, openOf(dir, me)).map((g) => pickOne(dir, g.id, me, project, env));
     status(dir, true);
     return lines;
   });
@@ -3616,6 +3617,7 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         }
         const own = opt["other-hex"], via = opt.via ?? "chat";
         if (!Object.hasOwn(VIA, via)) refuse(`--via is the place of the owner's answer: ${Object.keys(VIA).join(", ")}. Nothing changed.`);
+        if (archivedIn(dir)) refuse(via === "board" ? "This project is archived, so it takes no answer. Restore it, then answer again. Nothing changed." : archivedBar("answer", "give the same command again"));
         const first = firstAnswer(g);
         if (first) refuse(first);
         if (opt.seen !== undefined && opt.seen !== gateDigest(g)) refuse(`${g.id} changed after the owner read it: its question or its options are not the ones that --seen ${visible(String(opt.seen))} names. Read ${g.id} again, and answer what it asks now. Nothing changed.`);

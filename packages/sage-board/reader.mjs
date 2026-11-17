@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { dirname, join, posix } from "node:path";
-import { BRIEF_FIELDS, LONG_WIDTH, chiefName, prName, runWord, PAGE_MAX, REPORT_FIELDS, WIDTH, briefSections, fieldsOf, frameLines, keptUsersText, pageFile, pageTaskFolder, pageType, readReport, taskPanel } from "../sage-core/index.mjs";
+import { BRIEF_FIELDS, LONG_WIDTH, chiefName, headingId, prName, runWord, PAGE_MAX, REPORT_FIELDS, WIDTH, briefSections, fieldsOf, frameLines, keptUsersText, pageFile, pageTaskFolder, pageType, readReport, taskPanel } from "../sage-core/index.mjs";
 
 const marksShown = text => String(text ?? "").replace(/\p{Cf}/gu, c => `[U+${c.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}]`);
 const TEXT_MAX = 1 << 20, MD_MAX = 2 << 20, VERSIONS_MAX = 30, SHOTS_MAX = 8;
@@ -18,7 +18,6 @@ function dedent(text) {
   return [first.trim(), ...rest.map(line => line.slice(Number.isFinite(indent) ? indent : 0))].join("\n").trim();
 }
 const firstLine = text => String(text ?? "").trim().split(/\r?\n/)[0] ?? "";
-export const headingId = text => `h-${String(text).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "part"}`;
 const questionHref = (task, gate) => `/app/#question?key=${encodeURIComponent(`${task.project}/${gate}`)}`;
 
 export function readBrief(dir, taskId, run) {
@@ -455,10 +454,11 @@ ${decisions.length ? decisions.map(gate => `<div class="decision"><p><b>${esc(ga
       })];
       const summary = designSummary(panel.logbook, task.id);
       if (summary.versions) readMore.push(`<li><a href="${esc(link("design", null, { back: `q-${gate.id}` }))}">Design · ${summary.versions} ${summary.versions === 1 ? "version" : "versions"}</a></li>`);
+      const shelved = model.projects?.some(project => project.archived && project.books?.includes(task.project));
       const status = gate.answer ? note(`<b>Answered: ${esc(gate.answer)}.</b> The first answer wins; to change it, tell the chief in its chat.`) : "";
       const head = `<p class="muted">${esc(owner)} · <span class="mono">${esc(gate.id)}</span> · asked ${esc(when(gate.at, model.at) + ago(gate.at, model.at))} · ${taskLink} · ${esc(task.title)}</p>`;
       const body = `${status}${message ? "" : note(`<b>Not kept.</b> The logbook keeps no full message of ${esc(gate.id)} (sage keeps the full message only for newer questions that the chief asks with a message). The board shows its question and options only.`)}
-${blocks.map(render).join("")}<h2 class="sec">Links</h2><ul>${readMore.join("")}</ul>${gate.answer ? "" : note(`<b>Answer on the board or in the chat.</b> The first answer wins. <a class="btn" href="${esc(questionHref(task, gate.id))}">Answer on the board</a>`)}`;
+${blocks.map(render).join("")}<h2 class="sec">Links</h2><ul>${readMore.join("")}</ul>${gate.answer ? "" : shelved ? note(`<b>${esc(task.projectName)} is archived.</b> It takes no answer. Restore brings the project back where it was, and you answer on the board. <a class="btn" href="${esc(questionHref(task, gate.id))}">Open it on the board</a>`, "need") : note(`<b>Answer on the board or in the chat.</b> The first answer wins. <a class="btn" href="${esc(questionHref(task, gate.id))}">Answer on the board</a>`)}`;
       return { crumb: gate.id, title: message?.title ?? firstLine(gate.question), head, body, raw: true };
     },
   };

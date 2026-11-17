@@ -148,7 +148,7 @@ test("T1130: a design page's own script switches its tabs, and its pictures from
   const response = await page.goto(at("designs/final/tabs.html"));
   assert.equal(response.status(), 200);
   assert.equal(await page.title(), "tabs.html");
-  assert.match(await page.getByRole("note").textContent(), /^Warning: this page runs its own scripts in a sandbox/);
+  assert.match(await page.getByRole("note").textContent(), /^Warning: This page runs its own scripts in a sandbox/);
   const frame = await inner(page);
   await frame.waitForLoadState();
   assert.equal(await frame.locator("#two").isVisible(), false);

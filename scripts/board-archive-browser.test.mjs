@@ -204,7 +204,8 @@ test("T1137: Archive from the picker asks first, names what the logbook keeps an
   await archivedRow.locator("summary").click();
   await w.shot("t1137-picker-archived");
   await archivedRow.getByRole("button", { name: "Restore" }).click();
-  await archivedRow.waitFor({ state: "detached" });
+  await page.getByText("harbor is restored.").waitFor();
+  assert.equal(await page.locator(".pick-menu").count(), 0, "F-T1156-39: Restore closes the picker");
   assert.equal(w.archived("harbor"), false);
 
   const link = startLink(w.stateDir);

@@ -111,7 +111,7 @@ test("T1083 F-T1083-3, F-T1083-5: the question page and an old #tasks?task= addr
   await page.goto(`${base}/app/`);
   const question = page.locator('.needs a[href^="#question?"]').first();
   await question.click();
-  const link = page.locator('.facts-line a[href^="#task?key="]');
+  const link = page.locator('.fits a[href^="#task?key="]');
   await link.waitFor();
   assert.equal(await page.locator('main a[href*="?task="]').count(), 0, "no link uses the old address");
   const title = (await link.textContent()).split(" · ").slice(1).join(" · ");

@@ -57,6 +57,8 @@ export const KINDS = { design: ["◇", "Design"], ui: ["▢", "UI"], orchestrati
 
 const each = (keys, word) => Object.fromEntries(keys.map(key => [key, [word]]));
 const ended = Object.fromEntries(Object.entries(ENDS).map(([state, [word]]) => [state, [word]]));
+export const headingId = text => `h-${String(text).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "part"}`;
+export const SCRIPT_PAGE_NOTE = "This page runs its own scripts in a sandbox. They cannot read the board, your files or other pages, but they can send the text of this page to another site.";
 export const OBJECTS = {
   project: { label: "Project", states: {} },
   release: { label: "Release", states: {} },
