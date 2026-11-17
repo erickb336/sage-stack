@@ -157,7 +157,7 @@ export function App() {
     : page.hash === "pull-requests" ? <Pulls model={model} chief={picked} />
     : page.hash === "agents" ? <Agents model={model} chief={picked} />
     : page.hash === "stats" ? <Stats all={all} params={page.params} />
-    : page.hash === "question" ? <QuestionView key={page.params.get("key")} needKey={page.params.get("key") ?? ""} model={model} theme={theme} archived={!!current?.archived} />
+    : page.hash === "question" ? <QuestionView key={page.params.get("key")} needKey={page.params.get("key") ?? ""} openId={page.params.get("open")} model={model} theme={theme} project={current} />
     : page.hash === TASK.hash ? <TaskPage key={page.params.get("key")} taskKey={page.params.get("key") ?? ""} tab={page.params.get("tab")} at={model?.at} from={history.state?.from} /> : null;
   if (stopped) return <Stopped at={stopped} />;
   return (
@@ -170,7 +170,7 @@ export function App() {
               <li key={item.hash}>
                 <a href={`#${item.hash}`} aria-current={item.hash === page.hash ? "page" : undefined}>
                   <item.Icon />{item.name}
-                  {!item.hash && model && model.needs.length > 0 && <span className="count need" aria-label={`${model.needs.length} need you`}>{model.needs.length}</span>}
+                  {!item.hash && model && model.needs.length > 0 && <span className={model.archived ? "count" : "count need"} aria-label={`${model.needs.length} need you`}>{model.needs.length}</span>}
                   {item.hash === "tasks" && model && <span className="count" aria-label={`${open} open`}>{open}</span>}
                   {item.hash === "pull-requests" && model && <span className="count" aria-label={`${prs} open`}>{prs}</span>}
                   {item.hash === "agents" && model && <span className="count" aria-label={`${running} ${runWord("running").text}`}>{running}</span>}
@@ -192,10 +192,10 @@ export function App() {
             {theme === "dark" ? <SunIcon /> : <MoonIcon />}
           </button>
         </header>
-        {model && <ChiefChips chiefs={model.chiefs} filter={filter} setFilter={setFilter} />}
+        {model && page.hash !== "question" && <ChiefChips chiefs={model.chiefs} filter={filter} setFilter={setFilter} />}
         <main className="main">
           {model ? <><Banner model={model} link={link} lostAt={lostAt} now={now} />{unknown && <p className="banner" role="status">This board shows no project {unknown}, so it opened {current.name}.</p>}
-            <ArchiveLayer all={all} current={page.hash === "stats" ? null : current} now={now} />{page.hash === "" && current && <WelcomeBack key={`${current.key} ${current.welcome}`} project={current} model={model} now={now} />}{body}{page.hash === "" && <ArchiveFoot project={current} />}</> : <NoData link={link} />}
+            <ArchiveLayer all={all} current={["stats", "question"].includes(page.hash) ? null : current} now={now} />{page.hash === "" && current && <WelcomeBack key={`${current.key} ${current.welcome}`} project={current} model={model} now={now} />}{body}{page.hash === "" && <ArchiveFoot project={current} />}</> : <NoData link={link} />}
         </main>
       </div>
     </div>

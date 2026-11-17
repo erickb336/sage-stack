@@ -28,7 +28,7 @@ function useMenu() {
 }
 
 function line(project, now) {
-  if (project.list === "archived") return `${project.archivedAt ? `since ${day(project.archivedAt)}` : "archived"} · ${plural(project.open, "open task")}`;
+  if (project.list === "archived") return `${project.archivedAt ? `since ${day(project.archivedAt)}` : "archived"} · ${plural(project.open, "open task")}${project.needs ? ` · ${project.needs} ${project.needs === 1 ? "waits" : "wait"} for you` : ""}`;
   const last = project.lastActivity ? ago(project.lastActivity, now) : "no work recorded";
   if (project.list === "older") return `${last} · ${project.open} open`;
   if (project.needs) return `${project.needs} ${project.needs === 1 ? "needs" : "need"} you`;
@@ -42,7 +42,7 @@ function Rows({ projects, current, page, now, close }) {
         <a href={`#${page}?project=${encodeURIComponent(project.key)}`} aria-current={project.key === current?.key ? "true" : undefined} data-project={project.key}>
           <b>{project.name}</b><span className={project.list === "needs" ? "need" : "faint"}>{line(project, now)}</span>
         </a>
-        {project.archived ? <RestoreButton project={project} /> : <button type="button" className="btn row-act" aria-label={`Archive ${project.name}`} onClick={() => { close(); askArchive(project.key); }}>Archive</button>}
+        {project.archived ? <RestoreButton project={project} after={close} /> : <button type="button" className="btn row-act" aria-label={`Archive ${project.name}`} onClick={() => { close(); askArchive(project.key); }}>Archive</button>}
       </li>
     ))}</ul>
   );

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { PROJECT, when } from "./use-model.js";
-import { UNKNOWN, chiefName, runWord } from "../../sage-core/state-words.mjs";
+import { SCRIPT_PAGE_NOTE, UNKNOWN, chiefName, runWord } from "../../sage-core/state-words.mjs";
+import { RestoreButton, day } from "./archive.jsx";
 import { chiefState, chiefSub, encodeKey, questionLink, taskLink } from "./task.jsx";
 import { othersLine, projectHref } from "./projects.jsx";
 
@@ -278,24 +279,49 @@ export function UndoButton({ logbook, gate, onDone }) {
   );
 }
 
-const KINDS = { design: "Design", page: "Page", prototype: "Prototype", picture: "Picture", file: "File", report: "Report", brief: "Brief" };
+const KINDS = { design: "Design", arena: "Arena", page: "Page", prototype: "Prototype", picture: "Picture", file: "File", report: "Report", brief: "Brief" };
 const SANDBOX = { reader: "allow-same-origin allow-popups allow-popups-to-escape-sandbox", script: "allow-scripts", plain: "" };
 const itemId = item => `${item.task}/${item.file ?? item.kind}`;
 const shows = (item, option, i) => !!item.answer && (same(item.answer, option) || same(item.answer, String.fromCharCode(65 + i)));
+const narrow = () => matchMedia("(max-width: 1099px)").matches;
+const pickKey = key => `board-pick ${key}`;
+const keptPick = key => { try { const n = Number(sessionStorage.getItem(pickKey(key))); return Number.isInteger(n) && sessionStorage.getItem(pickKey(key)) !== null ? n : null; } catch { return null; } };
+const keepPick = (key, n) => { try { n === null ? sessionStorage.removeItem(pickKey(key)) : sessionStorage.setItem(pickKey(key), String(n)); } catch {} };
+const pagesPath = gate => `/pages/${gate.logbook.slice(gate.logbook.indexOf("/") + 1)}/${gate.task.id}/`;
+function itemOf(gate, id) {
+  const found = gate.material.items.find(entry => itemId(entry) === id);
+  if (found || !id?.startsWith(`${gate.task.id}/`)) return found ?? null;
+  const file = id.slice(gate.task.id.length + 1);
+  return /^[\w./-]+\.html$/.test(file) && !file.includes("..") ? { task: gate.task.id, file, kind: "prototype", frame: "script", title: file.split("/").at(-1), src: pagesPath(gate) + file, open: pagesPath(gate) + file, why: `A prototype of ${gate.task.id}, opened from a link in the material.` } : null;
+}
 
-function Viewer({ item, close, theme }) {
-  const src = item.frame === "reader" && theme === "light" ? `${item.src}&theme=light` : item.src;
-  const toPart = event => { const doc = event.target.contentDocument, part = item.at && doc?.getElementById(item.at); if (part) doc.scrollingElement.scrollTop += part.getBoundingClientRect().top - 8; };
+function Viewer({ item, gate, close, open, theme }) {
+  const src = item.frame === "reader" && theme === "light" ? `${item.src}&theme=light` : item.src, [moved, setMoved] = useState(null);
+  const loaded = event => {
+    const doc = event.target.contentDocument;
+    if (!doc) return;
+    const at = doc.location.pathname + doc.location.search, part = item.at && doc.getElementById(item.at);
+    if (at !== src.split("#")[0]) setMoved(doc.querySelector("h1")?.textContent || doc.title || null);
+    else if (part) doc.scrollingElement.scrollTop += part.getBoundingClientRect().top - 8;
+    doc.addEventListener("click", click => {
+      const link = click.target.closest?.("a[href]"), url = link && new URL(link.getAttribute("href"), doc.location.href);
+      if (!url || url.origin !== location.origin) return;
+      const own = url.pathname.startsWith(pagesPath(gate)) && url.pathname.endsWith(".html");
+      if (url.pathname === "/app/" && new URLSearchParams(url.hash.split("?")[1] ?? "").get("key") === gate.key) { click.preventDefault(); close(); }
+      else if (own) { click.preventDefault(); open(`${gate.task.id}/${decodeURIComponent(url.pathname.slice(pagesPath(gate).length))}`); }
+    }, true);
+  };
   return (
-    <section className="viewer" aria-label={`${KINDS[item.kind]}: ${item.title}`}>
-      <p className="viewer-h"><button type="button" className="btn" onClick={close}>‹ The question</button><span className="grow" />{item.src && <a href={item.open} target="_blank" rel="noopener noreferrer">Open full page</a>}</p>
-      <p className="lbl">{KINDS[item.kind]}</p><h2 id="viewer-h" tabIndex={-1}>{item.title}</h2>
-      {item.frame === "script" && <p className="frame-warn" role="note">This page runs its own scripts in a sandbox. They cannot read the board or answer for you, but they can send this page's text to another site when you open a link in it.</p>}
+    <section className="viewer" aria-label={`${KINDS[item.kind]}: ${moved ?? item.title}`}>
+      <p className="viewer-h"><button type="button" className="btn" onClick={close}>‹ The question</button><span className="grow" />{item.src && <a href={item.open} target="_blank" rel="noopener noreferrer">Open in a new tab</a>}</p>
+      <p className="lbl">{KINDS[item.kind]}</p><h2 id="viewer-h" tabIndex={-1}>{moved ?? item.title}</h2>
+      {item.frame === "script" && <p className="frame-warn" role="note">{SCRIPT_PAGE_NOTE}</p>}
       {!item.src ? <p className="note">The board does not show this page: it has no task {item.task} in the logbook of this question.</p>
         : item.gone ? <p className="note">The file is gone from {item.task}'s pages folder.</p>
         : item.frame === "picture" ? <img src={item.src} alt={item.title} />
-        : <iframe key={src} src={src} sandbox={SANDBOX[item.frame]} referrerPolicy="no-referrer" title={item.title} onLoad={toPart} />}
-      <p className="hint">Why it is here: {item.why}</p>
+        : /\.pdf$/i.test(item.file ?? "") ? <p className="note">The board does not show a PDF inside the page. <a href={item.open} target="_blank" rel="noopener noreferrer">Open {item.title} in a new tab</a>.</p>
+        : <iframe key={src} src={src} sandbox={SANDBOX[item.frame]} referrerPolicy="no-referrer" title={item.title} onLoad={loaded} />}
+      <p className="hint">Why it is here: {moved ? `you opened it from a link in ${item.title}.` : item.why}</p>
     </section>
   );
 }
@@ -314,8 +340,8 @@ function Material({ gate, open, setOpen }) {
             <h3 className="lbl">{label}</h3><p className="hint">{full}</p>
             {key === "run" && missing && <p className="hint">The logbook names {missing} as the run that asked, but {task} has no such run.</p>}
             <ul className="mat-list">{list.map(item => (
-              <li key={itemId(item)}><button type="button" className="mat" aria-pressed={open === itemId(item)} onClick={() => setOpen(itemId(item))}>
-                <span className="lbl">{KINDS[item.kind]}</span><b>{item.title}</b><span className="faint">{item.gone && <span className="need">file gone · </span>}{item.sub}</span>
+              <li key={itemId(item)}><button type="button" className="mat" data-item={itemId(item)} aria-pressed={open === itemId(item)} onClick={() => setOpen(itemId(item))}>
+                <span className="lbl">{KINDS[item.kind]}</span><b>{item.title}</b>{(item.gone || item.sub !== item.title) && <span className="faint">{item.gone && <span className="need">file gone · </span>}{item.sub !== item.title && item.sub}</span>}
               </button></li>
             ))}</ul>
           </div>
@@ -326,24 +352,78 @@ function Material({ gate, open, setOpen }) {
   );
 }
 
-export function QuestionView({ needKey, model, theme, archived }) {
-  const { gate, problem } = useGate(needKey, model.at), writes = useAccess();
-  const [pick, setPick] = useState(null), [said, setSaid] = useState(null), [busy, setBusy] = useState(false), [open, setOpen] = useState(null), sending = useRef(false);
+function Fits({ gate, where }) {
+  return (
+    <section className="fits" aria-labelledby="fits-h">
+      <h2 className="lbl" id="fits-h">Where it fits</h2>
+      {where && <p>{where}</p>}
+      <p><span className="lbl">Task</span><a href={taskLink(gate.task.key)}>{gate.task.id} · {gate.task.title}</a></p>
+    </section>
+  );
+}
+
+function Next({ model, gate }) {
+  const left = model.needs.filter(need => need.key !== gate.key), next = left.find(need => need.gate && need.logbook);
+  if (left.length) return <p><a href={next ? questionLink(next.key) : "#"}>Needs you · {left.length} left{next && `: ${next.gate}${next.owner ? ` from ${next.owner}` : ""}`}</a></p>;
+  if (!model.others.length) return <p><a href="#">Nothing else waits in {gate.project}</a></p>;
+  return <p>Nothing else waits in {gate.project} · {othersLine(model.others)}: {model.others.map((project, i) => <span key={project.key}>{i > 0 && ", "}<a href={projectHref(project)}>{project.name}</a></span>)}</p>;
+}
+
+export function QuestionView({ needKey, openId, model, theme, project }) {
+  const { gate, problem } = useGate(needKey, model.at), writes = useAccess(), archived = !!project?.archived;
+  const [pick, setPickState] = useState(() => keptPick(needKey)), [said, setSaid] = useState(null), [busy, setBusy] = useState(false), sending = useRef(false), closed = useRef(null), was = useRef(archived), bar = useRef(null);
+  const setPick = n => { setPickState(n); keepPick(needKey, n); };
+  const setOpen = id => {
+    if (!id) closed.current = openId;
+    const params = new URLSearchParams(location.hash.split("?")[1] ?? "");
+    id ? params.set("open", id) : params.delete("open");
+    location.hash = `question?${params}`;
+  };
   useEffect(() => { document.getElementById("question-h")?.focus(); }, [needKey, !gate]);
-  useEffect(() => { if (open !== null) { scrollTo(0, 0); document.getElementById("viewer-h")?.focus({ preventScroll: true }); } }, [open]);
-  if (!gate) return <div className="page-h"><a href="#" className="back">Back to Needs you</a><h1 id="question-h" tabIndex={-1}>{problem === "gone" ? "This question is not on the board" : problem ? "The board cannot read this question now" : "Reading the question"}</h1></div>;
-  const rows = answerRows(gate.message), unanswered = !gate.answer && !gate.answered, owner = chiefLabel(model.chiefs, gate.logbook, gate.owner);
-  const item = gate.material.items.find(entry => itemId(entry) === open) ?? null, ready = unanswered && writes === "paired" && !archived && !said?.ok;
-  const left = model.needs.filter(need => need.gate && need.key !== needKey), next = left[0];
+  useEffect(() => {
+    if (openId) { narrow() ? document.querySelector(".viewer")?.scrollIntoView({ block: "start" }) : scrollTo(0, 0); document.getElementById("viewer-h")?.focus({ preventScroll: true }); }
+    else if (closed.current) { (document.querySelector(`[data-item="${CSS.escape(closed.current)}"]`) ?? document.getElementById("question-h"))?.focus(); closed.current = null; }
+  }, [openId, !gate]);
+  useEffect(() => { if (said) document.getElementById("said")?.focus({ preventScroll: true }); }, [said]);
+  useEffect(() => { if (was.current && !archived) document.querySelector(".answer input")?.focus(); was.current = archived; }, [archived]);
+  useEffect(() => {
+    const box = bar.current, page = box?.closest(".question");
+    if (!box || !page) return;
+    const watch = new ResizeObserver(() => page.style.setProperty("--qbar", `${box.offsetHeight}px`));
+    watch.observe(box);
+    return () => { watch.disconnect(); page.style.removeProperty("--qbar"); };
+  }, [openId, !gate]);
+  if (!gate) return <div className="page-h"><a href="#" className="back">‹ Needs you</a><h1 id="question-h" tabIndex={-1}>{problem === "gone" ? "This question is not on the board" : problem ? "The board cannot read this question now" : "Reading the question"}</h1></div>;
+  const rows = answerRows(gate.message), unanswered = !gate.answer && !gate.answered, chief = chiefOf(model.chiefs, gate.logbook, gate.owner), owner = chief ? chiefName(chief.id, chief.provider) : gate.owner ?? "the chief";
+  const item = itemOf(gate, openId), ready = unanswered && writes === "paired" && !archived && !said?.ok;
   const tone = !said ? null : said.ok ? "done" : said.json?.pending ? "note" : "refused";
-  const result = !said ? null : said.ok ? (said.text.startsWith(gate.id) ? `You answered ${gate.id}: ${gate.options[pick]}. Recorded in the logbook. It waits for ${owner} to pick it up, at its next step.` : said.text) : `${tone === "note" ? "" : "Not recorded. "}${said.text}`;
+  const kept = archived ? `The project is archived now, so it waits until you restore it. Then ${owner} picks it up.` : `It waits for ${owner} to pick it up, at its next step.`;
+  const result = !said ? null : said.ok ? (said.text.startsWith(gate.id) ? `You answered ${gate.id}: ${gate.options[pick]}. Recorded in the logbook. ${kept}` : said.text) : `${tone === "note" ? "" : "Not recorded. "}${said.text}`;
   const send = async () => {
     if (sending.current) return;
     sending.current = true; setBusy(true);
     setSaid(await post("answer", { logbook: gate.logbook, gate: gate.id, option: pick + 1, digest: gate.digest }));
     sending.current = false; setBusy(false);
   };
-  const form = <>
+  const blocks = gate.message?.blocks ?? [], table = blocks.findIndex(block => block.t === "table" && same(block.head[0], "Answer"));
+  const field = label => block => block.t === "field" && same(block.label, label);
+  const where = blocks.find(field("Where"))?.text, before = blocks.slice(0, table < 0 ? blocks.length : table).filter(block => !field("Where")(block)), after = table < 0 ? [] : blocks.slice(table + 1).filter(block => !(block.t === "table" && same(block.head[0], "Answer")));
+  const undo = !archived && <UndoButton logbook={gate.logbook} gate={gate.id} onDone={done => done.ok && setSaid(null)} />;
+  const top = archived && unanswered && !said?.ok;
+  const shelved = archived && <><p><b>{project.name} {project.archivedAt ? `was archived on ${day(project.archivedAt)}` : "is archived"}.</b> It takes no answer. Restore brings the project back where it was, and you answer here.</p>
+    <p>{writes === "paired" ? <RestoreButton project={project} primary /> : <span className="hint">Pair this browser on the Overview to restore it here, or ask the chief in the chat.</span>}</p></>;
+  const sendBox = <div className="send" role="status">
+      {said?.ok ? <><p className="done" id="said" tabIndex={-1}>{result} {undo}</p><Next model={model} gate={gate} /></>
+        : !unanswered ? <p><span><Answered gate={gate} chiefs={model.chiefs} /></span>{gate.answered?.via === "board" && !gate.answer && (archived ? <span>{kept}</span> : undo)}</p>
+        : archived ? shelved
+        : writes !== "paired" ? <PairBox />
+        : <p>{pick === null ? "Pick one answer." : <>Your answer: <b>{gate.options[pick]}</b></>} <span className="grow" />
+            <button type="button" className="btn" onClick={() => setPick(null)}>Clear</button>
+            <button type="button" className="btn primary" disabled={pick === null || busy} onClick={send}>Send answer</button></p>}
+      {said && !said.ok && <p className={tone} role="alert" id="said" tabIndex={-1}>{result}</p>}
+      {ready && <p className="hint">The first answer wins: from the board or from the chief's chat. A later answer is refused and names the first one.</p>}
+    </div>;
+  const form = <div className="q-form">
     <h2 className="lbl">Answers</h2>
     <div className="answers" role="radiogroup" aria-label="Answers">
       {gate.options.map((option, i) => {
@@ -359,40 +439,32 @@ export function QuestionView({ needKey, model, theme, archived }) {
         );
       })}
     </div>
-    <div className="send" role="status">
-      {said?.ok ? <><p className="done">{result} <UndoButton logbook={gate.logbook} gate={gate.id} onDone={result => result.ok && setSaid(null)} /></p>
-          <p>{!next && model.others.length ? <a href={projectHref(model.others[0])}>Nothing else waits in {gate.project} · {othersLine(model.others)}{model.others.length === 1 && `: ${model.others[0].name}`}</a>
-            : <a href={next ? questionLink(next.key) : "#"}>Needs you · {left.length} left{next && `: ${next.gate}${next.owner ? ` from ${next.owner}` : ""}`}</a>}</p></>
-        : !unanswered ? <p><span><Answered gate={gate} chiefs={model.chiefs} /></span>{gate.answered?.via === "board" && !gate.answer && <UndoButton logbook={gate.logbook} gate={gate.id} />}</p>
-        : archived ? <p>This project is archived, so the board takes no answer here. Answer in the chief's chat.</p>
-        : writes !== "paired" ? <PairBox />
-        : <p>{pick === null ? "Pick one answer above." : <>Your answer: <b>{gate.options[pick]}</b></>} <span className="grow" />
-            <button type="button" className="btn" onClick={() => setPick(null)}>Clear</button>
-            <button type="button" className="btn primary" disabled={pick === null || busy} onClick={send}>Send answer</button></p>}
-      {said && !said.ok && <p className={tone} role="alert">{result}</p>}
-      <p className="hint">The first answer wins: from the board or from the chief's chat. A later answer is refused and names the first one.</p>
-    </div>
-  </>;
+    {!(top && !item) && sendBox}
+  </div>;
   return (
     <article className={`question${item ? " reading" : ""}`} aria-labelledby="question-h">
       <div className="q-main">
-        <a href="#" className="back">Back to Needs you</a>
-        <p className="facts-line">{owner} · <span className="mono">{gate.id}</span> · asked {gate.at ? clock(gate.at) : "at a time not recorded"} · <a href={taskLink(gate.task.key)}>{gate.task.id} · {gate.task.title}</a> · <a href={`/read/${encodeKey(gate.task.key)}/question/${gate.id}${theme === "light" ? "?theme=light" : ""}`}>Read the full question</a></p>
+        <a href="#" className="back">‹ Needs you</a>
+        <p className="facts-line">{owner} · <span className="mono">{gate.id}</span> · asked {gate.at ? clock(gate.at) : "at a time not recorded"} · <a href={`/read/${encodeKey(gate.task.key)}/question/${gate.id}${theme === "light" ? "?theme=light" : ""}`}>Read the full question</a></p>
         <h1 id="question-h" tabIndex={-1}>{gate.message?.title ?? gate.text ?? gate.question}</h1>
         {gate.default && <p className="facts-line">If you do not answer: {gate.owner ?? "the chief"} takes {gate.default}.</p>}
-        {item ? <Viewer item={item} close={() => setOpen(null)} theme={theme} /> : <>
-          {gate.message ? <div className="context"><Blocks blocks={gate.message.blocks.filter(block => !(block.t === "table" && same(block.head[0], "Answer")))} /></div>
+        {top && !item && sendBox}
+        {item ? <Viewer key={openId} item={item} gate={gate} close={() => setOpen(null)} open={setOpen} theme={theme} /> : <>
+          {gate.message ? <div className="context"><Blocks blocks={before} /></div>
             : <p className="hint">This question has no kept message, so the board shows its question and its options only.</p>}
           {form}
+          {after.length > 0 && <div className="context"><Blocks blocks={after} /></div>}
         </>}
       </div>
       <aside className="q-side">
-        {item && form}
-        <Material gate={gate} open={open} setOpen={setOpen} />
+        {item ? form : <Fits gate={gate} where={where} />}
+        <Material gate={gate} open={openId} setOpen={setOpen} />
       </aside>
-      {item && <p className="qbar"><button type="button" className="btn" onClick={() => setOpen(null)}>‹ Question</button><span className="grow" />{said && <span className={`said ${tone}`}>{result}</span>}
+      {item && <div className="qbar" ref={bar}><p><button type="button" className="btn" onClick={() => setOpen(null)}>‹ Question</button><button type="button" className="btn" onClick={() => document.getElementById("material-h")?.scrollIntoView({ block: "start" })}>Material</button><span className="grow" />
         {ready && <>{gate.options.map((option, i) => <button type="button" key={option} className="btn" aria-pressed={pick === i} aria-label={option} title={option} onClick={() => setPick(i)}>{String.fromCharCode(65 + i)}</button>)}
-          <button type="button" className="btn primary" disabled={pick === null || busy} onClick={send}>Send</button></>}</p>}
+          <button type="button" className="btn primary" disabled={pick === null || busy} onClick={send}>Send</button></>}</p>
+        {archived && unanswered && !said ? <p className="said">{project.name} is archived: restore it to answer.</p>
+          : said && <><p className={`said ${tone}`}>{result} {said.ok && undo}</p>{said.ok && <Next model={model} gate={gate} />}</>}</div>}
     </article>
   );
 }

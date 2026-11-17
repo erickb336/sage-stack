@@ -42,7 +42,7 @@ show();
 <a id="top" target="_top" href="/app/#moved">Move the board</a> <a id="pop" target="_blank" href="/app/#popup">Open a new page</a>
 `;
 
-async function openBoard(t, viewport = { width: 1440, height: 1000 }, { refuse } = {}) {
+async function openBoard(t, viewport = { width: 1440, height: 1000 }, { refuse, before } = {}) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-question-browser-")));
   const saved = { ...process.env }, fakes = join(base, "fakes");
   mkdirSync(fakes);
@@ -60,9 +60,9 @@ async function openBoard(t, viewport = { width: 1440, height: 1000 }, { refuse }
     writeFileSync(join(dir, "chiefs.tsv"), `id\tprovider\tnative\tat\nC1\tclaude\tclaude-1\t${iso(now - 3 * 3600_000)}\nC2\tcodex\tcodex-1\t${iso(now - 2 * 3600_000)}\n`);
     mkdirSync(join(dir, "live"));
     for (const id of ["C1", "C2"]) writeFileSync(join(dir, "live", `${id}.json`), JSON.stringify({ provider: id === "C2" ? "codex" : "claude", checkout: project, sageMode: true, autopilot: false, at: iso(now) }));
-    return { dir, as: (chief, ...args) => claude.sage([...args, "--project", project, "--chief", chief], env) };
+    return { dir, project, as: (chief, ...args) => claude.sage([...args, "--project", project, "--chief", chief], env) };
   };
-  const { dir, as } = addProject("sample-app");
+  const { dir, as, project } = addProject("sample-app");
   as("C1", "task", "add", "--title", "Sample shared list permissions", "--size", "small", "--priority", "P1");
   as("C2", "task", "add", "--title", "Sample crash report screen", "--size", "small", "--priority", "P2");
   const pages = join(env.SAGE_WORKTREES, basename(dir), "pages", "T1");
@@ -80,7 +80,7 @@ async function openBoard(t, viewport = { width: 1440, height: 1000 }, { refuse }
   mkdirSync(stateDir, { recursive: true, mode: 0o700 });
   const { writeInWorker } = await import("../plugins/sage/board/writes.mjs");
   const server = createBoardServer({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port: 0, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair",
-    write: job => { writes.push(job.argv); return refuse ? { code: 1, text: refuse } : writeInWorker(job); } });
+    write: job => { writes.push(job.argv); before?.(job); return refuse ? { code: 1, text: refuse } : writeInWorker(job); } });
   const { port } = await server.start();
   const context = await browser.newContext({ viewport, colorScheme: "dark", timezoneId: "America/New_York" });
   t.after(async () => {
@@ -95,7 +95,8 @@ async function openBoard(t, viewport = { width: 1440, height: 1000 }, { refuse }
   await page.goto(`${origin}/app/#pair=${startLink(stateDir)}`);
   await page.getByText(/^This browser is paired\./).waitFor();
   const shot = async name => { if (SHOTS) await page.screenshot({ path: join(SHOTS, `${name}.png`) }); };
-  return { page, origin, dir, writes, outside, shot, as, addProject, base, gate: id => claude.read(dir, "gates").find(row => row.id === id) };
+  const config = (...args) => claude.sage(["config", ...args, "--project", project], env);
+  return { page, origin, dir, writes, outside, shot, as, config, addProject, base, gate: id => claude.read(dir, "gates").find(row => row.id === id) };
 }
 
 test("T1121: one click on Needs you opens the question with its material; a page opens in place at the named part, beside the answers; the answer sends from there, and the view names the question left", async t => {
@@ -191,7 +192,7 @@ test("T1121 R5: a hostile prototype or Markdown page in the material cannot read
   assert.deepEqual(lines.slice(0, 3), ["parent: blocked SecurityError", "storage: blocked SecurityError", "cookie: blocked SecurityError"]);
   assert.match(lines.at(-1), /^api: (?:blocked TypeError|4\d\d)$/, "the API refuses a write from the frame");
   assert.deepEqual(w.writes, [], "no write reached the logbook");
-  assert.equal(page.url(), url, "the top page did not move");
+  assert.equal(page.url(), `${url}&open=${encodeURIComponent("T1/designs/v1/index.html")}`, "the top page did not move: it shows the open item in its address");
   await w.shot("question-prototype");
 
   await page.locator(".mat").filter({ hasText: "hostile.md" }).click();
@@ -200,7 +201,7 @@ test("T1121 R5: a hostile prototype or Markdown page in the material cannot read
   assert.match(await doc.locator("article").textContent(), /<script>window\.hacked=1<\/script>/, "the script shows as text");
   assert.equal(await page.evaluate(() => window.hacked), undefined, "no script of the page ran in the board");
   assert.equal(await doc.locator('a[href="https://example.com/docs"]').getAttribute("target"), "_blank", "a link to another site opens a new tab, not in the board");
-  assert.equal(page.url(), url);
+  assert.equal(page.url(), `${url}&open=${encodeURIComponent("T1/hostile.md")}`);
   assert.deepEqual(w.writes, []);
 });
 
@@ -216,43 +217,55 @@ test("T1121 F-T1121-2: in a framed reader page, a click on a link to another sit
   await page.locator(".mat").filter({ hasText: "hostile.md" }).click();
   const doc = page.frameLocator(".viewer iframe");
   await doc.getByRole("heading", { name: "Hostile sample" }).waitFor();
-  assert.equal(page.url(), url, "a click on a _top link in the prototype does not move the board");
+  const hostile = `${url}&open=${encodeURIComponent("T1/hostile.md")}`;
+  assert.equal(page.url(), hostile, "a click on a _top link in the prototype does not move the board");
   const [popup] = await Promise.all([context.waitForEvent("page"), doc.getByRole("link", { name: "a safe site" }).click()]);
   assert.deepEqual(w.outside, ["https://example.com/docs"], "the new page asked for the other site (the test blocks every request that leaves the board)");
   assert.equal(context.pages().length, 2, "the board and that one page: the prototype's _blank link opened none");
   await popup.close();
   await doc.getByRole("link", { name: "a safe page" }).click();
   await doc.getByRole("heading", { name: "Design notes", level: 1 }).waitFor();
-  assert.equal(page.url(), url, "F-T1121-20: a page of the task opens in the frame, and the board stays");
+  assert.equal(page.url(), hostile, "F-T1121-20: a page of the task opens in the frame, and the board stays");
+  assert.equal(await page.locator(".viewer h2").textContent(), "Design notes", "F-T1156-26: the frame's header names the page that the link opened");
+  assert.equal(await page.locator(".viewer .hint").textContent(), "Why it is here: you opened it from a link in hostile.md.");
   assert.deepEqual(w.writes, []);
 });
 
-test("T1121 F-T1121-20: in the Design item, each link keeps the question view and the picked answer: the prototype and the pages index open a new tab, the design notes open in the frame", async t => {
+test("T1121 F-T1121-20, T1156 F-T1156-27: in the Design item, each link keeps the question view and the picked answer: the prototype opens in place, the pages index opens a new tab, the design notes open in the frame", async t => {
   const w = await openBoard(t), { page } = w, url = `${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G1`)}`;
-  const context = page.context();
+  const context = page.context(), designUrl = `${url}&open=${encodeURIComponent("T1/design")}`;
   await page.goto(url);
   await page.locator(".mat").filter({ hasText: "Design · 1 version" }).click();
   const design = page.frameLocator(".viewer iframe"), picked = page.locator(".q-side").getByRole("radio", { name: /^B: no/ });
   await design.getByRole("link", { name: "Read the design notes" }).waitFor();
   await picked.check();
-  const stays = async why => {
-    assert.equal(page.url(), url, `${why}: the board stays on the question`);
-    assert.equal(await page.locator(".viewer h2").textContent(), "Design · 1 version", `${why}: the Design item stays open`);
+  const stays = async (why, title = "Design · 1 version", at = designUrl) => {
+    assert.equal(page.url(), at, `${why}: the board stays on the question`);
+    assert.equal(await page.locator(".viewer h2").textContent(), title, `${why}: the viewer shows ${title}`);
     assert.ok(await picked.isChecked(), `${why}: the picked answer stays`);
     assert.match(await page.locator(".q-side .send").textContent(), /Your answer: B: no/, why);
   };
-  for (const [name, path] of [["Open the prototype", "/designs/v1/index.html"], ["Open the pages index", "/T1/"]]) {
-    const [tab] = await Promise.all([context.waitForEvent("page"), design.getByRole("link", { name }).click()]);
-    await tab.waitForLoadState();
-    assert.ok(tab.url().startsWith(`${w.origin}/pages/`) && tab.url().endsWith(path), `${name} opens ${tab.url()} in a new tab`);
-    await tab.close();
-    await stays(name);
-  }
+  const [tab] = await Promise.all([context.waitForEvent("page"), design.getByRole("link", { name: "Open the pages index" }).click()]);
+  await tab.waitForLoadState();
+  assert.ok(tab.url().startsWith(`${w.origin}/pages/`) && tab.url().endsWith("/T1/"), `the pages index opens ${tab.url()} in a new tab`);
+  await tab.close();
+  await stays("Open the pages index");
   await design.getByRole("link", { name: "Read the design notes" }).click();
   await design.getByRole("heading", { name: "Notes of v1", level: 1 }).waitFor();
-  await stays("Read the design notes");
-  assert.equal(context.pages().length, 1);
-  assert.deepEqual(w.writes, [], "the prototype in its own tab wrote nothing");
+  await stays("Read the design notes", "Notes of v1");
+  await page.getByRole("button", { name: "‹ The question" }).click();
+  await page.locator(".mat").filter({ hasText: "Design · 1 version" }).click();
+  await page.frameLocator(".viewer iframe").getByRole("link", { name: "Open the prototype" }).click();
+  await page.locator(".viewer iframe[sandbox='allow-scripts']").waitFor();
+  await stays("Open the prototype", "v1 prototype", `${url}&open=${encodeURIComponent("T1/designs/v1/index.html")}`);
+  assert.equal(context.pages().length, 1, "no new tab");
+  await page.goBack();
+  await page.locator(".viewer h2").filter({ hasText: "Design · 1 version" }).waitFor();
+  assert.equal(page.url(), designUrl, "F-T1156-30: Back returns to the item that was open before");
+  await page.reload();
+  await page.locator(".viewer h2").filter({ hasText: "Design · 1 version" }).waitFor();
+  assert.ok(await picked.isChecked(), "F-T1156-30: a reload keeps the open item and the picked answer");
+  assert.deepEqual(w.writes, [], "the prototype wrote nothing");
 });
 
 test("T1121 F-T1121-21: after the last question of this project, the line names the other project that needs you and opens it; a page of a task that the board does not have says so", async t => {
@@ -269,8 +282,8 @@ test("T1121 F-T1121-21: after the last question of this project, the line names 
   await page.locator(".top").getByRole("button", { name: "1 other project needs you" }).waitFor();
   await page.getByRole("radio", { name: /^A: yes/ }).check();
   await page.getByRole("button", { name: "Send answer" }).click();
-  const line = page.getByRole("link", { name: "Nothing else waits in sample-app · 1 other project needs you: other-app" });
-  await line.waitFor();
+  await page.getByText("Nothing else waits in sample-app · 1 other project needs you: other-app").waitFor();
+  const line = page.locator(".q-main .send").getByRole("link", { name: "other-app" });
   await w.shot("question-other-project");
   await line.click();
   await page.getByRole("link", { name: "Export as CSV or as a sheet?" }).click();
@@ -293,4 +306,117 @@ test("T1121 S7: a failed run's recorded reason shows on its task page and on the
   await tile.waitFor();
   assert.equal(await tile.locator(".awhy").textContent(), `Reason: ${why}`);
   await w.shot("agents-failed");
+});
+
+const SIZES = [{ width: 390, height: 844 }, { width: 900, height: 900 }, { width: 1440, height: 900 }];
+const covered = (page, target) => page.evaluate(selector => {
+  const box = document.querySelector(selector)?.getBoundingClientRect();
+  if (!box) return "no target";
+  const over = [...document.querySelectorAll("body *")].filter(el => getComputedStyle(el).position === "fixed" && getComputedStyle(el).display !== "none").map(el => el.getBoundingClientRect()).filter(bar => bar.height > 0 && bar.top < box.bottom && bar.bottom > box.top && bar.left < box.right && bar.right > box.left);
+  return over.length ? `covered by a fixed bar at ${Math.round(over[0].top)} px` : null;
+}, target);
+
+const headerHolds = page => page.locator("header.top").evaluate(top => top.scrollWidth <= top.clientWidth && [...top.children].every(child => child.getBoundingClientRect().bottom <= top.getBoundingClientRect().bottom + 1));
+
+test("T1156: the question view at 390, 900 and 1440 px, normal and archived: the answers show on the first screen, or for an archived project the note that offers Restore; nothing covers them, and an archived project takes no answer", async t => {
+  const w = await openBoard(t, SIZES[2]), { page } = w, problems = [], check = (ok, why) => { if (!ok) problems.push(why); }, url = `${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G1`)}`;
+  for (const archived of [false, true]) {
+    if (archived) w.config("archived=yes");
+    for (const size of SIZES) {
+      await page.setViewportSize(size);
+      await page.goto(url);
+      await page.getByRole("heading", { name: TITLE, level: 1 }).waitFor();
+      if (archived) await page.locator(".send").getByText(/^sample-app was archived on /).waitFor();
+      await w.shot(`t1156-${archived ? "archived" : "normal"}-${size.width}`);
+      const first = await page.locator(archived ? ".send" : ".answer").first().boundingBox();
+      check(first && first.y + 40 <= size.height, `${size.width} px${archived ? ", archived: the archived note with Restore" : ": the first answer"} starts on the first screen (${JSON.stringify(first)})`);
+      const cover = await covered(page, ".answer");
+      check(cover === null, `${size.width} px${archived ? ", archived" : ""}: no fixed bar covers the first answer (${cover})`);
+      check(await page.evaluate(() => document.documentElement.scrollWidth) === size.width, `${size.width} px: no sideways scroll`);
+      check(await headerHolds(page), `F-T1156-32: ${size.width} px: the top header holds its content`);
+      if (archived) {
+        check(await page.locator(".answer input:not(:disabled)").count() === 0, "an archived question takes no answer");
+        const said = await page.locator(".send").textContent();
+        check(/archived/.test(said) && !/chat/.test(said), `${size.width} px: F-T1156-41: the archived question gives one instruction, Restore, not the chat: ${said}`);
+        check(await page.locator(".send").getByRole("button", { name: "Restore" }).count() === 1, `${size.width} px: the answer box offers Restore`);
+      } else {
+        for (const target of [page.locator(".send .btn.primary"), page.locator(".answer").first()]) {
+          const box = await target.boundingBox();
+          check(box.height >= 44, `${size.width} px: a touch target is 44 px high at least (${JSON.stringify(box)})`);
+        }
+      }
+    }
+  }
+  await page.setViewportSize({ width: 820, height: 900 });
+  check(await headerHolds(page), "F-T1156-32: 820 px: the top header holds its content");
+  assert.deepEqual(problems, []);
+});
+
+test("T1156: with a file open, the answers stay in view: beside the file at 1440 px while the material scrolls, and in a bar at 390 and 900 px that covers nothing, also after Send, with Undo and the line of what is left", async t => {
+  const w = await openBoard(t, SIZES[2]), { page } = w, url = `${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G1`)}&open=${encodeURIComponent("T1/notes.md")}`;
+  await page.goto(url);
+  await page.frameLocator(".viewer iframe").getByRole("heading", { name: "The rule" }).waitFor();
+  await page.locator(".q-side .material").evaluate(box => { box.scrollTop = box.scrollHeight; });
+  await inView(page, page.locator(".q-side .answer").first(), "F-T1156-25: at 1440 px the first answer beside the file stays when the material scrolls");
+  await inView(page, page.locator(".q-side .send .btn.primary"), "F-T1156-12: and so does Send");
+  await w.shot("t1156-reading-1440");
+  for (const size of [SIZES[1], SIZES[0]]) {
+    await page.setViewportSize(size);
+    await page.goto(`${w.origin}/app/#`);
+    await page.goto(url);
+    await page.frameLocator(".viewer iframe").getByRole("heading", { name: "The rule" }).waitFor();
+    await inView(page, page.locator(".viewer h2"), `F-T1156-21: at ${size.width} px the open file shows on the first screen`);
+    await w.shot(`t1156-reading-${size.width}`);
+  }
+  const bar = page.locator(".qbar");
+  await bar.getByRole("button", { name: "B: no" }).click();
+  await bar.getByRole("button", { name: "Send" }).click();
+  await inView(page, bar.getByText(/^You answered G1: B: no\. Recorded in the logbook\./), "the bar says that the answer is sent");
+  await inView(page, bar.getByRole("button", { name: "Undo" }), "F-T1156-28: the bar offers Undo after Send");
+  await inView(page, bar.getByRole("link", { name: "Needs you · 1 left: G2 from C2" }), "F-T1156-29: the bar names what is left");
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "said", "F-T1156-42: focus moves to the result, not to the body");
+  await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
+  const last = await page.locator(".mat").last().boundingBox(), top = (await bar.boundingBox()).y;
+  assert.ok(last.y + last.height <= top, `F-T1156-9: the bar covers no material card at the page end (card ends at ${last.y + last.height}, bar starts at ${top})`);
+  await w.shot("t1156-reading-390-sent");
+  await bar.getByRole("button", { name: "‹ Question" }).click();
+  await page.locator(".viewer").waitFor({ state: "detached" });
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset.item), "T1/notes.md", "F-T1156-22: back to the question puts focus on the item that was open");
+  assert.equal(await covered(page, ".q-form h2"), null, "F-T1156-17: after the viewer closes, nothing covers the Answers label");
+});
+
+test("T1156 F-T1156-40, -47: an answer sent while the Archive write lands is refused by the state tool, and the board shows the refusal; an answer sent before the archive says that it waits for Restore and offers no Undo", async t => {
+  let w;
+  w = await openBoard(t, SIZES[2], { before: job => { if (job.argv[2] === "G1") w.config("archived=yes"); } });
+  const { page } = w;
+  await page.goto(`${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G1`)}`);
+  await page.getByRole("radio", { name: /^A: yes/ }).check();
+  await page.getByRole("button", { name: "Send answer" }).click();
+  await page.getByText("Not recorded. This project is archived, so it takes no answer. Restore it, then answer again. Nothing changed.").waitFor();
+  assert.equal(w.gate("G1").answered ?? "", "", "the archived project keeps no answer");
+  await page.locator(".send").getByRole("button", { name: "Restore" }).waitFor();
+  await w.shot("t1156-archived-refused-1440");
+
+  await page.locator(".send").getByRole("button", { name: "Restore" }).click();
+  await page.getByText("sample-app is restored.").waitFor();
+  await page.waitForFunction(() => document.activeElement?.matches(".answer input:not(:disabled)"));
+  assert.equal(await page.getByRole("radio", { name: /^A: yes/ }).isEnabled(), true, "F-T1156-35, -42: after Restore the note says so, the answers take an answer, and focus is on the first one");
+
+  await page.goto(`${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G2`)}`);
+  await page.getByRole("radio", { name: /^send them/ }).check();
+  await page.getByRole("button", { name: "Send answer" }).click();
+  await page.getByText(/^You answered G2: send them\. Recorded in the logbook\. It waits for Codex · C2 to pick it up/).waitFor();
+  w.config("archived=yes");
+  await page.getByText(/^You answered G2: send them\. Recorded in the logbook\. The project is archived now, so it waits until you restore it\. Then Codex · C2 picks it up\./).waitFor();
+  assert.equal(await page.locator(".send").getByRole("button", { name: "Undo" }).count(), 0, "F-T1156-46: no Undo that the archive would refuse");
+});
+
+test("T1156 F-T1156-23: in a report in the frame, the link to the same question closes the file, and opens no second tab", async t => {
+  const w = await openBoard(t), { page } = w;
+  w.as("C1", "run", "done", "R1", "--status", "done", "--tokens", "1");
+  await page.goto(`${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G1`)}`);
+  await page.locator(".mat").filter({ hasText: "Report of R1" }).click();
+  await page.frameLocator(".viewer iframe").getByRole("link", { name: "Open G1" }).click();
+  await page.locator(".viewer").waitFor({ state: "detached" });
+  assert.equal(page.context().pages().length, 1);
 });
