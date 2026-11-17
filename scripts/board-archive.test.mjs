@@ -264,6 +264,20 @@ test("F-T1137-2: a provider logbook without checkout.txt is refused with its tru
   assert.equal((await call(w.port, "/api/archive", { headers, body: { project: key } })).status, 200, "with its checkout.txt back, the board archives harbor");
 });
 
+test("T1152: a Claude or Codex logbook without checkout.txt can be archived on the board after one normal write of the chief", async t => {
+  const w = await world(t), headers = await pair(w), inCodex = { ...w.own, SAGE_HOME: join(w.env.CODEX_HOME, "sage") };
+  const gate = project => ["gate", "add", "T1", "--question", "Keep the sample format?", "--options", "keep|drop", "--recommend", "keep", "--project", project];
+  for (const [name, sage, env] of [["harbor", claude.sage, w.inClaude], ["meadow", codex.sage, inCodex]]) {
+    rmSync(join(w.dirs[name], "checkout.txt"));
+    const key = projectOf(await until(w, all => projectOf(all, name), `the board shows ${name}`), name).key;
+    assert.equal((await call(w.port, "/api/archive", { headers, body: { project: key } })).status, 409, `${name} without checkout.txt is refused`);
+    sage(gate(w.checkouts[name]), env);
+    const archived = await call(w.port, "/api/archive", { headers, body: { project: key } });
+    assert.equal(archived.status, 200, `${name}: ${archived.text}`);
+    assert.equal(configOf(w.dirs[name]).archived, true, `the board archived ${name}`);
+  }
+});
+
 test("F-T1137-12: the server records no answer or other write for an archived project, and records it again after Restore", async t => {
   const w = await world(t), headers = await pair(w);
   claude.sage(["gate", "add", "T1", "--question", "Keep the sample format?", "--options", "keep|drop", "--recommend", "keep", "--project", w.checkouts.lantern, "--chief", "C1"], w.own);

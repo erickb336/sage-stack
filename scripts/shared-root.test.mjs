@@ -1,7 +1,7 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { test } from "node:test";
@@ -160,6 +160,60 @@ test("no row: an existing project works as before, and no row or table appears f
   assert.equal(w.claude("logbook"), join(w.claudeRoot, w.name()));
   assert.equal(existsSync(join(w.shared, "bindings.tsv")), false);
   assert.equal(claudeLocate(w.project, w.env).shared, false);
+});
+
+for (const provider of ["claude", "codex"]) {
+  const gate = ["gate", "add", "T1", "--question", "Keep it?", "--options", "yes|no", "--recommend", "yes"];
+  const task = ["task", "add", "--title", "More", "--size", "tiny", "--priority", "P2"];
+  const started = (t) => {
+    const w = world(t), sage = w[provider];
+    sage("init");
+    sage("task", "add", "--title", "First", "--size", "tiny", "--priority", "P2");
+    return { w, sage, file: join(w[`${provider}Root`], w.name(), "checkout.txt") };
+  };
+
+  test(`T1152: a ${provider} logbook without checkout.txt gets it from the next write that is not init or task add`, (t) => {
+    const { w, sage, file } = started(t);
+    rmSync(file);
+    sage(...gate);
+    assert.equal(readFileSync(file, "utf8"), `${w.project}\n`);
+  });
+
+  test(`T1152: a ${provider} checkout.txt that names another checkout stays as it is after normal writes`, (t) => {
+    const { w, sage, file } = started(t);
+    const other = `${join(w.base, "elsewhere")}\n`;
+    writeFileSync(file, other);
+    sage(...gate);
+    sage(...task);
+    assert.equal(readFileSync(file, "utf8"), other);
+  });
+
+  test(`T1152: a ${provider} checkout.txt that is a link stays the same link, and sage writes nothing through it`, (t) => {
+    const { w, sage, file } = started(t);
+    const target = join(w.base, "target.txt"), missing = join(w.base, "missing.txt");
+    writeFileSync(target, "kept\n");
+    for (const [to, content] of [[target, "kept\n"], [missing, undefined]]) {
+      rmSync(file);
+      symlinkSync(to, file);
+      sage(...gate);
+      sage(...task);
+      assert.equal(lstatSync(file).isSymbolicLink(), true);
+      assert.equal(readlinkSync(file), to);
+      assert.equal(existsSync(to) ? readFileSync(to, "utf8") : undefined, content);
+    }
+  });
+}
+
+test("T1152: a shared logbook gets no checkout.txt from normal writes of either provider", (t) => {
+  const w = world(t);
+  w.claude("link", "--separate");
+  const dir = tool.storeDir(w.project, w.env);
+  w.claude("task", "add", "--title", "From Claude", "--size", "tiny", "--priority", "P2");
+  w.codex("task", "add", "--title", "From Codex", "--size", "tiny", "--priority", "P2");
+  w.codex("gate", "add", "T2", "--question", "Keep it?", "--options", "yes|no", "--recommend", "yes");
+  w.claude("standing", "add", "Keep the sample order.");
+  assert.equal(dirname(dir), w.shared);
+  assert.equal(lstatSync(join(dir, "checkout.txt"), { throwIfNoEntry: false }), undefined);
 });
 
 test("no row and neither legacy logbook: today's refusal for a command, and a new legacy logbook for init (rule 3 stays off)", (t) => {

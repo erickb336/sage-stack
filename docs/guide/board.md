@@ -339,7 +339,8 @@ Which logbooks the board writes:
 - For a Claude or Codex logbook, the board reads the checkout from the logbook's `checkout.txt`. It writes only when the state tool finds that same logbook folder for that checkout.
 - A logbook that moved to the shared root, a `checkout.txt` that is a link, or a checkout of another project refuses.
 - A logbook with no checkout on this Mac refuses. Then answer or archive in the chief's chat.
-- A Claude or Codex logbook without a `checkout.txt` refuses too, because the board cannot check its checkout. The note says so. Archive or restore it in the project's own chat.
+- A Claude or Codex logbook gets its `checkout.txt` at the next command of the chief that writes to it, such as `task add` or `gate add`. The state tool never replaces a `checkout.txt` that is there, also when it names another checkout or is a link.
+- Until that write, a logbook without a `checkout.txt` refuses, because the board cannot check its checkout. The note says so. Archive or restore it in the project's own chat.
 
 An agent runs as your user, so a script that builds the state folder's path while it runs can still read the cookie's hash file. The sandbox is the full protection.
 
