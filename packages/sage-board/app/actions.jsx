@@ -409,13 +409,14 @@ export function QuestionView({ needKey, openId, model, theme, project }) {
   const blocks = gate.message?.blocks ?? [], table = blocks.findIndex(block => block.t === "table" && same(block.head[0], "Answer"));
   const field = label => block => block.t === "field" && same(block.label, label);
   const where = blocks.find(field("Where"))?.text, before = blocks.slice(0, table < 0 ? blocks.length : table).filter(block => !field("Where")(block)), after = table < 0 ? [] : blocks.slice(table + 1).filter(block => !(block.t === "table" && same(block.head[0], "Answer")));
-  const undo = !archived && <UndoButton logbook={gate.logbook} gate={gate.id} onDone={done => done.ok && setSaid(null)} />;
+  const restore = writes === "paired" ? <RestoreButton project={project} primary /> : <span className="hint">Pair this browser on the Overview to restore it here, or ask the chief in the chat.</span>;
+  const waiting = archived ? restore : <UndoButton logbook={gate.logbook} gate={gate.id} onDone={done => done.ok && setSaid(null)} />;
   const top = archived && unanswered && !said?.ok;
   const shelved = archived && <><p><b>{project.name} {project.archivedAt ? `was archived on ${day(project.archivedAt)}` : "is archived"}.</b> It takes no answer. Restore brings the project back where it was, and you answer here.</p>
-    <p>{writes === "paired" ? <RestoreButton project={project} primary /> : <span className="hint">Pair this browser on the Overview to restore it here, or ask the chief in the chat.</span>}</p></>;
+    <p>{restore}</p></>;
   const sendBox = <div className="send" role="status">
-      {said?.ok ? <><p className="done" id="said" tabIndex={-1}>{result} {undo}</p><Next model={model} gate={gate} /></>
-        : !unanswered ? <p><span><Answered gate={gate} chiefs={model.chiefs} /></span>{gate.answered?.via === "board" && !gate.answer && (archived ? <span>{kept}</span> : undo)}</p>
+      {said?.ok ? <><p className="done" id="said" tabIndex={-1}>{result} {waiting}</p><Next model={model} gate={gate} /></>
+        : !unanswered ? <p><span><Answered gate={gate} chiefs={model.chiefs} /></span>{gate.answered?.via === "board" && !gate.answer && <>{archived && <span>{kept}</span>} {waiting}</>}</p>
         : archived ? shelved
         : writes !== "paired" ? <PairBox />
         : <p>{pick === null ? "Pick one answer." : <>Your answer: <b>{gate.options[pick]}</b></>} <span className="grow" />
@@ -465,7 +466,7 @@ export function QuestionView({ needKey, openId, model, theme, project }) {
         {ready && <>{gate.options.map((option, i) => <button type="button" key={option} className="btn" aria-pressed={pick === i} aria-label={option} title={option} onClick={() => setPick(i)}>{String.fromCharCode(65 + i)}</button>)}
           <button type="button" className="btn primary" disabled={pick === null || busy} onClick={send}>Send</button></>}</p>
         {archived && unanswered && !said ? <p className="said">{project.name} is archived: restore it to answer.</p>
-          : said && <><p className={`said ${tone}`}>{result} {said.ok && undo}</p>{said.ok && <Next model={model} gate={gate} />}</>}</div>}
+          : said && <><p className={`said ${tone}`}>{result} {said.ok && waiting}</p>{said.ok && <Next model={model} gate={gate} />}</>}</div>}
     </article>
   );
 }

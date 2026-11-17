@@ -518,6 +518,10 @@ test("T1156 F-T1156-40, -47: an answer sent while the Archive write lands is ref
   w.config("archived=yes");
   await page.getByText(/^You answered G2: send them\. Recorded in the logbook\. The project is archived now, so it waits until you restore it\. Then Codex · C2 picks it up\./).waitFor();
   assert.equal(await page.locator(".send").getByRole("button", { name: "Undo" }).count(), 0, "F-T1156-46: no Undo that the archive would refuse");
+  await page.locator(".send").getByRole("button", { name: "Restore" }).waitFor({ timeout: 5000 });
+  await page.reload();
+  await page.getByText(/so it waits until you restore it/).waitFor();
+  assert.equal(await page.locator(".send").getByRole("button", { name: "Restore" }).count(), 1, "T1159 F-T1159-52: the line that says to restore offers Restore, also after a reload");
 });
 
 test("T1156 F-T1156-23: in a report in the frame, the link to the same question closes the file, and opens no second tab", async t => {
