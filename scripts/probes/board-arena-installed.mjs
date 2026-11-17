@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -14,20 +14,28 @@ const { buildBoardModel } = await load("core/board-model.mjs");
 const { readerPage, readerUrl, parseReaderUrl } = await load("board/reader.mjs");
 const { renderMarkdown } = await load("board/markdown.mjs");
 
+const snapshot = root => Object.fromEntries(readdirSync(root, { recursive: true, withFileTypes: true })
+  .filter(entry => entry.isFile()).map(entry => {
+    const file = join(entry.parentPath, entry.name);
+    return [file, readFileSync(file).toString("hex")];
+  }));
+
 function arena(t) {
   const root = mkdtempSync(join(tmpdir(), "sample-installed-arena-"));
   const before = process.env.SAGE_WORKTREES;
-  const fixture = writeArenaFixture(root);
-  process.env.SAGE_WORKTREES = fixture.worktrees;
   t.after(() => {
     if (before === undefined) delete process.env.SAGE_WORKTREES;
     else process.env.SAGE_WORKTREES = before;
     rmSync(root, { recursive: true, force: true });
   });
+  const fixture = writeArenaFixture(root);
+  process.env.SAGE_WORKTREES = fixture.worktrees;
   const read = (url = readerUrl(ARENA_KEY, "arena")) => {
+    const filesBefore = snapshot(root);
     const model = buildBoardModel(readBoardSources(fixture.sources, { now: Date.parse(ARENA_NOW) }), { now: ARENA_NOW });
     const result = readerPage({ model, configured: fixture.sources, url, origin: "http://127.0.0.1:5000", render: renderMarkdown });
     assert.ok(result, "The installed reader resolves the shared fixture task.");
+    assert.deepEqual(snapshot(root), filesBefore, "The reader leaves the fictional logbook and artifacts unchanged.");
     const html = result.top + result.rest;
     return { html, cards: [...html.matchAll(/<section class="card[^"]*">([\s\S]*?)<\/section>/g)].map(match => match[1]) };
   };
@@ -71,6 +79,20 @@ for (const status of ["failed", "blocked"]) test(`SAMPLE ${status} run remains v
   unassessed(page.cards[2]);
   assert.doesNotMatch(page.cards[2], /Open its prototype/);
   assert.match(page.cards[0], /class="score">11/);
+});
+
+for (const status of ["failed", "blocked"]) test(`SAMPLE ${status} run retains its saved artifact without a score or selection`, t => {
+  const w = arena(t), file = join(w.logbook, "runs.tsv");
+  writeFileSync(file, readFileSync(file, "utf8").replace("sample/R1\tdone\t", `sample/R1\t${status}\t`));
+  const page = w.read();
+  assert.equal(page.cards.length, 3);
+  assert.match(page.cards[0], /A .*R1/);
+  assert.match(page.cards[0], new RegExp(`State: [^<]*${status}`));
+  unassessed(page.cards[0]);
+  assert.match(page.cards[0], /href="\/pages\/sample-arena-abc123\/T1\/designs\/A\/index.html">Open its prototype/);
+  assert.doesNotMatch(page.html, /Base: candidate A/);
+  assert.match(page.cards[1], /class="score">10/);
+  assert.doesNotMatch(page.cards[1], />Grafted</);
 });
 
 test("SAMPLE artifact-free saved version cannot supply a score or a base", t => {

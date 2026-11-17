@@ -1,6 +1,6 @@
-# Candidate 2: installed arena reader associations
+# Installed arena reader: final local probe
 
-This candidate probes the installed reader with fictional shared-logbook records.
+This probe checks the installed reader with fictional shared-logbook records.
 It adds an explicitly invoked acceptance probe. The installed package is a required input.
 
 Set `SAGE_INSTALLED_PLUGIN` to the absolute plugin folder before you run:
@@ -20,6 +20,8 @@ It checks complete, failed, blocked, artifact-free, mismatched-run, and
 incomplete-score cases. It checks the exact candidate, run, prototype URL,
 score total, and selection. Report URLs retain each run identity and show
 “Not kept” when the fictional logbook has no report.
+Failed and blocked runs also retain their saved prototypes without a score or selection.
+Every reader call checks that the fictional logbook and artifacts remain unchanged.
 
 All fixture records and prototypes are SAMPLE DATA. They do not prove native
 report retention, owner authorization, browser behavior, or desktop integration.
@@ -33,10 +35,17 @@ exercise the installed behavior without a server or a source fallback.
 I rejected a browser test because this slice excludes browsers and servers.
 I rejected a new document validator because it would add a contract outside this task.
 
-## Recorded result
+## Arena decision
 
-The installed probe passed all seven cases with no skips. Missing installation
-input failed explicitly, as required. The build failed because React dependencies
-were missing. The repository check failed because `@ast-grep/cli/postinstall.js`
-was missing. Dependency installation was outside this task's permitted scope.
-These results do not establish a passing build or repository check.
+Candidate 2 supplies the base: exact artifact associations and explicit missing-report output.
+Candidate 1 supplies checks for saved artifacts on failed or blocked runs and unchanged files after reads.
+Both candidates reuse the same fixture and installed public exports.
+The final version keeps one setup helper and one reader path.
+It does not add a separate validator or a CI exemption.
+
+The original candidate results remain recorded as blocked on dependencies.
+The judge used an isolated copy of existing local dependencies for fresh checks.
+Candidate 1 then passed its build and 11 reader cases, but failed the repository comment rule.
+Candidate 2 passed its build, repository check, seven reader cases and explicit missing-input check.
+The judge selected the passing candidate; candidate branches remain unchanged.
+The saved judge evidence records final verification separately from these candidate results.
