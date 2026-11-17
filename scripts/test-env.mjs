@@ -30,6 +30,7 @@ for (const name of ["spawn", "spawnSync", "execFile", "execFileSync", "exec", "e
   childProcess[name] = function (...args) {
     const options = args.find((arg) => arg && typeof arg === "object" && !Array.isArray(arg)), caller = callerOf(new Error().stack);
     if (options?.env && !options.env.HOME && !caller.includes("/node_modules/")) refuse(`${name}() with an env that has no HOME`, caller);
+    if (options?.env && !["NODE_TEST_CONTEXT", "SAGE_TEST_PIDS", "SAGE_TEST_MACHINE_ID"].some((mark) => Object.hasOwn(options.env, mark))) options.env.SAGE_TEST_PIDS = "{}";
     return call.apply(this, args);
   };
 }
