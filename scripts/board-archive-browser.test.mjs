@@ -342,3 +342,43 @@ test("T1137: a partial Archive from a missing checkout.txt that the board shows 
   assert.deepEqual(w.books(), [false, false]);
   assert.deepEqual(w.problems.filter(problem => !/status of 409/.test(problem)), []);
 });
+
+test("T1159 F-T1159-22, -37, -38, -19: the picker keeps the focus on its button after a keyboard pick and after Restore, names the project on Restore, and a plain link never reopens an archived project", async t => {
+  const w = await openBoard(t), { page } = w;
+  await page.goto(`${w.origin}/app/#pair=${startLink(w.stateDir)}&project=${basename(w.dirs.quarry)}`);
+  await page.getByText(/^This browser is paired\./).waitFor();
+  const onPicker = () => page.evaluate(() => document.activeElement?.matches("header .picker") ?? false);
+
+  await picker(page).click();
+  await page.locator(`.pick-menu a[data-project="${basename(w.dirs.orchard)}"]`).focus();
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => !document.querySelector(".pick-menu"));
+  await picker(page).filter({ hasText: "orchard" }).waitFor();
+  assert.equal(await onPicker(), true, "F-T1159-22: after a keyboard pick the focus is on the picker, not on the page body");
+
+  const row = await pick(page, "harbor");
+  await row.getByRole("button", { name: "Archive harbor" }).click();
+  await page.getByRole("dialog", { name: "Archive harbor?" }).getByRole("button", { name: "Archive", exact: true }).click();
+  await page.getByText("harbor is archived.").waitFor();
+  await picker(page).click();
+  const archivedRow = page.locator(".pick-menu details", { hasText: "Archived · 1 project" });
+  await archivedRow.locator("summary").click();
+  await archivedRow.getByRole("button", { name: "Restore harbor", exact: true }).click();
+  await page.getByText("harbor is restored.").waitFor();
+  await page.waitForFunction(() => !document.querySelector(".pick-menu"));
+  await page.waitForTimeout(1500);
+  assert.equal(await page.evaluate(() => document.activeElement === document.body), false, "F-T1159-37, -38: Restore names its project, and then the focus stays on the board's note, not on the page body");
+
+  const quarry = await pick(page, "quarry");
+  await quarry.getByRole("button", { name: "Archive quarry" }).click();
+  await page.getByRole("dialog", { name: "Archive quarry?" }).getByRole("button", { name: "Archive", exact: true }).click();
+  await page.getByText("quarry is archived.").waitFor();
+  await page.goto(`${w.origin}/app/#?project=${basename(w.dirs.quarry)}`);
+  await picker(page).filter({ hasText: "quarry" }).waitFor();
+  await page.goto(`${w.origin}/app/`);
+  await page.getByRole("heading", { name: "Overview", level: 1 }).waitFor();
+  await page.reload();
+  await page.getByRole("heading", { name: "Overview", level: 1 }).waitFor();
+  assert.doesNotMatch(await picker(page).textContent(), /quarry/, "F-T1159-19: a plain link opens a project that is not archived, not the last one");
+  assert.deepEqual(w.problems, []);
+});

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { GiveBox, PairBox, PairNote, UndoButton, chiefLabel, useAccess, useSeen } from "./actions.jsx";
+import { CopyCommand, GiveBox, PairBox, PairNote, UndoButton, chiefLabel, useAccess, useSeen } from "./actions.jsx";
 import { useNow, when } from "./use-model.js";
 import { StateIcon } from "./icons.jsx";
 import { chiefSub, milestoneLink, ofChief, questionLink, taskLink } from "./task.jsx";
@@ -199,8 +199,6 @@ function Milestones({ milestones, hiddenDone }) {
 
 const MODE = "sage mode";
 function Start({ started }) {
-  const [copied, setCopied] = useState(null);
-  const copy = () => Promise.resolve().then(() => navigator.clipboard.writeText(MODE)).then(() => setCopied(true), () => setCopied(false));
   return (
     <section className="card start" aria-labelledby="start-h">
       <h2 id="start-h">Start your first task</h2>
@@ -208,7 +206,7 @@ function Start({ started }) {
       <ol>
         <li><b>Start a chief in the project</b>
           {started ? <p className="hint">Done: a chief works in this project.</p> : <>
-            <div className="pair-cmd"><code>{MODE}</code><button type="button" className="btn" onClick={copy}>{copied ? "Copied" : "Copy"}</button></div>
+            <CopyCommand text={MODE} />
             <p className="hint">Type it as the whole message, in a Claude Code or Codex session in the project folder.</p></>}</li>
         <li><b>Ask for a change in your words</b><p className="hint">For example: "Add a share button to a list." The chief frames it as a task and starts its agents.</p></li>
         <li><b>Come back here</b><p className="hint">The task shows on this page within a few seconds. Questions for you show first, under Needs you.</p></li>
@@ -220,7 +218,7 @@ function Start({ started }) {
 
 export function Overview({ model, shown, chief }) {
   const previous = useSeen(), now = useNow();
-  if (!model.tasks.length && !model.needs.length && !model.milestones.length) return <><div className="page-h"><h1>Overview</h1></div><Start started={model.chiefs.length > 0} /></>;
+  if (!model.tasks.length && !model.needs.length && !model.milestones.length) return <><div className="page-h"><h1>Overview</h1></div><Start started={model.chiefs.length > 0} /><PairNote /><PairBox /></>;
   return (
     <>
       <div className="page-h">

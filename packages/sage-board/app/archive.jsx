@@ -56,7 +56,7 @@ function trap(event) {
 export function RestoreButton({ project, primary, after }) {
   const { busy } = useArchive(), writes = useAccess();
   if (writes !== "paired") return null;
-  return <button type="button" className={`btn${primary ? " primary" : ""}`} disabled={!!busy} onClick={() => { send("restore", project); after?.(); }}>{busy === project.key ? "Restoring…" : "Restore"}</button>;
+  return <button type="button" className={`btn${primary ? " primary" : ""}`} disabled={!!busy} aria-label={busy === project.key ? undefined : `Restore ${project.name}`} onClick={() => { send("restore", project); after?.(); }}>{busy === project.key ? "Restoring…" : "Restore"}</button>;
 }
 
 function Kept({ project }) {

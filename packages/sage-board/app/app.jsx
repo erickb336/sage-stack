@@ -125,7 +125,7 @@ function useProject(all, page) {
   const last = useRef(null);
   if (last.current === null) try { last.current = localStorage.getItem(PROJECT_KEY) ?? ""; } catch { last.current = ""; }
   const projects = all?.projects ?? [], keyed = ["task", "question"].includes(page.hash) && projectOfKey(projects, page.params.get("key"));
-  const current = all ? keyed || projectNamed(projects, page.params.get("project")) || projectNamed(projects, last.current) || projects[0] || null : null;
+  const kept = projectNamed(projects, last.current), current = all ? keyed || projectNamed(projects, page.params.get("project")) || (!kept?.archived && kept) || projects[0] || null : null;
   useEffect(() => {
     if (!current) return;
     last.current = current.key;

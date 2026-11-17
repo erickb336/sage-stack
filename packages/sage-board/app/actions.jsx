@@ -69,11 +69,19 @@ export function PairNote() {
   );
 }
 
+export function CopyCommand({ text }) {
+  const [copied, setCopied] = useState(null);
+  const copy = () => Promise.resolve().then(() => navigator.clipboard.writeText(text)).then(() => setCopied(true), () => setCopied(false));
+  return <>
+    <div className="pair-cmd"><code>{text}</code><button type="button" className="btn" onClick={copy}>{copied ? "Copied" : "Copy"}</button></div>
+    {copied === false && <p className="refused" role="alert">This browser did not let the board copy. Select the text and copy it.</p>}
+  </>;
+}
+
 export function PairBox({ id = "pair-h" }) {
-  const writes = useAccess(), [code, setCode] = useState(""), [problem, setProblem] = useState(null), [copied, setCopied] = useState(null);
+  const writes = useAccess(), [code, setCode] = useState(""), [problem, setProblem] = useState(null);
   if (writes === "paired") return null;
   if (writes === "off") return <p className="note">This board only reads. Answer in the chief's chat, or stop this board and ask for it again.</p>;
-  const copy = () => Promise.resolve().then(() => navigator.clipboard.writeText(PAIR_COMMAND)).then(() => setCopied(true), () => setCopied(false));
   const pair = async event => {
     event.preventDefault();
     const result = await post("pair", { code });
@@ -86,9 +94,8 @@ export function PairBox({ id = "pair-h" }) {
       <p className="hint">You do this once for each browser. Until then, the board only reads. Type show board in a chief's chat, and click the link that it sends: one click opens the board and pairs this browser.</p>
       <div className="pair-step">
         <p className="lbl">No chat open? Pair with a Terminal code</p>
-        <div className="pair-cmd"><code>{PAIR_COMMAND}</code><button type="button" className="btn" onClick={copy}>{copied === true ? "Copied" : "Copy"}</button></div>
+        <CopyCommand text={PAIR_COMMAND} />
         <p className="hint">Run this command in Terminal on this Mac. It prints a one-time code.</p>
-        {copied === false && <p className="refused" role="alert">This browser did not let the board copy. Select the command and copy it.</p>}
       </div>
       <label>Pairing code <input value={code} onChange={event => setCode(event.target.value)} autoComplete="off" spellCheck="false" placeholder="ABCD-EFGH" /></label>
       <button type="submit" className="btn primary" disabled={!code.trim()}>Pair</button>
@@ -131,7 +138,8 @@ export const Stopped = ({ at }) => (
 
 const SEEN_KEY = "board-seen", AWAY_MS = 5 * 60_000;
 const keep = (name, value) => { try { if (value !== undefined) window[name].setItem(SEEN_KEY, value); return window[name].getItem(SEEN_KEY); } catch { return null; } };
-const seen = { previous: keep("sessionStorage") ?? keep("localStorage") ?? "", listeners: new Set() };
+const time = value => Number.isFinite(Date.parse(value ?? "")) ? value : null;
+const seen = { previous: time(keep("sessionStorage")) ?? time(keep("localStorage")) ?? "", listeners: new Set() };
 keep("sessionStorage", seen.previous);
 let away = null, timer;
 addEventListener("pagehide", () => keep("localStorage", new Date().toISOString()));
