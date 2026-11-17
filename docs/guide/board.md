@@ -116,7 +116,11 @@ What the archive writes:
 
 - The board runs `config archived=yes` (Archive) or `config archived=no` (Restore, Undo) through the state tool, in each live logbook of the project: the shared logbook, or a Claude or Codex logbook of a project that has not moved to the shared root.
 - The state tool records one decisions row for each change, with its time. The board reads the newest row for "Archived on 12 Aug" and for Welcome back.
-- When one of two logbooks refuses, the note names it, for example "Archived in 1 of 2 logbooks. The Codex logbook of recipe-box did not save.", with the reason and Try again, which runs the same Archive or Restore. The board shows the project as archived only when every logbook agrees.
+- When one of two logbooks refuses, the note names it, for example "Archived in 1 of 2 logbooks. The Codex logbook of recipe-box did not save.", and says what the board shows, with Try again, which runs the same Archive or Restore. The note gives no reason, because the reason names files of the logbook.
+- When no logbook saves, the confirm stays open with the reason and Try again.
+- The board reads the logbooks that name their checkout (`checkout.txt`); when none names it, it reads them all. It shows the project as archived when each logbook that it reads is archived.
+- While these logbooks disagree, each page of the project has a banner, also after a reload, for example "The Codex logbook of recipe-box is archived, and the Claude logbook is not." A paired browser gets Archive and Restore there.
+- The board runs one Archive or Restore at a time, so two tabs that send them at once do not leave the logbooks mixed.
 - The chat that sent the link names its project. When that project is archived, the banner says so, and you can restore it there.
 
 ## The Overview
@@ -304,6 +308,7 @@ The chief makes the link with `board --ensure --link`:
 - The link has the form `http://127.0.0.1:<port>/app/#pair=<key>&project=<folder>`. The key is 256 random bits. It is after the `#`, so the browser never sends it in a request line, a log or a referrer.
 - The folder is the logbook folder of the chat's project. The command finds it from the chat's folder (`--project`), or from the asked name (`--name-hex`, the name's UTF-8 bytes in hex), with the chat board's rule. It writes nothing and runs no other program; the link has no path.
 - The board takes the key out of the address bar and the history at once, keeps the project, then sends the key once. The server keeps only its hash, in `pair-link.json` in the board's state folder.
+- A link that you paste into a board tab that is open already pairs it at once, with no reload. A query in the address (`/app/?…`) changes nothing: the board opens.
 - A link pairs one browser, once, within 10 minutes. A new link ends the older one.
 - The hooks refuse `--link` from an agent: only the chief runs it, and the chief puts the link in the chat text only, never in a file, a message page or a brief.
 
@@ -316,13 +321,13 @@ After the click, a note on top of the Overview gives the outcome and the next st
 | Used | Another browser on this Mac used the link, and when. The note has the button **Unpair every browser**, for the case that it was not you. |
 | Replaced | A newer link replaced this one. |
 | Expired | The link is older than 10 minutes. |
-| Refused | The key is not a link of this board. |
+| Refused | The board does not know the key: it is not a link of this board, or it is older than the board's last 8 links. |
 
 For each outcome except Paired and Already paired, type `show board` again for a new link.
 
 **Unpair every browser** works without pairing. It removes every pairing, so each browser reads only until you pair it again. A program on this Mac can also send it; the worst result is that you pair again.
 
-**No chat open?** Pair with a Terminal code. The pairing card shows the command, with its full path, for example `node "<board folder>/cli.mjs" board --pair`:
+**No chat open?** Pair with a Terminal code. The pairing card shows the command, with its full path, for example `node '<board folder>/cli.mjs' board --pair` (single quotes only when the path needs them):
 
 1. Choose Copy, then paste the command in Terminal on the Mac, and run it. It prints a one-time code that works for 10 minutes.
 2. On the board, type the code in the "Pairing code" field, and choose Pair.
