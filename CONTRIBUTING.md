@@ -134,12 +134,14 @@ npm run walkthrough
 ```
 
 - It writes the sample logbook of the screenshots (`scripts/fixtures/board-app.mjs`) to a temporary folder and starts a board server on a free port, with the built app.
-- It pairs a Playwright browser and clicks one fixed path at 1320 by 800 pixels: Needs you, Agents, a task and its steps, a question that it answers, and Stats. Each frame carries a caption and a Sample data label.
-- The answer goes to the sample logbook through a stand-in for the state tool, so the script never runs the state tool.
+- It pairs a Playwright browser at 1320 by 800 pixels and plays one fixed path of three scenes: the Overview, a zoom on Needs you, and a click that opens one task. The clip is about 9 s long and loops.
+- It records frame by frame, 20 frames a second: for each frame it sets the zoom, the cursor, the click ring, the caption and any fade, then takes one screenshot. So the clip does not depend on the speed of the machine, and the text stays sharp in a zoom.
+- Each frame carries a caption and a SAMPLE DATA label. ffmpeg puts a window frame around each frame, with the title "sage board · sample data".
+- The board server of the walkthrough refuses every write, so the script never runs the state tool.
 - It stops when a frame shows the temporary folder, the home folder or the user name.
 - It needs ffmpeg 6 or later, to write the GIF: on PATH, or its path in `FFMPEG` (macOS: `brew install ffmpeg`; Debian or Ubuntu: `sudo apt-get install ffmpeg`).
-- It uses Playwright's Chromium, or the browser in `--browser <path>` or `BOARD_BROWSER_PATH`. `--theme dark` or `--theme light` makes one GIF; `--frames <folder>` keeps the frames, to compare two runs.
-- CI does not run it. Two runs differ only in the times on the board.
+- It uses Playwright's Chromium, or the browser in `--browser <path>` or `BOARD_BROWSER_PATH`. `--theme dark` or `--theme light` makes one GIF; `--frames <folder>` keeps the frames in a new or empty folder, to compare two runs.
+- Each GIF is about 5 MB. CI does not run it. Two runs make the same frames, except for the clock times on the board.
 
 For board QA, `node scripts/board-sample.mjs <empty folder>` writes sample logbooks (made-up data), with sample agent slots for the Agents page. It prints the board sources as JSON.
 
