@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { appendFileSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, utimesSync, watch, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, utimesSync, watch, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -108,7 +108,39 @@ function boardText(intent, cwd) {
 
 const running = (n) => `${n} sage ${n === 1 ? "agent is" : "agents are"} running`;
 
-export function handle(input, state, slots) {
+const HANDBACK_TOOL = "SubagentHandback";
+const TRANSCRIPT_TAIL = 4 * 1024 * 1024;
+export function handedBackReport(path) {
+  if (typeof path !== "string" || !path) return undefined;
+  let fd;
+  try {
+    fd = openSync(path, "r");
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) return undefined;
+    const length = Math.min(stat.size, TRANSCRIPT_TAIL), bytes = Buffer.alloc(length);
+    readSync(fd, bytes, 0, length, stat.size - length);
+    const lines = bytes.toString("utf8").split("\n");
+    for (let k = lines.length - 1; k >= 0; k--) {
+      let entry;
+      try { entry = JSON.parse(lines[k]); } catch { continue; }
+      const content = entry?.type === "assistant" ? entry.message?.content : undefined;
+      if (!Array.isArray(content) || !content.length) continue;
+      const call = content.findLast((block) => block?.type === "tool_use" && block.name === HANDBACK_TOOL);
+      return typeof call?.input?.message === "string" ? call.input.message : undefined;
+    }
+  } catch {} finally {
+    if (fd !== undefined) try { closeSync(fd); } catch {}
+  }
+  return undefined;
+}
+const withFinalReport = (input) => {
+  if (input?.hook_event_name !== "SubagentStop") return input;
+  const report = handedBackReport(input.agent_transcript_path);
+  return report === undefined ? input : { ...input, last_assistant_message: report };
+};
+
+export function handle(given, state, slots) {
+  const input = withFinalReport(given);
   const out = handleEvent(input, state, slots);
   if (AGENT_TOOLS.test(input.tool_name ?? "") && (input.hook_event_name === "PostToolUse" || (input.hook_event_name === "PreToolUse" && out?.hookSpecificOutput?.permissionDecision !== "deny"))) noteStart(input);
   return queueNote(input, state, out, slots);

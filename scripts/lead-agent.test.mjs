@@ -105,7 +105,7 @@ function project({ size = "small", config = [], framed = false, add = [], env: m
     return r.stdout.trim();
   };
   const chief = (...args) => tool(...backed(args, { cli: tool, keep: (fields) => keepReport(folder, fields, env) }));
-  const p = { folder, send, run, chief, lead: undefined, leads: 0 };
+  const p = { dir, folder, send, run, chief, lead: undefined, leads: 0 };
   p.checks = (...states) => writeFileSync(join(bin, "checks"), states.join("\n"));
   p.startLead = (task = "T1") => {
     const id = `lead-${++p.leads}`, call = `start-${id}`;
@@ -153,7 +153,18 @@ function project({ size = "small", config = [], framed = false, add = [], env: m
   return p;
 }
 
-function play(lines, p) {
+const line = (type, content) => ({ type, message: { role: type, content } });
+const handBackCall = (text) => line("assistant", [{ type: "tool_use", id: "toolu_hb", name: "SubagentHandback", input: { message: text } }]);
+const DELIVERED = line("user", [{ type: "tool_result", tool_use_id: "toolu_hb", content: [{ type: "text", text: '{"success":true,"message":"Report delivered to your caller."}' }] }]);
+const transcript = (file, entries) => (writeFileSync(file, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n"), file);
+const handedBack = (file, text) => transcript(file, [
+  line("assistant", [{ type: "text", text: "Everything is good. Removing the worktree." }]),
+  line("assistant", [{ type: "tool_use", id: "toolu_1", name: "Bash", input: { command: "git worktree remove /tmp/wt" } }]),
+  line("user", [{ type: "tool_result", tool_use_id: "toolu_1", content: "0" }]),
+  { type: "attachment", attachment: { type: "deferred_tools_record" } },
+  handBackCall(text), DELIVERED]);
+
+function play(lines, p, { handback } = {}) {
   const roles = {}, ran = [], sage = [], moves = [];
   let printed, last, logbook, recheck = new Set();
   let blocked = false;
@@ -198,7 +209,9 @@ function play(lines, p) {
       if (who === "lead-T1") assert.ok(LEAD_RESULTS.includes(result), `${line}: the file gives the lead's RESULT only as ${LEAD_RESULTS.join(", ")}`);
       if (who === "lead-T1" && result === "blocked") blocked = true;
       recheck.delete(agent.agent_type.slice("sage:".length));
-      const out = p.send({ hook_event_name: "SubagentStop", ...agent, stop_hook_active: false, last_assistant_message: report(result, findings) });
+      const text = report(result, findings);
+      const ending = handback ? { agent_transcript_path: handedBack(join(p.dir, `${who}.jsonl`), text), ...(handback.last === undefined ? {} : { last_assistant_message: handback.last }) } : { last_assistant_message: text };
+      const out = p.send({ hook_event_name: "SubagentStop", ...agent, stop_hook_active: false, ...ending });
       assert.equal(out?.decision, undefined, `the stop gate blocks ${who}'s report: ${out?.reason}`);
       if (who === "lead-T1") p.lead = undefined;
     } else if (mark === "!" && rest[0] === "sage") {
@@ -243,6 +256,30 @@ test("T301: each example of the lead file runs through the hook, from lead-T1's 
     const shape = new RegExp(`^${form.split(/(<[^>]+>)/).map((part) => (/^<[^>]+>$/.test(part) ? "\\S+" : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))).join("")}$`);
     assert.ok(ran.some((command) => shape.test(command)), `agents/lead.md teaches "${form}", and no example runs it in full`);
   }
+});
+
+test("Hand-back report: when each helper and the lead end with the hand-back tool, the hook keeps their reports as plain-text reports, so each example of the lead file still reaches a passing merge check", () => {
+  for (const [[heading, options], last] of EXAMPLES.map((example, k) => [example, [undefined, ""][k]])) {
+    const { sage, printed } = play(block(heading), project(options), { handback: { last } });
+    assert.match(sage.at(-1), /^sage merge-check --sha [0-9a-f]{40} --pr 12$/, `"${heading}" ends with the merge check`);
+    assert.match(printed, /^T1 may merge/, `the merge check of "${heading}" passes with the handed-back reports`);
+  }
+});
+
+test("Hand-back report: a handed-back report gets the same stop gate as a plain-text one, and only a hand-back that is the helper's last act is its report", () => {
+  const p = project();
+  play(BUILT, p);
+  const stop = (who, type, extra) => p.send({ hook_event_name: "SubagentStop", agent_id: `child-${who}`, agent_type: type, stop_hook_active: false, ...extra });
+  const full = report("CLEAN", "none");
+  const unread = stop("R3", "sage:code-reviewer", { last_assistant_message: "Clean up.", agent_transcript_path: transcript(join(p.dir, "short.jsonl"), [handBackCall("RESULT CLEAN"), DELIVERED]) });
+  assert.match(unread?.reason ?? "", /your report has no STATUS/, "a hand-back with no report fields is blocked as a plain-text report is");
+  const later = stop("R3", "sage:code-reviewer", { last_assistant_message: "Clean up.", agent_transcript_path: transcript(join(p.dir, "later.jsonl"), [handBackCall(full), DELIVERED, line("assistant", [{ type: "text", text: "Clean up." }])]) });
+  assert.match(later?.reason ?? "", /your report has no STATUS/, "text after the hand-back is the last act, so the earlier hand-back is not the report");
+  assert.equal(stop("R3", "sage:code-reviewer", { last_assistant_message: "Clean up.", agent_transcript_path: handedBack(join(p.dir, "R3.jsonl"), full) })?.decision, undefined, "the hand-back is the last act, so it is the report");
+  const kept = JSON.parse(readFileSync(join(p.chief("logbook"), "kept", "R3.json"), "utf8"));
+  assert.deepEqual([kept.run, kept.role, kept.sha, kept.text], ["R3", "code-reviewer", p.head(), full], "the kept report has the run, the role, the head SHA and the handed-back text");
+  assert.equal(readFileSync(join(p.chief("logbook"), "reports", "R3.md"), "utf8"), full, "the run's report text is kept for the board too");
+  play(["$ sage run done R3 --status done --tokens 1", "$ sage verdict T1 --sha <sha> --kind review-clean --cycle 1 --pr 12 --run R3"], p);
 });
 
 const BUILT = ["$ sage task T1 set state=building branch=sage/t1-example", "$ sage run add T1 --role implementer --branch sage/t1-example", "> R2 sage:implementer", "< R2 done: none",
