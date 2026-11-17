@@ -76,7 +76,7 @@ async function openBoard(t, viewport = { width: 1440, height: 1000 }, { refuse, 
   writeFileSync(join(base, "question.json"), JSON.stringify(MESSAGE));
   as("C1", "gate", "add", "T1", "--question", TITLE, "--options", "A: yes|B: no", "--recommend", "A: yes", "--default", "A: yes", "--message", join(base, "question.json"), "--run", "R1");
   as("C2", "gate", "add", "T2", "--question", "Crash reports: send them on their own, or ask each time?", "--options", "ask each time|send them", "--recommend", "ask each time");
-  setup?.(as); // logbook rows that a server-rendered page must show at once: the board reads them at its start
+  setup?.(as);
   const stateDir = join(base, "home", ".config", "sage-board", "state"), writes = [];
   mkdirSync(stateDir, { recursive: true, mode: 0o700 });
   const { writeInWorker } = await import("../plugins/sage/board/writes.mjs");
@@ -310,8 +310,7 @@ test("T1121 F-T1121-21: after the last question of this project, the line names 
   assert.equal(await page.locator(".viewer .note").textContent(), "The board does not show this page: it has no task T9 in the logbook of this question.", "F-T1121-19: the note says the true reason");
 });
 
-// Sets cells of one task row in tasks.tsv, for a state that the state tool reaches only through a whole route.
-function setTask(dir, id, cells) {
+function setTaskCells(dir, id, cells) {
   const file = join(dir, "tasks.tsv"), [head, ...rows] = readFileSync(file, "utf8").trimEnd().split("\n"), cols = head.split("\t");
   const row = rows.map(line => line.split("\t")).find(row => row[0] === id);
   for (const [name, value] of Object.entries(cells)) row[cols.indexOf(name)] = value;
@@ -326,14 +325,14 @@ test("T1156 F-T1156-15, -16: after Send, the line counts every need of the proje
     other.as("C1", "gate", "add", "T1", "--question", `A question of ${name}?`, "--options", "yes|no", "--recommend", "yes");
   }
   w.as("C2", "gate", "answer", "G2", "--option", "1", "--via", "chat");
-  setTask(w.dir, "T2", { state: "verified", pr: "12" });
+  setTaskCells(w.dir, "T2", { state: "verified", pr: "12" });
   await page.goto(`${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G1`)}`);
   await page.getByRole("radio", { name: /^A: yes/ }).check();
   await page.getByRole("button", { name: "Send answer" }).click();
   const send = page.locator(".q-main .send");
   await send.getByRole("link", { name: "Needs you · 1 left" }).waitFor();
   assert.equal(await send.getByText(/Nothing else waits/).count(), 0, "F-T1156-15: the merge of T2 still waits, so the line does not say that nothing waits");
-  setTask(w.dir, "T2", { state: "building", pr: "" });
+  setTaskCells(w.dir, "T2", { state: "building", pr: "" });
   await send.getByText(/^Nothing else waits in sample-app · 2 other projects need you: /).waitFor();
   for (const name of ["other-app", "third-app"]) {
     const link = send.getByRole("link", { name, exact: true });

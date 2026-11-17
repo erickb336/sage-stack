@@ -283,7 +283,7 @@ const KINDS = { design: "Design", arena: "Arena", page: "Page", prototype: "Prot
 const SANDBOX = { reader: "allow-same-origin allow-popups allow-popups-to-escape-sandbox", script: "allow-scripts", plain: "" };
 const itemId = item => `${item.task}/${item.file ?? item.kind}`;
 const shows = (item, option, i) => !!item.answer && (same(item.answer, option) || same(item.answer, String.fromCharCode(65 + i)));
-const narrow = () => matchMedia("(max-width: 1279px)").matches; // the width where an open file takes the whole width (board.css)
+const narrow = () => matchMedia("(max-width: 1279px)").matches;
 const pickKey = key => `board-pick ${key}`;
 const keptPick = key => { try { const n = Number(sessionStorage.getItem(pickKey(key))); return Number.isInteger(n) && sessionStorage.getItem(pickKey(key)) !== null ? n : null; } catch { return null; } };
 const keepPick = (key, n) => { try { n === null ? sessionStorage.removeItem(pickKey(key)) : sessionStorage.setItem(pickKey(key), String(n)); } catch {} };
