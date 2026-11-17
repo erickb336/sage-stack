@@ -1,7 +1,7 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { createRequire } from "node:module";
+import { requireBrowser } from "./browser-prerequisite.mjs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
@@ -10,11 +10,10 @@ import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.m
 import { boardOverview, buildBoardModel, readBoardSources } from "../packages/sage-core/index.mjs";
 import { writeSampleLogbooks } from "./board-sample.mjs";
 
-const require = createRequire(import.meta.url);
-const { chromium } = require("playwright");
+const chromium = requireBrowser();
 const APP = loadBoardApp(join(dirname(fileURLToPath(import.meta.url)), "..", "plugins/sage/board/app"));
 let browser;
-before(async () => { browser = await chromium.launch({ headless: true }); });
+before(async () => { browser = await chromium.launch(); });
 after(async () => { await browser?.close(); });
 
 async function board(t) {
