@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { TABLES } from "../../packages/sage-core/logbook-fields.mjs";
+import { TABLES, TASK_ADDED } from "../../packages/sage-core/logbook-fields.mjs";
 
 const HOUR = 3_600_000;
 const breakdown = (id, name, pilot) => [`Approve milestone ${id}? No task builds before you approve.`, `Name: ${name}`, "Goal: Sample goal.", "Pilot, runs first:", `  ${pilot}: Sample ${pilot}`].join(" ");
@@ -184,6 +184,7 @@ export function writeTasksLogbook(root, worktrees, now, { unicode = false, hosti
   }
   if (edge) tables.tasks.push({ ...tables.tasks[1], id: "T60", title: "Sample".repeat(500), state: "building", milestone: "", priority: "P3", kind: "", chief: "C1", branch: "" });
   for (let i = 0; tables.tasks.length < many; i++) tables.tasks.push({ ...tables.tasks[0], id: `T${1000 + i}`, title: `Sample ended task ${i}`, milestone: "", state: i % 7 ? "merged" : "abandoned", chief: i % 2 ? "C1" : "C2", priority: ["P1", "P2", "P3"][i % 3] });
+  tables.decisions.unshift(...tables.tasks.map(task => ({ at: at(100), task: task.id, decision: TASK_ADDED, why: "framed" })));
   mkdirSync(dir, { recursive: true });
   for (const [name, rows] of Object.entries(tables)) {
     const columns = [...TABLES[name], ...(["tasks", "runs"].includes(name) ? ["chief"] : []), ...(name === "runs" && agents ? ["admitted"] : []), ...(name === "tasks" && about ? ["request"] : [])];

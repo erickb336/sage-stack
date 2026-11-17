@@ -222,7 +222,7 @@ test("T1061, T1083: the task page opens from the keyboard, its tabs move with th
   assert.equal(await page.evaluate(() => document.activeElement.tagName), "H1", "the focus moves to the page's title");
   await page.getByRole("tab", { name: /Artifacts/ }).click();
   await page.keyboard.press("ArrowRight");
-  assert.equal(await page.evaluate(() => document.activeElement.textContent), "Log 8");
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), "Log 9", "the log counts the task added row too");
   assert.equal(await page.getByRole("tab", { name: /Log/ }).getAttribute("aria-selected"), "true");
   await page.keyboard.press("End");
   assert.equal(await page.evaluate(() => document.activeElement.textContent), "Decisions 1", "End goes to the last tab (F-T1080-21)");
@@ -547,4 +547,11 @@ test("T1080: a row's age counts from now, so it grows while the logbook does not
   assert.equal(await row(page, "T3").locator(".age").textContent(), "30 min ago");
   await page.clock.runFor(2 * 3_600_000);
   await settles(() => row(page, "T3").locator(".age").textContent(), "3 h ago");
+});
+
+test("T1159 (F-T1159-51): Tasks with no since value in the address shows no NaN, and each sample row has an age, as a real logbook gives each task a task added row", async t => {
+  const { page } = await open(t, {}, "/app/#tasks");
+  assert.equal(await page.locator(".focus-note").count(), 0, "no merged-since note without a since value");
+  assert.doesNotMatch(await page.locator("main").innerText(), /NaN/);
+  assert.deepEqual((await page.locator("a.row .age").allTextContents()).filter(age => /unknown/.test(age)), [], "every task of the sample has an age");
 });

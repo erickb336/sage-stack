@@ -148,7 +148,7 @@ test("T1126 S15, S12: the tabs sit under the title with About first; a merged ta
   for (const width of [1440, 390]) {
     const { page, problems } = await open(t, w, taskPage("T3"), { width, height: 844 });
     await page.locator(".about-card").waitFor();
-    assert.deepEqual(await page.getByRole("tab").allTextContents(), ["About", "Artifacts 14", "Log 13", "Decisions 1"]);
+    assert.deepEqual(await page.getByRole("tab").allTextContents(), ["About", "Artifacts 14", "Log 14", "Decisions 1"]);
     assert.equal(await page.getByRole("tab", { name: "About" }).getAttribute("aria-selected"), "true");
     const tabs = (await page.locator('[role="tablist"]').boundingBox()).y;
     assert.ok(tabs < (width < 760 ? 700 : 400), `${width} px: the tabs start at ${tabs} px, before About's parts`);

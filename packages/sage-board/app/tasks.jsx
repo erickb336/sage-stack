@@ -92,7 +92,7 @@ export function Tasks({ model, params, chief = null }) {
   const [opened, setOpened] = useState(() => new Set(history.state?.opened ?? []));
   useEffect(() => { history.replaceState({ ...history.state, opened: [...opened] }, ""); }, [opened]);
   const now = useNow();
-  const focus = params.get("milestone"), sort = Object.hasOwn(SORTS, params.get("sort")) ? params.get("sort") : "", since = Date.parse(params.get("since") ?? "");
+  const focus = params.get("milestone"), sort = Object.hasOwn(SORTS, params.get("sort")) ? params.get("sort") : "", since = Date.parse(params.get("since") ?? "") || 0;
   const group = focus || !Object.hasOwn(GROUPS, params.get("group")) ? "milestone" : params.get("group");
   const filters = Object.fromEntries(FILTERS.map(([key]) => [key, params.get(key) ?? ""]));
   const go = changes => { location.hash = hashOf(location.hash.split("?")[1] ?? "", changes); };
