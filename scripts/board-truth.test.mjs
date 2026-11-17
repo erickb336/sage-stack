@@ -53,14 +53,19 @@ test("T1120 S11: a merged PR counts the clean cycle that the merge check carried
 });
 
 test("F-T1159-8: the board carries cycles from the task's verdict rows as the merge check does, also a row that names no PR", t => {
-  const { model: before } = sample(t), reviewed = before.tasks.find(task => task.id === "T206" && task.key.startsWith("claude/sage-")).ledger.find(entry => entry.kind === "review-clean").sha;
+  let reviewed;
   const { row } = sample(t, sources => {
     for (const source of sources) for (const name of readdirSync(source.path)) {
       let text;
       try { text = readFileSync(join(source.path, name, "ledger.tsv"), "utf8"); } catch { continue; }
-      const [head, ...rows] = text.trimEnd().split("\n"), cols = head.split("\t"), pr = cols.indexOf("pr"), task = cols.indexOf("task"), sha = cols.indexOf("sha");
-      writeFileSync(join(source.path, name, "ledger.tsv"), `${[head, ...rows.map(line => { const cells = line.split("\t"); if (cells[task] === "T206" && cells[sha] === reviewed) cells[pr] = ""; return cells.join("\t"); })].join("\n")}\n`);
+      const [head, ...rows] = text.trimEnd().split("\n"), cols = head.split("\t"), cells = rows.map(line => line.split("\t")), at = name => cols.indexOf(name);
+      const review = cells.find(row => row[at("task")] === "T206" && row[at("kind")] === "review-clean");
+      if (!review) continue;
+      reviewed = review[at("sha")];
+      for (const row of cells) if (row[at("task")] === "T206" && row[at("sha")] === reviewed) row[at("pr")] = "";
+      writeFileSync(join(source.path, name, "ledger.tsv"), `${[head, ...cells.map(row => row.join("\t"))].join("\n")}\n`);
     }
   });
+  assert.match(reviewed ?? "", /^[0-9a-f]{40}$/, "the sample has T206's reviewed head");
   assert.deepEqual(row("T206").cycles, { required: 1, clean: 1, reviews: true, carriedFrom: reviewed }, "the reviewed head's rows were kept before the PR number: the merge check still counts them, so the board does too");
 });
