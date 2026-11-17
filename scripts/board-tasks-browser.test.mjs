@@ -1,8 +1,7 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { appendFileSync, cpSync, existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { createServer } from "node:net";
+import { requireBrowser } from "./browser-prerequisite.mjs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
@@ -12,24 +11,15 @@ import { readerUrl } from "../packages/sage-board/reader.mjs";
 import { HOSTILE_TEXT, UNICODE_TEXT, writeTasksLogbook } from "./fixtures/board-app.mjs";
 import { measureContrast } from "./fixtures/contrast.mjs";
 
-const require = createRequire(import.meta.url);
-const { chromium } = require("playwright");
+const chromium = requireBrowser();
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const APP = loadBoardApp(join(ROOT, "plugins/sage/board/app"));
 let browser;
-before(async () => { browser = await chromium.launch({ headless: true, ...(process.env.BOARD_BROWSER_PATH ? { executablePath: process.env.BOARD_BROWSER_PATH } : {}) }); });
+before(async () => { browser = await chromium.launch(); });
 after(async () => { await browser?.close(); });
 
-async function freePort() {
-  const socket = createServer();
-  await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-  const { port } = socket.address();
-  await new Promise(accept => socket.close(accept));
-  return port;
-}
-
 async function openBoard(t, options = {}, path = "/app/") {
-  const dir = mkdtempSync(join(tmpdir(), "sage-board-tasks-browser-")), port = await freePort(), saved = process.env.SAGE_WORKTREES;
+  const dir = mkdtempSync(join(tmpdir(), "sage-board-tasks-browser-")), saved = process.env.SAGE_WORKTREES;
   process.env.SAGE_WORKTREES = join(dir, "worktrees");
   const { twin, clock, source = { id: "shared", label: "Shared" }, ...fixture } = options, written = writeTasksLogbook(join(dir, "logbooks"), join(dir, "worktrees"), new Date().toISOString(), fixture);
   if (twin) cpSync(written, join(dir, "logbooks", "other-app-def456"), { recursive: true });
@@ -37,8 +27,8 @@ async function openBoard(t, options = {}, path = "/app/") {
     const config = join(book, "config.json");
     writeFileSync(config, JSON.stringify({ ...existsSync(config) && JSON.parse(readFileSync(config, "utf8")), name: "twin" }));
   }
-  const server = createBoardServer({ sources: [{ ...source, path: join(dir, "logbooks") }], port, app: APP, settleReads: [] });
-  await server.start();
+  const server = createBoardServer({ sources: [{ ...source, path: join(dir, "logbooks") }], port: 0, app: APP, settleReads: [] });
+  const { port } = await server.start();
   const base = `http://127.0.0.1:${port}`;
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, colorScheme: "dark" });
   if (clock) await context.clock.install({ time: Date.now() });
@@ -81,9 +71,10 @@ test("T1061, T1064, T1059: J2 and J3 are within two clicks of the Overview, and 
   assert.match(page.url(), /#task\?key=shared%2Fsample-app-abc123%2FT3$/, "T1083: a row opens the task's own page");
   assert.deepEqual(await page.locator(".trail li").evaluateAll(steps => steps.map(step => [step.className, step.firstChild.textContent, step.querySelector(".sr").textContent])), [["done", "build", " (done)"], ["done", "reviews", " (done)"], ["now", "QA", " (now)"]], "T1083 F-T1083-7: the trail names the route's steps; the code review is done and QA runs, each with its word for a screen reader");
   assert.match(await page.locator(".about-s p.now").first().textContent(), /^In progress: 0 of 1 review cycle passed\./);
+  await page.getByRole("tab", { name: /^Artifacts/ }).click();
   const made = await page.locator("#tab-panel .files a").allTextContents();
-  assert.deepEqual(made.filter(text => !["Brief", "Report"].includes(text)), ["limits-design.html", "notes.md", "Limits design note", "R5 · code-reviewer · done"], "J3: what its agents made");
-  assert.equal(made.filter(text => text === "Brief").length, 3, "a brief and a report link for each of T3's three runs");
+  assert.deepEqual(made.filter(text => !["Brief", "Report"].includes(text)), ["limits-design.html", "notes.md", "Limits design note", "R5 · code-reviewer · done"], "J3: what its agents made, one tab further (T1126: About is the first tab)");
+  assert.deepEqual(await page.locator('#tab-panel h4:text-is("Briefs and reports") + ul > li').evaluateAll(list => list.map(item => [item.firstChild.textContent, [...item.querySelectorAll("a")].map(a => a.textContent).join(" ")])), [["R5 · code-reviewer", "Report"], ["R6 · qa", "Brief"], ["R7 · implementer", ""]], "T1126 S16: a Brief or Report link only where the logbook keeps one");
   assert.equal(await page.getByRole("link", { name: "limits-design.html" }).getAttribute("href"), "/pages/sample-app-abc123/T3/limits-design.html");
   assert.match(await page.getByRole("link", { name: "notes.md" }).getAttribute("href"), /^\/read\/[\w-]+\/page\/notes\.md$/, "a Markdown page opens in the reader");
   assert.match(await page.locator("#tab-panel").textContent(), /R5 · code-reviewer · done.*CLEAN\. The limits change is correct\..*sage_qa_t3_r6\.json/);
@@ -91,7 +82,7 @@ test("T1061, T1064, T1059: J2 and J3 are within two clicks of the Overview, and 
   clicks = 0;
   await page.goto(`${base}/app/`);
   await click(page.getByRole("link", { name: /^Tasks/ }));
-  await click(page.getByRole("button", { name: "Priority" }));
+  await click(page.getByRole("button", { name: "Priority", exact: true }));
   assert.equal(clicks, 2, "J2: tasks by priority");
   await settles(() => groupTitles(page), ["P0", "P1", "P2"]);
 
@@ -229,14 +220,15 @@ test("T1061, T1083: the task page opens from the keyboard, its tabs move with th
   await page.keyboard.press("Enter");
   await taskTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
   assert.equal(await page.evaluate(() => document.activeElement.tagName), "H1", "the focus moves to the page's title");
-  await page.getByRole("tab", { name: /Artifacts/ }).focus();
+  await page.getByRole("tab", { name: /Artifacts/ }).click();
   await page.keyboard.press("ArrowRight");
-  assert.equal(await page.evaluate(() => document.activeElement.textContent), "Log 8");
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), "Log 9", "the log counts the task added row too");
   assert.equal(await page.getByRole("tab", { name: /Log/ }).getAttribute("aria-selected"), "true");
   await page.keyboard.press("End");
   assert.equal(await page.evaluate(() => document.activeElement.textContent), "Decisions 1", "End goes to the last tab (F-T1080-21)");
   await page.keyboard.press("Home");
-  assert.equal(await page.evaluate(() => document.activeElement.textContent), "Artifacts 7", "Home goes to the first tab");
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), "About", "Home goes to the first tab");
+  await page.keyboard.press("ArrowRight");
   await page.keyboard.press("ArrowRight");
   assert.match(await page.locator("#tab-panel").textContent(), /qa started/);
   assert.match(page.url(), /&tab=log$/, "the tab is in the address");
@@ -259,6 +251,7 @@ test("T1061 (F-T1061-1): markup, quotes, newlines and javascript: links in agent
   const panel = page.locator(".taskpage");
   assert.match(await panel.textContent(), /sage\/t50-<b>bold<\/b>/, "the branch name is text");
   assert.deepEqual(await panel.locator(".callout code").allTextContents(), ["<script>window.hacked=3</script>\\nsrc/evil\\u202egnp\\u009b.js", "src/a\\u061cb\\u2060c\\u00add\\u180ee\\u{e0001}f.js", "javascript:window.hacked=4", "src/shared.js"], "a path shows its newline, its right-to-left override, its C1 control and every other invisible or format character, also outside the BMP, as escapes");
+  await page.getByRole("tab", { name: /Artifacts/ }).click();
   assert.match(await panel.locator("#tab-panel").textContent(), /sage_x_t50_r9 <img src=x onerror=window\.hacked=9>\.json/);
   assert.match(await panel.locator("#tab-panel").textContent(), /<img src=x onerror="window\.hacked=6">label/);
   await page.getByRole("tab", { name: /Log/ }).click();
@@ -554,4 +547,58 @@ test("T1080: a row's age counts from now, so it grows while the logbook does not
   assert.equal(await row(page, "T3").locator(".age").textContent(), "30 min ago");
   await page.clock.runFor(2 * 3_600_000);
   await settles(() => row(page, "T3").locator(".age").textContent(), "3 h ago");
+});
+
+test("T1159 (F-T1159-51): Tasks with no since value in the address shows no NaN, and each sample row has an age, as a real logbook gives each task a task added row", async t => {
+  const { page } = await open(t, {}, "/app/#tasks");
+  assert.equal(await page.locator(".focus-note").count(), 0, "no merged-since note without a since value");
+  assert.doesNotMatch(await page.locator("main").innerText(), /NaN/);
+  assert.equal(await page.evaluate(() => document.querySelector(".toolbar").nextSibling?.className), "card group", "nothing, not even a 0, stands between the toolbar and the first group");
+  assert.deepEqual((await page.locator("a.row .age").allTextContents()).filter(age => /unknown/.test(age)), [], "every task of the sample has an age");
+});
+
+test("T1159 (F-T1159-54): Stats has its own scope, so its top bar shows no count of agents in all projects, no picker and no chief chips; the Overview keeps them", async t => {
+  const { page } = await open(t, { agents: true, twin: true }, "/app/#");
+  const top = () => page.locator("header.top").innerText();
+  await page.locator("header.top .limit", { hasText: "in all projects" }).waitFor();
+  assert.equal(await page.locator(".picker").count(), 1);
+  assert.match(await top(), /Agents\s+\d+ of \d+[^]*Leads\s+\d+ of \d+/, "the Overview names the open project's agent and lead counts");
+  await page.locator(".nav a", { hasText: "Stats" }).click();
+  await page.locator(".stat-tiles").waitFor();
+  assert.doesNotMatch(await top(), /in all projects/, "Stats counts its own scope only");
+  assert.equal(await page.locator("header.top .limit").count(), 0, "Stats shows no Agents or Leads chip of the project that the picker opened last, which it does not name");
+  assert.equal(await page.locator(".picker, .chips, .signal").count(), 0, "Stats shows no picker, no chief chips and no line about other projects than one it does not name");
+});
+
+test("T1159 (F-T1159-39, F-T1159-42): with a chief chip on, the Overview's Merged count and its list agree, and a group of only merged tasks counts them, not 0 open", async t => {
+  const { page } = await open(t, {}, "/app/#");
+  const merged = () => page.locator('[data-count="merged"] .n').textContent();
+  assert.equal(await merged(), "1", "T1 merged 2 h ago");
+  await page.locator('button.chip[data-chief="shared/sample-app-abc123/C2"]').click();
+  await settles(merged, "0", "C2 merged nothing");
+  await page.locator('[data-count="merged"] a').click();
+  await page.locator("main h1", { hasText: "Tasks" }).waitFor();
+  assert.equal(await page.locator("a.row").count(), 0, "the list agrees with the count");
+  await page.locator('button.chip[data-chief="shared/sample-app-abc123/C1"]').click();
+  await settles(() => page.locator("a.row .id").allTextContents(), ["T1"]);
+  assert.deepEqual(await page.locator(".group .card-h .hint").allTextContents(), ["1 ended"], "not done 0 open");
+});
+
+test("T1159 (F-T1159-48, F-T1159-49): a milestone with no task shows only its own note, and the milestone badge says the word milestone once", async t => {
+  const { page, base } = await open(t, { stuck: true }, `/app/#tasks?milestone=${encodeURIComponent(KEY("M10"))}`);
+  await page.locator(".lost").waitFor();
+  assert.equal(await page.locator(".empty").count(), 0, "no second note that the filters hide every task");
+  assert.equal(await page.locator(".focus-note .badge").textContent(), "Milestone 10: Empty stuck");
+  await page.goto(`${base}/app/#tasks?milestone=${encodeURIComponent(KEY("M1"))}`);
+  await settles(() => page.locator(".focus-note .badge").textContent(), "Milestone 1: Board redesign");
+});
+
+test("T1159 (F-T1159-46): a reader page of a task whose title is one long token scrolls only up and down, at 390 and 1440 px", async t => {
+  const { page, base } = await open(t, { edge: true }, "/app/#tasks");
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`${base}${readerUrl(KEY("T60"), "design")}`);
+    await page.locator("h1").first().waitFor();
+    assert.deepEqual(await page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]), [width, width], `${width} px: no sideways scroll`);
+  }
 });

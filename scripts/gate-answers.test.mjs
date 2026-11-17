@@ -117,6 +117,22 @@ test("first answer wins: a second answer to a plain or a takeover gate is refuse
   assert.equal(w.refused("claude", "gate", "answer", "G1", "--option", "1", "--via", "phone"), `--via is the place of the owner's answer: board, claude-card, codex-card, chat. Nothing changed.`);
 });
 
+test("T1156 F-T1156-40: in an archived project, gate answer is refused from every place and both providers, also after the board read the project as not archived; Restore lets the answer land", (t) => {
+  const w = shared(t);
+  w.as("claude", "task", "add", "--title", "a", ...ADD);
+  w.as("claude", "gate", "add", "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes");
+  w.owner("claude", "config", "archived=yes");
+  const before = readFileSync(join(w.dir, "gates.tsv"), "utf8");
+  const chat = "this project is archived, so it takes no answer: an archived project starts no agent and merges nothing. If this is new work that the owner asked for in this chat after the archive, restore the project first with sage config archived=no, tell the owner in one line that you restored it, then give the same command again. A lead does not restore a project: report blocked to your chief. Nothing changed.";
+  for (const provider of ["claude", "codex"]) {
+    for (const via of ["chat", "claude-card", "codex-card"]) assert.equal(w.refused(provider, "gate", "answer", "G1", "--option", "2", "--via", via), chat, `${provider} --via ${via}`);
+    assert.equal(w.refused(provider, "gate", "answer", "G1", "--option", "2", "--via", "board"), "This project is archived, so it takes no answer. Restore it, then answer again. Nothing changed.", `${provider} --via board: the owner's own words`);
+  }
+  assert.equal(readFileSync(join(w.dir, "gates.tsv"), "utf8"), before, "a refused answer writes nothing");
+  w.owner("claude", "config", "archived=no");
+  assert.match(w.owner("codex", "gate", "answer", "G1", "--option", "2", "--via", "board"), /^G1 recorded · no · from the board/, "after Restore the same answer lands");
+});
+
 for (const owning of ["claude", "codex"]) {
   test(`a board answer only records; the ${owning} chief's hook applies it at its next step and records the pickup, and the other chief's hook leaves it`, (t) => {
     const w = shared(t);
@@ -142,6 +158,24 @@ for (const owning of ["claude", "codex"]) {
     assert.ok(w.decisions().includes("Ship it? → no"));
     assert.equal(contextOf(HOOKS[owning].step(w)), "", "a pickup happens once");
     assert.match(w.refused(other(owning), "gate", "undo", "G1"), new RegExp(`^G1 has the board answer "no", and ${me} picked it up at ${STAMP}, so it acted already: an undo works only before the pickup\\. Nothing changed\\.$`));
+  });
+}
+
+for (const owning of ["claude", "codex"]) {
+  test(`T1156 F-T1156-49: a board answer recorded before an archive waits while the project is archived; the ${owning} chief's hook applies it only after Restore`, (t) => {
+    const w = shared(t);
+    w.as(owning, "task", "add", "--title", "a", ...ADD);
+    w.as(owning, "gate", "add", "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes");
+    w.owner(other(owning), "gate", "answer", "G1", "--option", "2", "--via", "board");
+    w.owner(other(owning), "config", "archived=yes");
+    assert.equal(contextOf(HOOKS[owning].step(w)), "", "no pickup while archived");
+    assert.equal(contextOf(HOOKS[owning].say(w, "go on")), "", "no pickup at a message either");
+    const g = w.gate("G1");
+    assert.deepEqual([g.answer, g.answered.answer, g.picked], ["", "no", ""], "the answer still waits, not applied and not cleared");
+    assert.ok(!w.decisions().some((d) => d.includes("G1")), "no decision while archived");
+    w.owner(other(owning), "config", "archived=no");
+    assert.match(contextOf(HOOKS[owning].step(w)), /- G1 \(T1\): the owner answered "no" on the board at .*G1 answered · no$/s, "after Restore the hook applies the waiting answer");
+    assert.equal(w.gate("G1").answer, "no");
   });
 }
 

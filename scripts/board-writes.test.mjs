@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { appendFileSync, chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
-import { createServer } from "node:net";
 import { hostname, tmpdir, uptime } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -13,18 +12,11 @@ import { runBoardCli } from "../plugins/sage/board/cli.mjs";
 import { startLink } from "../plugins/sage/board/access.mjs";
 import { createBoardServer, loadBoardApp, withoutPaths } from "../plugins/sage/board/server.mjs";
 import { writeInWorker } from "../plugins/sage/board/writes.mjs";
+import { boardCommandPort } from "./fixtures/board-port.mjs";
 
 const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
 const CLI = new URL("../plugins/sage/board/cli.mjs", import.meta.url).pathname, TEST_CHILD = new URL("./board-test-child.mjs", import.meta.url).pathname;
 const gitEnv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
-
-async function freePort() {
-  const socket = createServer();
-  await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-  const { port } = socket.address();
-  await new Promise(accept => socket.close(accept));
-  return port;
-}
 
 function call(port, path, { method = "POST", headers = {}, body } = {}) {
   return new Promise((accept, reject) => {
@@ -69,12 +61,11 @@ async function board(t, options = {}) {
   as("task", "add", "--title", "Sample share sheet", "--size", "small", "--priority", "P1");
   as("gate", "add", "T1", "--question", "Can a viewer copy a shared list?", "--options", "yes|no", "--recommend", "yes");
   const config = join(base, "home", ".config", "sage-board", "board.json");
-  const port = await freePort();
-  await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify([{ id: "shared", path: env.SAGE_SHARED_HOME }])], { output: () => {}, env });
   const stateDir = join(base, "home", ".config", "sage-board", "state");
-  const server = createBoardServer({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair", ...options });
-  await server.start();
+  const server = createBoardServer({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port: 0, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair", ...options });
   t.after(() => server.close());
+  const { port } = await server.start();
+  await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify([{ id: "shared", path: env.SAGE_SHARED_HOME }])], { output: () => {}, env });
   const origin = `http://127.0.0.1:${port}`;
   const own = { Origin: origin, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" };
   const logbook = `shared/${dir.split("/").at(-1)}`;
@@ -148,7 +139,7 @@ test("board --pair refuses input that is not a terminal, prints a one-time code 
 test("F-T1119-1, F-T1119-2: the pairing command on the page quotes a path with !, quotes, $, a backtick, a backslash and a space for an interactive shell, and names a config that is not the default with --config", async t => {
   const w = await board(t), odd = "it's $HOME `x` \"q\" !! copy";
   for (const part of ["board", "core"]) cpSync(new URL(`../plugins/sage/${part}/`, import.meta.url), join(w.base, odd, part), { recursive: true });
-  const config = join(w.base, "config \\ folder", "board.json"), port = await freePort();
+  const config = join(w.base, "config \\ folder", "board.json"), port = await boardCommandPort();
   await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify([{ id: "shared", path: w.env.SAGE_SHARED_HOME }])], { output: () => {}, env: w.env });
   const server = await (await import(pathToFileURL(join(w.base, odd, "board", "cli.mjs")).href)).runBoardCli(["board", "--serve", "--config", config], { output: () => {}, env: w.env });
   t.after(() => server.close());
@@ -357,7 +348,7 @@ test("the state tool's lock never runs on the server's event thread: a read answ
 
 test("F-T1059-52, F-T1059-28: the real board process answers a clear 500 and stays up when its state folder cannot be written or paired.json is a symlink", async t => {
   const w = await board(t);
-  const config = join(w.base, "serve", "board.json"), stateDir = join(w.base, "serve", "state"), port = await freePort();
+  const config = join(w.base, "serve", "board.json"), stateDir = join(w.base, "serve", "state"), port = await boardCommandPort();
   await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify([{ id: "shared", path: w.env.SAGE_SHARED_HOME }])], { output: () => {}, env: w.env });
   const child = spawn(process.execPath, [TEST_CHILD, CLI, "board", "--serve", "--config", config], { env: w.env, stdio: ["ignore", "ignore", "pipe", "ipc"] });
   let exited = null;
@@ -388,6 +379,35 @@ test("F-T1059-52, F-T1059-28: the real board process answers a clear 500 and sta
     await broken("a paired.json that is a symlink", "ELOOP");
   } finally {
     chmodSync(stateDir, 0o700);
+    if (child.connected) child.send({ kind: "close-tree" }, () => {});
+    await closed;
+  }
+});
+
+test("T1126, F-T1159-40: Stop from a paired browser closes the real board process: its port is free, its board.pid is gone and the process ends; a browser that is not paired and a page on another port cannot stop it", async t => {
+  const w = await board(t);
+  const config = join(w.base, "serve", "board.json"), port = await boardCommandPort();
+  await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify([{ id: "shared", path: w.env.SAGE_SHARED_HOME }])], { output: () => {}, env: w.env });
+  const child = spawn(process.execPath, [TEST_CHILD, CLI, "board", "--serve", "--config", config], { env: w.env, stdio: ["ignore", "ignore", "pipe", "ipc"] });
+  const closed = new Promise(done => child.once("exit", code => done(code)));
+  try {
+    await waitFor(async () => (await call(port, "/app/", { method: "GET" }).catch(() => null))?.status === 200, "the board process listens");
+    assert.ok(existsSync(join(w.base, "serve", "board.pid")), "the running board keeps its board.pid");
+    const own = { ...w.own, Origin: `http://127.0.0.1:${port}` };
+    assert.equal((await call(port, "/api/stop", { headers: own, body: {} })).status, 401, "a browser that is not paired cannot stop the board");
+    assert.equal((await call(port, "/api/stop", { headers: { ...own, Origin: `http://127.0.0.1:${port + 1}` }, body: {} })).status, 403, "a page on another port cannot stop the board");
+    assert.equal((await call(port, "/app/", { method: "GET" })).status, 200, "the board still runs after both refusals");
+    const lines = [];
+    await runBoardCli(["board", "--pair", "--config", config], { output: line => lines.push(line), env: w.env, input: { isTTY: true } });
+    const paired = await call(port, "/api/pair", { headers: own, body: { code: /Pairing code: (\S+)/.exec(lines.join("\n"))[1] } });
+    const stopped = await call(port, "/api/stop", { headers: { ...own, Cookie: paired.headers["set-cookie"][0].split(";")[0], "X-Sage-Token": paired.json.token }, body: {} });
+    assert.equal(stopped.status, 200, stopped.text);
+    assert.match(stopped.json.text, /^The board stopped\. To start it again, type show board in a chief's chat\.$/);
+    await waitFor(async () => (await call(port, "/app/", { method: "GET" }).catch(error => error.code)) === "ECONNREFUSED", "the port is free");
+    await waitFor(() => !existsSync(join(w.base, "serve", "board.pid")), "board.pid is gone");
+    child.send({ kind: "stopped" });
+    assert.equal(await closed, 0, "F-T1159-40: the board process ends on its own after Stop, within 10 s, with nothing left that holds it");
+  } finally {
     if (child.connected) child.send({ kind: "close-tree" }, () => {});
     await closed;
   }

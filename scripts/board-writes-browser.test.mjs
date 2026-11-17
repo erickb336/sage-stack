@@ -2,8 +2,7 @@ import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { createServer } from "node:net";
+import { requireBrowser } from "./browser-prerequisite.mjs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { after, before, test } from "node:test";
@@ -13,23 +12,15 @@ import { runBoardCli } from "../plugins/sage/board/cli.mjs";
 import { startLink } from "../plugins/sage/board/access.mjs";
 import { createBoardServer, loadBoardApp } from "../plugins/sage/board/server.mjs";
 import { writeInWorker } from "../plugins/sage/board/writes.mjs";
+import { boardCommandPort } from "./fixtures/board-port.mjs";
 
-const require = createRequire(import.meta.url);
-const { chromium } = require("playwright");
+const chromium = requireBrowser();
 const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
 const SHOTS = process.env.BOARD_SHOTS ?? null;
 const gitEnv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
 let browser;
-before(async () => { browser = await chromium.launch({ headless: true, ...(process.env.BOARD_BROWSER_PATH ? { executablePath: process.env.BOARD_BROWSER_PATH } : {}) }); });
+before(async () => { browser = await chromium.launch(); });
 after(async () => { await browser?.close(); });
-
-async function freePort() {
-  const socket = createServer();
-  await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-  const { port } = socket.address();
-  await new Promise(accept => socket.close(accept));
-  return port;
-}
 
 const MESSAGE = { kind: "question", title: "Can a viewer copy a shared list into their own lists?", blocks: [
   { t: "field", label: "Where", text: "The sample task sets what each person may do with a shared list." },
@@ -63,17 +54,19 @@ async function openBoard(t, { write, copy = false } = {}) {
   as("C2", "task", "add", "--title", "Sample crash report screen", "--size", "small", "--priority", "P2");
   as("C2", "gate", "add", "T2", "--question", "Crash reports: send them on their own, or ask each time?", "--options", "ask each time|send them", "--recommend", "ask each time");
   as("C3", "task", "add", "--title", "Sample export a list as CSV", "--size", "small", "--priority", "P2");
-  const config = join(base, "home", ".config", "sage-board", "board.json"), port = await freePort();
-  await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify([{ id: "shared", path: env.SAGE_SHARED_HOME }])], { output: () => {}, env });
-  const stateDir = join(base, "home", ".config", "sage-board", "state");
-  let server, cli = null;
+  const config = join(base, "home", ".config", "sage-board", "board.json"), stateDir = join(base, "home", ".config", "sage-board", "state");
+  const setup = port => runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify([{ id: "shared", path: env.SAGE_SHARED_HOME }])], { output: () => {}, env });
+  let server, cli = null, port;
   if (copy) {
+    port = await boardCommandPort();
+    await setup(port);
     cli = join(base, copy, "board", "cli.mjs");
     for (const part of ["board", "core"]) cpSync(new URL(`../plugins/sage/${part}/`, import.meta.url), join(base, copy, part), { recursive: true });
     server = await (await import(pathToFileURL(cli).href)).runBoardCli(["board", "--serve", "--config", config], { output: () => {}, env });
   } else {
-    server = createBoardServer({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair", ...(write && { write }) });
-    await server.start();
+    server = createBoardServer({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port: 0, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair", ...(write && { write }) });
+    ({ port } = await server.start());
+    await setup(port);
   }
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, colorScheme: "dark", timezoneId: "America/New_York", permissions: ["clipboard-read", "clipboard-write"] });
   t.after(async () => {
@@ -367,7 +360,29 @@ test("T1125: one click on the chief's link pairs a fresh browser, takes the key 
   await late.getByText(/^This link expired at \d\d:\d\d: a link works for 10 minutes\./).waitFor();
   const wrong = await other.newPage();
   await wrong.goto(`${w.origin}/app/#pair=${"A".repeat(43)}`);
-  await wrong.getByText(/^The board refused this link: it is not a link of this board\./).waitFor();
+  await wrong.getByText(/^The board does not know this link: it is not a link of this board, or it is older than the board's last 8 links\./).waitFor();
+  assert.deepEqual(w.problems, []);
+});
+
+test("F-T1159-11, F-T1159-12: a link pasted into a board tab that is open pairs it at once; a link older than the last 8 says so, not that it is another board's", async t => {
+  const w = await openBoard(t);
+  const other = await w.context.browser().newContext();
+  t.after(() => other.close());
+  const page = await other.newPage();
+  await page.goto(`${w.origin}/app/`);
+  await page.getByRole("heading", { name: "Pair this browser to act from the board" }).waitFor();
+  const key = startLink(w.stateDir);
+  await page.evaluate(key => { location.hash = `#pair=${key}`; }, key);
+  await page.getByText("This browser is paired. You can now answer questions and send from the board. The link is used up.").waitFor();
+  assert.match(page.url(), new RegExp(`^${w.origin}/app/(#\\?project=[a-z0-9-]+)?$`), "the key left the address bar");
+  await page.getByRole("heading", { name: "Pair this browser to act from the board" }).waitFor({ state: "detached" });
+  for (let n = 0; n < 9; n++) startLink(w.stateDir);
+  await page.evaluate(key => { location.hash = `#pair=${key}`; }, key);
+  await page.getByText(/^This browser is paired already\./).waitFor();
+  const fresh = await (await w.context.browser().newContext()).newPage();
+  t.after(() => fresh.context().close());
+  await fresh.goto(`${w.origin}/app/#pair=${key}`);
+  await fresh.getByText(/^The board does not know this link: it is not a link of this board, or it is older than the board's last 8 links\./).waitFor();
   assert.deepEqual(w.problems, []);
 });
 

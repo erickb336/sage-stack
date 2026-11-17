@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { dirname, join, posix } from "node:path";
-import { BRIEF_FIELDS, LONG_WIDTH, chiefName, prName, runWord, PAGE_MAX, REPORT_FIELDS, WIDTH, briefSections, fieldsOf, frameLines, pageFile, pageTaskFolder, pageType, readReport, taskPanel } from "../sage-core/index.mjs";
+import { BRIEF_FIELDS, LONG_WIDTH, chiefName, headingId, prName, runWord, PAGE_MAX, REPORT_FIELDS, WIDTH, briefSections, fieldsOf, frameLines, keptUsersText, pageFile, pageTaskFolder, pageType, readReport, taskPanel } from "../sage-core/index.mjs";
 
 const marksShown = text => String(text ?? "").replace(/\p{Cf}/gu, c => `[U+${c.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}]`);
 const TEXT_MAX = 1 << 20, MD_MAX = 2 << 20, VERSIONS_MAX = 30, SHOTS_MAX = 8;
@@ -18,7 +18,6 @@ function dedent(text) {
   return [first.trim(), ...rest.map(line => line.slice(Number.isFinite(indent) ? indent : 0))].join("\n").trim();
 }
 const firstLine = text => String(text ?? "").trim().split(/\r?\n/)[0] ?? "";
-export const headingId = text => `h-${String(text).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "part"}`;
 const questionHref = (task, gate) => `/app/#question?key=${encodeURIComponent(`${task.project}/${gate}`)}`;
 
 export function readBrief(dir, taskId, run) {
@@ -30,6 +29,25 @@ export function readBrief(dir, taskId, run) {
     if (kept !== undefined) { text = JSON.parse(kept)?.text; from = codex; if (typeof text !== "string") throw unread("The file has no brief text."); }
   } catch (error) { problem = whyUnread(error); text = undefined; }
   return { text, problem, from };
+}
+
+export function readRunReport(dir, folder, task, run) {
+  let text = dir ? readText(join(dir, "reports", `${run.id}.md`)) : undefined, from = "reports";
+  if (text === undefined && folder && pageFile(folder, `${run.id}-report.md`)) { text = pageFile(folder, `${run.id}-report.md`, true).bytes.toString("utf8"); from = "page"; }
+  if (text === undefined && dir) { const kept = readJson(join(dir, "kept", `${run.id}.json`)); if (kept?.task === task.id && kept.run === run.id && typeof kept.text === "string") { text = kept.text; from = "kept"; } }
+  return { text, from };
+}
+const shown = read => { try { return read(); } catch { return true; } };
+export const runFiles = (dir, folder, task, run) => ({ brief: shown(() => { const { text, problem } = readBrief(dir, task.id, run); return text !== undefined || !!problem; }), report: shown(() => readRunReport(dir, folder, task, run).text !== undefined) });
+
+export function changeText(dir, folder, task, runs) {
+  const users = keptUsersText(dir, task.id);
+  if (users) return { from: "pr", text: users };
+  const lead = runs.filter(item => item.role === "lead").sort((a, b) => (Date.parse(b.started) || 0) - (Date.parse(a.started) || 0))[0];
+  let text;
+  try { text = lead && readRunReport(dir, folder, task, lead).text; } catch {}
+  const result = text && fieldsOf(text, REPORT_FIELDS).find(field => field.name === "RESULT"), said = result && dedent([result.rest, ...result.lines].join("\n")).trim();
+  return said ? { from: "lead", run: lead.id, text: said } : null;
 }
 
 const CHECKERS = ["qa", "code-reviewer", "security-reviewer", "ux-reviewer", "evidence-review"];
@@ -180,7 +198,7 @@ const CSS = `:root{--bg:#09090b;--card:#111114;--card-2:#17171b;--line:#222228;-
 *{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--text)}body{font:14px/1.55 var(--font)}a{color:inherit}h1,h2,h3,p{margin:0}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:4px}
 .top{display:flex;align-items:center;gap:12px;height:52px;padding:0 24px;border-bottom:1px solid var(--line);font-size:13.5px;color:var(--muted)}.top b{color:var(--text);font-weight:500}.grow{flex:1}
-main{max-width:1240px;margin:0 auto;padding:22px 32px 64px}.where{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:22px;color:var(--muted)}.back{color:var(--text);font-weight:500}
+main{max-width:1240px;margin:0 auto;padding:22px 32px 64px}.where{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:22px;color:var(--muted)}.where>span{min-width:0;overflow-wrap:anywhere}.back{color:var(--text);font-weight:500}
 .btn{display:inline-block;border:1px solid var(--line-2);border-radius:8px;padding:5px 12px;text-decoration:none;color:var(--text);background:var(--card)}.btn[aria-current]{border-color:var(--accent);background:var(--accent-fill)}
 .kind{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);font-weight:600}h1{font-size:26px;font-weight:600;margin:6px 0 14px;overflow-wrap:anywhere}
 .facts{display:flex;flex-wrap:wrap;gap:6px 40px;margin:0 0 22px}.facts div{min-width:0}.facts dt{color:var(--muted);font-size:12.5px}.facts dd{margin:2px 0 0;overflow-wrap:anywhere}
@@ -238,7 +256,7 @@ export function readerPage({ model, configured, url, origin, render }) {
   const question = view.back.startsWith("q-") ? view.back.slice(2) : null;
   const back = question ? { href: readerUrl(view.key, "question", question, { theme: view.theme }), text: `Back to ${question}`, where: `Overview / Needs you / ${question}` }
     : view.kind === "question" ? { href: "/app/#", text: "Back to Needs you", where: `Overview / Needs you / ${view.arg}` }
-    : { href: `/app/#task?key=${encodeURIComponent(view.key)}`, text: `Back to ${task.id}`, where: `${task.id} · ${task.title} / Artifacts` };
+    : { href: `/app/#task?key=${encodeURIComponent(view.key)}&tab=artifacts`, text: `Back to ${task.id}`, where: `${task.id} · ${task.title} / Artifacts` };
   const link = (kind, arg, extra = {}) => readerUrl(view.key, kind, arg, { theme: view.theme, back: view.back, ...(view.in && { in: view.in }), ...extra });
   const staleNote = model.stale ? note(`<b>The board cannot read the logbook now.</b> This is the copy that it read at ${esc(when(model.at, model.at))}.`, "fail") : "";
   const state = model.stale ? `Not updated since ${when(model.at, model.at)}` : `Read ${when(model.at, model.at)} · reload to read again`;
@@ -271,6 +289,8 @@ export function readerPage({ model, configured, url, origin, render }) {
   const field = (name, body, open, more = "") => `<details${open ? " open" : ""}><summary><span class="fname">${esc(name)}</span><span class="first">${esc(firstLine(body).replace(/^(?:[-*+]|\d+[.)])\s+/, ""))}${more}</span></summary><div class="body md">${body ? markdown(body).html : `<p class="muted">This field is empty.</p>`}</div></details>`;
   const openBar = `<div class="bar"><a href="${esc(link(view.kind, view.arg, { open: "all" }))}">Open all</a><a href="${esc(link(view.kind, view.arg, { open: "none" }))}">Close all</a></div>`;
   const isOpen = (name, first) => view.open === "all" || view.open !== "none" && first.includes(name);
+  const other = (kind, run) => runFiles(dir, folder, task, run)[kind] ? `<a href="${esc(link(kind, run.id))}">${kind === "brief" ? "Brief" : "Report"} of ${esc(run.id)}</a>`
+    : `<span class="faint">${kind === "brief" ? "No brief" : run.status === "running" ? "Report when it ends" : "No report"}</span>`;
   const runMissing = () => ({ crumb: view.arg, title: `${view.kind === "brief" ? "Brief" : "Report"} of ${view.arg}`, body: note(`The logbook has no run ${esc(view.arg)} of ${esc(task.id)}.`, "fail") });
 
   const pages = {
@@ -278,7 +298,7 @@ export function readerPage({ model, configured, url, origin, render }) {
       if (!run) return runMissing();
       const { text, problem, from } = readBrief(dir, task.id, run);
       const head = [["Run", esc(run.id)], ["Role", esc(run.role)], ["Task", taskLink], ["Chief", chief(run)], ["Model", esc(run.model || "not recorded")], ["Started", esc(when(run.started, model.at))]];
-      const side = `<aside class="side"><h2>This run</h2><ul><li><a href="${esc(link("report", run.id))}">Report of ${esc(run.id)}</a></li><li>${taskA(`Task ${task.id}`)}</li></ul><p>GOAL and ACCEPTANCE open first: what the agent must do, and how the chief checks it. A closed field shows its first line.</p></aside>`;
+      const side = `<aside class="side"><h2>This run</h2><ul><li>${other("report", run)}</li><li>${taskA(`Task ${task.id}`)}</li></ul><p>GOAL and ACCEPTANCE open first: what the agent must do, and how the chief checks it. A closed field shows its first line.</p></aside>`;
       if (problem) return { crumb: run.id, title: `Brief of ${run.id}`, head, body: note(`<b>The board cannot read this brief.</b> ${esc(problem)}`, "fail") };
       if (text === undefined) return { crumb: run.id, title: `Brief of ${run.id}`, head, body: note(`<b>Not kept.</b> The logbook keeps no brief of ${esc(run.id)}. sage keeps briefs only for newer runs; this run is older, or its brief was not kept.`) };
       const sections = briefSections(text);
@@ -292,16 +312,15 @@ export function readerPage({ model, configured, url, origin, render }) {
       if (!run) return runMissing();
       let text, from, problem;
       try {
-        text = dir ? readText(join(dir, "reports", `${run.id}.md`)) : undefined; from = `reports/${run.id}.md in the logbook`;
-        if (text === undefined && folder && pageFile(folder, `${run.id}-report.md`)) { text = pageFile(folder, `${run.id}-report.md`, true).bytes.toString("utf8"); from = `<a href="${esc(pagesBase)}${esc(run.id)}-report.md">Open the file</a>`; }
-        if (text === undefined && dir) { const kept = readJson(join(dir, "kept", `${run.id}.json`)); if (kept?.task === task.id && kept.run === run.id && typeof kept.text === "string") { text = kept.text; from = `kept/${run.id}.json in the logbook (a review's kept report)`; } }
+        ({ text, from } = readRunReport(dir, folder, task, run));
+        from = { reports: `reports/${run.id}.md in the logbook`, page: `<a href="${esc(pagesBase)}${esc(run.id)}-report.md">Open the file</a>`, kept: `kept/${run.id}.json in the logbook (a review's kept report)` }[from];
       } catch (error) { problem = whyUnread(error); }
       const became = (task.gateRows ?? []).filter(gate => gate.run === run.id).map(gate => note(`<b>This became ${esc(gate.id)}.</b> The run asked it in its QUESTIONS field: ${esc(firstLine(gate.question))} <a href="${esc(questionHref(task, gate.id))}">Open ${esc(gate.id)}</a>`, gate.answer ? "" : "need")).join("");
       const ran = run.ended ? `${when(run.started, model.at)}–${when(run.ended, model.at)}` : `${when(run.started, model.at)}–`;
       const fields = text === undefined ? [] : fieldsOf(text, REPORT_FIELDS), of = name => { const item = fields.find(entry => entry.name === name); return item ? dedent([item.rest, ...item.lines].join("\n")) : ""; };
       const status = /^(done|blocked|question)\b/i.exec(of("STATUS"))?.[1].toLowerCase() ?? null;
       const head = [["Status", status ? `<span class="pill ${status}">${runWord(status).text}</span>` : run.status === "running" ? `<span class="pill">${runWord("running").text}</span>` : "not given"], ["Run", esc(run.id)], ["Role", esc(run.role)], ["Chief", chief(run)], ["Model", esc(run.model || "not recorded")], ["Ran", esc(ran)]];
-      const side = `<aside class="side"><h2>Links</h2><ul>${panel.prUrl ? `<li><a href="${esc(panel.prUrl)}">${esc(prName(panel.pr))}</a></li>` : ""}<li><a href="${esc(link("brief", run.id))}">Brief of ${esc(run.id)}</a></li><li>${taskA(`Task ${task.id}`)}</li></ul></aside>`;
+      const side = `<aside class="side"><h2>Links</h2><ul>${panel.prUrl ? `<li><a href="${esc(panel.prUrl)}">${esc(prName(panel.pr))}</a></li>` : ""}<li>${other("brief", run)}</li><li>${taskA(`Task ${task.id}`)}</li></ul></aside>`;
       if (problem) return { crumb: run.id, title: `Report of ${run.id}`, head, body: note(`<b>The board cannot read this report.</b> ${esc(problem)}`, "fail") };
       if (text === undefined) return run.status === "running"
         ? { crumb: run.id, title: `Report of ${run.id}`, head, body: note(`<b>Not written yet.</b> ${esc(run.role)} ${esc(run.id)} runs (${minutes(run.started, model.at)} min). The board shows the report when the run ends; reload this page then.`, "need") }
@@ -435,10 +454,11 @@ ${decisions.length ? decisions.map(gate => `<div class="decision"><p><b>${esc(ga
       })];
       const summary = designSummary(panel.logbook, task.id);
       if (summary.versions) readMore.push(`<li><a href="${esc(link("design", null, { back: `q-${gate.id}` }))}">Design · ${summary.versions} ${summary.versions === 1 ? "version" : "versions"}</a></li>`);
+      const shelved = model.projects?.some(project => project.archived && project.books?.includes(task.project));
       const status = gate.answer ? note(`<b>Answered: ${esc(gate.answer)}.</b> The first answer wins; to change it, tell the chief in its chat.`) : "";
       const head = `<p class="muted">${esc(owner)} · <span class="mono">${esc(gate.id)}</span> · asked ${esc(when(gate.at, model.at) + ago(gate.at, model.at))} · ${taskLink} · ${esc(task.title)}</p>`;
       const body = `${status}${message ? "" : note(`<b>Not kept.</b> The logbook keeps no full message of ${esc(gate.id)} (sage keeps the full message only for newer questions that the chief asks with a message). The board shows its question and options only.`)}
-${blocks.map(render).join("")}<h2 class="sec">Links</h2><ul>${readMore.join("")}</ul>${gate.answer ? "" : note(`<b>Answer on the board or in the chat.</b> The first answer wins. <a class="btn" href="${esc(questionHref(task, gate.id))}">Answer on the board</a>`)}`;
+${blocks.map(render).join("")}<h2 class="sec">Links</h2><ul>${readMore.join("")}</ul>${gate.answer ? "" : shelved ? note(`<b>${esc(task.projectName)} is archived.</b> It takes no answer. Restore brings the project back where it was, and you answer on the board. <a class="btn" href="${esc(questionHref(task, gate.id))}">Open it on the board</a>`, "need") : note(`<b>Answer on the board or in the chat.</b> The first answer wins. <a class="btn" href="${esc(questionHref(task, gate.id))}">Answer on the board</a>`)}`;
       return { crumb: gate.id, title: message?.title ?? firstLine(gate.question), head, body, raw: true };
     },
   };

@@ -1,7 +1,7 @@
 import { LAPSED, LINE, PRIORITIES, boardAnswer } from "./logbook-fields.mjs";
 import { milestoneName } from "./milestone-rules.mjs";
 import { STOPPED_MS } from "./chief-live.mjs";
-import { AGENT_QUIET_MS } from "./board-model.mjs";
+import { AGENT_QUIET_MS, isOpen } from "./board-model.mjs";
 import { TEAM } from "./role-policy.mjs";
 import { runWord, taskWord } from "./state-words.mjs";
 
@@ -86,7 +86,7 @@ export function projectNames(model) {
 function taskRow(task, chiefs) {
   const step = stepOf(task);
   return {
-    key: task.key, id: task.id, title: task.title, project: task.group, state: task.state, word: task.word ?? null, ended: ENDED.includes(task.state),
+    key: task.key, id: task.id, title: task.title, project: task.group, state: task.state, word: task.word ?? null, ended: !isOpen(task),
     priority: task.priority || null, kind: task.kind || null, size: task.size || null, pr: task.pr || null,
     milestone: task.milestone ? { key: task.milestone.key, id: task.milestone.id, title: milestoneName({ id: task.milestone.id, name: task.milestone.name ?? "" }) } : null,
     chief: chiefTag(task, chiefs), needsYou: task.reasons.length > 0, waits: task.waitLine?.text ?? null, cannotStart: !!task.waitLine?.never,
@@ -105,7 +105,12 @@ const count = value => /^\d+$/.test(String(value ?? "")) ? Number(value) : null;
 
 
 const retried = (task, run) => task.runs.some(other => other.role === run.role && time(other.started) > time(run.started));
-const failReason = (task, run) => (task.decisionRows ?? []).findLast(row => String(row.decision ?? "").startsWith(`${run.id} failed: `))?.decision.slice(`${run.id} failed: `.length) ?? null;
+const failedDecision = (task, run) => (task.decisionRows ?? []).findLast(row => String(row.decision ?? "").startsWith(`${run.id} failed: `))?.decision.slice(`${run.id} failed: `.length) ?? null;
+export function runFailure(task, run, reportResult = () => null) {
+  if (run.failure) return { text: String(run.failure).slice(0, 300), from: "failure" };
+  const result = reportResult(), decision = !result && failedDecision(task, run);
+  return result ? { text: result, from: "report" } : decision ? { text: decision.slice(0, 300), from: "decision" } : null;
+}
 
 function agentsOf(model, recent, agents, chiefs) {
   const states = new Map(agents.filter(agent => agent.task?.key && agent.runId).map(agent => [`${agent.task.key.slice(0, agent.task.key.lastIndexOf("/"))}/${agent.runId}`, agent]));
@@ -144,7 +149,7 @@ function agentsOf(model, recent, agents, chiefs) {
       return {
         id: run.id, role: run.role, status: run.status, chief: chiefOf(item), lead: leadOf(item)?.id ?? null, model: run.model || null, candidate: run.candidate || null,
         task: { key: task.key, id: task.id, title: task.title }, started: iso(run.started), ended: iso(run.ended), tokens: count(run.tokens), place: run.place ?? null, look, state,
-        why: run.status === "failed" ? failReason(task, run) : agent?.why || (run.clock.stale ? run.clock.text : null),
+        why: run.status === "failed" ? runFailure(task, run)?.text ?? null : agent?.why || (run.clock.stale ? run.clock.text : null),
         ...(endedOf.has(run.id) && { endedHelpers: endedOf.get(run.id).length }),
       };
     }).sort((a, b) => (time(a.started) ?? 0) - (time(b.started) ?? 0) || number(a.id) - number(b.id));
@@ -208,8 +213,8 @@ export function boardOverview(model) {
     at: model.at,
     stale: !!model.stale,
     problems: (model.diagnostics ?? []).map(item => item.message),
-    projects: (model.projects ?? []).map(project => ({ key: project.key, name: names.get(project.key), sub: project.sub, books: project.books, list: project.list, needs: project.needsOwner,
-      agents: project.agents, open: tasks.filter(task => task.group === project.key && !ENDED.includes(task.state)).length, lastActivity: project.lastActivity, archived: project.archived,
+    projects: (model.projects ?? []).map(project => ({ key: project.key, name: names.get(project.key), sub: project.sub, books: project.books, list: project.list, needs: needs.filter(need => need.project === project.key).length,
+      agents: project.agents, open: tasks.filter(task => task.group === project.key && isOpen(task)).length, lastActivity: project.lastActivity, archived: project.archived, mixed: project.mixed ?? null,
       kept: { tasks: project.tasks, ...project.kept }, archives: project.archives ?? 0, archivedAt: project.archivedAt ?? null, welcome: !project.archived && !project.workSinceRestore && project.restoredAt || null })),
     chiefs,
     needs,
@@ -230,7 +235,7 @@ function logOf(task) {
   const events = [
     ...(task.decisionRows ?? []).map(row => ({ at: row.at, who: "chief", text: `${row.decision}${row.why ? ` · ${row.why}` : ""}` })),
     ...task.runs.flatMap(run => run.status === "queued" ? [{ at: run.started, who: run.id, text: `${run.role} queued for an agent slot${run.place ? `, place ${run.place}` : ""}` }] : [
-      { at: run.started, who: run.id, text: failReason(task, run) === LAPSED ? `${run.role} admitted from the queue, but its agent did not start` : `${run.role} started${run.admitted ? " after its place in the queue" : ""}` },
+      { at: run.started, who: run.id, text: failedDecision(task, run) === LAPSED ? `${run.role} admitted from the queue, but its agent did not start` : `${run.role} started${run.admitted ? " after its place in the queue" : ""}` },
       ...(run.status === "running" ? [] : [{ at: run.ended, who: run.id, text: `${run.role} ended: ${runWord(run.status).text}` }]),
     ]),
     ...task.ledger.map(row => ({ at: row.at, who: row.run || "CI", text: `${row.kind}${row.cycle ? ` · cycle ${row.cycle}` : ""}${row.sha ? ` on ${String(row.sha).slice(0, 7)}` : ""}` })),

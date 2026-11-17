@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import fs, { appendFileSync, chmodSync, linkSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { request } from "node:http";
-import { createServer } from "node:net";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,27 +29,19 @@ function populate(root, title = "Sample first task") {
   return project;
 }
 
-async function freePort() {
-  const socket = createServer();
-  await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-  const port = socket.address().port;
-  await new Promise((accept, reject) => socket.close(error => error ? reject(error) : accept()));
-  return port;
-}
-
 const EVENT_GUARD = 30_000, REQUEST_GUARD = 120_000;
 const APP = loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", import.meta.url)));
 const has = (model, text) => JSON.stringify(model).includes(text);
 const BOARD_POLICY = "default-src 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'";
 
 async function fixture(t, { missing = false, id, clock, before, settleReads } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), "sage-board-server-")), root = join(dir, "source"), port = await freePort();
+  const dir = mkdtempSync(join(tmpdir(), "sage-board-server-")), root = join(dir, "source");
   if (!missing) populate(root);
   before?.(join(root, "project-abcdef"));
   const sources = [{ id: "sample", path: root, label: "Sample source" }];
-  const server = createBoardServer({ sources, port, id, app: APP, ...(clock ? { clock } : {}), ...(settleReads ? { settleReads } : {}) });
+  const server = createBoardServer({ sources, port: 0, id, app: APP, ...(clock ? { clock } : {}), ...(settleReads ? { settleReads } : {}) });
   t.after(async () => { await server.close(); rmSync(dir, { recursive: true, force: true }); });
-  await server.start();
+  const { port } = await server.start();
   return { dir, root, project: join(root, "project-abcdef"), port, sources, server };
 }
 
@@ -145,9 +136,31 @@ test("T770: the board's address sends the browser to the app, the old board's pa
   const app = await read(f, "/app/"); assert.equal(app.status, 200); assert.match(app.body, /<div id="root"><\/div>/);
   assert.doesNotMatch(app.headers["content-security-policy"], /unsafe-inline|unsafe-eval|https:/);
   const panel = await read(f, `/app/task/${key}`); assert.equal(panel.status, 200); assert.equal(JSON.parse(panel.body).title, "Sample first task");
-  const old = ["/agents", "/milestones", "/releases", "/programs", `/task/${key}`, `/milestone/${key}`, `/program/${key}`, "/?events=1", `/?events=1&task=${key}`, "/agents?events=1", "/milestones?events=1", "/releases?events=1"];
+  const old = ["/agents", "/milestones", "/releases", "/programs", `/task/${key}`, `/milestone/${key}`, `/program/${key}`];
   for (const path of old) { const gone = await read(f, path); assert.equal(gone.status, 404, path); assert.doesNotMatch(gone.body, /Sample first task/, path); }
+  for (const path of ["/?events=1", `/?events=1&task=${key}`, "/agents?events=1", "/milestones?events=1", "/releases?events=1", `/milestone/${key}?events=1`]) {
+    const stream = await read(f, path);
+    assert.deepEqual([stream.status, stream.headers["content-type"]], [200, "text/event-stream; charset=utf-8"], `${path}: a tab of the old board gets an event, not a 404 that leaves it on "Reconnecting" for ever (F-T1159-6)`);
+    const [retry, event, data] = stream.body.split("\n");
+    assert.deepEqual([retry, event], ["retry: 86400000", "event: board"], `${path}: the old tab asks again only after a day`);
+    const { stale, html } = JSON.parse(data.slice("data: ".length));
+    assert.equal(stale, true);
+    assert.match(html, /^<div id="board-content" data-at="[^"]+"><p><b>The board was updated, and this old page no longer updates\.<\/b> <a href="\/app\/">Open the new board<\/a>\.<\/p><\/div>$/, "the old page replaces its content with the note");
+    assert.doesNotMatch(stream.body, /Sample first task/);
+  }
   assert.deepEqual(readFileSync(file), before);
+});
+
+test("F-T1159-15: a query on the board's address still opens the app, so the app can read the pair key in the link", async t => {
+  const f = await fixture(t);
+  for (const path of ["/app/?from=chat", "/app/?"]) {
+    const app = await read(f, path);
+    assert.equal(app.status, 200, path); assert.match(app.body, /<div id="root"><\/div>/, path);
+    assert.match(app.headers["content-security-policy"], /^default-src 'none'; script-src http:\/\/127\.0\.0\.1:\d+\/app\//, path);
+  }
+  const root = await read(f, "/?from=chat");
+  assert.deepEqual([root.status, root.headers.location], [302, "/app/"]);
+  assert.equal((await read(f, "/app/nothing-here?x=1")).status, 404, "another name under /app/ is still not a page");
 });
 
 test("T1053: a request with any other Host gets 403 on every page and event route, also with a sign-in header, and discloses nothing", async t => {
@@ -174,7 +187,7 @@ test("T216: on the Mac itself (a loopback Host) the board needs no sign-in, and 
     const refused = await read(f, `/app/task/${key}`, { rawHeaders: ["Host", `127.0.0.1:${f.port}`, ...extra] });
     assert.equal(refused.status, 403, extra.join(": ")); assert.doesNotMatch(refused.body, /Sample first task/);
   }
-  for (const host of ["attacker.test", `127.0.0.1:${f.port + 1}`, `localhost`]) assert.equal((await read(f, `/app/task/${key}`, { rawHeaders: ["Host", host] })).status, 403, host);
+  for (const host of ["attacker.test", `127.0.0.1:${f.port + 1}`, "127.0.0.1:0", `localhost`]) assert.equal((await read(f, `/app/task/${key}`, { rawHeaders: ["Host", host] })).status, 403, host);
   assert.equal((await read(f, "/", { method: "POST", rawHeaders: ["Host", `127.0.0.1:${f.port}`] })).status, 405);
 });
 
@@ -240,7 +253,7 @@ test("T308, T770: the app stream follows the hook's slots: a new running agent r
 
 test("board server exposes only canonical read routes and refuses invalid configuration", async t => {
   const f = await fixture(t);
-  for (const path of ["/tasks.tsv", "/../config.json", "/%2e%2e/config.json", "/?x=1", "//", "/index.html", "/app/x.js", `/app/task/${key}=`, "/app/task/_w", `/app/task/${Buffer.from("missing").toString("base64url")}`, "/app/task/YR"]) {
+  for (const path of ["/tasks.tsv", "/../config.json", "/%2e%2e/config.json", "//", "/index.html", "/app/x.js", `/app/task/${key}=`, "/app/task/_w", `/app/task/${Buffer.from("missing").toString("base64url")}`, "/app/task/YR"]) {
     const result = await read(f, path); assert.equal(result.status, 404, path); assert.doesNotMatch(result.body, /Sample first task/);
   }
   for (const method of ["POST", "PUT", "DELETE", "PATCH", "OPTIONS"]) for (const path of ["/", "/app/", "/app/events", `/app/task/${key}`]) {
@@ -248,13 +261,13 @@ test("board server exposes only canonical read routes and refuses invalid config
     assert.equal(refused.status, 405, `${method} ${path}`); assert.equal(refused.headers.allow, "GET, HEAD");
   }
   const options = { sources: f.sources, port: f.port };
-  for (const changed of [{ port: 0 }, { sources: [] }, { sources: Array(1) }, { sources: [{ id: 2, path: f.root }] }, { sources: [{ id: "one", path: f.root, label: {} }] }]) assert.throws(() => createBoardServer({ ...options, ...changed }), TypeError);
+  for (const changed of [{ port: 1023 }, { port: 65536 }, { port: 1.5 }, { port: "43123" }, { sources: [] }, { sources: Array(1) }, { sources: [{ id: 2, path: f.root }] }, { sources: [{ id: "one", path: f.root, label: {} }] }]) assert.throws(() => createBoardServer({ ...options, ...changed }), TypeError);
 });
 
 test("board server fails on an occupied fixed port and closes without changing another listener", async t => {
   const f = await fixture(t), other = createBoardServer({ sources: f.sources, port: f.port });
   t.after(() => other.close());
-  await assert.rejects(other.start(), { code: "EADDRINUSE" });
+  await assert.rejects(other.start(), { code: "EADDRINUSE", message: `Board port ${f.port} is already in use.` });
   assert.equal((await read(f)).status, 302);
   assert.deepEqual(await f.server.start(), f.server.address());
   await Promise.all([f.server.close(), f.server.close()]); assert.equal(f.server.address(), null);
@@ -329,14 +342,14 @@ test("T314 R1042-2: a bad name or archived value in a logbook's config.json is a
 });
 
 test("F-T216-19: a root that appears while the board starts does not stop the start, and close ends", async t => {
-  const dir = mkdtempSync(join(tmpdir(), "sage-board-server-")), root = join(dir, "source"), port = await freePort();
+  const dir = mkdtempSync(join(tmpdir(), "sage-board-server-")), root = join(dir, "source");
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const server = createBoardServer({ sources: [{ id: "sample", path: root, label: "Sample source" }], port });
+  const server = createBoardServer({ sources: [{ id: "sample", path: root, label: "Sample source" }], port: 0 });
   const within = (promise, what) => Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(`${what} did not finish`)), 10_000).unref())]);
   const started = server.start();
   await new Promise(wake => setTimeout(wake, 30));
   populate(root);
-  try { assert.equal((await within(started, "start")).port, port); }
+  try { assert.equal((await within(started, "start")).port, server.address().port); }
   finally { await within(server.close(), "close"); }
   assert.equal(server.address(), null);
 });
@@ -401,7 +414,7 @@ const action = (i, run = "R1") => `${JSON.stringify({ v: 1, at: new Date(Date.UT
 const R1 = "sample/project-abcdef/R1";
 
 async function lightBoard(t, { lightEvery, quiet = false, slotOnly = false, hooks = true, slotAge = 0 } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), "sage-board-light-")), root = join(dir, "source"), project = populate(root), port = await freePort();
+  const dir = mkdtempSync(join(tmpdir(), "sage-board-light-")), root = join(dir, "source"), project = populate(root);
   writeFileSync(join(project, "runs.tsv"), `${HEADERS.runs.replaceAll(" ", "\t")}\nR1\tT1\tqa\t0\t\t\trunning\t\t\t${new Date(Date.now() - 60 * 60_000).toISOString()}\t\nR2\tT1\timplementer\t0\t\t\tdone\t\t\t2026-11-14T10:00:00Z\t2026-11-14T11:00:00Z\n`);
   if (hooks) slot(root, "slot-1", ["project-project", "role-sage_qa", "run-R1"]);
   if (slotOnly) slot(root, "slot-2", ["project-project", "role-sage_explore"]);
@@ -409,10 +422,10 @@ async function lightBoard(t, { lightEvery, quiet = false, slotOnly = false, hook
   if (quiet) { const long = new Date(Date.now() - 40 * 60_000); for (const name of slotOnly ? ["slot-2", "slot-1"] : ["slot-1"]) utimesSync(join(root, ".hooks", "slots", name), long, long); }
   mkdirSync(join(project, "actions"));
   let reads = 0;
-  const server = createBoardServer({ sources: [{ id: "sample", path: root, label: "Sample" }], port, settleReads: [], ...(lightEvery ? { lightEvery } : {}), duringRead: () => { reads++; },
+  const server = createBoardServer({ sources: [{ id: "sample", path: root, label: "Sample" }], port: 0, settleReads: [], ...(lightEvery ? { lightEvery } : {}), duringRead: () => { reads++; },
     app: loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", import.meta.url))) });
   t.after(async () => { await server.close(); rmSync(dir, { recursive: true, force: true }); });
-  await server.start();
+  const { port } = await server.start();
   return { dir, root, project, port, file: join(project, "actions", "R1.jsonl"), slot: join(root, ".hooks", "slots", "slot-1"), reads: () => reads };
 }
 
@@ -543,6 +556,21 @@ test("T1138: GET /app/stats gives the numbers of all projects or of one, names a
   appendFileSync(join(f.project, "tasks.tsv"), row("Sample new task", "T3"));
   let gaps = [];
   for (let i = 0; i < 100 && !gaps.length; i++) { await new Promise(done => setTimeout(done, 100)); gaps = (await get("/app/stats")).json.gaps; }
-  assert.deepEqual(gaps, [{ project: "project-abcdef", what: "the Sample source logbook of project-abcdef" }], "the stats read the new logbook, not the board's last good copy");
+  assert.deepEqual(gaps, [{ project: "project", what: "the agent time and tokens of project (Sample source logbook)" }], "the stats read the new logbook, not the board's last good copy; F-T1158-10: only the runs are left out; F-T1158-7: the project keeps its name");
   assert.equal((await get("/app/stats")).json.total.open, 2, "the rest still counts, with the new task");
+});
+
+test("F-T1158-3: while the board shows its last good copy, a read that changes the numbers still sends an event, so Stats fetches them", async t => {
+  const f = await fixture(t), stream = events(f);
+  t.after(() => stream.close());
+  const good = await stream.next(model => !model.stale);
+  assert.match(good.stats, /^[A-Za-z0-9+/]{43}=$/, "a digest of the numbers");
+  chmodSync(join(f.project, "runs.tsv"), 0);
+  appendFileSync(join(f.project, "tasks.tsv"), row("Sample second task", "T3"));
+  const stale = await stream.next(model => model.stale);
+  assert.notEqual(stale.stats, good.stats);
+  appendFileSync(join(f.project, "tasks.tsv"), row("Sample third task", "T4"));
+  const later = await stream.next(model => model.stale && model.stats !== stale.stats);
+  assert.equal(later.at, stale.at, "the board still shows its last good copy");
+  assert.equal(JSON.parse((await read(f, "/app/stats")).body).total.open, 3, "Stats of the newest read count the new tasks");
 });

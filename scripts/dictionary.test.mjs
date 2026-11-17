@@ -1,12 +1,12 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 import { ROOT, parseSource } from "./build.mjs";
 import { checkWords, flaggedWords } from "./dictionary.mjs";
+import { copyRepo } from "./repo-copy.mjs";
 
 const words = checkWords(parseSource(readFileSync(join(ROOT, "writing/dictionary.md"), "utf8"), "dictionary").body);
 const scan = (text, html) => flaggedWords(text, words, { html }).map(({ line, word }) => `${line}:${word}`);
@@ -47,9 +47,7 @@ test("in a page or a graphic, the text counts, and code, scripts and tags do not
 });
 
 function copy() {
-  const dir = mkdtempSync(join(realpathSync(tmpdir()), "sage-dictionary-"));
-  cpSync(ROOT, dir, { recursive: true, filter: (src) => ![".git", ".claude", "node_modules"].includes(relative(ROOT, src)) });
-  symlinkSync(join(ROOT, "node_modules"), join(dir, "node_modules"), "dir");
+  const dir = copyRepo("sage-dictionary-");
   const run = (script) => spawnSync("node", [join(dir, "scripts", `${script}.mjs`)], { encoding: "utf8" });
   const write = (rel, text) => {
     writeFileSync(join(dir, rel), text);

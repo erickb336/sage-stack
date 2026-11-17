@@ -28,7 +28,7 @@ The owner approved these tenets (G156). Each page and each element of the board 
 | --- | --- | --- |
 | J1 | What needs me, with full context | Overview, "Needs you": one click opens the question with its kept message; answer and Undo there (T1059) |
 | J2 | Where each milestone and task stands, by priority | Overview, "Milestones" (T1054); the Tasks page, grouped by priority (T1061) |
-| J3 | Where a task is in its dev cycle, and what its agents made | A milestone on the Overview, then a task: the side panel (T1061); the artifact viewer |
+| J3 | Where a task is in its dev cycle, and what its agents made | A milestone on the Overview, then a task: the task page (a side panel in T1061, a page of its own since T1083); the reader |
 | J4 | Which agents run, for which chief, against the limit | The Agents page |
 | J5 | Which PRs are open, merged or waiting, and what depends on what | The Pull requests page |
 | J6 | What changed since I looked | Overview, the counts: "Since you looked" with a paired browser, else the last 24 hours |
@@ -64,12 +64,16 @@ A ux review of a board page checks each line. A line that fails is a finding.
 
 ### What T1061 built
 
+T1083 later made the side panel a task page of its own, at `#task?key=<task key>`, with the same parts.
+
 - The Tasks page at `/app/#tasks`: every task, grouped by milestone, priority, chief or state, with filters for chief, provider, priority, kind and state. Each row shows the priority, the state word, the kind, the chief tag (id and provider) and "may conflict" when another chief's open branch changes the same file. Ended tasks (merged, concluded, abandoned) are collapsed in each group.
 - The side panel of one task: the steps of its route with the current step, the clean-cycle count ("not known" when the board does not know the PR's last commit), the last event, and the tabs Artifacts, Log and Decisions.
 - The stream carries one short row for each task. The panel reads `/app/task/<key>` when it opens, and again when the logbook changes. That route also lists the task's pages folder, the kept reports of its runs, and the brief and report files that name the task or one of its runs. A pages file opens through `/pages`; the reader for the other files comes later.
 - A "Needs you" row opens its task's panel, and a milestone row opens the Tasks page at that milestone.
 
 ### What T1059 built
+
+Later changes: T1125 added the pair link that `show board` sends, so the Terminal code is the way when no chat is open, and it keeps the time of the last visit in each browser, so the server keeps no `seen.json`.
 
 - Writes from a paired browser only: `board --pair` in Terminal (it refuses input that is not a terminal) prints a one-time code; the server sets an `HttpOnly; SameSite=Strict` cookie, gives the page a random token that it keeps in `localStorage` (scoped to the board's origin, so a server on another port that gets the cookie has no token), and keeps only the hashes of both in the board's state folder, `state/` next to the config. Each `POST /api/...` needs the exact `Origin`, `Sec-Fetch-Site: same-origin`, JSON, the cookie and the token of the same browser; an answer carries the digest of the question that the owner saw (`gate answer --seen`).
 - The reader core stays pure. The server runs only the owner's commands `gate answer --via board`, `gate undo`, `gate give` and `chief name`, through the state tool in a worker thread, so the logbook lock never holds the server's event thread.

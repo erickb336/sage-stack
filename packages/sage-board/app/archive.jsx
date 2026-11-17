@@ -34,13 +34,13 @@ async function send(kind, project, { undo = false } = {}) {
   set({ busy: project.key, note: null, undone: undo ? project.key : null });
   const result = await post(kind, { project: project.key }), { landed = 0, logbooks = 1, failed, pending } = result.json;
   const word = kind === "archive" ? "Archive" : "Restore";
-  const note = result.ok ? (kind === "archive" ? { kind: "archived", project } : null)
+  const note = result.ok ? { kind: kind === "archive" ? "archived" : "restored", project }
     : pending ? { kind: "pending", project, text: result.text }
     : landed ? { kind: "partial", project, again: kind, logbooks, failed, head: `${kind === "archive" ? "Archived" : "Restored"} in ${landed} of ${logbooks} logbooks.` }
     : { kind: "failed", project, again: kind, text: result.text, head: `${word} did not save.` };
   const stays = !result.ok && !landed && kind === "archive" && state.asking === project.key;
   set({ busy: null, asking: stays ? state.asking : null, note, ...(stays || { opener: null }), ...(undo && !result.ok && { undone: null }) });
-  if (note?.kind === "archived") undoTimer = setTimeout(() => state.note === note && set({ note: null }), UNDO_MS);
+  if (result.ok) undoTimer = setTimeout(() => state.note === note && set({ note: null }), UNDO_MS);
 }
 
 function trap(event) {
@@ -53,10 +53,10 @@ function trap(event) {
   else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
 }
 
-export function RestoreButton({ project, primary }) {
+export function RestoreButton({ project, primary, after }) {
   const { busy } = useArchive(), writes = useAccess();
   if (writes !== "paired") return null;
-  return <button type="button" className={`btn${primary ? " primary" : ""}`} disabled={!!busy} onClick={() => send("restore", project)}>{busy === project.key ? "Restoring…" : "Restore"}</button>;
+  return <button type="button" className={`btn${primary ? " primary" : ""}`} disabled={!!busy} aria-label={busy === project.key ? undefined : `Restore ${project.name}`} onClick={() => { send("restore", project); after?.(); }}>{busy === project.key ? "Restoring…" : "Restore"}</button>;
 }
 
 function Kept({ project }) {
@@ -96,6 +96,7 @@ function Confirm({ project, tasks }) {
 function Note({ note, shown }) {
   const { project } = note, button = useRef(null);
   useEffect(() => { button.current?.focus(); }, [note]);
+  if (note.kind === "restored") return <div className="banner" role="status" tabIndex={-1} ref={button}><div><b>{project.name} is restored.</b> The chief can start work in it again, and you can answer its questions here.</div></div>;
   if (note.kind === "archived") return (
     <div className="banner" role="status"><div><b>{project.name} is archived.</b> It is in the Archived list. <button type="button" className="btn" ref={button} onClick={() => send("restore", project, { undo: true })}>Undo</button></div></div>
   );
@@ -113,21 +114,33 @@ function Banner({ project, projects, now }) {
     <div className="banner archived" role="status" data-archived={project.key}>
       <div>
         {fromChat ? <b>The chat that sent this link works in {project.name}, and {project.name} is archived.</b> : <b>{since}</b>}{" "}
-        <span className="hint">{fromChat ? "Restore it here, or ask the chief." : "Nothing runs here. The logbook is whole. Answers and other writes wait until Restore."}</span>
+        <span className="hint">{fromChat ? "Restore it here, or ask the chief." : `${project.agents ? `${plural(project.agents, "agent finishes its", "agents finish their")} current run, and nothing new starts.` : "Nothing runs here."} The logbook is whole. Answers and other writes wait until Restore.`}</span>
         <p className="row-btns">{writes === "paired" ? <RestoreButton project={project} primary /> : <span className="hint">Pair this browser on the Overview to restore it here, or ask the chief in the chat.</span>}</p>
       </div>
     </div>
   );
 }
 
+function Mixed({ project }) {
+  const writes = useAccess(), { busy } = useArchive(), { archived, shown } = project.mixed, are = list => list.length > 1 ? "are" : "is";
+  return (
+    <div className="banner fail" role="status" data-mixed={project.key}><AlertIcon />
+      <div><b>{logbookNames(archived)} of {project.name} {are(archived)} archived, and {logbookNames(shown).replace("The", "the")} {are(shown)} not.</b> The project stays shown until {archived.length + shown.length > 2 ? "every logbook agrees" : "both agree"}.
+        {writes === "paired" && ["Archive", "Restore"].map(word => <span key={word}> <button type="button" className="btn" disabled={!!busy} onClick={() => send(word.toLowerCase(), project)}>{word}</button></span>)}
+      </div>
+    </div>
+  );
+}
+
 export function ArchiveLayer({ all, current, now }) {
-  const { asking, note, undone } = useArchive(), project = all.projects.find(item => item.key === asking);
+  const { asking, note, undone, busy } = useArchive(), project = all.projects.find(item => item.key === asking);
   const back = undone && all.projects.find(item => item.key === undone);
   useEffect(() => { if (back?.welcome && !back.archived) { closeWelcome(back); set({ undone: null }); } }, [back?.welcome, back?.archived]);
   return <>
     {project && <Confirm project={project} tasks={all.tasks} />}
     {note && !(note.again === "archive" && asking) && <Note note={note} shown={all.projects.find(item => item.key === note.project.key)} />}
     {current?.archived && <Banner project={current} projects={all.projects} now={now} />}
+    {current?.mixed && !current.archived && busy !== current.key && note?.project.key !== current.key && <Mixed project={current} />}
   </>;
 }
 

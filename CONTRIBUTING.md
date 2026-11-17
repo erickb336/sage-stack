@@ -24,6 +24,7 @@ Edit only the sources. The build makes everything else, and `npm run check` fail
 | `packages/` (shared code, and each provider's hooks, agents and skills) | `instructions/core.md` (built from `preferences/` and `writing/`) |
 | `scripts/graphics.mjs` (draws the README's graphics) | `docs/assets/*.svg` (drawn by the script) |
 | `scripts/board-shots.mjs` (takes the board screenshots) | `docs/assets/board-*.png` and `learn-*.png` (taken by the script) |
+| `scripts/board-walkthrough.mjs` (records the board walkthrough) | `docs/assets/board-walkthrough-*.gif` (recorded by the script) |
 
 To add a principle, add `principles/<name>.md`. A principle adapted from pstack has `source: pstack principle-<name>`, with the credit and the pstack version and commit that it was checked against (see [Credit](#credit)).
 
@@ -76,11 +77,17 @@ To add a principle, add `principles/<name>.md`. A principle adapted from pstack 
 7. Run the browser tests of the board. They are not in `npm test`, so that it stays fast. They use the Chromium headless shell of the pinned `playwright` devDependency. `npm ci` downloads no browser, so install it once:
 
    ```sh
-   npx playwright install --only-shell chromium
+   node scripts/browser-prerequisite.mjs setup
    npm run test:browser
    ```
 
-   To run one file: `node --test scripts/board-app-browser.test.mjs`. CI installs the same browser in each run, with no browser cache, as Playwright advises, and runs `npm run test:browser` after `npm run check`.
+   To run one file: `node --test scripts/board-app-browser.test.mjs`. Every browser test checks the same prerequisite before it starts a board or browser. The check requires matching Playwright 1.55.1 packages, the expected headless shell executable and its installation completion marker. It refuses `BOARD_BROWSER_PATH`; another cached revision is not a substitute. Tests never install a browser or skip an assertion when setup is incomplete.
+
+   Setup uses the pinned Playwright installer, with `pw:install` diagnostics. It keeps stdout and stderr through the child's close event. A ten-minute deadline requests termination through that child handle, unless its exit was already observed. Setup then waits at most ten seconds for close. A signal request or progress at 100% proves no completion. If close does not arrive, setup fails with cleanup unknown; its output snapshot covers the bounded wait. Do not start another installer until the host resolves that unknown cleanup. A direct child's close does not prove that every descendant stopped.
+
+   The prerequisite checks installation files. Only a successful browser startup and close checks that the browser can run on this host. CI uses a fresh Linux environment, installs with `node scripts/browser-prerequisite.mjs setup --with-deps`, and runs `npm run test:browser` after `npm run check`. Agents use their own scratch home and browser cache; they do not borrow the owner's browser or cache.
+
+   Run test commands in their own process and environment. `scripts/test-env.mjs` disables global Git configuration on purpose. Keep publication in the invoking authenticated context, outside that test process and its scratch home. Do not copy credentials or change Git configuration to publish from a test environment.
 
 ## A branch from before the sweep
 
@@ -117,6 +124,24 @@ node scripts/board-shots.mjs
 ```
 
 `npm run check` fails when a PNG is missing, or when the sample data changed after the last screenshots. It does not compare pixels.
+
+## The board walkthrough
+
+The README's board walkthrough, `docs/assets/board-walkthrough-dark.gif` and `board-walkthrough-light.gif`, comes from `scripts/board-walkthrough.mjs`. Make it again after a board change:
+
+```sh
+npm run walkthrough
+```
+
+- It writes the sample logbook of the screenshots (`scripts/fixtures/board-app.mjs`) to a temporary folder and starts a board server on a free port, with the built app.
+- It pairs a Playwright browser at 1320 by 800 pixels and plays one fixed path of three scenes: the Overview, a zoom on Needs you, and a click that opens one task. The clip is about 9 s long and loops.
+- It records frame by frame, 20 frames a second: for each frame it sets the zoom, the cursor, the click ring, the caption and any fade, then takes one screenshot. So the clip does not depend on the speed of the machine, and the text stays sharp in a zoom.
+- Each frame carries a caption and a SAMPLE DATA label. ffmpeg puts a window frame around each frame, with the title "sage board · sample data".
+- The board server of the walkthrough refuses every write, so the script never runs the state tool.
+- It stops when a frame shows the temporary folder, the home folder or the user name.
+- It needs ffmpeg 6 or later, to write the GIF: on PATH, or its path in `FFMPEG` (macOS: `brew install ffmpeg`; Debian or Ubuntu: `sudo apt-get install ffmpeg`).
+- It uses Playwright's Chromium, or the browser in `--browser <path>` or `BOARD_BROWSER_PATH`. `--theme dark` or `--theme light` makes one GIF; `--frames <folder>` keeps the frames in a new or empty folder, to compare two runs.
+- Each GIF is about 5 MB. CI does not run it. Two runs make the same frames, except for the clock times on the board.
 
 For board QA, `node scripts/board-sample.mjs <empty folder>` writes sample logbooks (made-up data), with sample agent slots for the Agents page. It prints the board sources as JSON.
 

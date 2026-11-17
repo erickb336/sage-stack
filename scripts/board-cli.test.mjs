@@ -1,7 +1,6 @@
 import "./test-env.mjs";
 import { spawnSync } from "node:child_process";
 import { request } from "node:http";
-import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -10,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createStateTool } from "../packages/sage-core/index.mjs";
 import { createBoardConfig, readBoardConfig, runBoardCli } from "../packages/sage-board/cli.mjs";
+import { boardCommandPort } from "./fixtures/board-port.mjs";
 function fixture(t) {
   const dir = mkdtempSync(join(realpathSync(tmpdir()), "sage-board-cli-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -24,6 +24,8 @@ test("T229, T1053: standalone config has no secret, no password and no allowed h
   const { config, root, value } = fixture(t);
   assert.deepEqual(Object.keys(JSON.parse(readFileSync(config, "utf8"))).sort(), ["port", "sources", "version"]);
   assert.throws(() => createBoardConfig(join(root, "low-port.json"), { sources: [{ id: "sample", path: root }], port: 1023 }), /1024 to 65535/);
+  assert.throws(() => createBoardConfig(join(root, "any-port.json"), { sources: [{ id: "sample", path: root }], port: 0 }), /1024 to 65535/, "T1126: only a test's own server takes port 0; the owner's config names a fixed port");
+  assert.equal(value.port, 43123, "a config without a port names the default port");
   assert.equal(statSync(config).mode & 0o777, 0o600);
   assert.deepEqual(readBoardConfig(config), value);
   assert.throws(() => createBoardConfig(join(root, "settings.json"), { sources: [{ id: "sample", path: root }] }), /outside logbook roots/);
@@ -109,13 +111,6 @@ test("standalone current-checkout board and task commands work without explicit 
   }
 });
 
-async function freePort() {
-  const socket = createServer();
-  await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-  const { port } = socket.address();
-  await new Promise(accept => socket.close(accept));
-  return port;
-}
 const get = (port, host) => new Promise((accept, reject) => {
   const req = request({ host: "127.0.0.1", port, path: "/", agent: false, headers: { Host: host } }, response => {
     let body = ""; response.setEncoding("utf8"); response.on("data", chunk => body += chunk);
@@ -125,7 +120,7 @@ const get = (port, host) => new Promise((accept, reject) => {
 });
 
 test("T229, T1053: a config with the keys of the old phone access still loads and starts the board, which ignores them", async t => {
-  const { dir, root } = fixture(t), config = join(dir, "old/board.json"), port = await freePort();
+  const { dir, root } = fixture(t), config = join(dir, "old/board.json"), port = await boardCommandPort();
   mkdirSync(join(dir, "old"));
   const password = { scheme: "scrypt", N: 32768, r: 8, p: 1, salt: "c2FtcGxlLXNhbHQtc2FtcGxl", hash: "not-a-valid-hash" };
   writeFileSync(config, JSON.stringify({ version: 1, sources: [{ id: "sample", path: root }], port, allowedHosts: ["sample.tailnet.ts.net"], secret: "sampleOldSecretSampleOldSecretSampleOldSecr", password }), { mode: 0o600 });

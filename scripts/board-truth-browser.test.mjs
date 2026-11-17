@@ -1,8 +1,7 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { createRequire } from "node:module";
-import { createServer } from "node:net";
+import { requireBrowser } from "./browser-prerequisite.mjs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
@@ -11,26 +10,17 @@ import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.m
 import { boardOverview, buildBoardModel, readBoardSources } from "../packages/sage-core/index.mjs";
 import { writeSampleLogbooks } from "./board-sample.mjs";
 
-const require = createRequire(import.meta.url);
-const { chromium } = require("playwright");
+const chromium = requireBrowser();
 const APP = loadBoardApp(join(dirname(fileURLToPath(import.meta.url)), "..", "plugins/sage/board/app"));
 let browser;
-before(async () => { browser = await chromium.launch({ headless: true }); });
+before(async () => { browser = await chromium.launch(); });
 after(async () => { await browser?.close(); });
 
-async function freePort() {
-  const socket = createServer();
-  await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-  const { port } = socket.address();
-  await new Promise(accept => socket.close(accept));
-  return port;
-}
-
 async function board(t) {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-truth-"))), port = await freePort(), now = new Date().toISOString();
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-truth-"))), now = new Date().toISOString();
   const sources = writeSampleLogbooks(join(dir, "sample"), { now }).map(({ id, label, path }) => ({ id, label, path }));
-  const server = createBoardServer({ sources, port, app: APP, settleReads: [] });
-  await server.start();
+  const server = createBoardServer({ sources, port: 0, app: APP, settleReads: [] });
+  const { port } = await server.start();
   t.after(async () => { await server.close(); rmSync(dir, { recursive: true, force: true }); });
   const tasks = boardOverview(buildBoardModel(readBoardSources(sources, { now: Date.parse(now) }), { now })).tasks;
   const key = id => tasks.find(task => task.id === id && task.key.startsWith("claude/sage-")).key;

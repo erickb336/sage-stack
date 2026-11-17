@@ -1,9 +1,9 @@
 import MarkdownIt from "markdown-it";
+import { headingId } from "../sage-core/state-words.mjs";
 
 const md = new MarkdownIt({ html: false, linkify: false, typographer: false });
 md.validateLink = url => !/^\s*(?:[a-z][a-z0-9+.-]*:|\/\/|\\)/i.test(url) || /^(?:https:\/\/|data:)/i.test(url.trim());
 
-const slug = text => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "part";
 const plain = tokens => tokens.map(token => token.children ? plain(token.children) : ["text", "code_inline"].includes(token.type) ? token.content : "").join("");
 const off = (token, text) => Object.assign(token, { type: "html_inline", tag: "", nesting: 0, content: text });
 
@@ -16,7 +16,7 @@ export function renderMarkdown(text, { href, picture }) {
     if (token.type === "heading_open" || token.type === "heading_close") token.tag = `h${Math.min(6, Number(token.tag[1]) + 1)}`;
     if (token.type === "heading_open") {
       const words = plain([tokens[index + 1]]);
-      const base = `h-${slug(words)}`;
+      const base = headingId(words);
       let id = base, n = next.get(base) ?? 2;
       while (ids.has(id)) id = `${base}-${n++}`;
       next.set(base, n); ids.add(id); token.attrSet("id", id);

@@ -1,8 +1,8 @@
 import { lstatSync } from "node:fs";
 import { join } from "node:path";
-import { pageFile, pageTaskFolder, pageType } from "../sage-core/index.mjs";
+import { headingId, pageFile, pageTaskFolder, pageType } from "../sage-core/index.mjs";
 import { listPages } from "./pages.mjs";
-import { designVersions, headingId, readerUrl } from "./reader.mjs";
+import { designVersions, readerUrl } from "./reader.mjs";
 
 export const MAX = 8;
 const RUN = /^R[1-9]\d*$/, TASK = /^T[1-9]\d*$/;
@@ -39,12 +39,18 @@ export function gateMaterial({ model, task, gate, message }) {
     add(owner ? { ...fileItem(owner, logbook, block.file, { group: "named", why, answer, part }), title }
       : { task: id, file: block.file, group: "named", kind: "page", frame: null, title, sub: `no task ${id} in this logbook on the board`, why });
   }
-  const folder = pageTaskFolder(logbook, task.id), versions = designVersions(folder).filter(version => !version.candidate && !version.final);
+  const folder = pageTaskFolder(logbook, task.id), all = designVersions(folder), versions = all.filter(version => !version.candidate && !version.final), final = all.filter(version => version.final).at(-1);
   if (versions.length) {
     const today = versions.filter(version => version.today).at(-1) ?? versions.at(-1);
     add({ task: task.id, group: "task", kind: "design", frame: "reader", title: `Design · ${versions.length} ${versions.length === 1 ? "version" : "versions"}`, sub: `${today.name} is the newest${today.run ? ` · designer ${today.run}` : ""}`,
       src: readerUrl(task.key, "design", null, { in: "board" }), open: readerUrl(task.key, "design", null), why: `The design of ${task.id}.` });
     if (today.prototype) add({ ...fileItem(task, logbook, `designs/${today.name}/${today.prototype}`, { group: "task", why: `The prototype of design ${today.name}, the newest version.` }), title: `${today.title ?? today.name} prototype` });
+  }
+  if (final && !versions.length) {
+    const candidates = all.filter(version => version.candidate).length;
+    add({ task: task.id, group: "task", kind: "arena", frame: "reader", title: `Arena · ${candidates} ${candidates === 1 ? "candidate" : "candidates"} and the final`, sub: `the final is ${final.name}${final.run ? ` · judge ${final.run}` : ""}`,
+      src: readerUrl(task.key, "arena", null, { in: "board" }), open: readerUrl(task.key, "arena", null), why: `The arena of ${task.id}: its candidates, their scores and the judge's final.` });
+    if (final.prototype) add({ ...fileItem(task, logbook, `designs/${final.name}/${final.prototype}`, { group: "task", why: `The prototype of the judge's final, ${final.name}.` }), title: `${final.title ?? final.name} prototype` });
   }
   const pages = folder ? listPages(folder).pages.filter(page => /\.md$/.test(page.name) && !page.name.startsWith("designs/")) : [];
   for (const page of pages.map(page => ({ ...page, at: modified(folder, page.name) })).sort((a, b) => b.at - a.at || a.name.localeCompare(b.name))) {
@@ -57,6 +63,6 @@ export function gateMaterial({ model, task, gate, message }) {
       src: readerUrl(task.key, kind, run.id, { in: "board" }), open: readerUrl(task.key, kind, run.id),
       why: recorded ? `${run.id} asked ${gate.id}: its ${kind}.` : `The logbook does not record which run asked ${gate.id}, so this is the newest ${run.role} run of ${task.id}.` });
   }
-  const asking = items.filter(item => item.group === "run"), rest = items.filter(item => item.group !== "run"), kept = rest.slice(0, MAX - asking.length);
-  return { items: [...kept, ...asking], more: rest.length - kept.length, ...(gate.run && !recorded && { missing: String(gate.run).slice(0, 20) }) };
+  const shown = item => !item.gone && item.frame !== null, asking = items.filter(item => item.group === "run"), present = items.filter(item => item.group !== "run" && shown(item)), kept = new Set(present.slice(0, MAX - asking.length));
+  return { items: [...items.filter(item => item.group !== "run" && (kept.has(item) || !shown(item))), ...asking], more: present.length - kept.size, ...(gate.run && !recorded && { missing: String(gate.run).slice(0, 20) }) };
 }

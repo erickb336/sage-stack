@@ -1,8 +1,7 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { appendFileSync, cpSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { createServer } from "node:net";
+import { requireBrowser } from "./browser-prerequisite.mjs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
@@ -13,30 +12,21 @@ import { graphProblems } from "./fixtures/graph-geometry.mjs";
 import { addRecords, editTable } from "./fixtures/logbook-edit.mjs";
 import { measureContrast } from "./fixtures/contrast.mjs";
 
-const require = createRequire(import.meta.url);
-const { chromium } = require("playwright");
+const chromium = requireBrowser();
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const APP = loadBoardApp(join(ROOT, "plugins/sage/board/app"));
 const REPOSITORY = "https://github.com/sample-owner/sample-app";
 let browser;
-before(async () => { browser = await chromium.launch({ headless: true, ...(process.env.BOARD_BROWSER_PATH ? { executablePath: process.env.BOARD_BROWSER_PATH } : {}) }); });
+before(async () => { browser = await chromium.launch(); });
 after(async () => { await browser?.close(); });
 
-async function freePort() {
-  const socket = createServer();
-  await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-  const { port } = socket.address();
-  await new Promise(accept => socket.close(accept));
-  return port;
-}
-
 async function open(t, { edit, width = 1440, ...options } = {}, path = "/app/") {
-  const dir = mkdtempSync(join(tmpdir(), "sage-board-prs-browser-")), port = await freePort(), saved = process.env.SAGE_WORKTREES;
+  const dir = mkdtempSync(join(tmpdir(), "sage-board-prs-browser-")), saved = process.env.SAGE_WORKTREES;
   process.env.SAGE_WORKTREES = join(dir, "worktrees");
   writeTasksLogbook(join(dir, "logbooks"), join(dir, "worktrees"), new Date().toISOString(), { prs: true, ...options });
   edit?.(join(dir, "logbooks", "sample-app-abc123"), join(dir, "logbooks"));
-  const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port, app: APP, settleReads: [] });
-  await server.start();
+  const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port: 0, app: APP, settleReads: [] });
+  const { port } = await server.start();
   const base = `http://127.0.0.1:${port}`;
   const context = await browser.newContext({ viewport: { width, height: 1000 }, colorScheme: "dark" });
   t.after(async () => { await context.close(); await server.close(); if (saved === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = saved; rmSync(dir, { recursive: true, force: true }); });
@@ -145,10 +135,10 @@ test("T1063: the list groups each PR by its next action and shows its task, chie
   const text = async id => (await row(page, id).innerText()).replace(/\s+/g, " ");
   assert.match(await text("T8"), /^PR 17 Sample search highlight Claude · C1 T8 may conflict · T3 · PR 12 Checks failed on the recorded PR head; the chief repairs it\. 0 of 1 clean cycles CI fails 0 open \d+ h ago$/);
   assert.match(await text("T3"), /^PR 12 Sample shared limits Codex · C2 T3 Milestone 1: Board redesign may conflict · T40 may conflict · T8 · PR 17 0 of 1 clean cycles CI passes 0 open \d+ min ago$/);
-  assert.match(await text("T7"), /^PR 16 Sample offline banner Codex · C2 T7 .* Clean cycles unknown · 1 needed CI unknown 0 open age unknown$/);
+  assert.match(await text("T7"), /^PR 16 Sample offline banner Codex · C2 T7 .* Clean cycles unknown · 1 needed CI unknown 0 open \d+ days ago$/);
   assert.match(await text("T5"), /^PR 14 Sample retry backoff Claude · C1 T5 .* 1 of 1 clean cycles CI passes 0 open \d+ h ago$/);
-  assert.match(await text("T6"), /^PR 15 Sample sync log .* Waits for T5 \(in progress\)\. 0 of 1 clean cycles CI unknown 0 open age unknown$/);
-  assert.match(await text("T13"), /^no PR Sample sync export .* Waits for T6 \(in progress\)\. age unknown$/);
+  assert.match(await text("T6"), /^PR 15 Sample sync log .* Waits for T5 \(in progress\)\. 0 of 1 clean cycles CI unknown 0 open \d+ days ago$/);
+  assert.match(await text("T13"), /^no PR Sample sync export .* Waits for T6 \(in progress\)\. \d+ days ago$/);
   assert.match(await text("T9"), /^PR 11 Sample conflict rule .* 1 clean cycle CI passes 0 open merged 5 h ago$/);
   assert.equal(await page.getByRole("status").filter({ hasText: /open PRs?$/ }).textContent(), "5 open PRs");
   assert.equal(await page.locator(".nav a", { hasText: "Pull requests" }).locator(".count").textContent(), "5");

@@ -1,7 +1,6 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -13,20 +12,12 @@ import { writeAppLogbook } from "./fixtures/board-app.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PLUGINS = ["plugins/sage", "plugins/sage-codex"];
 
-async function freePort() {
-  const socket = createServer();
-  await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-  const { port } = socket.address();
-  await new Promise(accept => socket.close(accept));
-  return port;
-}
-
 async function board(t, { app = loadBoardApp(join(ROOT, "plugins/sage/board/app")), now = new Date().toISOString() } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), "sage-board-app-")), root = join(dir, "logbooks"), port = await freePort();
+  const dir = mkdtempSync(join(tmpdir(), "sage-board-app-")), root = join(dir, "logbooks");
   const project = writeAppLogbook(root, now);
-  const server = createBoardServer({ sources: [{ id: "sample", path: root, label: "Sample" }], port, app, settleReads: [] });
+  const server = createBoardServer({ sources: [{ id: "sample", path: root, label: "Sample" }], port: 0, app, settleReads: [] });
   t.after(async () => { await server.close(); rmSync(dir, { recursive: true, force: true }); });
-  await server.start();
+  const { port } = await server.start();
   return { base: `http://127.0.0.1:${port}`, project };
 }
 
@@ -162,13 +153,13 @@ test("F-T1065-14: the app stream sends a model only when it changed, and refuses
     writeFileSync(file, text);
   });
   assert.deepEqual(frames.map(frame => frame.stale), [false, true, false], "a second read of the same damaged table, with the same last good data, sent nothing");
-  const streams = [];
+  const { base: fresh } = await board(t), streams = [];
   t.after(() => Promise.all(streams.map(stream => stream.body.cancel())));
   for (let count = 0; count < 16; count++) {
-    streams.push(await fetch(`${base}/app/events`));
+    streams.push(await fetch(`${fresh}/app/events`));
     assert.equal(streams.at(-1).status, 200);
   }
-  const extra = await fetch(`${base}/app/events`);
+  const extra = await fetch(`${fresh}/app/events`);
   assert.equal(extra.status, 503, "the 16 responses stay referenced until t.after, as fetch cancels the body of a response that is garbage collected, and that frees a slot");
   assert.match(await extra.text(), /too many open board streams/);
 });

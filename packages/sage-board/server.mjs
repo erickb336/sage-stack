@@ -7,8 +7,8 @@ import { AGENT_QUIET_MS, readActions, readHookNotes, readBoardSources, buildBoar
 import { COOKIE, boardAccess, readJson } from "./access.mjs";
 import { gateMaterial } from "./material.mjs";
 import { failureOf, pagesRequest, servePages, taskFiles } from "./pages.mjs";
-import { briefAbout, designSummary, logbookDir, readerPage, recordedPages } from "./reader.mjs";
-import { writeInWorker, writesEnded } from "./writes.mjs";
+import { briefAbout, changeText, designSummary, logbookDir, readerPage, recordedPages, runFiles } from "./reader.mjs";
+import { ARCHIVE_JOBS, writeInWorker, writesEnded } from "./writes.mjs";
 
 const MARKDOWN = await import("./markdown.mjs").then(module => module.renderMarkdown, () => null);
 const NO_READER = "The reader's Markdown renderer is not in this copy of the board. Run the board from the sage plugin, or run npm ci and npm run build.";
@@ -72,13 +72,14 @@ function appPolicy(origin) {
   return `default-src 'none'; script-src ${origin}/app/; style-src ${origin}/app/; connect-src 'self'; img-src 'self'; frame-src ${origin}/read/ ${origin}/pages/; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'`;
 }
 
+const RETIRED_STREAM = `retry: 86400000\nevent: board\ndata: ${JSON.stringify({ stale: true, html: '<div id="board-content" data-at="before the board\'s update"><p><b>The board was updated, and this old page no longer updates.</b> <a href="/app/">Open the new board</a>.</p></div>' })}\n\n`;
+
 const forwarded = name => name === "forwarded" || name.startsWith("x-forwarded-");
 
 const BODY_MAX = 16 * 1024;
 const PAIR_AGAIN = "To pair it, type show board in a chief's chat, and click the link that it sends; or use the Terminal code of the pairing card.";
 const HEADERS_MAX = 64 * 1024;
 const GATE = /^G[1-9]\d*$/, TASK = /^T[1-9]\d*$/, CHIEF = /^C[1-9]\d*$/, LOGBOOK = /^([A-Za-z0-9_-]{1,80})\/([a-z0-9-]+-[0-9a-f]{6})$/;
-const ARCHIVE_JOBS = { archive: ["config", "archived=yes"], restore: ["config", "archived=no"] };
 const JOBS = {
   answer: body => GATE.test(body.gate) && Number.isInteger(body.option) && body.option >= 1 && body.option <= 99 && /^[0-9a-f]{16}$/.test(body.digest ?? "") && ["gate", "answer", body.gate, "--via", "board", "--option", String(body.option), "--seen", body.digest],
   undo: body => GATE.test(body.gate) && ["gate", "undo", body.gate],
@@ -105,8 +106,8 @@ function jsonBody(request) {
   });
 }
 
-export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () => new Date().toISOString(), settleReads = SETTLE_READS, lightEvery = LIGHT_EVERY, duringRead = null, providerRoots = [], app = loadBoardApp(), markdown = MARKDOWN, stateDir = null, pairCommand = null, write = writeInWorker } = {}) {
-  if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) throw new TypeError("board port must be an integer from 1024 through 65535");
+export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () => new Date().toISOString(), settleReads = SETTLE_READS, lightEvery = LIGHT_EVERY, duringRead = null, providerRoots = [], app = loadBoardApp(), markdown = MARKDOWN, stateDir = null, pairCommand = null, write = writeInWorker, onStop = null } = {}) {
+  if (!Number.isSafeInteger(port) || port !== 0 && (port < 1024 || port > 65535)) throw new TypeError("board port must be an integer from 1024 through 65535, or 0 for a free port that the system picks");
   if (typeof clock !== "function") throw new TypeError("the board clock must be a function that gives an ISO time");
   if (!Array.isArray(sources) || !sources.length || sources.length > 32) throw new TypeError("board needs 1 to 32 explicit sources");
   const ids = new Set();
@@ -118,14 +119,13 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
   });
   const landing = landingRule(configured);
   if (id !== undefined && (typeof id !== "string" || !/^[a-f0-9]{16,64}$/.test(id))) throw new TypeError("the board id must be 16 to 64 lowercase hex characters");
-  const local = new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
-  const origins = new Map([...local].map(host => [host, `http://${host}`]));
+  const local = new Set(), origins = new Map();
   let boardHeader = null;
   if (stateDir && (typeof pairCommand !== "string" || !pairCommand || /[\x00-\x1f\x7f]/.test(pairCommand))) throw new TypeError("a board that takes writes needs the pairing command that the owner runs in Terminal");
   const access = stateDir ? boardAccess(stateDir) : null;
   const watchers = new Map(), watchErrors = new Map(), clients = new Set();
   let model, fresh, overview, lastGood, revision = 0, refreshTimer, boundaryTimer, settleTimer, startTimer, startPromise, closePromise, closed = false;
-  let lastRead = null, lightTimer, lightAt = 0, activity = new Map();
+  let lastRead = null, lightTimer, lightAt = 0, activity = new Map(), archiving = Promise.resolve();
   const dirty = { hooks: new Set(), books: new Set(), folders: false };
 
   function onMac(request) {
@@ -313,10 +313,12 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     if (!next.diagnostics.length && !changing.length) { lastGood = next; model = { ...next, stale: false }; }
     else if (!next.diagnostics.length) model = lastGood ? { ...lastGood, stale: false, changing: changing.map(item => ({ project: item.project, at: lastGood.at })) } : { ...next, stale: false };
     else model = { ...(lastGood ?? next), stale: true, diagnostics: next.diagnostics, changing };
-    overview = boardOverview(model);
-    for (const book of overview.agents) for (const run of book.runs) if (run.status === "failed") {
-      const task = model.tasks.find(item => item.key === run.task.key), row = task?.runs.find(item => item.id === run.id);
-      if (row) run.why = failureOf({ dir: logbookDir(configured, task), task, run: row })?.text ?? null;
+    const numbers = [null, ...next.projects.map(project => project.key)].map(key => ({ ...boardStats(next, key), at: null }));
+    overview = { ...boardOverview(model), stats: digest(JSON.stringify(numbers)).toString("base64") };
+    for (const book of overview.agents) for (const run of book.runs) if (run.status === "failed" || run.role === "arena-judge") {
+      const task = model.tasks.find(item => item.key === run.task.key), row = task?.runs.find(item => item.id === run.id), dir = task && logbookDir(configured, task);
+      if (row && run.status === "failed") run.why = failureOf({ dir, task, run: row })?.text ?? null;
+      if (row && run.role === "arena-judge") run.report = runFiles(dir, pageTaskFolder(task.project.slice(task.project.indexOf("/") + 1), task.id), task, row).report;
     }
     const known = activity;
     activity = new Map();
@@ -336,7 +338,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
 
   const server = createServer({ maxHeaderSize: HEADERS_MAX }, (request, response) => {
     securityHeaders(response);
-    if (pagesRequest(request.url)) return servePages(request, response, { onMac, model });
+    if (pagesRequest(request.url)) return servePages(request, response, { onMac, model, reader: !!markdown });
     const fail = (status, text) => { response.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" }); response.end(request.method === "HEAD" ? undefined : `${text}\n`); };
     if (!browserBoundary(request) || !onMac(request)) return fail(403, "This request is not permitted.");
     if (boardHeader) response.setHeader("X-Sage-Board", boardHeader);
@@ -345,7 +347,8 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     if (!["GET", "HEAD"].includes(request.method)) { response.setHeader("Allow", "GET, HEAD"); return fail(405, "This method is not permitted."); }
     if (request.url === "/app" || request.url.startsWith("/app/")) return serveApp(request, response, fail);
     if (request.url.startsWith("/read/")) return serveReader(request, response, fail);
-    if (request.url === "/") { response.writeHead(...request.method === "HEAD" ? ANSWER_TO_THE_BOARD_PROBE_OF_ANY_PLUGIN : SEND_THE_BROWSER_TO_THE_APP); return response.end(); }
+    if (/[?&]events=1(?:&|$)/.test(request.url)) { response.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8" }); return response.end(request.method === "HEAD" ? undefined : RETIRED_STREAM); }
+    if (request.url === "/" || request.url.startsWith("/?")) { response.writeHead(...request.method === "HEAD" ? ANSWER_TO_THE_BOARD_PROBE_OF_ANY_PLUGIN : SEND_THE_BROWSER_TO_THE_APP); return response.end(); }
     fail(404, "This board page does not exist.");
   });
   async function serveApi(request, response, fail) {
@@ -374,13 +377,21 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     }
     if (!browser) return reply(401, { problem: `This browser is not paired with the board. ${PAIR_AGAIN}` });
     if (!fits) return reply(403, { problem: `This page does not have this browser's pairing token. ${PAIR_AGAIN}` });
+    if (name === "stop") {
+      response.once("finish", () => Promise.resolve().then(onStop ?? board.close).catch(() => {}));
+      return reply(200, { ok: true, text: "The board stopped. To start it again, type show board in a chief's chat." });
+    }
     if (name === "name" && /^\s*-/.test(body.name ?? "")) return reply(400, { problem: "A chief's name cannot start with \"-\", because the state tool would read it as an option. Start it with a letter or a digit. Nothing changed." });
-    if (Object.hasOwn(ARCHIVE_JOBS, name)) return reply(...await archiveWrite(body.project, ARCHIVE_JOBS[name]));
+    if (Object.hasOwn(ARCHIVE_JOBS, name)) {
+      const turn = archiving.then(() => archiveWrite(body.project, ARCHIVE_JOBS[name]));
+      archiving = turn.catch(() => {});
+      return reply(...await turn);
+    }
     const book = LOGBOOK.exec(body.logbook ?? ""), source = book && configured.find(item => item.id === book[1]);
     const argv = Object.hasOwn(JOBS, name) && JOBS[name](body);
     if (!argv || !source || !model?.sources.some(item => item.id === source.id && item.shared)) return reply(400, { problem: "The board cannot send this write: it names no question, task or chief of a shared logbook." });
     const shelved = model.projects?.find(project => project.archived && project.logbooks.includes(body.logbook));
-    if (shelved) return reply(409, { ok: false, text: `${shelved.name} is archived, so the board records no answer or other write for it. Restore it first, or answer in the chief's chat. Nothing changed.` });
+    if (shelved) return reply(409, { ok: false, text: `${shelved.name} is archived, so the board records no answer or other write for it. Restore it first, then try again. Nothing changed.` });
     const done = await write({ shared: source.path, folder: book[2], argv });
     return reply(done.pending ? 202 : done.code ? 409 : 200, { ok: !done.code, ...(done.pending && { pending: true }), text: withoutPaths(String(done.text).replace(/^sage: /, "")) });
   }
@@ -432,7 +443,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
   function serveApp(request, response, fail) {
     if (request.url === "/app") { response.writeHead(301, { Location: "/app/" }); return response.end(); }
     if (!app) return fail(503, NO_APP);
-    const name = request.url.slice("/app/".length);
+    const name = /^\?/.test(request.url.slice("/app/".length)) ? "" : request.url.slice("/app/".length);
     if (name === "events") {
       if (clients.size >= MAX_CLIENTS && request.method !== "HEAD") return fail(503, "There are too many open board streams.");
       response.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "X-Accel-Buffering": "no" });
@@ -448,9 +459,10 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
         const key = taskKey(name.slice("task/".length)), panel = key && model && taskPanel(model, key);
         if (!panel) return fail(404, "This task is not on the board.");
         const task = model.tasks.find(item => item.key === key), dir = logbookDir(configured, task);
-        const files = { ...taskFiles({ dir, logbook: panel.logbook, task: task.id, runs: panel.runs }), designs: designSummary(panel.logbook, task.id), recorded: recordedPages(task, pageTaskFolder(panel.logbook, task.id)) };
-        const runs = panel.runs.map(run => run.status === "failed" ? { ...run, failure: failureOf({ dir, task, run: task.runs.find(item => item.id === run.id) }) } : run);
-        const body = Buffer.from(JSON.stringify({ ...panel, runs, files, brief: briefAbout(dir, task, panel.runs) }));
+        const folder = pageTaskFolder(panel.logbook, task.id), files = { ...taskFiles({ dir, logbook: panel.logbook, task: task.id, runs: panel.runs }), designs: designSummary(panel.logbook, task.id), recorded: recordedPages(task, folder) };
+        const runs = panel.runs.map(run => ({ ...run, ...runFiles(dir, folder, task, run), ...(run.status === "failed" && { failure: failureOf({ dir, task, run: task.runs.find(item => item.id === run.id) }) }) }));
+        const change = task.state === "merged" ? changeText(dir, folder, task, panel.runs) : undefined;
+        const body = Buffer.from(JSON.stringify({ ...panel, runs, files, brief: briefAbout(dir, task, panel.runs), ...(change !== undefined && { change }) }));
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Content-Length": body.length });
         return response.end(request.method === "HEAD" ? undefined : body);
       } catch { return fail(503, "The board snapshot is unavailable."); }
@@ -495,7 +507,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
   server.requestTimeout = 15_000;
   server.keepAliveTimeout = 5_000;
 
-  return Object.freeze({
+  const board = Object.freeze({
     start() {
       if (closed) return Promise.reject(new Error("the board server is closed"));
       if (startPromise) return startPromise;
@@ -512,6 +524,8 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
           refresh();
           server.listen(port, "127.0.0.1", () => {
             server.off("error", failed);
+            const bound = server.address().port;
+            for (const host of [`127.0.0.1:${bound}`, `localhost:${bound}`, `[::1]:${bound}`]) { local.add(host); origins.set(host, `http://${host}`); }
             if (id) boardHeader = `id=${id}; pid=${process.pid}; started=${Date.now()}`;
             accept(server.address());
           });
@@ -534,4 +548,5 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
       return closePromise;
     },
   });
+  return board;
 }

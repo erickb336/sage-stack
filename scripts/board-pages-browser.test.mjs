@@ -2,8 +2,7 @@ import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
-import { createRequire } from "node:module";
-import { createServer } from "node:net";
+import { requireBrowser } from "./browser-prerequisite.mjs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
@@ -12,8 +11,7 @@ import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.m
 import { renderMessage } from "../packages/sage-core/message-checks.mjs";
 import { SWITCH_SCRIPT } from "../packages/sage-core/message-page.mjs";
 
-const require = createRequire(import.meta.url);
-const { chromium } = require("playwright");
+const chromium = requireBrowser();
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HEADERS = ["id title size risk route state branch pr round keys", "id task role round candidate branch status tokens report started ended", "task key round source severity summary triage reason status", "task pr sha kind cycle run at", "id task question options recommendation default answer at", "at task decision why"];
 const NAMES = ["tasks", "runs", "findings", "ledger", "gates", "decisions"];
@@ -30,16 +28,6 @@ for (const [id, show] of [["a", "one"], ["b", "two"]]) document.getElementById(i
   for (const b of document.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.id === id));
 });
 </script>`;
-
-async function freePort() {
-  for (;;) {
-    const socket = createServer();
-    await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-    const { port } = socket.address();
-    await new Promise((accept) => socket.close(accept));
-    if (![4173, 43123].includes(port)) return port;
-  }
-}
 
 const dir = mkdtempSync(join(realpathSync(tmpdir()), "sage-board-pages-browser-"));
 const book = join(dir, "source", LOGBOOK), pages = join(dir, "worktrees", LOGBOOK, "pages", "T1");
@@ -79,7 +67,20 @@ const hostile = (other) => `<!DOCTYPE html><html><head><title>SAMPLE hostile pag
 </script></body></html>`;
 
 before(async () => {
-  boardPort = await freePort(); otherPort = await freePort();
+  other = createHttpServer((request, response) => {
+    if (request.url === "/" || request.url === "/auto") {
+      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      return response.end(`<!DOCTYPE html><title>other site</title><a id="go" href="${at("research.html")}">page</a> <a id="script" href="${at("hostile.html")}">a page with a script</a> <a id="index" target="_blank" rel="opener" href="${at("")}">index</a>${request.url === "/auto" ? `<script>setTimeout(() => { location.href = ${JSON.stringify(at("research.html"))}; }, 50)</script>` : ""}`);
+    }
+    reached.push(request.url); heard.set(request.url, request.headers);
+    response.writeHead(204); response.end();
+  });
+  await new Promise((accept) => other.listen(0, "127.0.0.1", accept));
+  otherPort = other.address().port;
+  before_ = process.env.SAGE_WORKTREES;
+  process.env.SAGE_WORKTREES = join(dir, "worktrees");
+  board = createBoardServer({ sources: [{ id: "sample", path: join(dir, "source") }], port: 0, app: loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", import.meta.url))) });
+  ({ port: boardPort } = await board.start());
   const otherSite = `http://localhost:${otherPort}`;
   writeFileSync(join(pages, "hostile.html"), hostile(otherSite));
   writeFileSync(join(pages, "refresh.html"), `<!DOCTYPE html><title>SAMPLE</title><meta http-equiv="refresh" content="0; url=${otherSite}/refresh?data=SAMPLE"><p>SAMPLE refresh</p>`);
@@ -105,20 +106,7 @@ before(async () => {
   writeFileSync(join(pages, "switch-srcdoc.html"), refresh(`<iframe srcdoc="&lt;meta http&#45;equiv=&quot;refresh&quot; content=&quot;0;url=${otherSite}/switch-srcdoc?data=SAMPLE&quot;&gt;"></iframe>`));
   writeFileSync(join(pages, "prerender.html"), `<!DOCTYPE html><title>SAMPLE</title><link rel="prerender" href="${otherSite}/prerender?data=SAMPLE"><p>SAMPLE prerender</p>`);
   writeFileSync(join(pages, "switch-utf16.html"), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(`<!DOCTYPE html><meta http-equiv="refresh" content="0;url=${otherSite}/switch-utf16?data=SAMPLE"><p>SAMPLE</p>`, "utf16le"), Buffer.from(`<script>${SWITCH_SCRIPT}</script>`)]));
-  other = createHttpServer((request, response) => {
-    if (request.url === "/" || request.url === "/auto") {
-      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      return response.end(`<!DOCTYPE html><title>other site</title><a id="go" href="${at("research.html")}">page</a> <a id="script" href="${at("hostile.html")}">a page with a script</a> <a id="index" target="_blank" rel="opener" href="${at("")}">index</a>${request.url === "/auto" ? `<script>setTimeout(() => { location.href = ${JSON.stringify(at("research.html"))}; }, 50)</script>` : ""}`);
-    }
-    reached.push(request.url); heard.set(request.url, request.headers);
-    response.writeHead(204); response.end();
-  });
-  await new Promise((accept) => other.listen(otherPort, "127.0.0.1", accept));
-  before_ = process.env.SAGE_WORKTREES;
-  process.env.SAGE_WORKTREES = join(dir, "worktrees");
-  board = createBoardServer({ sources: [{ id: "sample", path: join(dir, "source") }], port: boardPort, app: loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", import.meta.url))) });
-  await board.start();
-  browser = await chromium.launch({ headless: true, ...(process.env.BOARD_BROWSER_PATH ? { executablePath: process.env.BOARD_BROWSER_PATH } : {}) });
+  browser = await chromium.launch();
 });
 
 after(async () => {
@@ -160,7 +148,7 @@ test("T1130: a design page's own script switches its tabs, and its pictures from
   const response = await page.goto(at("designs/final/tabs.html"));
   assert.equal(response.status(), 200);
   assert.equal(await page.title(), "tabs.html");
-  assert.match(await page.getByRole("note").textContent(), /^Warning: this page runs its own scripts in a sandbox/);
+  assert.match(await page.getByRole("note").textContent(), /^Warning: This page runs its own scripts in a sandbox/);
   const frame = await inner(page);
   await frame.waitForLoadState();
   assert.equal(await frame.locator("#two").isVisible(), false);

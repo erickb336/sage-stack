@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { test } from "node:test";
@@ -11,18 +10,10 @@ import * as claude from "../plugins/sage/skills/sage/sage.mjs";
 import { tool as codex } from "../plugins/sage-codex/skills/sage/sage.mjs";
 import { runBoardCli } from "../plugins/sage/board/cli.mjs";
 import { createBoardServer, loadBoardApp } from "../plugins/sage/board/server.mjs";
-import { ownerWrite } from "../plugins/sage/board/writes.mjs";
+import { ownerWrite, writeInWorker } from "../plugins/sage/board/writes.mjs";
 
 const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
 const gitEnv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
-
-async function freePort() {
-  const socket = createServer();
-  await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-  const { port } = socket.address();
-  await new Promise(accept => socket.close(accept));
-  return port;
-}
 
 function call(port, path, { method = "POST", headers = {}, body } = {}) {
   return new Promise((accept, reject) => {
@@ -77,14 +68,14 @@ async function world(t) {
   codex.sage(["task", "add", "--title", "Sample Codex task", "--size", "small", "--priority", "P2", "--project", meadow], inCodex);
   const dirs = { lantern: lanternDir, harbor: claude.storeDir(harbor, inClaude), meadow: codex.storeDir(meadow, inCodex) };
   for (const dir of Object.values(dirs)) assert.ok(existsSync(join(dir, "tasks.tsv")), `${dir} is a logbook`);
-  const config = join(base, "home", ".config", "sage-board", "board.json"), port = await freePort();
+  const config = join(base, "home", ".config", "sage-board", "board.json");
   const sources = [{ id: "claude", label: "Claude", provider: "claude", path: join(env.CLAUDE_CONFIG_DIR, "sage") }, { id: "codex", label: "Codex", provider: "codex", path: join(env.CODEX_HOME, "sage") }, { id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }];
-  await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify(sources)], { output: () => {}, env });
-  const server = createBoardServer({ sources, port, app: APP, settleReads: [], stateDir: join(base, "home", ".config", "sage-board", "state"), pairCommand: "node /sample/board/cli.mjs board --pair" });
-  await server.start();
+  const server = createBoardServer({ sources, port: 0, app: APP, settleReads: [], stateDir: join(base, "home", ".config", "sage-board", "state"), pairCommand: "node /sample/board/cli.mjs board --pair" });
   t.after(() => server.close());
+  const { port } = await server.start();
+  await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify(sources)], { output: () => {}, env });
   const origin = `http://127.0.0.1:${port}`, headers = { Origin: origin, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" };
-  return { base, env, own, inClaude, port, config, headers, dirs, checkouts: { lantern, harbor, meadow } };
+  return { base, env, own, inClaude, port, config, headers, dirs, sources, checkouts: { lantern, harbor, meadow } };
 }
 
 async function pair(w) {
@@ -264,6 +255,20 @@ test("F-T1137-2: a provider logbook without checkout.txt is refused with its tru
   assert.equal((await call(w.port, "/api/archive", { headers, body: { project: key } })).status, 200, "with its checkout.txt back, the board archives harbor");
 });
 
+test("T1152: a Claude or Codex logbook without checkout.txt can be archived on the board after one normal write of the chief", async t => {
+  const w = await world(t), headers = await pair(w), inCodex = { ...w.own, SAGE_HOME: join(w.env.CODEX_HOME, "sage") };
+  const gate = project => ["gate", "add", "T1", "--question", "Keep the sample format?", "--options", "keep|drop", "--recommend", "keep", "--project", project];
+  for (const [name, sage, env] of [["harbor", claude.sage, w.inClaude], ["meadow", codex.sage, inCodex]]) {
+    rmSync(join(w.dirs[name], "checkout.txt"));
+    const key = projectOf(await until(w, all => projectOf(all, name), `the board shows ${name}`), name).key;
+    assert.equal((await call(w.port, "/api/archive", { headers, body: { project: key } })).status, 409, `${name} without checkout.txt is refused`);
+    sage(gate(w.checkouts[name]), env);
+    const archived = await call(w.port, "/api/archive", { headers, body: { project: key } });
+    assert.equal(archived.status, 200, `${name}: ${archived.text}`);
+    assert.equal(configOf(w.dirs[name]).archived, true, `the board archived ${name}`);
+  }
+});
+
 test("F-T1137-12: the server records no answer or other write for an archived project, and records it again after Restore", async t => {
   const w = await world(t), headers = await pair(w);
   claude.sage(["gate", "add", "T1", "--question", "Keep the sample format?", "--options", "keep|drop", "--recommend", "keep", "--project", w.checkouts.lantern, "--chief", "C1"], w.own);
@@ -277,11 +282,38 @@ test("F-T1137-12: the server records no answer or other write for an archived pr
   for (const [job, write] of [["answer", body], ["undo", { logbook: need.logbook, gate: "G1" }], ["name", { logbook: need.logbook, chief: "C1", name: "Sample" }]]) {
     const refused = await call(w.port, `/api/${job}`, { headers, body: write });
     assert.equal(refused.status, 409, `${job}: ${refused.text}`);
-    assert.equal(refused.json.text, "lantern is archived, so the board records no answer or other write for it. Restore it first, or answer in the chief's chat. Nothing changed.");
+    assert.equal(refused.json.text, "lantern is archived, so the board records no answer or other write for it. Restore it first, then try again. Nothing changed.");
   }
   assert.equal(gates(), before, "the answer did not reach the logbook");
   assert.equal((await call(w.port, "/api/restore", { headers, body: { project: key } })).status, 200);
   await until(w, all => !projectOf(all, "lantern").archived, "lantern shows restored");
   const answered = await call(w.port, "/api/answer", { headers, body });
   assert.equal(answered.status, 200, answered.text);
+});
+
+test("F-T1159-35: an Archive and a Restore sent at once, as from two tabs, run one after the other, so both logbooks of the project agree", async t => {
+  const w = await world(t), headers = await pair(w);
+  claude.sage(["init", "--project", w.checkouts.meadow], w.inClaude);
+  const twin = claude.storeDir(w.checkouts.meadow, w.inClaude);
+  const key = projectOf(await until(w, all => projectOf(all, "meadow")?.books.length === 2, "meadow shows two logbooks"), "meadow").key;
+  const steps = [];
+  const write = async job => {
+    steps.push(`${job.argv[1]} starts`);
+    await new Promise(wake => setTimeout(wake, 100));
+    const done = await writeInWorker(job);
+    steps.push(`${job.argv[1]} ends`);
+    return done;
+  };
+  const second = createBoardServer({ sources: w.sources, port: 0, app: APP, settleReads: [], stateDir: join(w.base, "home", ".config", "sage-board", "state"), pairCommand: "node /sample/board/cli.mjs board --pair", write });
+  t.after(() => second.close());
+  const { port } = await second.start(), tab = { ...headers, Origin: `http://127.0.0.1:${port}` };
+  await until({ port }, all => projectOf(all, "meadow")?.books.length === 2, "the second server shows two logbooks");
+  const [archived, restored] = await Promise.all([call(port, "/api/archive", { headers: tab, body: { project: key } }), call(port, "/api/restore", { headers: tab, body: { project: key } })]);
+  assert.deepEqual([archived.status, restored.status], [200, 200], `${archived.text} ${restored.text}`);
+  const first = steps[0].split(" ")[0], last = first === "archived=yes" ? "archived=no" : "archived=yes", group = verb => [`${verb} starts`, `${verb} ends`, `${verb} starts`, `${verb} ends`];
+  assert.deepEqual(steps, [...group(first), ...group(last)], "the second write starts only after the first one wrote both logbooks, whichever arrived first");
+  const shown = last === "archived=yes";
+  assert.deepEqual([!!configOf(twin).archived, !!configOf(w.dirs.meadow).archived], [shown, shown], "both logbooks agree, on the write that came second");
+  const rows = last === "archived=yes" ? ["project restored", "project archived"] : ["project archived", "project restored"];
+  assert.deepEqual([archiveRows(twin).slice(-2), archiveRows(w.dirs.meadow).slice(-2)], [rows, rows], "each logbook recorded both writes in the same order");
 });

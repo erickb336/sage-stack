@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -48,20 +47,10 @@ function writeWalkthrough(root, stage, now) {
   writeFileSync(join(dir, "config.json"), JSON.stringify({ name: "Ramen Finder (sample)" }));
 }
 
-async function freePort() {
-  for (;;) {
-    const socket = createServer();
-    await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-    const { port } = socket.address();
-    await new Promise(accept => socket.close(accept));
-    if (![4173, 43123].includes(port)) return port;
-  }
-}
-
 async function serve(dir, sources) {
   const { createBoardServer, loadBoardApp } = await import("../packages/sage-board/server.mjs");
-  const port = await freePort(), server = createBoardServer({ sources: [{ id: "shared", path: sources, label: "Shared" }], port, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [] });
-  await server.start();
+  const server = createBoardServer({ sources: [{ id: "shared", path: sources, label: "Shared" }], port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [] });
+  const { port } = await server.start();
   return { base: `http://127.0.0.1:${port}`, close: () => server.close() };
 }
 

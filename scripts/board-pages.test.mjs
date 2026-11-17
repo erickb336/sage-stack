@@ -21,16 +21,6 @@ const NAMES = ["tasks", "runs", "findings", "ledger", "gates", "decisions"];
 const LOGBOOK = "project-abcdef";
 const SWITCH = `<script>${SWITCH_SCRIPT}</script>`;
 
-async function freePort() {
-  for (;;) {
-    const socket = createServer();
-    await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-    const { port } = socket.address();
-    await new Promise((accept) => socket.close(accept));
-    if (![4173, 43123].includes(port)) return port;
-  }
-}
-
 function logbook(root, name) {
   const dir = join(root, name);
   mkdirSync(dir, { recursive: true });
@@ -70,14 +60,14 @@ function sampleRoot(base) {
   return root;
 }
 
-async function fixture(t) {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-pages-"))), source = join(base, "source"), port = await freePort();
+async function fixture(t, more = {}) {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-pages-"))), source = join(base, "source");
   logbook(source, LOGBOOK);
   const root = sampleRoot(base), before = process.env.SAGE_WORKTREES;
   process.env.SAGE_WORKTREES = root;
-  const server = createBoardServer({ sources: [{ id: "sample", path: source, label: "Sample" }], port, app: loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", import.meta.url))) });
+  const server = createBoardServer({ sources: [{ id: "sample", path: source, label: "Sample" }], port: 0, app: loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", import.meta.url))), ...more });
   t.after(async () => { await server.close(); if (before === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = before; rmSync(base, { recursive: true, force: true }); });
-  await server.start();
+  const { port } = await server.start();
   return { base, root, port, t1: join(root, LOGBOOK, "pages", "T1") };
 }
 
@@ -137,7 +127,7 @@ test("the pages route serves each page type with its own type and the sandbox po
     assert.equal(frame.headers["content-security-policy"], `default-src 'none'; style-src 'unsafe-inline'; frame-src ${own}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`);
     assert.equal(frame.headers["cross-origin-opener-policy"], "same-origin");
     assert.match(frame.body, new RegExp(`<iframe src="${name}" sandbox="allow-scripts"`), name);
-    assert.match(frame.body, /role="note"><strong>Warning:<\/strong> this page runs its own scripts in a sandbox/);
+    assert.match(frame.body, /role="note"><strong>Warning:<\/strong> This page runs its own scripts in a sandbox/);
     assert.doesNotMatch(frame.body, /SAMPLE|<script/, "the frame page holds none of the page");
   }
   const scripted = await get(f, `/pages/${LOGBOOK}/T1/scripted.html`, { headers: FRAME });
@@ -380,6 +370,14 @@ test("T1116: a person's click on a Markdown page's link opens the page in the re
   assert.match((await get(f, `/pages/${LOGBOOK}/T1/`)).body, new RegExp(`<a href="${reader}">notes\\.md</a>`), "the index links a Markdown page to the reader");
 });
 
+test("T1159 F-T1159-24: a copy of the board without its Markdown renderer opens a Markdown page as its file, and the index links the file", async (t) => {
+  const f = await fixture(t, { markdown: null }), page = `/pages/${LOGBOOK}/T1/notes.md`;
+  writeFileSync(join(f.t1, "notes.md"), "# SAMPLE notes\n");
+  const r = await get(f, page, { headers: DOCUMENT });
+  assert.deepEqual([r.status, r.headers["content-type"], r.body], [200, "text/plain; charset=utf-8", "# SAMPLE notes\n"], "no 303 to a reader that would answer 503");
+  assert.match((await get(f, `/pages/${LOGBOOK}/T1/`)).body, new RegExp(`<a href="/pages/${LOGBOOK}/T1/notes\\.md">notes\\.md</a>`), "the index links the file itself");
+});
+
 test("a message's Page block prints the board's link, and the link opens the page on the board", async (t) => {
   const { sage, folder, name, port } = await messageSandbox(t);
   writeFileSync(join(folder, "research.html"), "<!DOCTYPE html><title>SAMPLE</title><p>SAMPLE research page</p>");
@@ -445,10 +443,10 @@ async function messageSandbox(t) {
   const folder = sage("pages", "T1").out, name = basename(dirname(dirname(folder)));
   const book = readdirSync(base, { recursive: true }).map((path) => join(base, path)).find((path) => basename(path) === name && !path.includes(`${join(base, "worktrees")}`));
   assert.ok(book, "the sandbox's logbook");
-  const port = await freePort(), before = process.env.SAGE_WORKTREES;
+  const before = process.env.SAGE_WORKTREES;
   process.env.SAGE_WORKTREES = env.SAGE_WORKTREES;
-  const server = createBoardServer({ sources: [{ id: "sample", path: dirname(book) }], port });
+  const server = createBoardServer({ sources: [{ id: "sample", path: dirname(book) }], port: 0 });
   t.after(async () => { await server.close(); if (before === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = before; });
-  await server.start();
+  const { port } = await server.start();
   return { base, sage, folder, name, port };
 }

@@ -309,7 +309,7 @@ function card(source, project, group, task, now, graph, landing) {
     const what = task.pr ? `review and merge PR ${task.pr}` : "review and merge it";
     reasons.push({ kind: "merge", mode: !!mode, text: mode ? `Autopilot is off, so ${what}.` : `The board cannot tell if autopilot is on, so ${what}.` });
   }
-  const carry = !repairing && build && head ? carryOver(isAbsolute(project.checkout ?? "") ? project.checkout : undefined, task, head, ledger.filter(row => String(row.pr) === task.pr)) : null;
+  const carry = !repairing && build && head ? carryOver(isAbsolute(project.checkout ?? "") ? project.checkout : undefined, task, head, ledger) : null;
   const current = repairing ? [] : build ? carry?.rows ?? [] : ledger.filter(row => !row.sha);
   const steps = [...(build ? ["checks"] : []), ...route.filter(block => CLEAN[block])];
   const required = Math.max(positive(source.config?.["cycles.small"]) ?? 1, task.size === "large" ? Math.max(2, positive(source.config?.["cycles.large"] ?? source.config?.autopilot_cycles) ?? 2) : 1, task.risk ? Math.max(2, positive(source.config?.["cycles.risk"]) ?? 2) : 1);
@@ -342,7 +342,7 @@ function card(source, project, group, task, now, graph, landing) {
     ...rows(project, "findings", task).map(row => ({ ...row, movedFrom: (moves.to.get(task.id) ?? NONE).find(({ move }) => move[3] === row.key)?.row.task ?? null })),
     ...(moves.from.get(task.id) ?? NONE).map(({ row, move }) => { const [, run = "", severity = ""] = /^the (?:follow-up|open) task \(from (R[1-9]\d*), (\w+)\)/.exec(row.why ?? "") ?? []; return { severity, summary: row.decision.slice(row.decision.indexOf(":") + 1).trim(), ...found(move[2], move[3]), run, task: task.id, key: move[1], status: "moved", reason: "", movedTo: move[2] }; }),
   ];
-  return { key: `${project.key}/${task.id}`, source: source.id, sourceLabel: source.label, providerStandIn: standInOf(source, project), repository: githubRepository(pr?.data.repository) ?? githubRepository(project.repository), lastActivity, headBasis, project: project.key, group: group.key, projectName: group.name, archived: group.archived, milestone: task.milestone ? { key: `${project.key}/${task.milestone}`, id: task.milestone, name: milestone?.name ?? null, pilot: milestone?.pilot === task.id } : null, waits, waitLine: waitLine(task, waits, column), priority: PRIORITIES.includes(task.priority) ? task.priority : "", kind: TASK_KINDS.includes(task.kind) ? task.kind : "", ...Object.fromEntries(["id", "title", "size", "risk", "route", "state", "branch", "pr", "round", "keys", "hold", "request"].map(field => [field, task[field] ?? ""])), column, prEvidence: pr, currentHead: head, modeEvidence: mode, completedAt, addedAt: rows(project, "decisions", task).find(row => row.decision === TASK_ADDED)?.at ?? null, boardAnswers, visible: column !== "done" || completedAt !== null && completedAt <= now && completedAt >= now - 7 * 86400000, agents, inferredWork: inferred, cycles, carriedFrom: carry?.from ?? null, requiredCycles: required, reasons, problems, runs, ledger, gates, findings, decisions: rows(project, "decisions", task).slice(-10), decisionRows: rows(project, "decisions", task), gateRows: allGates, brief, briefFields: briefFields(brief), projectCheck, mergeCheck: merge, loop: stepLine({ task, route, cycles, required: count, head, judged, reasons, problems, merge, gates: allGates, runs, ledger, rounds: positive(source.config?.max_rounds) ?? 3, autopilot: mode?.data.autopilot === true }), changedFiles: files && { ...files.data, observedAt: files.observedAt }, mayConflict: [], runClocks: Object.fromEntries(runs.filter(run => run.status === "running").map(run => [run.id, run.clock])), goneRun: writer?.checkoutGone ? writer.id : null, artifacts: records.filter(record => record.kind === "artifact").map(record => ({ ...record, content: project.contents?.[record.id] ?? null })), diagnostics: [...project.diagnostics], ...holderOf(project, task, runs, label, gates),...(wasOf(project, task) && { was: wasOf(project, task) }) };
+  return { key: `${project.key}/${task.id}`, source: source.id, sourceLabel: source.label, providerStandIn: standInOf(source, project), repository: githubRepository(pr?.data.repository) ?? githubRepository(project.repository), lastActivity, headBasis, project: project.key, group: group.key, projectName: group.name, archived: group.archived, milestone: task.milestone ? { key: `${project.key}/${task.milestone}`, id: task.milestone, name: milestone?.name ?? null, pilot: milestone?.pilot === task.id } : null, waits, waitLine: waitLine(task, waits, column), priority: PRIORITIES.includes(task.priority) ? task.priority : "", kind: TASK_KINDS.includes(task.kind) ? task.kind : "", ...Object.fromEntries(["id", "title", "size", "risk", "route", "state", "branch", "pr", "round", "keys", "hold", "request"].map(field => [field, task[field] ?? ""])), column, prEvidence: pr, currentHead: head, modeEvidence: mode, completedAt, addedAt: rows(project, "decisions", task).find(row => row.decision === TASK_ADDED)?.at ?? null, boardAnswers, visible: column !== "done" || completedAt !== null && completedAt <= now && completedAt >= now - 7 * 86400000, agents, inferredWork: inferred, cycles, carriedFrom: carry?.from ?? null, requiredCycles: required, reasons, problems, runs, ledger, gates, findings, decisions: rows(project, "decisions", task).slice(-10), decisionRows: rows(project, "decisions", task), gateRows: allGates, brief, briefFields: briefFields(brief), projectCheck, mergeCheck: merge, loop: stepLine({ task, route, cycles, required: count, head, judged, reasons, problems, merge, gates: allGates, runs, ledger, rounds: positive(source.config?.max_rounds) ?? 3, autopilot: mode?.data.autopilot === true }), changedFiles: files && { ...files.data, observedAt: files.observedAt }, mayConflict: [], runClocks: Object.fromEntries(runs.filter(run => run.status === "running").map(run => [run.id, run.clock])), goneRun: writer?.checkoutGone ? writer.id : null, artifacts: records.filter(record => record.kind === "artifact").map(record => ({ ...record, content: project.contents?.[record.id] ?? null })), diagnostics: [...project.diagnostics], ...holderOf(project, task, runs, label, gates), ...movedIn(project, task) };
 }
 
 const chiefTag = owner => chiefName(owner.id, owner.provider);
@@ -379,18 +379,21 @@ function unknownChief(task, runs, label) {
 }
 
 const title = value => String(value ?? "").charAt(0).toUpperCase() + String(value ?? "").slice(1);
-function wasOf(project, task) {
-  if (!project.shared) return null;
+function movedIn(project, task) {
+  if (!project.shared) return {};
   try {
     const record = JSON.parse(task.adoption || "null");
-    return record?.version === 2 && /^[a-z][a-z0-9-]*$/.test(record.provider ?? "") && /^T[1-9]\d*$/.test(record.task ?? "") ? `was ${title(record.provider)} ${record.task}` : null;
+    return record?.version === 2 && /^[a-z][a-z0-9-]*$/.test(record.provider ?? "") && /^T[1-9]\d*$/.test(record.task ?? "") ? { was: `was ${title(record.provider)} ${record.task}`, movedFrom: `${record.provider} ${record.task}` } : {};
   } catch {
-    return null;
+    return {};
   }
 }
+export const isOpen = task => !ENDED.includes(task.state) && !task.moved;
 const DAY_MS = 86400000, ACTIVE_DAYS = 14, OLDER_DAYS = 30;
+const PROBLEM_NEEDS = ["logbook", "milestones", "releases", "missing", "source"];
 const bookTimes = project => [...(project.tables.decisions ?? NONE).map(row => row.at), ...(project.tables.gates ?? NONE).flatMap(gate => [gate.at, boardAnswer(gate)?.at])].map(time).filter(at => at !== null);
 const ARCHIVE_ROWS = ["project archived", "project restored"];
+const logbookLabel = ({ source }) => source.provider ? source.label ?? source.provider : "shared";
 function archiveFacts(books, tasks) {
   let archivedAt = null, restoredAt = null, restored = true, archives = 0;
   for (const { project } of books) {
@@ -444,9 +447,10 @@ function projectGroups(sources) {
     for (const book of own) for (const name of book.project.foreignCheckouts ?? NONE) note([book], `A checkout named ${name} is linked to this logbook, but it has no first commit in common with it. sage does not use that link: commands in ${name} stop and offer a new link. Ask the chief in ${name}.`);
     const sub = merged.checkout || remote ? [remote ?? "no GitHub remote", where] : [`logbook ${merged.name}`];
     Object.assign(group, {
-      name: all.every(project => unreadable(project).length) ? merged.name : projectName(merged),
+      name: projectName(merged),
       remote, path: merged.checkout ?? null,
       archived: archived.length > 0 && archived.length === trusted.length, problem: problem && plainProblem(problem),
+      mixed: archived.length > 0 && archived.length < trusted.length ? { archived: archived.map(logbookLabel), shown: trusted.filter(book => !book.project.archived).map(logbookLabel) } : null,
       providers: unique(group.books.flatMap(book => book.project.old ? [title(book.project.old.provider)] : book.project.shared ? (book.project.chiefs ?? []).map(chief => title(chief.provider)) : [title(standIn(book.source))])),
       sub: unique(sub).join(" · "),
       terms: unique([...names, repoPath(merged.upstream), ...all.map(project => repoPath(project.repository)), folder, ...linked.map(item => plainName(basename(item.root))), merged.name, ...all.map(project => project.key)]),
@@ -678,8 +682,9 @@ function missingMilestones(source, project, group, graph) {
   }
   return items;
 }
+export const folderProblems = source => (source.diagnostics ?? NONE).filter(message => message !== "ENOENT" && !message.startsWith("config: "));
 function sourceNeeds(source) {
-  const problems = source.diagnostics.filter(message => message !== "ENOENT" && !message.startsWith("config: "));
+  const problems = folderProblems(source);
   return problems.length ? [{ kind: "source", title: `The ${title(source.label)} logbooks cannot be read`, text: `${problems.map(message => title(plainProblem(message))).join(". ")}. The board shows no ${title(source.label)} logbook. Check that the board can read the folder.`,
     key: `${source.id}/source`, source: source.id, sourceLabel: source.label, projectName: "every project", group: null, archived: false }] : [];
 }
@@ -734,7 +739,8 @@ export function buildBoardModel(input,{ now = new Date().toISOString(), landing 
     ...source.projects.flatMap(project => (project.notes ?? NONE).map(message => ({ source: source.id, project: groupOf.get(project.key)?.name ?? project.name, message })))])];
   const graphs = new Map(sources.flatMap(source => source.projects.map(project => [project.key, graphOf(project)])));
   const tasks = sources.flatMap(source => source.projects.flatMap(project => (project.tables.tasks ?? []).filter(task => /^T[1-9]\d*$/.test(task.id)).map(task => card(source, project, groupOf.get(project.key), task, at, graphs.get(project.key), landing))));
-  const byKey = new Map(tasks.map(task => [task.key, task]));
+  const byKey = new Map(tasks.map(task => [task.key, task])), movedOut = new Set(tasks.filter(task => task.movedFrom).map(task => `${task.group} ${task.movedFrom}`));
+  for (const task of tasks) if (task.old && movedOut.has(`${task.group} ${task.old.provider} ${task.id}`)) task.moved = true;
   namedWaits(tasks, byKey);
   markConflicts(tasks);
   const milestones = sources.flatMap(source => source.projects.flatMap(project => milestonesOf(source, project, groupOf.get(project.key), graphs.get(project.key), byKey)));
@@ -750,9 +756,9 @@ export function buildBoardModel(input,{ now = new Date().toISOString(), landing 
   const LISTS = ["needs", "active", "quiet", "older", "archived"];
   const projects = groups.map(group => {
     const own = tasks.filter(task => task.group === group.key), live = shown.filter(task => task.group === group.key);
-    const last = Math.max(0, ...own.map(recent), ...group.books.flatMap(book => bookTimes(book.project))), extra = milestoneNeeds.filter(need => need.group === group.key).length, needsOwner = live.filter(task => task.reasons.length).length + extra;
+    const last = Math.max(0, ...own.map(recent), ...group.books.flatMap(book => bookTimes(book.project))), extra = milestoneNeeds.filter(need => need.group === group.key), needsOwner = live.filter(task => task.reasons.length).length + extra.length;
     const chiefs = group.books.filter(book => book.project.shared && !book.project.old).flatMap(({ project }) => boardChiefs({ rows: project.chiefs ?? NONE, live: project.chiefLive, names: project.chiefNames, runs: own.filter(task => task.project === project.key).flatMap(task => task.runs), waits: own.filter(task => task.project === project.key && !ENDED.includes(task.state)).flatMap(task => task.reasons.filter(reason => reason.owner).map(reason => reason.owner)), now: at }).map(chief => ({ key: `${project.key}/${chief.id}`, ...chief })));
-    return { key: group.key, name: group.name, sub: group.sub, pathSub: group.pathSub ?? null, terms: group.terms, paths: group.paths, books: group.books.map(book => book.project.key), providers: group.providers, chiefs, archived: group.archived, problem: group.problem, unread: group.books.filter(book => cannotRead(book.project, "tasks") || cannotRead(book.project, "runs")).map(book => book.project.old ? `old ${title(book.project.old.provider)}` : title(book.source.label)), tasks: own.length, needsOwner, agents: live.reduce((n, task) => n + task.agents.filter(agent => !agent.stale).length, 0), lastActivity: last ? new Date(last).toISOString() : null,
+    return { key: group.key, name: group.name, sub: group.sub, pathSub: group.pathSub ?? null, terms: group.terms, paths: group.paths, books: group.books.map(book => book.project.key), providers: group.providers, chiefs, archived: group.archived, mixed: group.mixed, problem: group.problem, unread: group.books.map(book => ({ logbook: book.project.old ? `old ${title(book.project.old.provider)}` : title(book.source.label), tables: TABLE_NAMES.filter(name => cannotRead(book.project, name)) })).filter(book => book.tables.length), tasks: own.length, needsOwner, problems: extra.filter(need => PROBLEM_NEEDS.includes(need.kind)).length, agents: live.reduce((n, task) => n + task.agents.filter(agent => !agent.stale).length, 0), lastActivity: last ? new Date(last).toISOString() : null,
       list: listOf(group.archived, needsOwner, last, at), ...archiveFacts(group.books.filter(book => !book.project.old), own) };
   }).sort((a, b) => LISTS.indexOf(a.list) - LISTS.indexOf(b.list) || (a.list === "needs" ? b.needsOwner - a.needsOwner : 0) || (Date.parse(b.lastActivity ?? 0) || 0) - (Date.parse(a.lastActivity ?? 0) || 0) || a.name.localeCompare(b.name));
   const archived = projects.filter(project => project.archived).map(project => ({ key: project.key, name: project.name, tasks: project.tasks, needsOwner: project.needsOwner }));

@@ -116,7 +116,11 @@ What the archive writes:
 
 - The board runs `config archived=yes` (Archive) or `config archived=no` (Restore, Undo) through the state tool, in each live logbook of the project: the shared logbook, or a Claude or Codex logbook of a project that has not moved to the shared root.
 - The state tool records one decisions row for each change, with its time. The board reads the newest row for "Archived on 12 Aug" and for Welcome back.
-- When one of two logbooks refuses, the note names it, for example "Archived in 1 of 2 logbooks. The Codex logbook of recipe-box did not save.", with the reason and Try again, which runs the same Archive or Restore. The board shows the project as archived only when every logbook agrees.
+- When one of two logbooks refuses, the note names it, for example "Archived in 1 of 2 logbooks. The Codex logbook of recipe-box did not save.", and says what the board shows, with Try again, which runs the same Archive or Restore. The note gives no reason, because the reason names files of the logbook.
+- When no logbook saves, the confirm stays open with the reason and Try again.
+- The board reads the logbooks that name their checkout (`checkout.txt`); when none names it, it reads them all. It shows the project as archived when each logbook that it reads is archived.
+- While these logbooks disagree, each page of the project has a banner, also after a reload, for example "The Codex logbook of recipe-box is archived, and the Claude logbook is not." A paired browser gets Archive and Restore there.
+- The board runs one Archive or Restore at a time, so two tabs that send them at once do not leave the logbooks mixed.
 - The chat that sent the link names its project. When that project is archived, the banner says so, and you can restore it there.
 
 ## The Overview
@@ -128,10 +132,12 @@ The address of the board opens the Overview. From the top:
 - **The top bar:** the [picker and the signal](#one-project-at-a-time), then the counts of agents and leads against this project's limits, for example "Agents 8 of 10 · C1 4 · C2 4 · 3 waiting" and "Leads 4 of 5". A count turns amber at its limit, and a click opens the Agents page.
 - **All projects:** with more than one project, "12 in progress in all projects" counts the running agents of every project. The board does not read Claude's total cap of agents for all projects, so it shows no limit for that count.
 - **The time and the theme:** "Live · read 10:56" gives the time of the last read. The board is dark until you choose the light theme with the switch, and it keeps your choice in this browser.
-- **The chief chips:** one chip for each chief, Claude and Codex alike, with a green dot for a live chief, a yellow dot for a chief that waits for your answer, a ring for a stopped chief, and "autopilot on" or "autopilot off". A click on a chip shows only that chief's work, on each page; "All chiefs" shows all again.
+- **The chief chips:** one chip for each chief, Claude and Codex alike, with a green dot for a live chief, a yellow dot for a chief that waits for your answer, a ring for a stopped chief, and "autopilot on" or "autopilot off". A click on a chip shows only that chief's work, on each page; "All chiefs" shows all again. In a window narrower than 760 px, the chips fold into one chip with each chief's id and dot; a tap shows them all.
 - **Needs you:** each open question and each problem, oldest first, with its chief, its task and when it was asked. A click on a question opens the [question view](#the-question-view-and-the-reader).
-- **Milestones:** each milestone by the top priority of its open tasks, with its state word, its goal, its progress bar ("2 of 9 merged") and its pilot. A click opens the Tasks page at that milestone.
-- **Since you looked**, or **In the last 24 hours** on the first visit in a browser, or **In the last 7 days** after a longer absence: the tasks merged, the runs "with a problem flag", and the tasks added. A run has a problem flag when its agent is silent for 30 minutes or stopped, or when it failed in the last 24 hours, its task is still open, and no later run of the same role started. A click on "With a problem flag" opens the Agents page, which uses the same label.
+- **Milestones:** each milestone by the top priority of its open tasks, with its state word, its goal, its progress bar ("2 of 9 merged") and its pilot. A click opens the Tasks page with only that milestone's tasks; "Show all tasks" shows the rest again.
+- **Since you looked**, or **In the last 24 hours** on the first visit in a browser, or **In the last 7 days** after a longer absence: the tasks merged, the runs "with a problem flag", and the tasks added. A run has a problem flag when its agent is silent for 30 minutes or stopped, or when it failed in the last 24 hours, its task is still open, and no later run of the same role started. A click on "Merged" opens those tasks on the Tasks page, newest first; a click on "With a problem flag" opens the Agents page, which uses the same label.
+
+When the board has no project yet, the Overview shows one card, "Start your first task", with the three first steps: start a chief in the project, ask for a change, and come back to the board. A project that has a chief but no task yet shows the same card, with the first step marked done.
 
 Needs you also has items that no task holds: a stuck milestone, a breakdown gate that the logbook lost, a milestone that tasks name but the logbook does not have, a table or a logbook that the board cannot read, and an open move gate ([the move](using-sage.md#move-an-existing-project)). Each item says why and what to do.
 
@@ -141,7 +147,7 @@ When the merge check refuses a PR's head, or the checks or QA failed on it, the 
 
 <img alt="The Tasks page of the board, with SAMPLE DATA: the Group by switch, then the tasks of each milestone, one row for each task with its priority, title, kind, state word, chief and step." src="../assets/board-tasks.png" width="100%">
 
-The Tasks page lists every task, grouped by milestone (the default), priority, chief or state. Filters show one chief, provider, priority, kind or state. A click on a row opens the task page.
+The Tasks page lists every task, grouped by milestone (the default), priority, chief or state, and sorted by priority (the default) or newest first. Filters show one chief, provider, priority, kind or state. A click on a row opens the task page, and each page of the board opens at its top.
 
 - Each row shows the priority, the title, the kind, the state word, the chief tag (id and provider), the step that runs now, the PR and the age.
 - "may conflict" shows when another chief's open branch changes the same file.
@@ -156,9 +162,15 @@ Every task has a priority (P0 to P3). An older open task with none shows "no pri
 Each task has one page, at `/app/#task?key=<task key>`. The Overview, Tasks, Agents and Pull requests pages open it. The browser's Back returns to the same place on the page that you came from, and a click with Cmd (Ctrl on Windows and Linux) opens it in a new tab. From the top, the page shows:
 
 - the title, the state word, the priority, size, step and chief, and the agents at work now;
-- for each failed run with no later run of the same role, while the task is open: "Failed run", the reason and where it comes from (the run's failure line, else the RESULT of its kept report, else the chief's "R12 failed:" decision, else "No reason recorded"), and a link to its report;
-- "About this task": Milestone, Before and after ("Comes after" and "Needed by"), Goal, Why, Criteria, Status and Cost, then the links to the brief, the reports, the pull request and the milestone;
-- the tabs Artifacts, Log and Decisions. Artifacts lists the task's pages folder, the briefs and reports of its runs, and its design versions; each opens in the [reader](#the-question-view-and-the-reader).
+- the tabs About, Artifacts, Log and Decisions. About opens first.
+
+About shows, in this order:
+
+- for a merged task, "What changed for you": the "What changes for users" part of its PR's description, which the logbook keeps when the task merges; else the RESULT of its newest lead's report, labelled; else "The board has no text for this change";
+- for each failed run with no later run of the same role, while the task is open: "Failed run", the reason and where it comes from (the run's failure line, else the RESULT of its kept report, else the chief's "R12 failed:" decision, else "No reason recorded"), and a link to its report when the logbook keeps one;
+- Milestone, Before and after ("Comes after" and "Needed by"), Goal, Why, Criteria, Status and Cost, then the links to the brief, the reports, the pull request and the milestone. A task that stopped shows no step as "now".
+
+Artifacts lists the task's pages folder, the briefs and reports of its runs, and its design versions; each opens in the [reader](#the-question-view-and-the-reader). A run shows a Brief or a Report link only when the logbook keeps that file; else "No brief", "No report", or "Report when it ends" for a run that runs.
 
 | Part | Where it comes from |
 | --- | --- |
@@ -208,25 +220,25 @@ The Pull requests page (`/app/#pull-requests`) groups the tasks with a PR by the
 
 Stats (`/app/#stats`) is the last link in the left column. It shows numbers and charts from the logbooks on this Mac, and never a task list.
 
-The **Show** list at the top picks **All projects** (the default) or one project; archived projects count too, with the mark "(archived)". The address keeps the choice, for example `/app/#stats?show=sage-43265b`.
+The **Show** list at the top picks **All projects** (the default) or one project; archived projects count too, with the mark "(archived)". The address keeps the choice, for example `/app/#stats?show=sage-43265b`. The Show list is the only scope on Stats: the top bar shows no picker there, and the chief chips do not show.
 
 | Number | What it counts |
 | --- | --- |
 | Pull requests merged | Tasks merged in the last 8 weeks, per week (weeks start on Monday, UTC), and by project. |
 | Open tasks | Open tasks now, by their state word: not started, waiting, needs you, in progress. |
 | Need you | Questions and merges that wait for you now, by project; the same count as the picker. |
-| Agent time | Hours from the start to the end of each ended run, per week and by project. A run that still runs does not count yet. |
+| Agent time | Hours from the start to the end of each ended run, per week and by project. A run that still runs does not count yet. The runs of a task that moved to the shared logbook stay in its old logbook, and they count in the project. |
 | Tokens | The token counts of the runs, per week and by project. A run with no count is left out, and the tile says how many. |
 | Repair rounds | The repair rounds of each pull request merged in the last 8 weeks: 0, 1, 2, 3 or more, and the median. |
 | Money spent, your own time | "not recorded yet": the logbooks do not keep them, so Stats does not guess them. |
 
-Each chart has a table with the same numbers for a screen reader, and a bar shows its number when you point at it.
+Each chart has a table with the same numbers for a screen reader, and a bar shows its number when you point at it. A column chart names what it counts on its side (for example "Hours") and under its columns (for example "Week that starts on Monday (UTC)"), and each week shows its day and month.
 
 - **Loading:** Stats says how many logbooks it reads.
 - **Empty:** with no task in any logbook, it says "No numbers yet".
-- **Part failed:** when a logbook cannot be read, a banner names it, and the numbers count the other logbooks.
+- **Part failed:** when a logbook file cannot be read, one banner says what the numbers leave out, for example "the agent time and tokens of the Claude logbook of sage" when only its runs cannot be read. The rest still counts. A config.json that cannot be read leaves out nothing.
 
-The board reads Stats from the logbooks when the page asks for it, not on each live update.
+The board reads Stats from the newest read of the logbooks, also while the other pages show the last good copy, and Stats reads again when its numbers change.
 
 ## The question view and the reader
 
@@ -285,6 +297,7 @@ With a paired browser, you act from the Overview:
 | Archive the project | 2: Archive project (at the foot), then Archive. Or 3 from the picker | `config archived=yes` in each logbook of the project ([Archive a project](#archive-a-project)). |
 | Restore an archived project | 1: Restore, in the banner or in the picker's Archived list | `config archived=no` in each logbook of the project. |
 | See what changed since you looked | 0 | Nothing on the Mac: each browser keeps the time when you last left the board (the tab closed, or hidden for 5 minutes). A reload keeps the counts. |
+| Stop the board | 2: Stop the board (at the foot of the side bar; in a narrow window, under the page links), then Stop the board in the question that it asks | Nothing in a logbook: the board server closes for every browser, and the chiefs and their agents keep working. To open it again, type `show board` in a chief's chat. A browser that is not paired shows "Ask the chief to stop the board." |
 
 The first answer wins. When you answer in a chat or on a card first, the board shows where and when, for example "Answered first in C2's chat at 14:51", and a later board answer is not recorded.
 
@@ -295,6 +308,7 @@ The chief makes the link with `board --ensure --link`:
 - The link has the form `http://127.0.0.1:<port>/app/#pair=<key>&project=<folder>`. The key is 256 random bits. It is after the `#`, so the browser never sends it in a request line, a log or a referrer.
 - The folder is the logbook folder of the chat's project. The command finds it from the chat's folder (`--project`), or from the asked name (`--name-hex`, the name's UTF-8 bytes in hex), with the chat board's rule. It writes nothing and runs no other program; the link has no path.
 - The board takes the key out of the address bar and the history at once, keeps the project, then sends the key once. The server keeps only its hash, in `pair-link.json` in the board's state folder.
+- A link that you paste into a board tab that is open already pairs it at once, with no reload. A query in the address (`/app/?…`) changes nothing: the board opens.
 - A link pairs one browser, once, within 10 minutes. A new link ends the older one.
 - The hooks refuse `--link` from an agent: only the chief runs it, and the chief puts the link in the chat text only, never in a file, a message page or a brief.
 
@@ -307,13 +321,13 @@ After the click, a note on top of the Overview gives the outcome and the next st
 | Used | Another browser on this Mac used the link, and when. The note has the button **Unpair every browser**, for the case that it was not you. |
 | Replaced | A newer link replaced this one. |
 | Expired | The link is older than 10 minutes. |
-| Refused | The key is not a link of this board. |
+| Refused | The board does not know the key: it is not a link of this board, or it is older than the board's last 8 links. |
 
 For each outcome except Paired and Already paired, type `show board` again for a new link.
 
 **Unpair every browser** works without pairing. It removes every pairing, so each browser reads only until you pair it again. A program on this Mac can also send it; the worst result is that you pair again.
 
-**No chat open?** Pair with a Terminal code. The pairing card shows the command, with its full path, for example `node "<board folder>/cli.mjs" board --pair`:
+**No chat open?** Pair with a Terminal code. The pairing card shows the command, with its full path, for example `node '<board folder>/cli.mjs' board --pair` (single quotes only when the path needs them):
 
 1. Choose Copy, then paste the command in Terminal on the Mac, and run it. It prints a one-time code that works for 10 minutes.
 2. On the board, type the code in the "Pairing code" field, and choose Pair.
@@ -339,7 +353,8 @@ Which logbooks the board writes:
 - For a Claude or Codex logbook, the board reads the checkout from the logbook's `checkout.txt`. It writes only when the state tool finds that same logbook folder for that checkout.
 - A logbook that moved to the shared root, a `checkout.txt` that is a link, or a checkout of another project refuses.
 - A logbook with no checkout on this Mac refuses. Then answer or archive in the chief's chat.
-- A Claude or Codex logbook without a `checkout.txt` refuses too, because the board cannot check its checkout. The note says so. Archive or restore it in the project's own chat.
+- A Claude or Codex logbook gets its `checkout.txt` at the next command of the chief that writes to it, such as `task add` or `gate add`. The state tool never replaces a `checkout.txt` that is there, also when it names another checkout or is a link.
+- Until that write, a logbook without a `checkout.txt` refuses, because the board cannot check its checkout. The note says so. Archive or restore it in the project's own chat.
 
 An agent runs as your user, so a script that builds the state folder's path while it runs can still read the cookie's hash file. The sandbox is the full protection.
 

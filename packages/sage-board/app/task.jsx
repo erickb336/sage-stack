@@ -3,7 +3,7 @@ import { AgentRing, age, span, stateText, tokens } from "./agent.jsx";
 import { MARKS, OBJECTS, UNKNOWN, chiefName as nameOf, prName, shown, taskWord } from "../../sage-core/state-words.mjs";
 
 export const questionLink = key => `#question?key=${encodeURIComponent(key)}`;
-export const taskLink = (key, tab) => `#task?key=${encodeURIComponent(key)}${tab && tab !== "artifacts" ? `&tab=${tab}` : ""}`;
+export const taskLink = (key, tab) => `#task?key=${encodeURIComponent(key)}${tab && tab !== "about" ? `&tab=${tab}` : ""}`;
 export const milestoneLink = key => `#tasks?milestone=${encodeURIComponent(key)}`;
 export const ofChief = (task, chief) => !chief || task.chief?.id === chief.id && task.key === `${chief.logbook}/${task.id}`;
 export const chiefName = chief => chief ? chief.old ?? nameOf(chief.id ?? `chief ${UNKNOWN}`, chief.provider) : "No chief";
@@ -36,7 +36,7 @@ export function readLink(key, kind, arg) {
   const query = new URLSearchParams(document.documentElement.dataset.theme === "light" ? { theme: "light" } : {}).toString();
   return `/read/${encodeKey(key)}/${kind}${arg ? `/${arg}` : ""}${query ? `?${query}` : ""}`;
 }
-const TABS = ["Artifacts", "Log", "Decisions"];
+const TABS = ["About", "Artifacts", "Log", "Decisions"];
 
 function useTask(key, at) {
   const [state, setState] = useState({ key, data: null, problem: null });
@@ -67,7 +67,7 @@ function trailOf(task) {
     const steps = task.steps.filter(step => step.key.startsWith(phase) || phase === "review" && /^(repair|again)/.test(step.key));
     const open = steps.find(step => TRAIL(step.status) !== "done"), parts = (open?.parts ?? []).filter(part => names.includes(part.name)).map(part => TRAIL(part.status));
     const mark = merged || steps.length && !open ? "done" : !open ? "" : !parts.length ? TRAIL(open.status) : parts.every(part => part === "done") ? "done" : parts.every(part => !part) ? "" : "now";
-    return { label, mark };
+    return { label, mark: task.ended && mark === "now" ? "" : mark };
   });
 }
 
@@ -142,16 +142,38 @@ function Failed({ task }) {
       <p className="lbl">Failed run</p>
       <p><strong>{run.role} {run.id} failed.</strong> {run.failure ? `"${controlsShown(run.failure.text)}"` : "No reason recorded."}</p>
       {run.failure && <p className="faint">From {FROM[run.failure.from]}{run.ended && `, ${when(run.ended, task.at)}`}.</p>}
-      <a href={readLink(task.key, "report", run.id)}>Open the report of {run.id}</a>
+      {run.report && <a href={readLink(task.key, "report", run.id)}>Open the report of {run.id}</a>}
     </div>
   ));
+}
+
+const USERS = '"What changes for users"';
+function Change({ task }) {
+  if (task.change === undefined) return null;
+  const { change } = task, pr = task.pr ? prName(task.pr) : "its pull request";
+  const from = !change ? `The board has no text for this change: the logbook kept no ${USERS} part of ${pr}, and the lead kept no report.`
+    : change.from === "pr" ? `From ${pr}'s description, part ${USERS}.` : `From the lead's report (RESULT of ${change.run}). The logbook kept no ${USERS} part of ${pr}.`;
+  return (
+    <Section label="What changed for you">
+      {change && <ul className="changed">{change.text.split(/\r?\n(?=\s*[-*+] )|\r?\n\s*\r?\n/).filter(item => item.trim()).map((item, i) => <li key={i}>{controlsShown(item.replace(/^\s*[-*+] /, "").replace(/\s*\n\s*/g, " "))}</li>)}</ul>}
+      <p className="faint">{from}{task.prUrl && <> <a href={task.prUrl} target="_blank" rel="noopener noreferrer">Open on GitHub</a></>}</p>
+    </Section>
+  );
 }
 
 function About({ task }) {
   const { brief } = task, reports = task.files.kept.length + task.files.reports.length;
   return (
-    <section className="card about-card" aria-labelledby="about-h">
-      <h2 id="about-h">About this task</h2>
+    <div className="about-card">
+      <Change task={task} />
+      {task.conflicts.map(other => (
+        <div className="callout" key={other.key}>
+          <p><strong>May conflict with {other.id}</strong> ({controlsShown(other.chief)}). Both open branches change:</p>
+          <ul>{other.paths.slice(0, 20).map(path => <li key={path}><code>{controlsShown(path)}</code></li>)}</ul>
+          {other.paths.length > 20 && <p className="faint">and {other.paths.length - 20} more files.</p>}
+          <p className="faint">A warning only: nothing waits. The pull request that merges second may need a rebase.</p>
+        </div>
+      ))}
       {brief.state === "unread" && <p className="stale" role="alert">The board cannot read the brief now. {controlsShown(brief.why)}</p>}
       <Failed task={task} />
       <Milestone task={task} />
@@ -168,12 +190,12 @@ function About({ task }) {
       <Status task={task} />
       <Cost task={task} brief={brief} />
       <p className="links">
-        {brief.run && brief.state !== "none" ? <a className="btn" href={readLink(task.key, "brief", brief.run)}>Brief <span className="mono faint">{brief.run}</span></a> : <span className="btn off">Brief · none</span>}
+        {["kept", "unread"].includes(brief.state) ? <a className="btn" href={readLink(task.key, "brief", brief.run)}>Brief <span className="mono faint">{brief.run}</span></a> : <span className="btn off">Brief · none</span>}
         <a className="btn" href={taskLink(task.key, "artifacts")} onClick={event => { event.preventDefault(); document.getElementById("tab-Artifacts")?.click(); document.getElementById("tab-Artifacts")?.focus(); }}>Reports · {reports}</a>
         {task.pr ? task.prUrl ? <a className="btn" href={task.prUrl} target="_blank" rel="noopener noreferrer">Pull request <span className="mono faint">{prName(task.pr)}</span></a> : <span className="btn off">{prName(task.pr)}</span> : <span className="btn off">Pull request · none yet</span>}
         {task.milestone && <a className="btn" href={milestoneLink(task.milestone.key)}>Milestone</a>}
       </p>
-    </section>
+    </div>
   );
 }
 
@@ -222,21 +244,12 @@ export function TaskPage({ taskKey, tab: asked, at, from }) {
           {task.branch && <> · <code>{controlsShown(task.branch)}</code></>}
         </p>
         <AtWork task={task} />
-        {task.conflicts.map(other => (
-          <div className="callout" key={other.key}>
-            <p><strong>May conflict with {other.id}</strong> ({controlsShown(other.chief)}). Both open branches change:</p>
-            <ul>{other.paths.slice(0, 20).map(path => <li key={path}><code>{controlsShown(path)}</code></li>)}</ul>
-            {other.paths.length > 20 && <p className="faint">and {other.paths.length - 20} more files.</p>}
-            <p className="faint">A warning only: nothing waits. The pull request that merges second may need a rebase.</p>
-          </div>
-        ))}
-        <About task={task} />
         <section className="card records">
           <div className="tabs" role="tablist" aria-label="Task records" onKeyDown={move}>
-            {TABS.map((name, i) => <button type="button" role="tab" key={name} id={`tab-${name}`} ref={el => { tabs.current[i] = el; }} aria-selected={tab === name} aria-controls="tab-panel" tabIndex={tab === name ? 0 : -1} onClick={() => pick(name)}>{name} <span className="faint">{counts[name]}</span></button>)}
+            {TABS.map((name, i) => <button type="button" role="tab" key={name} id={`tab-${name}`} ref={el => { tabs.current[i] = el; }} aria-selected={tab === name} aria-controls="tab-panel" tabIndex={tab === name ? 0 : -1} onClick={() => pick(name)}>{name}{counts[name] !== undefined && <> <span className="faint">{counts[name]}</span></>}</button>)}
           </div>
           <div id="tab-panel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
-            {tab === "Artifacts" ? <Artifacts task={task} /> : tab === "Log" ? <Log task={task} /> : <Decisions task={task} />}
+            {tab === "About" ? <About task={task} /> : tab === "Artifacts" ? <Artifacts task={task} /> : tab === "Log" ? <Log task={task} /> : <Decisions task={task} />}
           </div>
         </section>
       </>}
@@ -265,7 +278,7 @@ function Artifacts({ task }) {
       </>}
       {task.runs.length > 0 && <>
         <h4>Briefs and reports</h4>
-        <ul className="files">{task.runs.map(run => <li key={run.id}><span>{run.id} · {run.role}</span><span><a href={read("brief", run.id)}>Brief</a> · <a href={read("report", run.id)}>Report</a></span></li>)}</ul>
+        <ul className="files">{task.runs.map(run => <li key={run.id}><span>{run.id} · {run.role}</span><span>{run.brief ? <a href={read("brief", run.id)}>Brief</a> : <span className="faint">No brief</span>} · {run.report ? <a href={read("report", run.id)}>Report</a> : <span className="faint">{run.status === "running" ? "Report when it ends" : "No report"}</span>}</span></li>)}</ul>
       </>}
       {files.pages?.length > 0 && <>
         <h4>Pages folder</h4>

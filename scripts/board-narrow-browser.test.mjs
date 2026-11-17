@@ -1,8 +1,7 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { createRequire } from "node:module";
-import { createServer } from "node:net";
+import { requireBrowser } from "./browser-prerequisite.mjs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
@@ -10,26 +9,17 @@ import { fileURLToPath } from "node:url";
 import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
 import { writeTasksLogbook } from "./fixtures/board-app.mjs";
 
-const require = createRequire(import.meta.url);
-const { chromium } = require("playwright");
+const chromium = requireBrowser();
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const APP = loadBoardApp(join(ROOT, "plugins/sage/board/app"));
 const SHOTS = process.env.BOARD_SHOTS_DIR ?? null;
 const KEY = id => `shared/sample-app-abc123/${id}`;
 let browser;
-before(async () => { browser = await chromium.launch({ headless: true, ...(process.env.BOARD_BROWSER_PATH ? { executablePath: process.env.BOARD_BROWSER_PATH } : {}) }); });
+before(async () => { browser = await chromium.launch(); });
 after(async () => { await browser?.close(); });
 
-async function freePort() {
-  const socket = createServer();
-  await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-  const { port } = socket.address();
-  await new Promise(accept => socket.close(accept));
-  return port;
-}
-
 async function board(t, { question = false } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), "sage-board-narrow-")), port = await freePort(), saved = process.env.SAGE_WORKTREES;
+  const dir = mkdtempSync(join(tmpdir(), "sage-board-narrow-")), saved = process.env.SAGE_WORKTREES;
   process.env.SAGE_WORKTREES = join(dir, "worktrees");
   writeTasksLogbook(join(dir, "logbooks"), join(dir, "worktrees"), new Date().toISOString(), { agents: true, chiefCases: true, about: true, prs: true, stuck: true });
   if (question) {
@@ -37,8 +27,8 @@ async function board(t, { question = false } = {}) {
     const row = { id: "R90", task: "T2", role: "implementer", round: "0", status: "question", started: new Date(Date.now() - 50 * 60_000).toISOString(), ended: new Date(Date.now() - 20 * 60_000).toISOString(), chief: "C1" };
     appendFileSync(runs, `${columns.map(column => row[column] ?? "").join("\t")}\n`);
   }
-  const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port, app: APP, settleReads: [] });
-  await server.start();
+  const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port: 0, app: APP, settleReads: [] });
+  const { port } = await server.start();
   t.after(async () => { await server.close(); if (saved === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = saved; rmSync(dir, { recursive: true, force: true }); });
   return `http://127.0.0.1:${port}`;
 }
@@ -129,4 +119,23 @@ test("T1099 F-T1099-54: in the Tasks rows, a step that needs you carries ? and a
   assert.deepEqual([...new Set(of("need").map(step => step.shown + step.heard))], ["?needs you: "]);
   assert.deepEqual([...new Set(of("fail").map(step => step.shown + step.heard))], ["!done · failed: "]);
   assert.deepEqual([...new Set(of("run").map(step => step.shown))], [""], "a step in progress needs no mark");
+});
+
+const HEADER_BOUND_WITH_ANY_SYSTEM_FONTS = 250;
+test("T1159 (F-T1159-50): on a phone the board's shell is compact and never covers the page: the header ends by 250 px on any system (283 px before on macOS), scrolls away with the page, and keeps 44 px targets", async t => {
+  const base = await board(t);
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  t.after(() => context.close());
+  const page = await context.newPage();
+  for (const [name, path] of [["overview", "/app/#"], ["tasks", "/app/#tasks"], ["question", `/app/#question?key=${encodeURIComponent(KEY("G4"))}`], ["stats", "/app/#stats"]]) {
+    await page.goto(`${base}${path}`);
+    await page.locator("main h1").waitFor();
+    const shell = await page.evaluate(() => {
+      const top = document.querySelector("header.top"), box = element => element.getBoundingClientRect();
+      return { bottom: Math.round(box(top).bottom), position: getComputedStyle(top).position, small: [...document.querySelectorAll(".nav a, header.top button")].filter(item => box(item).height < 44).map(item => item.textContent) };
+    });
+    assert.ok(shell.bottom <= HEADER_BOUND_WITH_ANY_SYSTEM_FONTS, `${name}: the header ends at ${shell.bottom} px, not by ${HEADER_BOUND_WITH_ANY_SYSTEM_FONTS} px (201 px with the fonts of macOS, 232 px with the wider fonts of CI's Linux runner)`);
+    assert.equal(shell.position, "static", `${name}: the header scrolls away, so it covers nothing`);
+    assert.deepEqual(shell.small, [], `${name}: each page link and header button is at least 44 px high`);
+  }
 });

@@ -1,5 +1,4 @@
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -33,14 +32,6 @@ function writeFixture(root) {
   return book;
 }
 
-async function freePort() {
-  const socket = createServer();
-  await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-  const { port } = socket.address();
-  await new Promise(accept => socket.close(accept));
-  return port;
-}
-
 const stats = list => { const sorted = [...list].sort((a, b) => a - b); return `median ${sorted[sorted.length >> 1].toFixed(1)} ms (min ${sorted[0].toFixed(1)}, max ${sorted.at(-1).toFixed(1)}, n=${list.length})`; };
 
 const dir = mkdtempSync(join(tmpdir(), "sage-board-bench-")), root = join(dir, "source");
@@ -59,7 +50,7 @@ try {
   console.log(`one full refresh (read every table, build the model and the overview, as the board server does for the app): ${stats(times)}`);
 
   let reads = 0;
-  const server = createBoardServer({ sources, port: await freePort(), settleReads: [], duringRead: () => { reads++; } });
+  const server = createBoardServer({ sources, port: 0, settleReads: [], duringRead: () => { reads++; } });
   await server.start();
   try {
     await wait(1500);

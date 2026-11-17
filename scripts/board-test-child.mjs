@@ -21,6 +21,10 @@ function route(message) {
     closing = true;
     for (const child of children) if (child.connected) child.send(message, () => {});
     void closeOwn();
+  } else if (message.kind === "stopped") {
+    serving = false;
+    setTimeout(() => process.exit(3), 10_000).unref();
+    release();
   } else if (message.kind === "close-pid") {
     if (message.pid === process.pid) { closing = true; void closeOwn(); }
     else for (const child of children) if (child.connected) child.send(message, () => {});

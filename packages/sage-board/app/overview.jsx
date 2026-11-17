@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { GiveBox, PairBox, PairNote, UndoButton, chiefLabel, useAccess, useSeen } from "./actions.jsx";
+import { CopyCommand, GiveBox, PairBox, PairNote, UndoButton, chiefLabel, useAccess, useSeen } from "./actions.jsx";
 import { useNow, when } from "./use-model.js";
 import { StateIcon } from "./icons.jsx";
 import { chiefSub, milestoneLink, ofChief, questionLink, taskLink } from "./task.jsx";
@@ -18,13 +18,15 @@ export function ago(from, to) {
 
 const DAY = 86_400_000, WEEK = 7 * DAY;
 const after = (list, since) => list.filter(at => at && Date.parse(at) > since).length;
-function Counts({ model, previous, now }) {
+function Counts({ model, previous, now, chief }) {
+  const tasks = model.tasks.filter(task => ofChief(task, chief));
   const old = previous && Date.parse(previous) < Date.parse(model.at) - WEEK, since = previous && !old ? Date.parse(previous) : Date.parse(model.at) - (old ? WEEK : DAY);
-  const known = model.tasks.some(task => task.addedAt), unknown = model.tasks.some(task => !task.addedAt);
+  const known = tasks.some(task => task.addedAt), unknown = tasks.some(task => !task.addedAt);
+  const links = { merged: `#tasks?group=state&sort=newest&since=${new Date(since).toISOString()}`, stuck: "#agents" };
   const items = [
-    ["merged", after(model.tasks.filter(task => task.state === "merged").map(task => task.doneAt), since), "Merged", "tasks merged into main"],
+    ["merged", after(tasks.filter(task => task.state === "merged").map(task => task.doneAt), since), "Merged", "tasks merged into main"],
     ["stuck", model.stuck, FLAGGED[0].toUpperCase() + FLAGGED.slice(1), "runs of open tasks that failed in the last 24 hours and did not run again, or agents silent for 30 min or stopped"],
-    ["added", known ? after(model.tasks.map(task => task.addedAt), since) : null, "New tasks", !known ? `${UNKNOWN} · no task in the logbook has a time when it was added` : unknown ? "tasks added to the logbook; older tasks have no time" : "tasks added to the logbook"],
+    ["added", known ? after(tasks.map(task => task.addedAt), since) : null, "New tasks", !known ? `${UNKNOWN} · no task in the logbook has a time when it was added` : unknown ? "tasks added to the logbook; older tasks have no time" : "tasks added to the logbook"],
   ];
   return (
     <section className="counts" aria-labelledby="counts-h">
@@ -33,7 +35,7 @@ function Counts({ model, previous, now }) {
         {items.map(([kind, count, label, hint]) => (
           <div className={`kpi ${kind}`} key={kind} data-count={kind}>
             <div className="n">{count ?? UNKNOWN}</div>
-            <div className="l"><span className="dot" aria-hidden="true" />{kind === "stuck" ? <a href="#agents">{label}</a> : label}</div>
+            <div className="l"><span className="dot" aria-hidden="true" />{links[kind] ? <a href={links[kind]}>{label}</a> : label}</div>
             <div className="h">{hint}</div>
           </div>
         ))}
@@ -195,8 +197,28 @@ function Milestones({ milestones, hiddenDone }) {
   );
 }
 
-export function Overview({ model, shown }) {
+const MODE = "sage mode";
+function Start({ started }) {
+  return (
+    <section className="card start" aria-labelledby="start-h">
+      <h2 id="start-h">Start your first task</h2>
+      <p className="hint">The board shows the work of a chief. {started ? "This project has no task yet." : "No chief has recorded work in this logbook yet."}</p>
+      <ol>
+        <li><b>Start a chief in the project</b>
+          {started ? <p className="hint">Done: a chief works in this project.</p> : <>
+            <CopyCommand text={MODE} />
+            <p className="hint">Type it as the whole message, in a Claude Code or Codex session in the project folder.</p></>}</li>
+        <li><b>Ask for a change in your words</b><p className="hint">For example: "Add a share button to a list." The chief frames it as a task and starts its agents.</p></li>
+        <li><b>Come back here</b><p className="hint">The task shows on this page within a few seconds. Questions for you show first, under Needs you.</p></li>
+      </ol>
+      <p className="hint">This board reads the logbook on this Mac. It changes nothing until you pair the browser.</p>
+    </section>
+  );
+}
+
+export function Overview({ model, shown, chief }) {
   const previous = useSeen(), now = useNow();
+  if (!model.tasks.length && !model.needs.length && !model.milestones.length) return <><div className="page-h"><h1>Overview</h1></div><Start started={model.chiefs.length > 0} /><PairNote /><PairBox /></>;
   return (
     <>
       <div className="page-h">
@@ -209,7 +231,7 @@ export function Overview({ model, shown }) {
         <NeedsYou model={model} shown={shown} now={now} />
         <Milestones milestones={model.milestones} hiddenDone={model.hiddenDone} />
       </div>
-      <Counts model={model} previous={previous} now={now} />
+      <Counts model={model} previous={previous} now={now} chief={chief} />
     </>
   );
 }

@@ -1,8 +1,7 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { createRequire } from "node:module";
-import { createServer } from "node:net";
+import { requireBrowser } from "./browser-prerequisite.mjs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
@@ -11,31 +10,22 @@ import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.m
 import { ABOUT, writeTasksLogbook } from "./fixtures/board-app.mjs";
 import { measureContrast } from "./fixtures/contrast.mjs";
 
-const require = createRequire(import.meta.url);
-const { chromium } = require("playwright");
+const chromium = requireBrowser();
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const APP = loadBoardApp(join(ROOT, "plugins/sage/board/app"));
 const SHOTS = process.env.BOARD_SHOTS_DIR ?? null;
 const KEY = id => `shared/sample-app-abc123/${id}`;
 const taskPage = id => `/app/#task?key=${encodeURIComponent(KEY(id))}`;
 let browser;
-before(async () => { browser = await chromium.launch({ headless: true, ...(process.env.BOARD_BROWSER_PATH ? { executablePath: process.env.BOARD_BROWSER_PATH } : {}) }); });
+before(async () => { browser = await chromium.launch(); });
 after(async () => { await browser?.close(); });
 
-async function freePort() {
-  const socket = createServer();
-  await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-  const { port } = socket.address();
-  await new Promise(accept => socket.close(accept));
-  return port;
-}
-
 async function board(t) {
-  const dir = mkdtempSync(join(tmpdir(), "sage-board-task-page-")), port = await freePort(), saved = process.env.SAGE_WORKTREES;
+  const dir = mkdtempSync(join(tmpdir(), "sage-board-task-page-")), saved = process.env.SAGE_WORKTREES;
   process.env.SAGE_WORKTREES = join(dir, "worktrees");
   writeTasksLogbook(join(dir, "logbooks"), join(dir, "worktrees"), new Date().toISOString(), { agents: true, chiefCases: true, about: true, prs: true });
-  const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port, app: APP, settleReads: [] });
-  await server.start();
+  const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port: 0, app: APP, settleReads: [] });
+  const { port } = await server.start();
   t.after(async () => { await server.close(); if (saved === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = saved; rmSync(dir, { recursive: true, force: true }); });
   return `http://127.0.0.1:${port}`;
 }
@@ -108,7 +98,7 @@ test("T1083: the task page shows each part from the logbook and the brief, in on
   await page.getByRole("tab", { name: /Log/ }).click();
   assert.match(page.url(), /&tab=log$/);
   await page.reload();
-  await page.locator(".about-card").waitFor();
+  await page.locator("#tab-panel .log").waitFor();
   assert.equal(await page.getByRole("tab", { name: /Log/ }).getAttribute("aria-selected"), "true", "a reload keeps the tab");
   await shoot(page, "task-T2-dark-1440.png");
   assert.deepEqual(problems, []);
@@ -121,7 +111,7 @@ test("T1083 F-T1083-3, F-T1083-5: the question page and an old #tasks?task= addr
   await page.goto(`${base}/app/`);
   const question = page.locator('.needs a[href^="#question?"]').first();
   await question.click();
-  const link = page.locator('.facts-line a[href^="#task?key="]');
+  const link = page.locator('.fits a[href^="#task?key="]');
   await link.waitFor();
   assert.equal(await page.locator('main a[href*="?task="]').count(), 0, "no link uses the old address");
   const title = (await link.textContent()).split(" · ").slice(1).join(" · ");
@@ -223,7 +213,7 @@ test("T1083: only a running agent's outline moves, and reduced motion stops it",
 
 test("T1083: the arena card shows the candidates, then the judge, and says when its scores come", async t => {
   const base = await board(t), { page } = await open(t, base, "/app/#agents");
-  const arena = page.locator(`section.acard.arena[aria-label="Arena of T11"]`);
+  const arena = page.locator(`section.acard.arena[aria-label="Arena of Sample sync build, T11"]`);
   await arena.waitFor();
   assert.deepEqual(await arena.locator(".squad > *").evaluateAll(list => list.map(item => item.dataset.run ?? item.className)), ["R50", "R51", "ar-arrow", "ag ended wait"], "the candidates in order, the arrow, then the judge that waits");
   assert.equal(await arena.locator(".tot b").textContent(), "1 of 2 ended");

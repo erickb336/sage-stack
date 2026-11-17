@@ -1,8 +1,7 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { createRequire } from "node:module";
-import { createServer } from "node:net";
+import { requireBrowser } from "./browser-prerequisite.mjs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
@@ -10,8 +9,7 @@ import { fileURLToPath } from "node:url";
 import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
 import { writeTasksLogbook } from "./fixtures/board-app.mjs";
 
-const require = createRequire(import.meta.url);
-const { chromium } = require("playwright");
+const chromium = requireBrowser();
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const APP = loadBoardApp(join(ROOT, "plugins/sage/board/app"));
 const SHOTS = process.env.BOARD_SHOTS_DIR ?? null;
@@ -19,24 +17,14 @@ const WIDTHS = [1440, 390];
 const KEY = id => `shared/sample-app-abc123/${id}`;
 let browser, base, close;
 
-async function freePort() {
-  for (;;) {
-    const socket = createServer();
-    await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-    const { port } = socket.address();
-    await new Promise(accept => socket.close(accept));
-    if (![4173, 43123].includes(port)) return port;
-  }
-}
-
 before(async () => {
-  const dir = mkdtempSync(join(tmpdir(), "sage-board-jobs-")), port = await freePort(), saved = process.env.SAGE_WORKTREES;
+  const dir = mkdtempSync(join(tmpdir(), "sage-board-jobs-")), saved = process.env.SAGE_WORKTREES;
   process.env.SAGE_WORKTREES = join(dir, "worktrees");
   writeTasksLogbook(join(dir, "logbooks"), join(dir, "worktrees"), new Date().toISOString(), { agents: true, about: true, prs: true, documents: true });
-  const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port, app: APP, settleReads: [] });
-  await server.start();
+  const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port: 0, app: APP, settleReads: [] });
+  const { port } = await server.start();
   base = `http://127.0.0.1:${port}`;
-  browser = await chromium.launch({ headless: true, ...(process.env.BOARD_BROWSER_PATH ? { executablePath: process.env.BOARD_BROWSER_PATH } : {}) });
+  browser = await chromium.launch();
   close = async () => { await server.close(); if (saved === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = saved; rmSync(dir, { recursive: true, force: true }); };
 });
 after(async () => { await browser?.close(); await close?.(); });
@@ -93,9 +81,9 @@ for (const width of WIDTHS) {
       await page.locator("main h1", { hasText: "Tasks" }).waitFor();
       await click(page.locator(`a.row[href="#task?key=${encodeURIComponent(KEY("T3"))}"]`));
       await page.locator(".taskpage h1", { hasText: "Sample shared limits" }).waitFor();
-      assert.deepEqual((await page.locator(".taskpage [role=tab]").allTextContents()).map(text => text.replace(/\s*\d+$/, "")), ["Artifacts", "Log", "Decisions"]);
+      assert.deepEqual((await page.locator(".taskpage [role=tab]").allTextContents()).map(text => text.replace(/\s*\d*$/, "")), ["About", "Artifacts", "Log", "Decisions"]);
       await page.locator(".taskpage").getByText("Build", { exact: false }).first().waitFor();
-      await page.locator("#tab-panel").getByText("Limits design note").first().waitFor();
+      assert.match(await page.getByRole("tab", { name: /^Artifacts/ }).textContent(), /^Artifacts [1-9]\d*$/, "T1126: About is the first tab; the Artifacts tab counts what the agents made, one click away");
     });
     assert.equal(clicks, 2);
   });
@@ -134,13 +122,32 @@ for (const width of WIDTHS) {
     assert.equal(clicks, 0);
   });
 
+  test(`F-T1158-6 and F-T1158-9 at ${width} px: on Stats, the page's own Show list is the only scope: no project picker and no chief chips`, async t => {
+    const clicks = await walk(t, "stats", width, async (page, click) => {
+      assert.equal(await page.locator("header.top button.picker").count(), 1, "the Overview has the picker");
+      assert.ok(await page.locator(".chips").count() > 0, "and the chief chips");
+      await click(page.locator(".nav a", { hasText: "Stats" }));
+      await page.locator(".chart").first().waitFor();
+      assert.deepEqual([await page.locator("header.top button.picker").count(), await page.locator(".chips").count(), await page.locator("header.top .crumb").textContent()], [0, 0, "Stats"]);
+      assert.deepEqual(await page.getByLabel("Show").locator("option").allTextContents(), ["All projects", "sample-app"]);
+      assert.match(await page.locator("header.top").textContent(), /Live · read/, "the top bar keeps its other parts");
+    });
+    assert.equal(clicks, 1);
+  });
+
   test(`J7 at ${width} px: each chief's chip says whether it runs and whether its autopilot is on, with no click`, async t => {
     const clicks = await walk(t, "J7", width, async page => {
+      if (width < 760) {
+        const fold = page.locator(".chips .chip.fold");
+        assert.match(await fold.textContent(), /^C1 · autopilot on C2 · autopilot off ▾$/, "T1126 S14: on a phone the folded chip still says each chief's state");
+        assert.equal(await fold.locator(".dot.live").count(), 2, "both chiefs run");
+        return;
+      }
       const chips = await page.locator(".chips button.chip[data-chief]").allTextContents();
       assert.equal(chips.length, 2, chips.join(" | "));
       assert.ok(chips.some(text => /Claude · C1/.test(text) && /autopilot on/.test(text)), chips.join(" | "));
       assert.ok(chips.some(text => /Codex · C2/.test(text) && /autopilot off/.test(text)), chips.join(" | "));
-      assert.equal(await page.locator(".chips .dot.live").count(), 2, "both chiefs run");
+      assert.equal(await page.locator(".chips button.chip[data-chief] .dot.live").count(), 2, "both chiefs run");
     });
     assert.equal(clicks, 0);
   });

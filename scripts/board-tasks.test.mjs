@@ -2,7 +2,6 @@ import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -29,18 +28,10 @@ function world(t, options) {
 }
 const modelOf = sources => buildBoardModel(readBoardSources(sources, { now: Date.parse(NOW) }), { now: NOW });
 
-async function freePort() {
-  const socket = createServer();
-  await new Promise((accept, reject) => { socket.once("error", reject); socket.listen(0, "127.0.0.1", accept); });
-  const { port } = socket.address();
-  await new Promise(accept => socket.close(accept));
-  return port;
-}
 async function serve(t, sources) {
-  const port = await freePort(), server = createBoardServer({ sources, port, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [] });
+  const server = createBoardServer({ sources, port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [] });
   t.after(() => server.close());
-  await server.start();
-  return `http://127.0.0.1:${port}`;
+  return `http://127.0.0.1:${(await server.start()).port}`;
 }
 
 test("T1061: the stream lists every task with its state word, priority, kind, chief tag and may-conflict flag; ended tasks are marked", t => {
@@ -66,7 +57,7 @@ test("T1061: the panel gives the route's steps with the current step, the clean-
   assert.deepEqual(panel.steps[2].parts, [{ name: "checks", status: "done" }, { name: "code review", status: "done" }, { name: "QA", status: "run" }]);
   assert.deepEqual(panel.cycles, { required: 1, clean: 0, reviews: true });
   assert.deepEqual(panel.lastEvent, { at: "2026-11-13T11:30:00.000Z", who: "R6", text: "qa started" });
-  assert.deepEqual(panel.log.map(event => event.text), ["qa started", "review-clean · cycle 1 on bbbbbbb", "code-reviewer ended: done", "checks-pass · cycle 1 on bbbbbbb", "code-reviewer started", "implementer ended: done", "implementer started", "state reviewing · the PR is open"], "newest first");
+  assert.deepEqual(panel.log.map(event => event.text), ["qa started", "review-clean · cycle 1 on bbbbbbb", "code-reviewer ended: done", "checks-pass · cycle 1 on bbbbbbb", "code-reviewer started", "implementer ended: done", "implementer started", "state reviewing · the PR is open", "task added · framed"], "newest first");
   assert.deepEqual(panel.decisions, [{ id: "G6", question: "Keep one limit for both providers?", answer: "A: yes", pending: null, recommendation: "A: yes", waits: false, at: "2026-11-13T04:00:00.000Z" }]);
   assert.deepEqual(panel.artifacts.map(item => [item.label, item.run, item.url]), [["Limits design note", "R7", "https://github.com/sample-owner/sample-app/pull/12"]]);
   assert.equal(panel.prUrl, "https://github.com/sample-owner/sample-app/pull/12", "from the PR observation's repository");

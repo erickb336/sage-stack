@@ -60,7 +60,7 @@ function LeadCard({ lead, helpers, queued, more, now, step }) {
   const shown = helpers.filter(run => run.status === "running" || run.look), ended = helpers.filter(run => !shown.includes(run));
   const look = shown.filter(run => run.look).length + more, mine = [lead, ...helpers];
   return (
-    <section className="acard" aria-label={`${lead.role} ${lead.id} on ${lead.task.id}`}>
+    <section className="acard" aria-label={`${lead.task.title}: ${lead.role} ${lead.id} on ${lead.task.id}`}>
       <header className="acard-h">
         <AgentRing run={lead} now={now} />
         <div className="lt">
@@ -86,7 +86,7 @@ function Arena({ runs, now }) {
   const judge = runs.filter(run => run.role === "arena-judge").at(-1), done = candidates.filter(run => run.status !== "running" && run.status !== "queued").length;
   const ended = judge && judge.status !== "running" && judge.status !== "queued";
   return (
-    <section className="acard arena" aria-label={`Arena of ${task.id}`}>
+    <section className="acard arena" aria-label={`Arena of ${task.title}, ${task.id}`}>
       <header className="acard-h">
         <Ring ring={ended ? "done" : "run"}><Glyph role="arena-judge" /></Ring>
         <div className="lt"><Title task={task} /><span className="sub">Arena · {plural(candidates.length, "candidate")}, one brief, then a judge · <span className="mono">{task.id}</span></span></div>
@@ -99,7 +99,7 @@ function Arena({ runs, now }) {
         {judge ? <AgentTile run={judge} now={now} /> : <p className="ag ended wait"><Ring ring="wait"><Glyph role="arena-judge" /></Ring><span className="ag-b"><b className="rw">arena-judge</b><span className="mdl">Starts when all {candidates.length} candidates end · {candidates.length - done} still {candidates.length - done === 1 ? "runs" : "run"}</span></span></p>}
       </div>
       <p className="ar-res">{ended
-        ? <>The judge ended: <a href={readLink(task.key, "arena")}>the scores, the base and the grafts</a> · <a href={readLink(task.key, "report", judge.id)}>the judge's report {judge.id}</a></>
+        ? <>The judge ended: <a href={readLink(task.key, "arena")}>the scores, the base and the grafts</a> · {judge.report ? <a href={readLink(task.key, "report", judge.id)}>the judge's report {judge.id}</a> : <span className="faint">No report of {judge.id}</span>}</>
         : "The scores, the base and the grafts show when the judge ends. Each candidate saves its design in the task's pages folder."}</p>
     </section>
   );
