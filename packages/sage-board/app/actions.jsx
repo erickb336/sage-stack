@@ -14,16 +14,25 @@ const listeners = new Set();
 const useShared = (set, read) => useSyncExternalStore(fn => { set.add(fn); return () => set.delete(fn); }, read);
 const setAccess = writes => { access.writes = writes; listeners.forEach(fn => fn()); };
 addEventListener("storage", event => { if (on && (event.key === TOKEN_KEY || event.key === null)) setAccess(stored.get() ? "paired" : "unpaired"); });
-const [, link, project] = /^#pair=([\w-]{1,64})(?:&project=([^&]*))?$/.exec(location.hash) ?? [];
-if (link) history.replaceState(null, "", `${location.pathname}${location.search}${PROJECT.test(project ?? "") ? `#?project=${project}` : ""}`);
-export const linkProject = link && PROJECT.test(project ?? "") ? project : null;
-let linkNote = { outcome: link && on ? "loading" : null };
+export let linkProject = null;
+let linkNote = { outcome: null };
 const noteListeners = new Set();
 const setNote = (outcome, detail) => { linkNote = { outcome, detail }; noteListeners.forEach(fn => fn()); };
-if (linkNote.outcome) post("pair", { link }).then(({ json, text }) => {
-  if (json.token) { stored.set(json.token); setAccess("paired"); }
-  setNote(json.outcome ?? "error", json.at ?? text);
-});
+// The chat's link opens the board with #pair=<key>: at the start, and also when it is pasted into a board tab that is open already.
+function readLink() {
+  const [, link, project] = /^#pair=([\w-]{1,64})(?:&project=([^&]*))?$/.exec(location.hash) ?? [];
+  if (!link) return;
+  history.replaceState(null, "", `${location.pathname}${location.search}${PROJECT.test(project ?? "") ? `#?project=${project}` : ""}`);
+  linkProject = PROJECT.test(project ?? "") ? project : null;
+  if (!on) return;
+  setNote("loading");
+  post("pair", { link }).then(({ json, text }) => {
+    if (json.token) { stored.set(json.token); setAccess("paired"); }
+    setNote(json.outcome ?? "error", json.at ?? text);
+  });
+}
+readLink();
+addEventListener("hashchange", readLink);
 const VIA = { board: "on the board", chat: "in the chat", "claude-card": "on a Claude card", "codex-card": "on a Codex card" };
 const clock = at => Number.isFinite(Date.parse(at)) ? new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "an unknown time";
 const clocks = text => String(text).replace(/\b\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d+)?)?Z\b/g, clock);
@@ -52,7 +61,7 @@ const NOTES = {
   used: ["refused", at => `Another browser on this Mac used this link at ${clock(at)}. This browser still reads only. ${NEW_LINK}`],
   replaced: ["refused", () => `A newer link replaced this one. ${NEW_LINK}`],
   expired: ["refused", at => `This link expired at ${clock(at)}: a link works for 10 minutes. ${NEW_LINK}`],
-  refused: ["refused", () => `The board refused this link: it is not a link of this board. ${NEW_LINK}`],
+  refused: ["refused", () => `The board does not know this link: it is not a link of this board, or it is older than the board's last 8 links. ${NEW_LINK}`],
   error: ["refused", text => `The board could not pair this browser: ${text}`],
 };
 export function PairNote() {

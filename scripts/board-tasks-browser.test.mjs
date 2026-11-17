@@ -562,9 +562,11 @@ test("T1159 (F-T1159-54): Stats has its own scope, so its top bar shows no count
   const top = () => page.locator("header.top").innerText();
   await page.locator("header.top .limit", { hasText: "in all projects" }).waitFor();
   assert.equal(await page.locator(".picker").count(), 1);
+  assert.match(await top(), /Agents\s+\d+ of \d+[^]*Leads\s+\d+ of \d+/, "the Overview names the open project's agent and lead counts");
   await page.locator(".nav a", { hasText: "Stats" }).click();
   await page.locator(".stat-tiles").waitFor();
   assert.doesNotMatch(await top(), /in all projects/, "Stats counts its own scope only");
+  assert.equal(await page.locator("header.top .limit").count(), 0, "Stats shows no Agents or Leads chip of the project that the picker opened last, which it does not name");
   assert.equal(await page.locator(".picker, .chips, .signal").count(), 0, "Stats shows no picker, no chief chips and no line about other projects than one it does not name");
 });
 

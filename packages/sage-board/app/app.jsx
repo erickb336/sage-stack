@@ -186,7 +186,7 @@ export function App() {
           <span className="crumb">{all && !page.own && <><Picker projects={all.projects} current={current} page={LISTED.includes(page.hash) ? page.hash : ""} now={now} /><span aria-hidden="true">/</span></>}<b>{page.name}</b></span>
           {model && !page.own && <Signal others={model.others} />}
           <span className="grow" />
-          {model && <LimitCounts agents={model.agents} all={page.own ? model.agents : all.agents} />}
+          {model && !page.own && <LimitCounts agents={model.agents} all={all.agents} />}
           <Status model={model} link={link} lostAt={lostAt} now={now} />
           <button type="button" className="theme" onClick={flip} aria-label={`Switch to the ${next} theme`} title={`Switch to the ${next} theme`}>
             {theme === "dark" ? <SunIcon /> : <MoonIcon />}

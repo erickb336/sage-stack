@@ -393,6 +393,8 @@ const DAY_MS = 86400000, ACTIVE_DAYS = 14, OLDER_DAYS = 30;
 const PROBLEM_NEEDS = ["logbook", "milestones", "releases", "missing", "source"];
 const bookTimes = project => [...(project.tables.decisions ?? NONE).map(row => row.at), ...(project.tables.gates ?? NONE).flatMap(gate => [gate.at, boardAnswer(gate)?.at])].map(time).filter(at => at !== null);
 const ARCHIVE_ROWS = ["project archived", "project restored"];
+// The name of a logbook in an archive note, as the board server names the logbook of a failed write.
+const logbookLabel = ({ source }) => source.provider ? source.label ?? source.provider : "shared";
 function archiveFacts(books, tasks) {
   let archivedAt = null, restoredAt = null, restored = true, archives = 0;
   for (const { project } of books) {
@@ -449,6 +451,7 @@ function projectGroups(sources) {
       name: projectName(merged),
       remote, path: merged.checkout ?? null,
       archived: archived.length > 0 && archived.length === trusted.length, problem: problem && plainProblem(problem),
+      mixed: archived.length > 0 && archived.length < trusted.length ? { archived: archived.map(logbookLabel), shown: trusted.filter(book => !book.project.archived).map(logbookLabel) } : null,
       providers: unique(group.books.flatMap(book => book.project.old ? [title(book.project.old.provider)] : book.project.shared ? (book.project.chiefs ?? []).map(chief => title(chief.provider)) : [title(standIn(book.source))])),
       sub: unique(sub).join(" · "),
       terms: unique([...names, repoPath(merged.upstream), ...all.map(project => repoPath(project.repository)), folder, ...linked.map(item => plainName(basename(item.root))), merged.name, ...all.map(project => project.key)]),
@@ -756,7 +759,7 @@ export function buildBoardModel(input,{ now = new Date().toISOString(), landing 
     const own = tasks.filter(task => task.group === group.key), live = shown.filter(task => task.group === group.key);
     const last = Math.max(0, ...own.map(recent), ...group.books.flatMap(book => bookTimes(book.project))), extra = milestoneNeeds.filter(need => need.group === group.key), needsOwner = live.filter(task => task.reasons.length).length + extra.length;
     const chiefs = group.books.filter(book => book.project.shared && !book.project.old).flatMap(({ project }) => boardChiefs({ rows: project.chiefs ?? NONE, live: project.chiefLive, names: project.chiefNames, runs: own.filter(task => task.project === project.key).flatMap(task => task.runs), waits: own.filter(task => task.project === project.key && !ENDED.includes(task.state)).flatMap(task => task.reasons.filter(reason => reason.owner).map(reason => reason.owner)), now: at }).map(chief => ({ key: `${project.key}/${chief.id}`, ...chief })));
-    return { key: group.key, name: group.name, sub: group.sub, pathSub: group.pathSub ?? null, terms: group.terms, paths: group.paths, books: group.books.map(book => book.project.key), providers: group.providers, chiefs, archived: group.archived, problem: group.problem, unread: group.books.map(book => ({ logbook: book.project.old ? `old ${title(book.project.old.provider)}` : title(book.source.label), tables: TABLE_NAMES.filter(name => cannotRead(book.project, name)) })).filter(book => book.tables.length), tasks: own.length, needsOwner, problems: extra.filter(need => PROBLEM_NEEDS.includes(need.kind)).length, agents: live.reduce((n, task) => n + task.agents.filter(agent => !agent.stale).length, 0), lastActivity: last ? new Date(last).toISOString() : null,
+    return { key: group.key, name: group.name, sub: group.sub, pathSub: group.pathSub ?? null, terms: group.terms, paths: group.paths, books: group.books.map(book => book.project.key), providers: group.providers, chiefs, archived: group.archived, mixed: group.mixed, problem: group.problem, unread: group.books.map(book => ({ logbook: book.project.old ? `old ${title(book.project.old.provider)}` : title(book.source.label), tables: TABLE_NAMES.filter(name => cannotRead(book.project, name)) })).filter(book => book.tables.length), tasks: own.length, needsOwner, problems: extra.filter(need => PROBLEM_NEEDS.includes(need.kind)).length, agents: live.reduce((n, task) => n + task.agents.filter(agent => !agent.stale).length, 0), lastActivity: last ? new Date(last).toISOString() : null,
       list: listOf(group.archived, needsOwner, last, at), ...archiveFacts(group.books.filter(book => !book.project.old), own) };
   }).sort((a, b) => LISTS.indexOf(a.list) - LISTS.indexOf(b.list) || (a.list === "needs" ? b.needsOwner - a.needsOwner : 0) || (Date.parse(b.lastActivity ?? 0) || 0) - (Date.parse(a.lastActivity ?? 0) || 0) || a.name.localeCompare(b.name));
   const archived = projects.filter(project => project.archived).map(project => ({ key: project.key, name: project.name, tasks: project.tasks, needsOwner: project.needsOwner }));

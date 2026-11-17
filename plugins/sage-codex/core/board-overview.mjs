@@ -214,7 +214,7 @@ export function boardOverview(model) {
     stale: !!model.stale,
     problems: (model.diagnostics ?? []).map(item => item.message),
     projects: (model.projects ?? []).map(project => ({ key: project.key, name: names.get(project.key), sub: project.sub, books: project.books, list: project.list, needs: needs.filter(need => need.project === project.key).length,
-      agents: project.agents, open: tasks.filter(task => task.group === project.key && isOpen(task)).length, lastActivity: project.lastActivity, archived: project.archived,
+      agents: project.agents, open: tasks.filter(task => task.group === project.key && isOpen(task)).length, lastActivity: project.lastActivity, archived: project.archived, mixed: project.mixed ?? null,
       kept: { tasks: project.tasks, ...project.kept }, archives: project.archives ?? 0, archivedAt: project.archivedAt ?? null, welcome: !project.archived && !project.workSinceRestore && project.restoredAt || null })),
     chiefs,
     needs,
