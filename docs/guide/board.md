@@ -133,7 +133,7 @@ The address of the board opens the Overview. From the top:
 - **Milestones:** each milestone by the top priority of its open tasks, with its state word, its goal, its progress bar ("2 of 9 merged") and its pilot. A click opens the Tasks page with only that milestone's tasks; "Show all tasks" shows the rest again.
 - **Since you looked**, or **In the last 24 hours** on the first visit in a browser, or **In the last 7 days** after a longer absence: the tasks merged, the runs "with a problem flag", and the tasks added. A run has a problem flag when its agent is silent for 30 minutes or stopped, or when it failed in the last 24 hours, its task is still open, and no later run of the same role started. A click on "Merged" opens those tasks on the Tasks page, newest first; a click on "With a problem flag" opens the Agents page, which uses the same label.
 
-When the board has no project yet, the Overview shows one card, "Start your first task", with the three first steps: start a chief in the project, ask for a change, and come back to the board.
+When the board has no project yet, the Overview shows one card, "Start your first task", with the three first steps: start a chief in the project, ask for a change, and come back to the board. A project that has a chief but no task yet shows the same card, with the first step marked done.
 
 Needs you also has items that no task holds: a stuck milestone, a breakdown gate that the logbook lost, a milestone that tasks name but the logbook does not have, a table or a logbook that the board cannot read, and an open move gate ([the move](using-sage.md#move-an-existing-project)). Each item says why and what to do.
 
@@ -293,7 +293,7 @@ With a paired browser, you act from the Overview:
 | Archive the project | 2: Archive project (at the foot), then Archive. Or 3 from the picker | `config archived=yes` in each logbook of the project ([Archive a project](#archive-a-project)). |
 | Restore an archived project | 1: Restore, in the banner or in the picker's Archived list | `config archived=no` in each logbook of the project. |
 | See what changed since you looked | 0 | Nothing on the Mac: each browser keeps the time when you last left the board (the tab closed, or hidden for 5 minutes). A reload keeps the counts. |
-| Stop the board | 2: Stop the board (at the foot of the side bar), then Stop the board in the question that it asks | Nothing in a logbook: the board server closes for every browser, and the chiefs and their agents keep working. To open it again, type `show board` in a chief's chat. A browser that is not paired shows "Ask the chief to stop the board." |
+| Stop the board | 2: Stop the board (at the foot of the side bar; in a narrow window, under the page links), then Stop the board in the question that it asks | Nothing in a logbook: the board server closes for every browser, and the chiefs and their agents keep working. To open it again, type `show board` in a chief's chat. A browser that is not paired shows "Ask the chief to stop the board." |
 
 The first answer wins. When you answer in a chat or on a card first, the board shows where and when, for example "Answered first in C2's chat at 14:51", and a later board answer is not recorded.
 

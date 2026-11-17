@@ -100,13 +100,13 @@ const stop = { at: null, listeners: new Set() };
 export const useStopped = () => useShared(stop.listeners, () => stop.at);
 const AGAIN = "To open it again, type show board in a chief's chat.";
 export function StopBoard() {
-  const writes = useAccess(), [asking, setAsking] = useState(false), [said, setSaid] = useState(null), cancel = useRef(null);
+  const writes = useAccess(), [asking, setAsking] = useState(false), [said, setSaid] = useState(null), cancel = useRef(null), opener = useRef(null);
   useEffect(() => {
     if (!asking) return;
     cancel.current?.focus();
     const key = event => { if (event.key === "Escape") setAsking(false); };
     addEventListener("keydown", key);
-    return () => removeEventListener("keydown", key);
+    return () => { removeEventListener("keydown", key); opener.current?.focus(); };
   }, [asking]);
   if (writes !== "paired") return <p>Ask the chief to stop the board.</p>;
   const send = async () => {
@@ -115,7 +115,7 @@ export function StopBoard() {
     if (result.ok) { stop.at = new Date().toISOString(); stop.listeners.forEach(fn => fn()); }
   };
   return <>
-    <button type="button" className="btn" onClick={() => setAsking(true)}>Stop the board</button>
+    <button type="button" className="btn" ref={opener} onClick={() => setAsking(true)}>Stop the board</button>
     {said && !said.ok && <p className="refused" role="alert">{said.text}</p>}
     {asking && <div className="scrim"><div className="card stop-ask" role="dialog" aria-modal="true" aria-labelledby="stop-h">
       <h2 id="stop-h">Stop the board?</h2>

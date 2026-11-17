@@ -1,6 +1,6 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -38,13 +38,14 @@ function addRows(dir, table, rows) {
   appendFileSync(join(dir, `${table}.tsv`), rows.map(row => columns.map(column => row[column] ?? "").join("\t")).join("\n") + "\n");
 }
 
-async function board(t, { empty = false } = {}) {
+async function board(t, { empty = false, noTasks = false, judge = null } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-walkthrough-")), port = await freePort(), saved = process.env.SAGE_WORKTREES, now = new Date().toISOString();
   const at = hours => new Date(Date.parse(now) - hours * HOUR).toISOString();
   process.env.SAGE_WORKTREES = join(dir, "worktrees");
   mkdirSync(join(dir, "logbooks"), { recursive: true });
+  let logbook = null;
   if (!empty) {
-    const logbook = writeTasksLogbook(join(dir, "logbooks"), join(dir, "worktrees"), now, { agents: true, about: true, prs: true, documents: true });
+    logbook = writeTasksLogbook(join(dir, "logbooks"), join(dir, "worktrees"), now, { agents: true, about: true, prs: true, documents: true });
     addRows(logbook, "tasks", [{ id: "T90", title: "Sample stopped task", size: "small", route: "build,code-review,qa", state: "abandoned", priority: "P2", chief: "C1" }]);
     addRows(logbook, "runs", [
       { id: "R90", task: "T90", role: "implementer", round: "0", status: "done", started: at(30), ended: at(29), chief: "C1" },
@@ -55,13 +56,16 @@ async function board(t, { empty = false } = {}) {
     mkdirSync(join(logbook, "for-users"));
     writeFileSync(join(logbook, "for-users", "T1.md"), "- Each install gets the same files.\n- The lock file stays as it is.\n");
     writeFileSync(join(logbook, "reports", "R92.md"), "STATUS done\nRESULT ready. Sign-in shows one clear message when a session ends.\n");
+    if (judge) addRows(logbook, "runs", [{ id: "R52", task: "T11", role: "arena-judge", round: "0", status: "done", started: at(2), ended: at(1), chief: "C2" }]);
+    if (judge === "report") writeFileSync(join(logbook, "reports", "R52.md"), "STATUS done\nRESULT base A, with one graft from B.\n");
+    if (noTasks) for (const name of readdirSync(logbook)) if (name.endsWith(".tsv") && name !== "chiefs.tsv") writeFileSync(join(logbook, name), readFileSync(join(logbook, name), "utf8").split("\n")[0] + "\n");
   }
   const stateDir = join(dir, "state"), stops = [];
   mkdirSync(stateDir);
   const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair", onStop: () => { stops.push(Date.now()); } });
   await server.start();
   t.after(async () => { await server.close(); if (saved === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = saved; rmSync(dir, { recursive: true, force: true }); });
-  return { base: `http://127.0.0.1:${port}`, stateDir, stops };
+  return { base: `http://127.0.0.1:${port}`, stateDir, stops, logbook };
 }
 
 async function open(t, w, path, { width = 1440, height = 900 } = {}) {
@@ -224,7 +228,9 @@ test("T1126 S23: a paired browser stops the board after it confirms; a browser t
   await shoot(page, "S23-confirm-1440.png");
   await page.keyboard.press("Escape");
   await dialog.waitFor({ state: "detached" });
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), "Stop the board", "F-T1126-6: Escape returns the focus to the button that opened the question");
   assert.deepEqual(w.stops, [], "Cancel stops nothing");
+  await shoot(page, "F9-paired-1440.png");
   await page.getByRole("button", { name: "Stop the board" }).click();
   await dialog.getByRole("button", { name: "Stop the board" }).click();
   await page.locator("h1", { hasText: "The board stopped" }).waitFor();
@@ -232,4 +238,70 @@ test("T1126 S23: a paired browser stops the board after it confirms; a browser t
   assert.equal(w.stops.length, 1, "the server got one stop");
   await shoot(page, "S23-stopped-1440.png");
   assert.deepEqual(problems, []);
+});
+
+test("T1126 F-T1126-9, F-T1126-6: on a phone a paired browser has Stop the board and its question fits the screen; a browser that only reads is told to ask the chief", async t => {
+  const w = await board(t), phone = { width: 390, height: 844 };
+  const reader = await open(t, w, "/app/", phone);
+  assert.equal(await reader.page.getByText("Ask the chief to stop the board.").isVisible(), true, "the unpaired line shows on a phone");
+  const { page, problems } = await open(t, w, `/app/#pair=${startLink(w.stateDir)}`, phone);
+  const stop = page.getByRole("button", { name: "Stop the board" });
+  await stop.waitFor();
+  assert.equal(await stop.isVisible(), true, "the Stop control shows on a phone");
+  assert.equal(await page.locator(".nav").getByRole("button", { name: "Stop the board" }).count(), 0, "the control is not one of the page links");
+  assert.equal(await page.locator('.nav a[href="#stats"]').isVisible(), true, "the Stats link still shows");
+  await shoot(page, "F9-paired-390.png");
+  await stop.click();
+  const dialog = page.getByRole("dialog", { name: "Stop the board?" });
+  await dialog.waitFor();
+  const box = await dialog.boundingBox();
+  assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= phone.width && box.y + box.height <= phone.height, `the question fits the screen: ${JSON.stringify(box)}`);
+  await shoot(page, "F9-confirm-390.png");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await dialog.waitFor({ state: "detached" });
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), "Stop the board", "F-T1126-6: Cancel returns the focus to the button that opened the question");
+  assert.deepEqual(w.stops, []);
+  await stop.click();
+  await dialog.getByRole("button", { name: "Stop the board" }).click();
+  await page.locator("h1", { hasText: "The board stopped" }).waitFor();
+  assert.equal(w.stops.length, 1, "the server got one stop");
+  assert.deepEqual(problems, []);
+});
+
+test("T1126 F-T1126-12: a project with a chief and no task shows the first steps, with the chief's step done", async t => {
+  const w = await board(t, { noTasks: true });
+  for (const width of [1440, 390]) {
+    const { page, problems } = await open(t, w, "/app/", { width, height: 844 });
+    await page.locator("h2", { hasText: "Start your first task" }).waitFor();
+    assert.deepEqual(await page.locator(".start ol > li > b").allTextContents(), ["Start a chief in the project", "Ask for a change in your words", "Come back here"]);
+    assert.equal(await page.locator(".start ol > li").first().locator(".hint").textContent(), "Done: a chief works in this project.");
+    assert.equal(await page.locator(".start code").count(), 0, "no phrase to copy: the chief has started");
+    assert.equal(await page.locator("#needs-h, #milestones-h, #counts-h").count(), 0, "no empty Needs you, Milestones or counts");
+    await shoot(page, `F12-no-task-${width}.png`);
+    assert.deepEqual(problems, []);
+  }
+});
+
+test("T1126 F-T1126-13: one long word in a lead's RESULT wraps, and the task page does not scroll sideways", async t => {
+  const w = await board(t);
+  writeFileSync(join(w.logbook, "reports", "R92.md"), `STATUS done\nRESULT ${"x".repeat(6000)}\n`);
+  for (const width of [1440, 390]) {
+    const { page, problems } = await open(t, w, taskPage("T20"), { width, height: 844 });
+    await page.locator(".changed li").waitFor();
+    assert.equal((await page.locator(".changed li").textContent()).length, 6000);
+    const [scroll, view] = await page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
+    assert.ok(scroll <= view, `${width} px: the page is ${scroll} px wide in a ${view} px window`);
+    assert.deepEqual(problems, []);
+  }
+});
+
+test("T1126 F-T1126-10: the arena card links the judge's report only when the logbook keeps it", async t => {
+  for (const [judge, kept] of [["none", false], ["report", true]]) {
+    const w = await board(t, { judge }), { page, problems } = await open(t, w, "/app/#agents");
+    const said = page.locator('section.acard.arena[aria-label="Arena of T11"] .ar-res');
+    await said.waitFor();
+    assert.equal(await said.getByRole("link", { name: "the judge's report R52" }).count(), kept ? 1 : 0);
+    assert.equal(/No report of R52/.test(await said.textContent()), !kept);
+    assert.deepEqual(problems, []);
+  }
 });

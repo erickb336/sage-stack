@@ -314,9 +314,10 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     else if (!next.diagnostics.length) model = lastGood ? { ...lastGood, stale: false, changing: changing.map(item => ({ project: item.project, at: lastGood.at })) } : { ...next, stale: false };
     else model = { ...(lastGood ?? next), stale: true, diagnostics: next.diagnostics, changing };
     overview = boardOverview(model);
-    for (const book of overview.agents) for (const run of book.runs) if (run.status === "failed") {
-      const task = model.tasks.find(item => item.key === run.task.key), row = task?.runs.find(item => item.id === run.id);
-      if (row) run.why = failureOf({ dir: logbookDir(configured, task), task, run: row })?.text ?? null;
+    for (const book of overview.agents) for (const run of book.runs) if (run.status === "failed" || run.role === "arena-judge") {
+      const task = model.tasks.find(item => item.key === run.task.key), row = task?.runs.find(item => item.id === run.id), dir = task && logbookDir(configured, task);
+      if (row && run.status === "failed") run.why = failureOf({ dir, task, run: row })?.text ?? null;
+      if (row && run.role === "arena-judge") run.report = runFiles(dir, pageTaskFolder(task.project.slice(task.project.indexOf("/") + 1), task.id), task, row).report;
     }
     const known = activity;
     activity = new Map();

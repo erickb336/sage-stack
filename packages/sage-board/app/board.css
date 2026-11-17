@@ -124,7 +124,8 @@ header.top { position: sticky; top: 0; z-index: 20; height: 52px; display: flex;
   .side { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; border-right: 0; border-bottom: 1px solid var(--line); }
   .brand { padding: 6px 8px; }
   .nav { flex-direction: row; flex-wrap: wrap; }
-  .side .foot { display: none; }
+  .side .foot { margin: 0 0 0 auto; padding: 0 4px; border-top: 0; display: flex; align-items: center; gap: 8px; }
+  .side .foot > :is(.src, .lbl) { display: none; }
   .main { padding: 20px 16px 40px; }
 }
 .loading { color: var(--muted); padding: 40px 0; }
@@ -610,7 +611,7 @@ p.waits.never { color: var(--fail); }
 .stopped-page .card { max-width: 480px; padding: 22px 24px; display: grid; gap: 10px; }
 .stopped-page h1 { font-size: 18px; }
 .focus-note { margin: 0 0 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted); }
-.changed { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.changed { margin: 0; padding-left: 18px; display: grid; gap: 4px; overflow-wrap: anywhere; }
 .about-s:has(.changed) { border-left: 3px solid var(--done); padding-left: 12px; }
 .stat-pick { display: inline-flex; align-items: center; gap: 8px; margin: 16px 0 20px; color: var(--muted); }
 .stat-pick select { padding: 5px 8px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--card); color: var(--text); font: inherit; }

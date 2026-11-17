@@ -99,7 +99,7 @@ function Arena({ runs, now }) {
         {judge ? <AgentTile run={judge} now={now} /> : <p className="ag ended wait"><Ring ring="wait"><Glyph role="arena-judge" /></Ring><span className="ag-b"><b className="rw">arena-judge</b><span className="mdl">Starts when all {candidates.length} candidates end · {candidates.length - done} still {candidates.length - done === 1 ? "runs" : "run"}</span></span></p>}
       </div>
       <p className="ar-res">{ended
-        ? <>The judge ended: <a href={readLink(task.key, "arena")}>the scores, the base and the grafts</a> · <a href={readLink(task.key, "report", judge.id)}>the judge's report {judge.id}</a></>
+        ? <>The judge ended: <a href={readLink(task.key, "arena")}>the scores, the base and the grafts</a> · {judge.report ? <a href={readLink(task.key, "report", judge.id)}>the judge's report {judge.id}</a> : <span className="faint">No report of {judge.id}</span>}</>
         : "The scores, the base and the grafts show when the judge ends. Each candidate saves its design in the task's pages folder."}</p>
     </section>
   );

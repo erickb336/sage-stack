@@ -179,7 +179,7 @@ export function App() {
             ))}
           </ul>
         </nav>
-        <div className="foot"><p>The logbook on this Mac is the source of each line. Your answers and names write to it.</p><p className="lbl">Board</p><StopBoard /></div>
+        <div className="foot"><p className="src">The logbook on this Mac is the source of each line. Your answers and names write to it.</p><p className="lbl">Board</p><StopBoard /></div>
       </aside>
       <div className="col">
         <header className="top">
