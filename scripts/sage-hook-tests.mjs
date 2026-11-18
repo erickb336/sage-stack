@@ -7059,3 +7059,30 @@ test("T1171: a report handed back through SubagentHandback is kept like a text r
   s.sage("run", "done", once, "--status", "done", "--tokens", "1");
   assert.ok(leadVerdict(s, "qa-pass", once), "a kept report without a RESULT backs no verdict");
 });
+
+test("T1175: when two helpers of one role start at once, the hook keeps each report by the run line of the helper's brief, from a handback or from closing text", () => {
+  const s = leadSession();
+  const runs = [leadAdd(s, "qa"), leadAdd(s, "qa")];
+  const kids = runs.map((run) => {
+    const child = { agent_id: `twin-${run}`, agent_type: "sage:qa" };
+    const prompt = `Run ${run} · task T1 (twins) · qa\n${BRIEF}`, transcript = join(s.dir, `agent-${child.agent_id}.jsonl`);
+    writeFileSync(transcript, `${JSON.stringify({ type: "user", message: { role: "user", content: prompt } })}\n`);
+    assert.equal(s.send(tool("Agent", { subagent_type: "sage:qa", prompt, name: run }, { tool_use_id: `twin-call-${run}`, ...LEAD })), undefined, `the helper of ${run}`);
+    return { run, child, transcript };
+  });
+  for (const { child } of kids) s.send({ hook_event_name: "SubagentStart", ...child });
+  const [first, second] = kids;
+  const background = { command: "npm test", run_in_background: true };
+  assert.equal(denied(s.send(tool("Bash", background, { cwd: s.dir, ...first.child }))), undefined, "a background test run of the helper");
+  s.send({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: background, tool_response: { backgroundTaskId: "b1" }, cwd: s.dir, ...first.child });
+  assert.equal(denied(s.send(tool("Monitor", { command: "tail -f out.txt", description: "test output" }, { cwd: s.dir, ...first.child }))), undefined, "and its Monitor");
+  assert.equal(denied(s.send(tool("SubagentHandback", { message: report("PASS") }, first.child))), undefined, "the handback goes through");
+  assert.equal(s.send({ hook_event_name: "SubagentStop", ...first.child, agent_transcript_path: first.transcript }), undefined);
+  s.send(resultOf(`twin-call-${first.run}`, first.child.agent_id, LEAD, "completed"));
+  assert.equal(s.send({ hook_event_name: "SubagentStop", ...second.child, agent_transcript_path: second.transcript, stop_hook_active: false, last_assistant_message: report("PASS") }), undefined);
+  s.send(resultOf(`twin-call-${second.run}`, second.child.agent_id, LEAD, "completed"));
+  for (const { run } of kids) {
+    s.sage("run", "done", run, "--status", "done", "--tokens", "1");
+    assert.equal(leadVerdict(s, "qa-pass", run), undefined, `the kept PASS of ${run} backs qa-pass`);
+  }
+});

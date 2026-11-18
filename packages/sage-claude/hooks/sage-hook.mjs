@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { appendFileSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, utimesSync, watch, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, utimesSync, watch, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -183,6 +183,8 @@ function handleEvent(input, state, slots) {
     return reason ? deny(event, reason.replace(/^sage: /, "")) : undefined;
   }
   if (event === "SubagentStop") {
+    const briefed = ours && input.agent_id && briefRunOfTranscript(input.agent_transcript_path);
+    if (briefed) try { slots.bindByBriefRun(input.agent_id, input.agent_type, briefed); } catch {}
     const lead = input.agent_type === "sage:lead" && slots.leadOf(input.agent_id);
     const ended = lead && (() => { try { return logbookOf(lead.folder).leadRun(lead.task)?.id !== lead.run; } catch { return false; } })();
     const live = lead && !ended ? slots.running(leadKey(lead)) : [];
@@ -1033,6 +1035,20 @@ function briefMark(prompt, role, cwd) {
   }
 }
 const briefRun = (prompt) => BRIEF_LINE.exec(String(prompt ?? "").split("\n", 1)[0])?.[1];
+function briefRunOfTranscript(path) {
+  if (typeof path !== "string" || !isAbsolute(path) || !path.endsWith(".jsonl")) return undefined;
+  let fd;
+  try {
+    fd = openSync(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+    const chunk = Buffer.alloc(1 << 16), size = readSync(fd, chunk, 0, chunk.length, 0);
+    const content = JSON.parse(chunk.subarray(0, size).toString("utf8").split("\n", 1)[0])?.message?.content;
+    return briefRun(typeof content === "string" ? content : Array.isArray(content) ? content.find((part) => part?.type === "text")?.text : undefined);
+  } catch {
+    return undefined;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
 const spawnRun = (input, ti, given) => briefRun(ti.prompt) ?? (/^R[1-9]\d*$/.test(given) ? given : pendingSpawn(input, ti, given));
 function pendingSpawn(input, ti, given) {
   const role = String(ti.subagent_type ?? "").toLowerCase().replace(/^sage:/, "");
@@ -1275,6 +1291,12 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
       else utimesSync(join(dir, slot), new Date(now), new Date(now));
     }),
     release: transaction(release),
+    bindByBriefRun: transaction((agent, role, run) => {
+      if (!valid(agent) || !run || stopped(agent) || ofSession().some(slot => ownsAgent(slot, agent)) || noted(`binding-${hash(agent)}`)) return;
+      const calls = observationOf(agent)?.calls ?? [];
+      const mine = pendingFor(role).filter(slot => calls.includes(mark(slot, "call-")) && mark(slot, "run-") === run);
+      if (mine.length === 1) bindTo(mine[0], agent);
+    }),
     handback: (agent, entry) => {
       if (!valid(agent)) return undefined;
       const name = `handback-${hash(agent)}`;
