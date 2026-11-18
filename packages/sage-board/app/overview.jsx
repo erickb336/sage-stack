@@ -129,7 +129,7 @@ function NeedsYou({ model, shown, now }) {
         <h2 id="needs-h">Needs you</h2>
         {needs.length > 0 && (model.archived ? <span className="badge">{needs.length} {needs.length === 1 ? "waits" : "wait"}</span> : <span className="badge need" aria-label={`${needs.length} open`}>{needs.length}</span>)}
         <span className="grow" />
-        <span className="hint">Oldest first · {model.archived ? "the project is archived: answers wait until Restore" : writes === "paired" ? "open a question to answer it here" : "answer in the chief's chat, or pair this browser"}</span>
+        <span className="hint">Oldest first{model.archived ? " · the project is archived: answers wait until Restore" : writes === "paired" ? " · open a question to answer it here" : writes === "unpaired" ? " · answer in the chief's chat, or pair this browser" : ""}</span>
       </div>
       {needs.length
         ? <ul className="needs">{needs.map(need => <NeedRow key={need.key} need={need} now={now} archived={model.archived && need.project !== null} />)}</ul>

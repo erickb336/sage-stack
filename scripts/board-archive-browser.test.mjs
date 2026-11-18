@@ -367,8 +367,8 @@ test("T1159 F-T1159-22, -37, -38, -19: the picker keeps the focus on its button 
   await archivedRow.getByRole("button", { name: "Restore harbor", exact: true }).click();
   await page.getByText("harbor is restored.").waitFor();
   await page.waitForFunction(() => !document.querySelector(".pick-menu"));
-  await page.waitForTimeout(1500);
-  assert.equal(await page.evaluate(() => document.activeElement === document.body), false, "F-T1159-37, -38: Restore names its project, and then the focus stays on the board's note, not on the page body");
+  await page.waitForFunction(() => document.activeElement?.matches('.banner[role="status"]') && document.activeElement.textContent.startsWith("harbor is restored."), null, { timeout: 5000 })
+    .catch(async () => assert.fail(`F-T1159-37, -38, F-T1168-6: after Restore the focus should be on the note "harbor is restored.", but it is on ${await page.evaluate(() => document.activeElement?.outerHTML.slice(0, 120))}`));
 
   const quarry = await pick(page, "quarry");
   await quarry.getByRole("button", { name: "Archive quarry" }).click();

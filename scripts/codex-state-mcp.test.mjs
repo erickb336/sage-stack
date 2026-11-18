@@ -990,7 +990,7 @@ test("T658: the Codex move tool moves a project with a Claude and a Codex logboo
   assert.match(preview, /^Move preview · project project {2,}plan [0-9a-f]{8}\nRead only\. Nothing changed\.\n\nWhat moves {11}Claude {11}Codex\n/);
   const plan = planOf(preview);
   const gate = await s.call("move", { plan });
-  const id = /^(G\d+) · move · plan /.exec(gate)[1];
+  const id = /^(G\d+) open · move · plan /.exec(gate)[1];
   assert.match(gate, /\n1 · move RECOMMENDED\nMoves the project now, exactly as in the preview\.\n2 · keep\n/);
   assert.match(readFileSync(join(codexDir, "gates.tsv"), "utf8"), new RegExp(`\\n${id}\\t\\tmove · plan ${plan}`), "the Codex logbook holds the move gate");
   assert.equal((await s.call("move", { gate: id })).error, `sage: refused: ${id} has no answer yet, so nothing moves. Nothing changed. The owner answers it first.`);
