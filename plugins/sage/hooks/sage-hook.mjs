@@ -178,8 +178,8 @@ function handleEvent(input, state, slots) {
   const ours = OURS.test(input.agent_type ?? "");
   if (event === "PreToolUse" && input.tool_name === HANDBACK) {
     if (!ours || !input.agent_id) return undefined;
-    const reason = reportProblem(input, typeof input.tool_input?.message === "string" ? input.tool_input.message : "");
-    if (slots.refusedHandback(input.agent_id) || !reason) return undefined;
+    const message = typeof input.tool_input?.message === "string" ? input.tool_input.message : "", reason = reportProblem(input, message);
+    if (slots.refusedHandback(input.agent_id) || !reason) return void (message && slots.handback(input.agent_id, { id: input.tool_use_id, message }));
     slots.refusedHandback(input.agent_id, true);
     return deny(event, reason.replace(/^sage: /, ""));
   }
@@ -190,7 +190,8 @@ function handleEvent(input, state, slots) {
     const ended = lead && (() => { try { return logbookOf(lead.folder).leadRun(lead.task)?.id !== lead.run; } catch { return false; } })();
     const live = lead && !ended ? slots.running(leadKey(lead)) : [];
     if (live.length) return { decision: "block", reason: `sage: your helper${live.length === 1 ? "" : "s"} ${live.join(", ")} still run${live.length === 1 ? "s" : ""}, and a lead does not end while a helper runs. Run ${waitStep(lead.task)}: it returns at once with each helper that stopped and whose run you end, else when a helper stops or none runs, and after ${WAIT_MS / 60_000} minutes at the latest. It names once each run whose report the hook cannot read: the sage ends that run, so do not end it, and name it in FINDINGS of your report. Then go on with your steps.` };
-    const handed = ours ? handbackOfTranscript(input.agent_transcript_path) : undefined;
+    const saved = ours && input.agent_id ? slots.handback(input.agent_id) : undefined;
+    const handed = saved && handbackStands(input.agent_transcript_path, saved.id) ? saved.message : undefined;
     if (handed !== undefined) input = { ...input, last_assistant_message: handed };
     const reason = ours && handed === undefined && !input.stop_hook_active && reportProblem(input, input.last_assistant_message);
     if (reason) return { decision: "block", reason };
@@ -1058,15 +1059,16 @@ function briefOfTranscript(path) {
   const [, run, task] = BRIEF_LINE.exec(String((typeof content === "string" ? content : recordParts(first).find((part) => part?.type === "text")?.text) ?? "").split("\n", 1)[0]) ?? [];
   return run && { run, task };
 }
-function handbackOfTranscript(path) {
+function handbackStands(path, id) {
   const failed = new Set();
+  let later = false;
   for (const record of transcriptRecords(path, true)) {
-    for (const part of recordParts(record)) if (part?.type === "tool_result" && part.is_error) failed.add(part.tool_use_id);
-    if (record?.type !== "assistant") continue;
-    const call = recordParts(record).find((part) => part?.type === "tool_use" && part.name === HANDBACK);
-    return call && !failed.has(call.id) && typeof call.input?.message === "string" ? call.input.message : undefined;
+    const parts = recordParts(record);
+    for (const part of parts) if (part?.type === "tool_result" && part.is_error) failed.add(part.tool_use_id);
+    if (parts.some((part) => part?.type === "tool_use" && part.id === id)) return !later && !failed.has(id);
+    later ||= record?.type === "assistant";
   }
-  return undefined;
+  return true;
 }
 const spawnRun = (input, ti, given) => briefRun(ti.prompt) ?? (/^R[1-9]\d*$/.test(given) ? given : pendingSpawn(input, ti, given));
 function pendingSpawn(input, ti, given) {
@@ -1324,6 +1326,16 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
       if (refuse) note(name);
       else rmSync(join(events, name), { force: true });
       return was;
+    },
+    handback: (agent, saved) => {
+      if (!valid(agent)) return undefined;
+      const name = `handed-${hash(agent)}`;
+      if (saved) return void note(name, JSON.stringify(saved));
+      let text;
+      try { text = readFileSync(join(events, name), "utf8"); } catch { return undefined; }
+      rmSync(join(events, name), { force: true });
+      const value = parsed(text);
+      return typeof value?.message === "string" ? value : undefined;
     },
     drop: transaction((tool, caller) => {
       const slot = ofSession().find(slot => mark(slot, "call-") === callKey(tool, caller))
