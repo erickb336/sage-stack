@@ -1445,7 +1445,7 @@ test("the move takes the open tasks of both old logbooks into one shared logbook
   assert.equal(existsSync(dir), false, "the preview changes nothing");
   assert.equal(existsSync(join(w.shared, "moves")), false);
   assert.equal(w.claude("move", "--plan", plan), [
-    `G2 · move · plan ${plan}`,
+    `G2 open · move · plan ${plan}`,
     "Move the project project into one shared logbook?",
     "3 open tasks move with new numbers. 2 finished tasks stay, read-only.",
     "Hard to undo. No command undoes the move. Each old logbook keeps a backup copy of its task table, and I give you the steps to restore by hand.",
@@ -2464,7 +2464,7 @@ test("the same --plan again shows the open gate and opens no second one, and an 
   assert.equal(w.claude("move", "--plan", plan), first, "the same gate text again");
   assert.equal(rowsIn(join(w.claudeDir, "gates.tsv")).filter((g) => g.question.startsWith("move · plan")).length, 1, "no second gate");
   const newer = w.planOf(w.claude("move", "--preview"));
-  assert.match(w.claude("move", "--plan", newer), /^G3 · move · plan /);
+  assert.match(w.claude("move", "--plan", newer), /^G3 open · move · plan /);
   w.claude("gate", "answer", "G2", "--option", "1");
   assert.equal(refusalOf(() => w.claude("move", "--gate", "G2")), `sage: refused: G2 is an older move gate: G3 asks about plan ${newer}, of a later preview. Nothing changed. Ask the owner to answer G3, then run sage move --gate G3.`);
   w.claude("gate", "answer", "G3", "--option", "1");

@@ -566,3 +566,25 @@ test("T1177: in a logbook that is not shared, the Stop hook and the gates wait n
   assert.equal(wait("G2"), "No gate of yours waits for the owner, so there is nothing to wait for.\n");
   assert.equal(stop("claude-a")?.decision, undefined, "an answered gate starts no wait");
 });
+
+test("T1177: in a logbook that is not shared, a milestone's breakdown gate and the move gate start the gates wait of the session that asked them", (t) => {
+  const w = scratch(t);
+  const run = (...args) => claude.sage([...args, "--project", w.project], w.env);
+  run("init");
+  for (const title of ["a", "b"]) run("task", "add", "--title", title, ...ADD);
+  const event = (session, e) => claudeEvent(w, { session_id: session, ...e });
+  for (const session of ["claude-a", "claude-b"]) event(session, { hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
+  const ask = (session, ...args) => {
+    const out = run(...args);
+    event(session, { hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: `node ${TOOLS.claude} ${args.join(" ")}` }, tool_response: { stdout: `${out}\n` } });
+  };
+  const stop = (session) => event(session, { hook_event_name: "Stop", stop_hook_active: false, last_assistant_message: "ok", background_tasks: [] });
+  ask("claude-a", "milestone", "propose", "--name", "One", "--goal", "Both ship", "--pilot", "T1", "--tasks", "T2");
+  ask("claude-a", "move", "--plan", /plan ([0-9a-f]{8})\n/.exec(run("move", "--preview"))[1]);
+  assert.equal(stop("claude-b")?.decision, undefined, "session B asked no gate, so it waits for none");
+  const told = stop("claude-a");
+  assert.equal(told?.decision, "block");
+  assert.ok(told.reason.startsWith("sage: G1, G2 wait for the owner"), told.reason);
+  assert.ok(told.reason.includes(`${WAIT} --gates G1,G2`) || told.reason.includes(`"${WAIT}" --gates G1,G2`), told.reason);
+  assert.equal(stop("claude-a")?.decision, undefined, "told once for the same gate set");
+});
