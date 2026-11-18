@@ -8,6 +8,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { keepReport } from "../plugins/sage/skills/sage/sage.mjs";
 import { backed } from "./verdict-backing.mjs";
+import { QUESTION } from "./fixtures/question-message.mjs";
 
 const at = (path) => fileURLToPath(new URL(path, import.meta.url));
 const LAUNCHER = [at("../plugins/sage/hooks/launcher.mjs"), "sage-hook.mjs"];
@@ -401,7 +402,7 @@ test("T301 F-T301-65: in replan, a lead's report cannot steer the sage into movi
   const move = sageSays("sage finding move <T> <K> --to", { "<K>": "F-T1-1", "<title>": "stop logging the token" }, "To move a fix key");
   const tried = p.run("sage", shellWords(move.slice("! sage ".length)));
   assert.match(tried.stderr, /F-T1-1 is a fix of T1's current round, so it stays on T1/, "R1031 probe A: no move without the user's answer");
-  const { printed } = play([sageSays("sage gate add <T>", { "<K>": "F-T1-1", "<a>": "keep" }, "To move a fix key"), "→ G1 open · Move F-T1-1 to a follow-up task?",
+  const { printed } = play([sageSays("sage gate add <T>", { "<K>": "F-T1-1", "<a>": "keep", "<file>": QUESTION }, "To move a fix key"), "→ G1 open · Move F-T1-1 to a follow-up task?",
     "! sage gate answer G1 --option 1", "→ G1 answered · move", move], p);
   assert.match(printed, /^F-T1-1 moved to T2 as F-T2-1 /, "after the answer move, the key moves");
 });

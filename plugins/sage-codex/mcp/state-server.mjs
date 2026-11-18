@@ -200,9 +200,9 @@ export const TOOLS = {
     pos: ["task", "message"], argv: (i) => ["message", i.task, `--json=${JSON.stringify(i.message)}`],
   },
   gate_add: {
-    describe: "Park a question for the owner, with options, a recommendation and a default. With message, the gate keeps the whole question message for the board, after the message check.",
+    describe: "Park a question for the owner, with options, a recommendation and a default, and its question message: the gate keeps the whole message for the board, after the message check. When the task's pages folder holds a page, the message names the main page with a Page block { t: page, title, task, file }; it may name another task's page.",
     input: { task, question: z.string(), options: z.string().describe("the options joined by |, for example yes|no"), recommend: z.string().describe("the recommended option"),
-      default: optional("the default option"), message: z.string().refine(isAbsolute, "an absolute path").optional().describe("the absolute path of the question message's JSON file ({ kind: \"question\", title, blocks })"),
+      default: optional("the default option"), message: z.string().refine(isAbsolute, "an absolute path").describe("the absolute path of the question message's JSON file ({ kind: \"question\", title, blocks })"),
       run: id("R", "the run of this task that asked the question, for the board").optional() },
     pos: ["task"], argv: (i) => ["gate", "add", i.task],
   },

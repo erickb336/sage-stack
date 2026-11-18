@@ -16,6 +16,7 @@ import * as claude from "../plugins/sage/skills/sage/sage.mjs";
 import { tool as codex } from "../plugins/sage-codex/skills/sage/sage.mjs";
 import { modeDirectory, stateKey } from "../plugins/sage-codex/hooks/hook-state.mjs";
 import { backed, reportFor } from "./verdict-backing.mjs";
+import { QUESTION } from "./fixtures/question-message.mjs";
 
 const at = (path) => fileURLToPath(new URL(path, import.meta.url));
 const LAUNCHER = [at("../plugins/sage/hooks/launcher.mjs"), "sage-hook.mjs"], TOOL = at("../plugins/sage/skills/sage/sage.mjs"), CODEX_TOOL = at("../plugins/sage-codex/skills/sage/sage.mjs");
@@ -256,7 +257,7 @@ for (const [name, own, other] of pairs) {
     const writes = [["task", "T1", "set", "title=x"], ["round", "T1"], ["run", "add", "T1", "--role", "code-reviewer"], ["run", "done", "R1", "--status", "failed", "--why", "stopped"],
       ["finding", "add", "T1", "--source", "sage", "--severity", "low", "--summary", "s"], ["finding", "triage", "T1", "F-T1-1", "fix"], ["finding", "close", "T1", "F-T1-1"],
       ["finding", "move", "T1", "F-T1-1", "--to", "later"], ["verdict", "T1", "--sha", SHA, "--kind", "checks-pass"], ["task-adopt", "T1", ...adopt],
-      ["gate", "add", "T1", "--question", "q?", "--options", "a|b", "--recommend", "a"], ["log", "T1", "a decision", "--why", "w"], ["milestone", "propose", "--name", "n", "--goal", "g", "--pilot", "T1", "--tasks", "none"]];
+      ["gate", "add", "--message", QUESTION, "T1", "--question", "q?", "--options", "a|b", "--recommend", "a"], ["log", "T1", "a decision", "--why", "w"], ["milestone", "propose", "--name", "n", "--goal", "g", "--pilot", "T1", "--tasks", "none"]];
     const provider = name === "Claude" ? "claude" : "codex";
     for (const args of writes) {
       const before = w.tables();
@@ -323,7 +324,7 @@ for (const [name, own, other] of pairs) {
     const page = join(own.sage(["pages", "T1", "--project", w.project], w.env), "page.md");
     writeFileSync(page, "a page");
     w.owner("run", "done", "R1", "--status", "failed", "--why", "stopped");
-    const some = [["standing", "add", "an order"], ["log", "-", "a decision", "--why", "w"], ["gate", "add", "--question", "q?", "--options", "a|b", "--recommend", "a"], ["config", "max_rounds=4"], ["config", "name=Shown"],
+    const some = [["standing", "add", "an order"], ["log", "-", "a decision", "--why", "w"], ["gate", "add", "--message", QUESTION, "--question", "q?", "--options", "a|b", "--recommend", "a"], ["config", "max_rounds=4"], ["config", "name=Shown"],
       ["init"], ["pages", "T1", "record", page], ["observe", "T1", "--kind", "completion"], ["run", "usage", "R1", "--tokens", "5", "--usage-source", "s", "--usage-evidence", "e"]];
     assert.throws(() => w.nobody("standing", "add", "an order"), { message: "this logbook is shared, and a command with no chief only reads: add --chief <your C id> to standing add. Nothing changed. Only a chief's session writes here. In a Claude session, run this write again as one command of its own, and the hook names your id. A Codex chief writes through the sage tools, which add its id. A terminal with no chief session only reads." }, "F-T604-28: no hook is promised where none runs");
     for (const args of some) {
@@ -336,7 +337,7 @@ for (const [name, own, other] of pairs) {
   test(`${name}: a read needs no chief, and a gate answer is the owner's, from either provider`, (t) => {
     const w = world(t, own, other);
     w.owner("task", "add", "--title", "a", ...ADD);
-    w.owner("gate", "add", "T1", "--question", "q?", "--options", "a|b", "--recommend", "a");
+    w.owner("gate", "add", "--message", QUESTION, "T1", "--question", "q?", "--options", "a|b", "--recommend", "a");
     for (const args of [["status"], ["stats"], ["task", "T1"], ["logbook"], ["standing"], ["pages", "T1"], ["config"], ["merge-check", "--sha", SHA, "--pr", "1"], ["board", "--view", "chat"]]) {
       try { w.nobody(...args); } catch (e) { assert.doesNotMatch(e.message, /no chief|belongs to/, args.join(" ")); }
     }
@@ -908,7 +909,7 @@ for (const [name, own, other] of pairs) {
     assert.equal(w.answer("G1", "--option", "2"), "G1 answered · decline · nothing replaced: T1 keeps its chief C1, and no run ended. G1 is spent: to change the chief, open a new takeover gate.");
     assert.match(w.intruder("gate", "replace", "T1", "--to", "C2"), /^G2 open · /, "after the answer, a new gate opens");
     assert.equal(w.answer("G2", "--other-hex", Buffer.from("approve").toString("hex")), "G2 answered · other: approve · nothing replaced: T1 keeps its chief C1, and no run ended. G2 is spent: to change the chief, open a new takeover gate.");
-    w.owner("gate", "add", "T1", "--question", "q?", "--options", "a|b", "--recommend", "a");
+    w.owner("gate", "add", "--message", QUESTION, "T1", "--question", "q?", "--options", "a|b", "--recommend", "a");
     assert.equal(w.answer("G3", "--option", "2"), "G3 answered · b", "a plain gate's line stays as it was");
     assert.equal(row(w.cells("tasks"), "T1").chief, "C1");
     assert.equal(w.cells("runs"), runs);
@@ -1038,7 +1039,7 @@ for (const [name, own, other] of pairs) {
     assert.match(w.intruder(...words('task add --title "two more" --size small --priority P2')), /^T2 framed .* · chief C2$/);
     assert.throws(() => w.nobody(...words('task add --title "two words" --size small --priority P2')), NO_CHIEF);
     w.owner("run", "add", "T1", "--role", "qa");
-    for (const line of ['log T1 "a decision" --why "a reason"', 'gate add T1 --question "a question?" --options "a|b" --recommend a', 'finding add T1 --source sage --severity low --summary "a problem"']) {
+    for (const line of ['log T1 "a decision" --why "a reason"', `gate add T1 --message ${QUESTION} --question "a question?" --options "a|b" --recommend a`, 'finding add T1 --source sage --severity low --summary "a problem"']) {
       const before = w.tables();
       assert.throws(() => w.intruder(...words(line)), /^Error: T1 belongs to chief C1 .* Change only your own tasks\. To take T1, ask C1 to offer it to you, or open a takeover gate for the owner to answer: .*\.$/, line);
       assert.throws(() => w.nobody(...words(line)), NO_CHIEF, line);
@@ -1347,7 +1348,7 @@ test("T928: one lead policy in core: a lead's write to another task, a command o
   const before = readFileSync(join(claude.storeDir(w.project, w.env), "tasks.tsv"), "utf8");
   for (const [words, name, input, reason] of [
     [["round", "T2"], "round", { task: "T2" }, "T2 is not of T1, and a lead records only its own task. Report to your chief what T2 needs."],
-    [["gate", "add", "T1", "--question", "q", "--options", "a|b", "--recommend", "a"], "gate_add", { task: "T1", question: "q", options: "a|b", recommend: "a" },
+    [["gate", "add", "--message", QUESTION, "T1", "--question", "q", "--options", "a|b", "--recommend", "a"], "gate_add", { message: QUESTION, task: "T1", question: "q", options: "a|b", recommend: "a" },
       '"gate add" is not on a lead\'s list. A lead records only its own task, with run add, run done, finding add, finding close, finding triage, verdict, lint, round, pages, and task set of state, branch, pr. Put what else the logbook needs in your report.'],
     [["task", "T1", "set", "state=verified"], "task_set", { task: "T1", fields: { state: "verified" } }, "T1 is briefed: a lead moves it only to building."],
   ]) {

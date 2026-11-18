@@ -13,6 +13,7 @@ import { startLink } from "../plugins/sage/board/access.mjs";
 import { createBoardServer, loadBoardApp } from "../plugins/sage/board/server.mjs";
 import { writeInWorker } from "../plugins/sage/board/writes.mjs";
 import { boardCommandPort } from "./fixtures/board-port.mjs";
+import { QUESTION } from "./fixtures/question-message.mjs";
 
 const chromium = requireBrowser();
 const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
@@ -52,7 +53,7 @@ async function openBoard(t, { write, copy = false } = {}) {
   writeFileSync(join(base, "question.json"), JSON.stringify(MESSAGE));
   as("C1", "gate", "add", "T1", "--question", MESSAGE.title, "--options", "yes|no", "--recommend", "yes", "--message", join(base, "question.json"));
   as("C2", "task", "add", "--title", "Sample crash report screen", "--size", "small", "--priority", "P2");
-  as("C2", "gate", "add", "T2", "--question", "Crash reports: send them on their own, or ask each time?", "--options", "ask each time|send them", "--recommend", "ask each time");
+  as("C2", "gate", "add", "--message", QUESTION, "T2", "--question", "Crash reports: send them on their own, or ask each time?", "--options", "ask each time|send them", "--recommend", "ask each time");
   as("C3", "task", "add", "--title", "Sample export a list as CSV", "--size", "small", "--priority", "P2");
   const config = join(base, "home", ".config", "sage-board", "board.json"), stateDir = join(base, "home", ".config", "sage-board", "state");
   const setup = port => runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify([{ id: "shared", path: env.SAGE_SHARED_HOME }])], { output: () => {}, env });
