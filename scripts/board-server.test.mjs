@@ -140,7 +140,7 @@ test("T770: the board's address sends the browser to the app, the old board's pa
   for (const path of old) { const gone = await read(f, path); assert.equal(gone.status, 404, path); assert.doesNotMatch(gone.body, /Sample first task/, path); }
   for (const path of ["/?events=1", `/?events=1&task=${key}`, "/agents?events=1", "/milestones?events=1", "/releases?events=1", `/milestone/${key}?events=1`]) {
     const stream = await read(f, path);
-    assert.deepEqual([stream.status, stream.headers["content-type"]], [200, "text/event-stream; charset=utf-8"], `${path}: a tab of the old board gets an event, not a 404 that leaves it on "Reconnecting" for ever (F-T1159-6)`);
+    assert.deepEqual([stream.status, stream.headers["content-type"]], [200, "text/event-stream; charset=utf-8"], `${path}: a tab of the old board gets the note and a link, not a 404 (F-T1159-6); its status line still says "Reconnecting" (F-T1168-5)`);
     const [retry, event, data] = stream.body.split("\n");
     assert.deepEqual([retry, event], ["retry: 86400000", "event: board"], `${path}: the old tab asks again only after a day`);
     const { stale, html } = JSON.parse(data.slice("data: ".length));

@@ -10,6 +10,7 @@ export const chiefName = chief => chief ? chief.old ?? nameOf(chief.id ?? `chief
 export const chiefState = key => Object.hasOwn(OBJECTS.chief.states, key) ? shown(OBJECTS.chief.states[key]).text : UNKNOWN;
 export const chiefSub = chief => { const head = `${nameOf(null, chief.provider)} · `, tail = ` · ${chief.id}`, name = chief.name.startsWith(head) ? chief.name.slice(head.length) : chief.name; return name.endsWith(tail) ? name.slice(0, -tail.length) : name; };
 const liveness = stopped => stopped === false ? "live" : stopped ? "stopped" : "unknown";
+const CHIEF_FACT = { live: "chief active", stopped: "chief stopped", unknown: "chief state unknown" };
 export function ChiefDot({ stopped }) {
   const state = liveness(stopped);
   return state === "stopped" ? <span className="dot" aria-hidden="true" /> : <span className={`dot ${state}`} role="img" aria-label={`Chief ${chiefState(state)}`} title={`Chief ${chiefState(state)}`} />;
@@ -240,7 +241,7 @@ export function TaskPage({ taskKey, tab: asked, at, from }) {
       {task && <>
         <p className="facts-line">
           <span className={`badge word ${(task.word ?? UNKNOWN).replace(" ", "-")}`}>{task.word ?? UNKNOWN}</span>
-          {[task.priority ?? "no priority", task.size ?? `size ${UNKNOWN}`, task.risk && `risk flag ${task.risk}`, task.kind, task.step?.label, `${task.chief ? "Run by " : ""}${chiefName(task.chief)}${task.chief?.id && !task.chief.old && !task.ended ? ` (chief ${chiefState(liveness(task.chief.stopped))})` : ""}`].filter(Boolean).join(" · ")}
+          {[task.priority ?? "no priority", task.size ?? `size ${UNKNOWN}`, task.risk && `risk flag ${task.risk}`, task.kind, task.step?.label, `${task.chief ? "Run by " : ""}${chiefName(task.chief)}${task.chief?.id && !task.chief.old && !task.ended ? ` (${CHIEF_FACT[liveness(task.chief.stopped)]})` : ""}`].filter(Boolean).join(" · ")}
           {task.branch && <> · <code>{controlsShown(task.branch)}</code></>}
         </p>
         <AtWork task={task} />

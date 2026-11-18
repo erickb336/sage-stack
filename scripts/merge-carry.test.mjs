@@ -13,10 +13,10 @@ import { backed, reportFor } from "./verdict-backing.mjs";
 const TOOL = fileURLToPath(new URL("../plugins/sage/skills/sage/sage.mjs", import.meta.url));
 const SPY = fileURLToPath(new URL("kill-spy.mjs", import.meta.url));
 
-function world(t) {
+function world(t, name = "project") {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "sage-carry-")));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const project = join(dir, "project");
+  const project = join(dir, name);
   execFileSync("git", ["init", "-q", "-b", "main", project]);
   const git = (...args) => execFileSync("git", ["-C", project, "-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   const work = (files, message = "work") => {
@@ -276,4 +276,14 @@ test("F-T1159-9: the carry's merge-tree writes no object into the checkout, from
   const sources = [{ id: "current", path: w.env.SAGE_HOME }];
   assert.equal(buildBoardModel(readBoardSources(sources), { landing: landingRule(sources) }).tasks.find((c) => c.id === "T1").mergeCheck.ok, false, "the board read the same merge");
   assert.equal(objects(), before, "the board wrote no object into the checkout");
+});
+
+test("F-T1168-4: the cycles carry when the checkout path has a colon (the list separator of Git's alternate object folders), a quote or a backslash", (t) => {
+  const w = world(t, "with:colon \"quote\\back");
+  const h1 = w.work({ "src.js": "x\n" });
+  w.reviewed(h1);
+  w.main({ "other.js": "m\n" });
+  const h2 = w.merge();
+  w.verdicts(h2, "checks-pass");
+  assert.equal(w.check(h2), carried(h1, h2));
 });

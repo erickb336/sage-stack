@@ -476,10 +476,10 @@ test("T1080 (F-T1080-15, F-T1080-20): a milestone link from Needs you lands on a
   assert.match(await lost.textContent(), /The breakdown gate G11 of M10 is not in the logbook\. Ask the chief to repair the logbook, or to propose M10 again\..*The logbook links no task to this milestone\./);
 });
 
-test("T1080 (F-T1080-19): a live chief's dot has a name, and the task page says the chief's liveness", async t => {
+test("T1080 (F-T1080-19), F-T1168-8: a live chief's dot has a name, and the task page says the chief's liveness in plain words", async t => {
   const { page, base } = await open(t, { chiefCases: true }, "/app/#tasks");
   assert.equal(await row(page, "T3").getByRole("img", { name: "Chief in progress" }).count(), 1);
-  for (const [id, title, text] of [["T3", "Sample shared limits", "Codex · C2 \\(chief in progress\\)"], ["T70", "Sample stopped chief", "Claude · C3 \\(chief stopped\\)"], ["T40", "Sample crash fix", "Claude · C1 \\(chief unknown\\)"]]) {
+  for (const [id, title, text] of [["T3", "Sample shared limits", "Codex · C2 \\(chief active\\)"], ["T70", "Sample stopped chief", "Claude · C3 \\(chief stopped\\)"], ["T40", "Sample crash fix", "Claude · C1 \\(chief state unknown\\)"]]) {
     await page.goto(`${base}${taskPage(id)}`);
     await taskTitle(page).filter({ hasText: title }).waitFor();
     assert.match(await page.locator(".facts-line").textContent(), new RegExp(`Run by ${text}(?: ·|$)`));
