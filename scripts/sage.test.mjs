@@ -3817,7 +3817,7 @@ test("T337: a milestone's state comes from its breakdown gate's answer: proposed
   assert.equal(milestonesLine(s), "milestone M1 · needs you · pilot T1: 0 of 4 merged · breakdown waits for you (G2) · name: Codex support");
   s.ok("gate", "answer", "G2", "--other-hex", Buffer.from("leave out the board", "utf8").toString("hex"));
   assert.equal(milestonesLine(s), "milestone M1 · in progress · pilot T1: 0 of 4 merged · you asked for changes (G2): the chief revises the breakdown · name: Codex support");
-  assert.match(s.ok("milestone", "propose", "M1", "--tasks", "T2 T4"), /^M1 proposed \(round 3\) · pilot T1 · tasks T2, T4 · G3 open/);
+  assert.match(s.ok("milestone", "propose", "M1", "--tasks", "T2 T4"), /^M1 proposed \(round 3\) · pilot T1 · tasks T2, T4\nG3 open/);
   assert.deepEqual(trail(s.dir).slice(-2).map((d) => [d.task, d.decision]), [["T3", "milestone M1 → none"], ["T1", "M1 proposed again with gate G3, round 3"]]);
   s.ok("gate", "answer", "G3", "--option", "1");
   assert.equal(milestonesLine(s), "milestone M1 · not started · pilot T1: 0 of 3 merged · name: Codex support", "active, with nothing started");
