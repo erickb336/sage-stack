@@ -7045,7 +7045,7 @@ function helperTranscript(s, child, prompt) {
   return {
     path,
     handback(message, failed) {
-      const why = denied(s.send(tool("SubagentHandback", message === undefined ? {} : { message }, child))), id = `handback-${child.agent_id}-${++calls}`;
+      const id = `handback-${child.agent_id}-${++calls}`, why = denied(s.send(tool("SubagentHandback", message === undefined ? {} : { message }, { tool_use_id: id, ...child })));
       add({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id, name: "SubagentHandback", input: message === undefined ? {} : { message } }] } });
       add({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: why ?? (failed ? "the tool failed" : "handed back"), ...(why || failed ? { is_error: true } : {}) }] } });
       return why;
@@ -7144,6 +7144,23 @@ test("T1175: when two helpers of one role start at once, the hook keeps each rep
   assert.equal(second.transcript.stop(report("PASS")), undefined);
   s.send(resultOf(`twin-call-${second.run}`, second.child.agent_id, LEAD, "completed"));
   assert.deepEqual(kids.map(({ run }) => keptQa(s, run)), ["fail", "pass"], "each run keeps its own helper's report: the handed-back FAIL and the closing PASS");
+});
+
+const LOST_HANDBACK = readFileSync(fileURLToPath(new URL("./fixtures/t1176-lost-handback.jsonl", import.meta.url)), "utf8").trimEnd().split("\n");
+test("T1176: a handback is kept also when its records are not yet in the transcript at the stop (the real records of lost R5021)", () => {
+  const [call] = JSON.parse(LOST_HANDBACK[5]).message.content, closing = "Now the sage-hook files, each alone.";
+  for (const written of [5, 7]) {
+    const s = leadSession(), run = leadAdd(s, "code-reviewer"), child = { agent_id: `lost-${written}`, agent_type: "sage:code-reviewer" };
+    s.send(tool("Agent", { subagent_type: "sage:code-reviewer", prompt: BRIEF, name: run }, { tool_use_id: `help-${written}`, ...LEAD }));
+    s.send(resultOf(`help-${written}`, child.agent_id, LEAD));
+    const path = join(s.dir, `agent-${child.agent_id}.jsonl`);
+    writeFileSync(path, `${LOST_HANDBACK.slice(0, written).join("\n")}\n`);
+    assert.equal(denied(s.send(tool("SubagentHandback", call.input, { tool_use_id: call.id, ...child }))), undefined, `${written}: the real handback goes through the gate`);
+    assert.equal(s.send({ hook_event_name: "SubagentStop", ...child, agent_transcript_path: path, stop_hook_active: false, last_assistant_message: closing }), undefined, `${written}: the stop is not blocked`);
+    const kept = JSON.parse(readFileSync(join(s.sage("logbook"), "kept", `${run}.json`), "utf8"));
+    assert.equal(kept.text, call.input.message, `${written} of 7 records written at the stop: the kept report is the handed-back message`);
+    assert.equal(readReport(kept.text).result, "CLEAN", `${written}: and it reads as CLEAN`);
+  }
 });
 
 test("T1175 F-T1175-8: the brief's run line binds a helper only to the slot of the same run and task", () => {
