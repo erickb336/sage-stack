@@ -356,7 +356,7 @@ test("T1156 F-T1156-18: a PDF in the material shows a note and a link that opens
 });
 
 test("T1156 F-T1156-36, -43, -45: the picker counts each need as Needs you does, also in the archived list; the archived banner names the agent that still runs, as the header counts it", async t => {
-  const w = await openBoard(t, undefined, { setup: as => as("C1", "gate", "add", "--message", questionFile("A second question on T1?", { task: "T1", file: "notes.md" }), "T1", "--question", "A second question on T1?", "--options", "yes|no", "--recommend", "yes") }), { page } = w;
+  const w = await openBoard(t, undefined, { setup: as => as("C1", "gate", "add", "--message", questionFile("A second question?", { task: "T1", file: "notes.md" }), "T1", "--question", "A second question on T1?", "--options", "yes|no", "--recommend", "yes") }), { page } = w;
   await page.goto(`${w.origin}/app/#?project=${encodeURIComponent(basename(w.dir))}`);
   await page.locator(".nav .count.need").filter({ hasText: "3" }).waitFor();
   await page.locator("header .picker").click();
