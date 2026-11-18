@@ -117,12 +117,17 @@ export function clearLink({ project, native, pid, now, tool, env }) {
   } catch { return undefined; }
 }
 
+export function chiefRecord(dir, chief) {
+  const data = readLive(join(dir, LIVE_FOLDER, `${chief}.json`));
+  return Object.keys(data).length ? liveRecord(data) : null;
+}
+
 const ahead = (record, now) => record.at - now > SKEW_MS;
 export function sessionState(record, { running = 0, gates = 0 } = {}, now, probe) {
   if (!record) return { state: "quiet", reason: null };
   if (record.ended) return { state: "stopped", reason: "ended" };
-  if (record.confirmed && record.machine && probe?.machine === record.machine && Number.isFinite(probe.boot)) {
-    const gone = Math.abs(probe.boot - record.boot) > BOOT_MS || !probe.alive(record.pid) || Math.abs(probe.started(record.pid) - record.pidStart) > START_MS;
+  if (record.confirmed && record.machine && probe?.machine === record.machine) {
+    const gone = !probe.alive(record.pid) || Math.abs(probe.started(record.pid) - record.pidStart) > START_MS;
     if (gone) return { state: "stopped", reason: "gone" };
   }
   if (running > 0) return { state: "live", reason: null };

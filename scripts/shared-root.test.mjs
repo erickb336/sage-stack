@@ -1641,8 +1641,6 @@ test("an adopted task moves with the task that adopted it: its old row gets that
   assert.deepEqual(rowsIn(join(w.codexDir, "tasks.tsv")).map((r) => [r.id, r.moved]), [["T1", "T4"], ["T2", ""]], "the adopted row names the task that adopted it (F7)");
   const moved = rowsIn(join(w.shared, w.folder(), "tasks.tsv"))[0], record = JSON.parse(moved.adoption);
   assert.deepEqual([moved.id, moved.branch, moved.pr, record.version, record.provider, record.task, record.pr, record.branch, record.from], ["T4", "sage/t1-shared", "7", 2, "claude", "T2", "7", "sage/t1-shared", v1]);
-  const version = /--version ([0-9a-f]{64})/.exec(refusalOf(() => w.claude("run", "add", "T4", "--role", "implementer", "--branch", "sage/t1-shared")))[1];
-  w.claude("claim", "T4", "--version", version);
   assert.match(w.claude("run", "add", "T4", "--role", "implementer", "--branch", "sage/t1-shared"), /^R1 /, "the branch of from is the moved task's own");
   assert.throws(() => w.claude("task", "T4", "set", "pr=8"), /T4's adoption keeps PR 7/);
 });
@@ -1810,8 +1808,6 @@ test("a moved repair approval gate names the new task, so the owner's approve an
   const dir = join(w.shared, w.folder()), moved = rowsIn(join(dir, "gates.tsv")).find((g) => g.options === "approve|decline");
   assert.deepEqual([moved.id, moved.task, moved.question], ["G3", "T3", "Approve one more repair round for T3 after 3 spent rounds and limit 3?"]);
   w.claude("gate", "answer", "G3", "--option", "1");
-  const version = /--version ([0-9a-f]{64})/.exec(refusalOf(() => w.claude("task", "T3", "set", "state=building", "approval=G3")))[1];
-  w.claude("claim", "T3", "--version", version);
   w.claude("task", "T3", "set", "state=building", "approval=G3");
   assert.equal(rowsIn(join(dir, "tasks.tsv"))[0].state, "building");
 });
@@ -2160,8 +2156,6 @@ test("a task moved after a key of its repair round closed keeps that key, so its
   setStates(w.claudeDir, { T2: "reviewing" });
   w.claude("move", "--gate", w.ask().id);
   const moved = rowsIn(join(dir, "tasks.tsv")).find((r) => r.id === "T4");
-  const version = /--version ([0-9a-f]{64})/.exec(refusalOf(() => w.claude("round", "T4")))?.[1];
-  if (version) w.claude("claim", "T4", "--version", version);
   assert.deepEqual([moved.round, moved.keys], ["1", "F-T4-2,F-T4-1"], "the closed key F-T2-1 is F-T4-2, and the open F-T2-2 is F-T4-1");
   assert.match(w.claude("round", "T4"), /^T4 repairing · round 2 of \d+ · fix F-T4-1 /, "as before the move: F-T2-1 closed, so the round fixed one key");
   assert.equal(rowsIn(join(dir, "tasks.tsv")).find((r) => r.id === "T4").keys, "F-T4-1", "round 2 holds only the open key");
@@ -2181,8 +2175,6 @@ test("a repair of the decisions keeps a carried round key taken, so a finding af
   writeFileSync(join(dir, "decisions.tsv"), "");
   w.claude("logbook", "repair", "--accept-loss", "decisions");
   assert.ok(rowsIn(join(dir, "decisions.tsv")).some((d) => d.task === "T4" && d.decision === "F-T4-2 is a round key of T4 with no finding"));
-  const version = /--version ([0-9a-f]{64})/.exec(refusalOf(() => w.claude("round", "T4")))?.[1];
-  if (version) w.claude("claim", "T4", "--version", version);
   assert.match(w.claude("round", "T4"), /^T4 repairing · round 2 of \d+ · fix F-T4-1 /);
   assert.match(w.claude("finding", "add", "T4", "--source", "sage", "--severity", "low", "--summary", "new"), /^F-T4-3 /, "a new finding never takes the carried key F-T4-2");
 });
@@ -2534,8 +2526,6 @@ function carriedWorld(t) {
 
 test("a repair of the decisions after round 2 started keeps the carried round key taken, from the task's adoption record (F-T648-7)", (t) => {
   const w = carriedWorld(t);
-  const version = /--version ([0-9a-f]{64})/.exec(refusalOf(() => w.claude("round", "T4")))?.[1];
-  if (version) w.claude("claim", "T4", "--version", version);
   assert.match(w.claude("round", "T4"), /^T4 repairing · round 2 of \d+ · fix F-T4-1 /);
   assert.equal(rowsIn(join(w.dir, "tasks.tsv")).find((r) => r.id === "T4").keys, "F-T4-1", "the carried key left the keys cell");
   writeFileSync(join(w.dir, "decisions.tsv"), "");

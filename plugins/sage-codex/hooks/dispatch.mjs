@@ -42,6 +42,7 @@ function beat(input, env = process.env) {
     let last, pid;
     try { last = readState(file); } catch {}
     try { pid = readState(markFile(modeDirectory(env), input.session_id)).pid; } catch {}
+    if (pid !== process.ppid) pid = undefined;
     const { sage, autopilot } = readMode({ session: input.session_id }, env);
     const next = chiefBeat({ last, mode: { sageMode: sage, autopilot }, now: Date.now(), project: input.cwd, native: input.session_id, provider: "codex", tool, env, pid });
     if (next === last) return;

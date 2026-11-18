@@ -444,12 +444,14 @@ test("T1170: a record from another machine id, or with none, is never stopped by
   assert.deepEqual(sessionState(none, {}, T0 + 6 * MINUTE, probeOf({}, { machine: null })), { state: "live", reason: null });
 });
 
-test("T1170: a reboot stops every confirmed record of this Mac", (t) => {
+test("T1170, F-T1172-8: a reboot stops every confirmed record of this Mac by its gone program; a wall-clock step that moves the boot time alone stops nothing", (t) => {
   const probe = { current: probeOf({ 100: STARTED }) }, w = fakeWorld(t, probe);
   w.beat(w.beat(undefined, T0, 100), T0 + MINUTE, 100);
   const record = w.record();
   assert.deepEqual(sessionState(record, {}, T0 + 2 * MINUTE, probeOf({ 100: STARTED }, { boot: T0 - 24 * HOUR + 30_000 })), { state: "live", reason: null }, "the boot time moves a little between reads");
-  assert.deepEqual(sessionState(record, {}, T0 + 2 * MINUTE, probeOf({ 100: STARTED }, { boot: T0 + MINUTE + 1 })), { state: "stopped", reason: "gone" }, "a new boot: also a pid with the same number and start is another program");
+  assert.deepEqual(sessionState(record, {}, T0 + 2 * MINUTE, probeOf({ 100: STARTED }, { boot: T0 - 24 * HOUR + 2 * HOUR })), { state: "live", reason: null }, "a clock step of 2 h moves the boot time (now minus uptime), and the same program still runs: no false stop");
+  assert.deepEqual(sessionState(record, {}, T0 + 2 * MINUTE, probeOf({ 200: T0 + MINUTE + 5000 }, { boot: T0 + MINUTE + 1 })), { state: "stopped", reason: "gone" }, "a reboot ends the program");
+  assert.deepEqual(sessionState(record, {}, T0 + 2 * MINUTE, probeOf({ 100: T0 + MINUTE + 5000 }, { boot: T0 + MINUTE + 1 })), { state: "stopped", reason: "gone" }, "after a reboot, a pid with the same number is a program of another start time");
 });
 
 test("T1170: the quiet rule (G227): 8 h with no beat stops a session only with no open gate and no running run of its chief", (t) => {
@@ -609,6 +611,47 @@ test("F-T1170-11: one session that is no chief clears; its new session turns sag
   edge(w, "claude-2", { hook_event_name: "SessionEnd", reason: "clear" });
   edge(w, "claude-3", { hook_event_name: "SessionStart", source: "clear" });
   assert.deepEqual(chiefRows(w), ["C1 claude claude-3"]);
+});
+
+test("F-T1172-7: after a Claude /clear the new session stays in sage mode, with the chief's text at its first prompt; with no link it starts off", (t) => {
+  const w = linkedAt(t);
+  claudeSay(w, "sage mode");
+  claudeEvent(w, { hook_event_name: "SessionEnd", reason: "clear" });
+  other(w, { hook_event_name: "SessionStart", source: "clear" });
+  assert.equal(json(join(w.env.SAGE_HOOKS_STATE, "claude-2.json")).sage, true, "the hook copied sage mode to the new session at the link");
+  assert.equal(json(join(w.env.SAGE_HOOKS_STATE, "claude-2.json")).autopilot, undefined, "autopilot does not travel: only the owner's phrase turns it on");
+  const first = other(w, { hook_event_name: "UserPromptSubmit", prompt: "go on" })?.hookSpecificOutput?.additionalContext ?? "";
+  assert.match(first, /chief of staff/i, "the first prompt after the clear gets the chief's text again");
+  const off = linkedAt(t);
+  claudeEvent(off, { hook_event_name: "SessionEnd", reason: "clear" });
+  other(off, { hook_event_name: "SessionStart", source: "clear" });
+  assert.equal(existsSync(join(off.env.SAGE_HOOKS_STATE, "claude-2.json")), false, "a session that was not in sage mode gives no mode to the next");
+});
+
+test("F-T1172-9: a Codex beat records the start mark's pid only while it is still the hook's parent: a short-lived parent leaves no pid, so the probe never stops the session", (t) => {
+  const w = linkedAt(t, { [process.pid]: STARTED, 4242: STARTED });
+  codexThread(w, "codex-a");
+  assert.equal(recordOf(w, "C1").pid, process.pid, "the parent that stays (the Codex program) is recorded");
+  const marks = join(w.env.CODEX_HOME, "sage", ".hooks", "codex", "marks"), [mark] = readdirSync(marks);
+  writeFileSync(join(marks, mark), JSON.stringify({ ...json(join(marks, mark)), pid: 4242 }));
+  const due = join(w.env.CODEX_HOME, "sage", ".hooks", "codex", "live");
+  for (const name of readdirSync(due)) writeFileSync(join(due, name), JSON.stringify({ ...json(join(due, name)), at: 0 }));
+  codexEvent(w, { session_id: "codex-a", transcript_path: join(w.base, "rollout-codex-a.jsonl"), hook_event_name: "PostToolUse", tool_name: "read_file", tool_input: {}, tool_response: {} });
+  const record = recordOf(w, "C1");
+  assert.deepEqual([record.pid, record.confirmed], [null, false], "the mark names pid 4242, a shell that started the session and is not this hook's parent: no pid, no trust");
+  assert.deepEqual(sessionState(record, {}, Date.now() + 2 * MINUTE, { machine: "test-machine", boot: Date.now() - HOUR, alive: () => false, started: () => NaN }), { state: "live", reason: null }, "the probe never stops it");
+});
+
+test("F-T1172-6: the agent cap drops the Claude slots of a stopped session, and keeps the slots of a live one", async (t) => {
+  const { slotsFor } = await import(pathToFileURL(CLAUDE_HOOK).href);
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "sage-slots-")));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const theirs = slotsFor(join(dir, "slots"), "claude-b", Date.now(), "claude-b"), mine = slotsFor(join(dir, "slots"), "claude-a", Date.now(), "claude-a");
+  for (let k = 0; k < 3; k++) assert.deepEqual(theirs.take("app", 3, `call-${k}`, { role: "sage:implementer" }), { ok: true });
+  assert.equal(mine.take("app", 3, "call-x", { role: "sage:implementer", gone: [] }).refused, "total", "3 of 3 places are taken by the other session");
+  assert.equal(mine.take("app", 3, "call-y", { role: "sage:implementer", gone: ["claude-a"] }).refused, "total", "a session never drops its own slots");
+  assert.deepEqual(mine.take("app", 3, "call-z", { role: "sage:implementer", gone: ["claude-b"] }), { ok: true }, "the stopped session's places are free");
+  assert.equal(readdirSync(join(dir, "slots")).filter((name) => name.startsWith("slot-")).length, 1);
 });
 
 function codexThread(w, session) {
