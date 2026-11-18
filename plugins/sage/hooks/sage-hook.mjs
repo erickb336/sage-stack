@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { appendFileSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, utimesSync, watch, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, utimesSync, watch, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,6 +27,7 @@ const commandPolicy = await import("./command-policy.mjs")
 const SP = String.raw`[^\S\r\n  ]`;
 const FILE_TOOLS = /^(Edit|Write|MultiEdit|NotebookEdit)$/;
 const AGENT_TOOLS = /^(Agent|Task)$/;
+const HANDBACK = "SubagentHandback";
 const LEAD_CHILDREN = new Set(["sage:implementer", "sage:code-reviewer", "sage:security-reviewer", "sage:ux-reviewer", "sage:qa"]);
 const LEAD_HELPERS = 9;
 const WAIT = join(ROOT, "hooks/wait.mjs");
@@ -175,18 +176,25 @@ function handleEvent(input, state, slots) {
     return undefined;
   }
   const ours = OURS.test(input.agent_type ?? "");
+  if (event === "PreToolUse" && input.tool_name === HANDBACK) {
+    if (!ours || !input.agent_id) return undefined;
+    const message = typeof input.tool_input?.message === "string" ? input.tool_input.message : "", reason = reportProblem(input, message);
+    if (slots.refusedHandback(input.agent_id) || !reason) return void (message && slots.handback(input.agent_id, { id: input.tool_use_id, message }));
+    slots.refusedHandback(input.agent_id, true);
+    return deny(event, reason.replace(/^sage: /, ""));
+  }
   if (event === "SubagentStop") {
+    const briefed = ours && input.agent_id && briefOfTranscript(input.agent_transcript_path);
+    if (briefed) try { slots.bindByBriefRun(input.agent_id, input.agent_type, briefed); } catch {}
     const lead = input.agent_type === "sage:lead" && slots.leadOf(input.agent_id);
     const ended = lead && (() => { try { return logbookOf(lead.folder).leadRun(lead.task)?.id !== lead.run; } catch { return false; } })();
     const live = lead && !ended ? slots.running(leadKey(lead)) : [];
     if (live.length) return { decision: "block", reason: `sage: your helper${live.length === 1 ? "" : "s"} ${live.join(", ")} still run${live.length === 1 ? "s" : ""}, and a lead does not end while a helper runs. Run ${waitStep(lead.task)}: it returns at once with each helper that stopped and whose run you end, else when a helper stops or none runs, and after ${WAIT_MS / 60_000} minutes at the latest. It names once each run whose report the hook cannot read: the sage ends that run, so do not end it, and name it in FINDINGS of your report. Then go on with your steps.` };
-    if (ours && !input.stop_hook_active && typeof input.last_assistant_message === "string") {
-      const missing = core.missingFields(REPORT_FIELDS, input.last_assistant_message);
-      if (missing.length) return { decision: "block", reason: `sage: your report has no ${missing.join(", ")}. End with the report of the sage:report skill: ${REPORT_FIELDS.join(", ")}, each at the start of a line that is not in a list or a code block, with "none" where a field has nothing.${input.agent_type === "sage:lead" ? " A lead that waits for its own background work may end its turn again instead: the work's notice wakes it, and it keeps its lead slot until its report." : ""}` };
-      const role = input.agent_type.slice("sage:".length).toLowerCase();
-      const reason = REVIEWERS.includes(role) && core.stopReason(input.last_assistant_message, input.cwd ?? process.cwd(), { who: "the hook", proof: TEAM.slice(1).includes(role) });
-      if (reason) return { decision: "block", reason };
-    }
+    const saved = ours && input.agent_id ? slots.handback(input.agent_id) : undefined;
+    const handed = saved && handbackStands(input.agent_transcript_path, saved.id) ? saved.message : undefined;
+    if (handed !== undefined) input = { ...input, last_assistant_message: handed };
+    const reason = ours && handed === undefined && !input.stop_hook_active && reportProblem(input, input.last_assistant_message);
+    if (reason) return { decision: "block", reason };
   }
   if (!main && ours && input.agent_id) slots.touch(input.agent_id, input.agent_type);
   if (event === "SubagentStart") return void (ours && slots.bind(input.agent_id, input.agent_type));
@@ -710,6 +718,13 @@ function chiefEnded(input, slots) {
     slots.endHelpers(leads.map((lead) => helperOf({ logbook: digest(view.dir), run: lead.id }, run.id)));
   } catch {}
 }
+function reportProblem(input, text) {
+  if (typeof text !== "string") return false;
+  const missing = core.missingFields(REPORT_FIELDS, text);
+  if (missing.length) return `sage: your report has no ${missing.join(", ")}. End with the report of the sage:report skill: ${REPORT_FIELDS.join(", ")}, each at the start of a line that is not in a list or a code block, with "none" where a field has nothing.${input.agent_type === "sage:lead" ? " A lead that waits for its own background work may end its turn again instead: the work's notice wakes it, and it keeps its lead slot until its report." : ""}`;
+  const role = input.agent_type.slice("sage:".length).toLowerCase();
+  return REVIEWERS.includes(role) && core.stopReason(text, input.cwd ?? process.cwd(), { who: "the hook", proof: TEAM.slice(1).includes(role) });
+}
 function keepRunText(cwd, kind, runOf, text, task) {
   if (typeof text !== "string" || stateTool.error) return;
   try {
@@ -1022,6 +1037,39 @@ function briefMark(prompt, role, cwd) {
   }
 }
 const briefRun = (prompt) => BRIEF_LINE.exec(String(prompt ?? "").split("\n", 1)[0])?.[1];
+function transcriptRecords(path, fromEnd) {
+  if (typeof path !== "string" || !isAbsolute(path) || !path.endsWith(".jsonl")) return [];
+  let fd;
+  try {
+    fd = openSync(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+    const stat = fstatSync(fd), length = Math.min(stat.size, fromEnd ? 1 << 20 : 1 << 16);
+    if (!stat.isFile()) return [];
+    const chunk = Buffer.alloc(length), lines = chunk.subarray(0, readSync(fd, chunk, 0, length, fromEnd ? stat.size - length : 0)).toString("utf8").split("\n");
+    if (fromEnd && length < stat.size) lines.shift();
+    return (fromEnd ? lines.reverse() : lines.slice(0, 1)).flatMap((line) => { try { return [JSON.parse(line)]; } catch { return []; } });
+  } catch {
+    return [];
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+const recordParts = (record) => Array.isArray(record?.message?.content) ? record.message.content : [];
+function briefOfTranscript(path) {
+  const first = transcriptRecords(path, false)[0], content = first?.message?.content;
+  const [, run, task] = BRIEF_LINE.exec(String((typeof content === "string" ? content : recordParts(first).find((part) => part?.type === "text")?.text) ?? "").split("\n", 1)[0]) ?? [];
+  return run && { run, task };
+}
+function handbackStands(path, id) {
+  const failed = new Set();
+  let later = false;
+  for (const record of transcriptRecords(path, true)) {
+    const parts = recordParts(record);
+    for (const part of parts) if (part?.type === "tool_result" && part.is_error) failed.add(part.tool_use_id);
+    if (parts.some((part) => part?.type === "tool_use" && part.id === id)) return !later && !failed.has(id);
+    later ||= record?.type === "assistant";
+  }
+  return true;
+}
 const spawnRun = (input, ti, given) => briefRun(ti.prompt) ?? (/^R[1-9]\d*$/.test(given) ? given : pendingSpawn(input, ti, given));
 function pendingSpawn(input, ti, given) {
   const role = String(ti.subagent_type ?? "").toLowerCase().replace(/^sage:/, "");
@@ -1217,6 +1265,8 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
         if (role === "sage:lead" && lead?.named) initial.push("named");
         const run = role === "sage:lead" && lead ? lead.run : helper ? helper.run : brief === undefined ? briefRun(input?.prompt) : brief.run;
         if (run) initial.push(`run-${run}`);
+        const task = role === "sage:lead" ? undefined : helper ? helper.task : run && BRIEF_LINE.exec(String(input?.prompt ?? "").split("\n", 1)[0])?.[2];
+        if (task) initial.push(`task-${task}`);
         if (helper) initial.push(`helper-${helper.key}`);
         if (exact) initial.push("exact");
         if (caller !== undefined) initial.push(`parent-${hash(caller)}`);
@@ -1264,6 +1314,29 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
       else utimesSync(join(dir, slot), new Date(now), new Date(now));
     }),
     release: transaction(release),
+    bindByBriefRun: transaction((agent, role, { run, task }) => {
+      if (!valid(agent) || !run || stopped(agent) || ofSession().some(slot => ownsAgent(slot, agent)) || noted(`binding-${hash(agent)}`)) return;
+      const calls = observationOf(agent)?.calls ?? [];
+      const mine = pendingFor(role).filter(slot => calls.includes(mark(slot, "call-")) && mark(slot, "run-") === run && mark(slot, "task-") === task);
+      if (mine.length === 1) bindTo(mine[0], agent);
+    }),
+    refusedHandback: (agent, refuse) => {
+      if (!valid(agent)) return false;
+      const name = `handback-${hash(agent)}`, was = noted(name);
+      if (refuse) note(name);
+      else rmSync(join(events, name), { force: true });
+      return was;
+    },
+    handback: (agent, saved) => {
+      if (!valid(agent)) return undefined;
+      const name = `handed-${hash(agent)}`;
+      if (saved) return void note(name, JSON.stringify(saved));
+      let text;
+      try { text = readFileSync(join(events, name), "utf8"); } catch { return undefined; }
+      rmSync(join(events, name), { force: true });
+      const value = parsed(text);
+      return typeof value?.message === "string" ? value : undefined;
+    },
     drop: transaction((tool, caller) => {
       const slot = ofSession().find(slot => mark(slot, "call-") === callKey(tool, caller))
         ?? (caller === undefined ? ofSession().find(slot => !has(slot, "exact") && mark(slot, "pending-") === id(tool)) : undefined);
