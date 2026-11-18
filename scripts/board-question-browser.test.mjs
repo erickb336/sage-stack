@@ -10,7 +10,7 @@ import * as claude from "../plugins/sage/skills/sage/sage.mjs";
 import { startLink } from "../plugins/sage/board/access.mjs";
 import { createBoardServer, loadBoardApp } from "../plugins/sage/board/server.mjs";
 import { HOSTILE_MARKDOWN } from "./fixtures/board-app.mjs";
-import { QUESTION } from "./fixtures/question-message.mjs";
+import { QUESTION, questionFile } from "./fixtures/question-message.mjs";
 
 const chromium = requireBrowser();
 const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
@@ -75,7 +75,7 @@ async function openBoard(t, viewport = { width: 1440, height: 1000 }, { refuse, 
   as("C1", "run", "add", "T1", "--role", "pe");
   writeFileSync(join(base, "question.json"), JSON.stringify(MESSAGE));
   as("C1", "gate", "add", "T1", "--question", TITLE, "--options", "A: yes|B: no", "--recommend", "A: yes", "--default", "A: yes", "--message", join(base, "question.json"), "--run", "R1");
-  as("C2", "gate", "add", "--message", QUESTION, "T2", "--question", "Crash reports: send them on their own, or ask each time?", "--options", "ask each time|send them", "--recommend", "ask each time");
+  as("C2", "gate", "add", "--message", questionFile("Crash reports: send them on their own, or ask each time?"), "T2", "--question", "Crash reports: send them on their own, or ask each time?", "--options", "ask each time|send them", "--recommend", "ask each time");
   setup?.(as);
   const stateDir = join(base, "home", ".config", "sage-board", "state"), writes = [];
   mkdirSync(stateDir, { recursive: true, mode: 0o700 });
@@ -356,7 +356,7 @@ test("T1156 F-T1156-18: a PDF in the material shows a note and a link that opens
 });
 
 test("T1156 F-T1156-36, -43, -45: the picker counts each need as Needs you does, also in the archived list; the archived banner names the agent that still runs, as the header counts it", async t => {
-  const w = await openBoard(t, undefined, { setup: as => as("C1", "gate", "add", "--message", QUESTION, "T1", "--question", "A second question on T1?", "--options", "yes|no", "--recommend", "yes") }), { page } = w;
+  const w = await openBoard(t, undefined, { setup: as => as("C1", "gate", "add", "--message", questionFile("A second question on T1?", { task: "T1", file: "notes.md" }), "T1", "--question", "A second question on T1?", "--options", "yes|no", "--recommend", "yes") }), { page } = w;
   await page.goto(`${w.origin}/app/#?project=${encodeURIComponent(basename(w.dir))}`);
   await page.locator(".nav .count.need").filter({ hasText: "3" }).waitFor();
   await page.locator("header .picker").click();
@@ -539,7 +539,8 @@ test("T1159 F-T1159-4: when the message holds its answers in a section, the answ
     { t: "field", label: "Where", text: "The sample task sets the copy rule." },
     { t: "field", label: "Approve", text: "The copy rule." }, { t: "field", label: "Choice", text: "Does a viewer copy?" },
     { t: "section", label: "Question 1: Copy rule", body: [{ t: "p", text: "Sample text before the answers." }, { t: "table", head: ["Answer", "Next", "Cost"], rows: [["A: copy", "The chief adds it.", "1 h"], ["B: no copy", "View only.", "none"]], pick: 0 }] },
-    { t: "field", label: "Default", text: "Sample default after the answers." }, { t: "field", label: "Due", text: "Sample: no time." }, { t: "field", label: "Next", text: "The chief builds the task." }] };
+    { t: "field", label: "Default", text: "Sample default after the answers." }, { t: "field", label: "Due", text: "Sample: no time." }, { t: "field", label: "Next", text: "The chief builds the task." },
+    { t: "page", title: "Sample notes", task: "T1", file: "notes.md" }] };
   const w = await openBoard(t, SIZES[2], { setup: as => {
     writeFileSync(join(tmpdir(), `t1159-nested-${process.pid}.json`), JSON.stringify(nested));
     as("C1", "gate", "add", "T1", "--question", "Which copy rule?", "--options", "A: copy|B: no copy", "--recommend", "A: copy", "--message", join(tmpdir(), `t1159-nested-${process.pid}.json`));
