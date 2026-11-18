@@ -13,6 +13,7 @@ import { chiefsWhole } from "../plugins/sage/core/chiefs.mjs";
 import { readBoardSources } from "../plugins/sage/core/board-reader.mjs";
 import { buildBoardModel } from "../plugins/sage/core/board-model.mjs";
 import { boardOverview } from "../plugins/sage/core/board-overview.mjs";
+import { renderBoardText } from "../plugins/sage/core/board-render.mjs";
 
 const at = (path) => fileURLToPath(new URL(path, import.meta.url));
 const CLAUDE_HOOK = at("../plugins/sage/hooks/sage-hook.mjs"), DISPATCH = pathToFileURL(at("../plugins/sage-codex/hooks/dispatch.mjs")).href;
@@ -197,15 +198,17 @@ test("a live folder that is a link gets no write, and the hook still allows the 
   assert.ok(lstatSync(join(w.dir, "live")).isSymbolicLink(), "the link stays as it was");
 });
 
-test("boardChiefs: a chief stops when its heartbeat is over 30 minutes old: at 30 minutes exactly it has not", () => {
+test("boardChiefs: a chief turns quiet when its heartbeat is over 30 minutes old, and stops only at 8 h (G227)", () => {
   const beat = Date.parse("2026-11-13T10:00:00.000Z");
-  const stopped = (now) => boardChiefs({ rows: [{ id: "C1", provider: "claude", at: "2026-11-13T09:00:00.000Z" }], live: { C1: { checkout: null, sageMode: true, autopilot: false, at: beat } }, now })[0].stopped;
-  assert.equal(stopped(beat + 30 * MINUTE), false);
-  assert.equal(stopped(beat + 30 * MINUTE + 1), true);
+  const state = (now) => (({ session, stopped }) => [session, stopped])(boardChiefs({ rows: [{ id: "C1", provider: "claude", at: "2026-11-13T09:00:00.000Z" }], live: { C1: { checkout: null, sageMode: true, autopilot: false, at: beat } }, now })[0]);
+  assert.deepEqual(state(beat + 30 * MINUTE), ["live", false]);
+  assert.deepEqual(state(beat + 30 * MINUTE + 1), ["quiet", false]);
+  assert.deepEqual(state(beat + 8 * 60 * MINUTE - 1), ["quiet", false]);
+  assert.deepEqual(state(beat + 8 * 60 * MINUTE), ["stopped", true]);
 });
 
 test("boardChiefs, F-T1059-1, -2, -4, -7, -8: names stay apart, a silent chief that waits for the owner is not stopped, a long folder is cut, a stopped chief shows no mode, and agents is a count", () => {
-  const now = Date.parse("2026-11-13T12:00:00.000Z"), at = "2026-11-13T08:30:00.000Z", old = now - 40 * MINUTE;
+  const now = Date.parse("2026-11-13T12:00:00.000Z"), at = "2026-11-13T08:30:00.000Z", old = now - 9 * 60 * MINUTE;
   const rows = [{ id: "C1", provider: "claude", at }, { id: "C2", provider: "claude", at }, { id: "C3", provider: "codex", at }, { id: "C4", provider: "codex", at }];
   const live = { C1: { checkout: "/w/app", sageMode: true, autopilot: true, at: old }, C2: { checkout: "/w/app", sageMode: true, autopilot: true, at: old }, C3: { checkout: `/w/${"long  folder ".repeat(6)}`, sageMode: true, autopilot: true, at: now }, C4: { checkout: "/w/app", sageMode: true, autopilot: false, at: old } };
   const chiefs = boardChiefs({ rows, live, names: { C4: "Claude · app · 2026-11-13 08:30 UTC" }, waits: ["C2"], runs: [{ chief: "C3", status: "running" }, { chief: "C3", status: "running" }], now });
@@ -349,7 +352,7 @@ test("the board model lists each chief with provider, name, sage mode, autopilot
   mkdirSync(join(w.dir, "live"));
   const live = (id, minutes, extra = {}) => writeFileSync(w.live(id), JSON.stringify({ provider: "x", checkout: w.project, sageMode: true, autopilot: false, at: iso(now - minutes * MINUTE), ...extra }));
   live("C1", 1, { autopilot: true });
-  live("C2", 40);
+  live("C2", 9 * 60);
   live("C3", 40);
   writeFileSync(w.live("C5"), "{ damaged");
   writeFileSync(join(w.dir, "chief-names.json"), JSON.stringify({ C1: "Main" }));
@@ -360,7 +363,7 @@ test("the board model lists each chief with provider, name, sage mode, autopilot
   const folder = basename(realpathSync(w.project));
   assert.deepEqual(project.chiefs.map(pick), [
     { id: "C1", provider: "claude", name: "Main", named: true, sageMode: true, autopilot: true, heartbeat: iso(now - MINUTE), stopped: false },
-    { id: "C2", provider: "codex", name: `Codex · ${folder} · 2026-11-13 08:30 UTC`, named: false, sageMode: null, autopilot: null, heartbeat: iso(now - 40 * MINUTE), stopped: true },
+    { id: "C2", provider: "codex", name: `Codex · ${folder} · 2026-11-13 08:30 UTC`, named: false, sageMode: null, autopilot: null, heartbeat: iso(now - 9 * 60 * MINUTE), stopped: true },
     { id: "C3", provider: "claude", name: `Claude · ${folder} · 2026-11-13 08:30 UTC`, named: false, sageMode: true, autopilot: false, heartbeat: iso(now - 40 * MINUTE), stopped: false },
     { id: "C4", provider: "codex", name: "Codex · 2026-11-13 08:30 UTC", named: false, sageMode: null, autopilot: null, heartbeat: null, stopped: null },
     { id: "C5", provider: "claude", name: "Claude · 2026-11-13 08:30 UTC", named: false, sageMode: null, autopilot: null, heartbeat: null, stopped: null },
@@ -369,7 +372,7 @@ test("the board model lists each chief with provider, name, sage mode, autopilot
   assert.deepEqual(model.warnings.map((w) => w.message), ["live/C5.json: invalid JSON"]);
   const overview = boardOverview(model);
   assert.deepEqual(overview.chiefs.map((c) => [c.id, c.project]), ["C1", "C2", "C3", "C4", "C5"].map((id) => [id, project.key]), "T1135: each chief names its project by key");
-  assert.equal(overview.next, now - MINUTE + 30 * MINUTE + 1, "the overview wakes when the fresh chief would stop");
+  assert.equal(overview.next, now - MINUTE + 30 * MINUTE + 1, "the overview wakes when the fresh chief turns quiet");
 });
 
 test("an older plugin still reads the logbook: chiefs.tsv keeps its exact columns beside the live files and the names file", (t) => {
@@ -660,4 +663,92 @@ test("F-T1170-18: an agent event with a due beat never writes the session hook s
     { hook_event_name: "PostToolUse", agent_id: "agent-1", agent_type: "sage:implementer", tool_name: "Read", tool_input: { file_path: join(w.project, "x") }, tool_response: {} });
   assert.notEqual(json(w.live("C1")).at, at, "the agent event renewed the chief's record");
   assert.equal(json(file).autopilot, false, "the owner's off phrase stays in the session hook state");
+});
+
+test("F-T1173-1: a beat that the hook kept in its session state before the beat file still counts, so the off phrase writes sage mode and autopilot off to the shared record", (t) => {
+  const w = linked(t);
+  claudeSay(w, "sage mode");
+  claudeSay(w, "autopilot on");
+  assert.deepEqual([json(w.live("C1")).sageMode, json(w.live("C1")).autopilot], [true, true]);
+  const state = join(w.env.SAGE_HOOKS_STATE, "claude-1.json");
+  writeFileSync(state, JSON.stringify({ ...json(state), live: json(lastBeat(w)) }));
+  rmSync(lastBeat(w));
+  claudeSay(w, "sage mode off");
+  const record = json(w.live("C1"));
+  assert.deepEqual([record.sageMode, record.autopilot, record.ended?.reason], [false, false, "off"], "the shared record shows the owner's off, not the old on");
+});
+
+test("T1173: the board gives each session its state: live, quiet with its pass-on time, quiet for the owner's question, stopped after 8 h, ended, not confirmed, and its lost runs", () => {
+  const iso = (ms) => new Date(ms).toISOString(), record = (data) => liveRecord({ checkout: "/w/app", sageMode: true, autopilot: false, ...data });
+  const ids = ["C1", "C2", "C3", "C4", "C5", "C6"], rows = ids.map((id) => ({ id, provider: id === "C2" ? "codex" : "claude", at: iso(T0 - 10 * HOUR) }));
+  const live = {
+    C1: record({ at: iso(T0 - MINUTE), confirmed: true }),
+    C2: record({ at: iso(T0 - 3 * HOUR), confirmed: true }),
+    C3: record({ at: iso(T0 - 9 * HOUR), confirmed: true }),
+    C4: record({ at: iso(T0 - 9 * HOUR), confirmed: true }),
+    C5: record({ at: iso(T0 - 2 * HOUR), confirmed: true, ended: { at: iso(T0 - 2 * HOUR), reason: "prompt_input_exit" } }),
+    C6: record({ at: iso(T0 - MINUTE) }),
+  };
+  const runs = [{ chief: "C1", status: "running" }, { chief: "C4", status: "running", clock: { stale: true } }, { chief: "C5", status: "running" }, { chief: "C5", status: "done" }];
+  const chiefs = boardChiefs({ rows, live, runs, waits: ["C3"], owners: ["C1", "C1", "C2", "C4", "C5", "C5", "C5"], now: T0 });
+  const pick = ({ id, session, reason, stopped, passOnAt, endedAt, confirmed, tasks, agents, lost, waitsForOwner }) => ({ id, session, reason, stopped, passOnAt, endedAt, confirmed, tasks, agents, lost, waitsForOwner });
+  assert.deepEqual(chiefs.map(pick), [
+    { id: "C1", session: "live", reason: null, stopped: false, passOnAt: null, endedAt: null, confirmed: true, tasks: 2, agents: 1, lost: 0, waitsForOwner: false },
+    { id: "C2", session: "quiet", reason: null, stopped: false, passOnAt: iso(T0 + 5 * HOUR), endedAt: null, confirmed: true, tasks: 1, agents: 0, lost: 0, waitsForOwner: false },
+    { id: "C3", session: "quiet", reason: null, stopped: false, passOnAt: null, endedAt: null, confirmed: true, tasks: 0, agents: 0, lost: 0, waitsForOwner: true },
+    { id: "C4", session: "stopped", reason: "quiet-8h", stopped: true, passOnAt: null, endedAt: null, confirmed: true, tasks: 1, agents: 0, lost: 1, waitsForOwner: false },
+    { id: "C5", session: "stopped", reason: "ended", stopped: true, passOnAt: null, endedAt: iso(T0 - 2 * HOUR), confirmed: true, tasks: 3, agents: 1, lost: 1, waitsForOwner: false },
+    { id: "C6", session: "live", reason: null, stopped: false, passOnAt: null, endedAt: null, confirmed: false, tasks: 0, agents: 0, lost: 0, waitsForOwner: false },
+  ]);
+});
+
+test("T1173: the board model marks a running run of a stopped session lost, and keeps a running run of a live session at work", (t) => {
+  const w = linked(t);
+  for (const session of ["a", "b"]) claude.chiefFor(w.project, session, w.env);
+  const now = Date.now(), iso = (ms) => new Date(ms).toISOString();
+  mkdirSync(join(w.dir, "live"));
+  writeFileSync(w.live("C1"), JSON.stringify({ provider: "claude", checkout: w.project, sageMode: true, autopilot: false, at: iso(now - 20 * MINUTE), ended: { at: iso(now - 10 * MINUTE), reason: "prompt_input_exit" } }));
+  writeFileSync(w.live("C2"), JSON.stringify({ provider: "claude", checkout: w.project, sageMode: true, autopilot: false, at: iso(now - MINUTE) }));
+  table(w, "tasks", [task("T1", "C1"), task("T2", "C2")]);
+  table(w, "runs", [run("R1", "T1", "C1", iso(now - 15 * MINUTE)), run("R2", "T2", "C2", iso(now - 5 * MINUTE))]);
+  const { model, project } = boardOf(w, now);
+  assert.deepEqual(project.chiefs.map(({ id, session, reason, lost }) => ({ id, session, reason, lost })), [{ id: "C1", session: "stopped", reason: "ended", lost: 1 }, { id: "C2", session: "live", reason: null, lost: 0 }]);
+  const agents = model.agents.projects.flatMap((one) => one.agents).map(({ runId, state }) => ({ runId, state }));
+  assert.deepEqual(agents.sort((a, b) => a.runId.localeCompare(b.runId)).map(({ runId, state }) => [runId, state === "lost"]), [["R1", true], ["R2", false]]);
+  const overview = boardOverview(model);
+  assert.equal(overview.agents.flatMap((book) => book.runs).find((one) => one.id === "R1").state, "lost", "the Agents page shows the run as lost");
+  const hhmm = (ms) => iso(ms).slice(11, 16).replace(":", "\\:"), sessions = renderBoardText(model).split("### Sessions\n")[1]?.split("\n\n### ")[0];
+  assert.equal(sessions, `#### ${project.name}\n- Claude · C1 · ended ${hhmm(now - 10 * MINUTE)} UTC · **ended**\n  1 task · 1 run lost\n- Claude · C2 · since ${hhmm(Date.parse(project.chiefs[1].startedAt))} UTC · **live**\n  1 task · 1 agent · program not confirmed`, "the chat board shows the same Sessions part");
+});
+
+function modeOnWith(t, others) {
+  const w = linked(t);
+  for (const [session, tool] of others.map(({ provider }, i) => [`other-${i}`, provider === "codex" ? codex : claude])) tool.chiefFor(w.project, session, w.env);
+  mkdirSync(join(w.dir, "live"), { recursive: true });
+  const now = Date.now(), iso = (ms) => new Date(ms).toISOString(), tasks = [], runs = [];
+  others.forEach(({ provider, ago, tasks: owned = 0, agents = 0 }, i) => {
+    const id = `C${i + 1}`;
+    writeFileSync(w.live(id), JSON.stringify({ provider, checkout: w.project, sageMode: true, autopilot: false, at: iso(now - ago) }));
+    for (let n = 0; n < owned; n++) tasks.push(task(`T${tasks.length + 1}`, id));
+    for (let n = 0; n < agents; n++) runs.push(run(`R${runs.length + 1}`, tasks.find((one) => one.chief === id).id, id, iso(now - MINUTE)));
+  });
+  table(w, "tasks", tasks);
+  table(w, "runs", runs);
+  return w;
+}
+const modeOnLine = (output) => output.hookSpecificOutput.additionalContext.split("\n\n---\n\n").find((part) => /session/.test(part) && part.startsWith("sage: ") && !part.startsWith("sage: sage mode is on"));
+
+test("T1173: the sage mode on line says that no other session works here when none is live", (t) => {
+  const w = modeOnWith(t, [{ provider: "claude", ago: 3 * HOUR, tasks: 1 }]);
+  assert.equal(modeOnLine(claudeSay(w, "sage mode")), "sage: no other sage session works on this project now.", "a quiet session is not named");
+});
+
+for (const [name, say] of [["Claude", claudeSay], ["Codex", codexSay]]) test(`T1173: ${name}: the sage mode on line names the one other live session, its tasks and agents, and the free agents`, (t) => {
+  const w = modeOnWith(t, [{ provider: "claude", ago: MINUTE, tasks: 2, agents: 1 }]);
+  assert.equal(modeOnLine(say(w, "sage mode")), "sage: a Claude session C1 also works on this project: 2 tasks, 1 agent. Each session keeps its own tasks. You share 10 agents; 9 are free. Tell the user this in one line.");
+});
+
+test("T1173: the sage mode on line names 2 other live sessions, and not an ended one", (t) => {
+  const w = modeOnWith(t, [{ provider: "claude", ago: MINUTE, tasks: 14, agents: 3 }, { provider: "codex", ago: 2 * MINUTE, tasks: 2, agents: 1 }, { provider: "claude", ago: 9 * HOUR, tasks: 1 }]);
+  assert.equal(modeOnLine(claudeSay(w, "sage mode")), "sage: 2 other sessions also work on this project: Claude session C1 (14 tasks, 3 agents) and Codex session C2 (2 tasks, 1 agent). Each session keeps its own tasks. You share 10 agents; 6 are free. Tell the user this in one line.");
 });

@@ -1,6 +1,5 @@
 import { LAPSED, LINE, PRIORITIES, boardAnswer } from "./logbook-fields.mjs";
 import { milestoneName } from "./milestone-rules.mjs";
-import { STOPPED_MS } from "./chief-live.mjs";
 import { AGENT_QUIET_MS, isOpen } from "./board-model.mjs";
 import { TEAM } from "./role-policy.mjs";
 import { runWord, taskWord } from "./state-words.mjs";
@@ -19,7 +18,7 @@ const STATE_ORDER = ["stuck", "lost", "active", "changing", "proposed", "done"];
 const stateRank = state => STATE_ORDER.includes(state) ? STATE_ORDER.indexOf(state) : STATE_ORDER.length;
 const number = id => Number(String(id).replace(/^\D+/, "")) || 0;
 
-const LOOK = ["stuck", "stop"];
+const LOOK = ["lost", "stuck", "stop"];
 function everyAgent(agents) {
   const all = [], walk = agent => { all.push(agent); for (const child of agent.children ?? []) walk(child); };
   for (const project of agents?.projects ?? []) for (const agent of project.agents) walk(agent);
@@ -206,7 +205,7 @@ export function boardOverview(model) {
   const lastWrites = agents.map(lastWrite).filter(when => when !== null);
   const { books, look } = agentsOf(model, recent, agents, chiefs);
   const leaving = [...merged.map(task => time(task.completedAt)), ...look.filter(item => item.run.status === "failed").map(item => time(item.run.ended))].map(when => when + DAY + 1)
-    .concat(chiefs.filter(chief => chief.stopped === false && !chief.agents && !chief.waitsForOwner).map(chief => time(chief.heartbeat) + STOPPED_MS + 1))
+    .concat(chiefs.flatMap(chief => [time(chief.quietAt), time(chief.passOnAt)]).filter(when => when !== null))
     .concat(lastWrites.filter(when => at - when < AGENT_QUIET_MS).map(when => when + AGENT_QUIET_MS));
 
   return {

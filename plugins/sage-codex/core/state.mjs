@@ -26,7 +26,7 @@ import { pagesFolder, worktreeRoot, worktrees } from "./worktrees.mjs";
 import { priorArtCommand } from "./prior-art-index.mjs";
 import { storageClean, storagePlan, storageView } from "./storage.mjs";
 import { CHIEF, TAKEOVER_OPTIONS, chiefOnly, createChiefs, crossed, offerOf, replaceOf, replaceQuestion, writerClass } from "./chiefs.mjs";
-import { NAMES_FILE, chiefNames } from "./chief-live.mjs";
+import { NAMES_FILE, boardChiefs, chiefNames, readLiveRecord } from "./chief-live.mjs";
 import { LEAD_COMMANDS, leadProblem as leadPolicy, leadRequest } from "./lead-policy.mjs";
 import { renderMessage } from "./message-checks.mjs";
 import { KINDS as MESSAGE_KINDS, MAX_SECTIONS, PAGE_DEPTH, PAGE_MAX, PAGE_TYPES, pageType, pageUrl } from "./message.mjs";
@@ -586,6 +586,16 @@ function queueOf(project, env = process.env) {
     queued: queueOrder(runs).map((r, i) => ({ ...brief(r), place: i + 1 })),
     admitted: runs.filter((r) => awaiting(dir, r) && leaseEnd(r) > at).map((r) => ({ ...brief(r), admitted: r.admitted, until: utc(new Date(leaseEnd(r)).toISOString()) })),
     lapsed: runs.filter((r) => r.admitted && !started(dir, r) && (r.status === "failed" || (r.status === "running" && leaseEnd(r) <= at))).map((r) => ({ ...brief(r), admitted: r.admitted, ended: r.status === "failed" })) };
+}
+function sessionsHere(project, native, env = process.env) {
+  const { dir, shared } = locate(project, env);
+  if (!shared || !existsSync(join(dir, "tasks.tsv"))) return null;
+  const rows = chiefs(dir), me = rowOf(dir, native)?.id ?? null, tasks = read(dir, "tasks"), runs = read(dir, "runs");
+  const live = Object.fromEntries(rows.map((r) => [r.id, readLiveRecord(dir, r.id)]).filter(([, record]) => record));
+  const waits = read(dir, "gates").filter((g) => !g.answer).map((g) => gateChief(dir, g, tasks)).filter(Boolean);
+  const owners = tasks.filter((t) => !ENDED.includes(t.state) && t.chief).map((t) => t.chief);
+  const others = boardChiefs({ rows, live, runs, waits, owners, now: Date.now() }).filter((c) => c.id !== me && c.session === "live");
+  return { me, others, running: runningOf(runs).length, limit: projectCap(dir, project, env) };
 }
 function sweepQueue(project, env = process.env) {
   const dir = storeDir(project, env);
@@ -3899,5 +3909,5 @@ const { bindings, fillCommits, folderOf, link, locate, movePlans, notePlugin, pl
   listed: (root) => known(root, undefined, undefined, true),
   enroll });
 const { chiefs, chiefRow, rowOf } = createChiefs({ now, provider, readRegular, refuse, rowsOf, sheetText, swap });
-return { SIZES, BLOCKS, RISKS, KINDS, STATES, DEFAULTS, PR, LEAD_COMMANDS, leadProblem, leadRequest, sageRoot, locate, chiefFor, chiefLink, sessionProbe, sessionBar, branchBar, actorOptions, git, projectRoot, roleReadProject, optionsOf, slug, worktreeRoot, pagesRoot, BRANCH, ofTask, branchOfTask, branchTip, projectName, storeDir, config, cyclesFor, modelFor, read, mergeCheck, boardLandingCheck, carryOver, logbookView, sage, keepReport, keepRunText, keepUsage, observePush, compareRetainedReport, ownGates, pickupAnswers, queueOf, chiefQueue, queueProblem, pendingRun, markStart, sweepQueue, withLock, command, runCli, waitingPlugins, writeIdFloors };
+return { SIZES, BLOCKS, RISKS, KINDS, STATES, DEFAULTS, PR, LEAD_COMMANDS, leadProblem, leadRequest, sageRoot, locate, chiefFor, chiefLink, sessionProbe, sessionsHere, sessionBar, branchBar, actorOptions, git, projectRoot, roleReadProject, optionsOf, slug, worktreeRoot, pagesRoot, BRANCH, ofTask, branchOfTask, branchTip, projectName, storeDir, config, cyclesFor, modelFor, read, mergeCheck, boardLandingCheck, carryOver, logbookView, sage, keepReport, keepRunText, keepUsage, observePush, compareRetainedReport, ownGates, pickupAnswers, queueOf, chiefQueue, queueProblem, pendingRun, markStart, sweepQueue, withLock, command, runCli, waitingPlugins, writeIdFloors };
 }

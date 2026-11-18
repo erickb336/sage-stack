@@ -49,7 +49,7 @@ export function releaseWord(words = []) {
 
 export const WORDS = ["not started", "waiting", "needs you", "in progress", "done", "stopped"];
 export const URGENCY = ["needs you", "in progress", "waiting", "not started", "done", "stopped"];
-export const FLAGS = ["failed", "blocked", "may be stuck", "running long", "run still open"];
+export const FLAGS = ["failed", "blocked", "may be stuck", "running long", "run still open", "lost"];
 export const UNKNOWN = "unknown";
 export const MARKS = { "not started": "○", waiting: "⧗", "needs you": "?", "in progress": "▶", done: "✓", stopped: "■", problem: "!", unknown: "◌", milestone: "◫", release: "◎", offer: "⇄", "cannot start": "⊘" };
 export const FLAGGED = "with a problem flag";
@@ -66,11 +66,11 @@ export const OBJECTS = {
   task: { label: "Task", states: { ...each(Object.keys(DOING), "in progress"), framed: ["not started"], ...ended } },
   agent: { label: "Agent", states: {
     queued: ["waiting"], running: ["in progress"], done: ["done"], question: ["needs you"], failed: ["stopped", "failed"], blocked: ["stopped", "blocked"],
-    work: ["in progress"], wait: ["waiting"], unk: ["in progress"], stuck: ["in progress", "may be stuck"], long: ["in progress", "running long"], stop: ["stopped", "run still open"],
+    work: ["in progress"], wait: ["waiting"], unk: ["in progress"], stuck: ["in progress", "may be stuck"], long: ["in progress", "running long"], stop: ["stopped", "run still open"], lost: ["stopped", "lost"],
   } },
   question: { label: "Question", states: {} },
   "pull request": { label: "Pull request", states: {} },
-  chief: { label: "Chief", states: { live: ["in progress"], waits: ["needs you"], stopped: ["stopped"] } },
+  chief: { label: "Chief", states: { live: ["in progress"], quiet: ["waiting"], waits: ["needs you"], stopped: ["stopped"] } },
 };
 export const STEPS = { done: ["done"], run: ["in progress"], need: ["needs you"], wait: ["not started"], idle: ["waiting"], stale: ["in progress", "may be stuck"], fail: ["done", "failed"], blocked: ["in progress", "blocked"] };
 
@@ -78,3 +78,20 @@ export const shown = ([word, flag] = []) => ({ word: word ?? UNKNOWN, flag: flag
 export const runWord = (status, stale = false) => shown(status === "running" && stale ? OBJECTS.agent.states.stuck : Object.hasOwn(OBJECTS.agent.states, status) ? OBJECTS.agent.states[status] : undefined);
 export const prName = number => `PR ${number}`;
 export const chiefName = (id, provider) => [provider && `${String(provider).charAt(0).toUpperCase()}${String(provider).slice(1)}`, id].filter(Boolean).join(" · ");
+
+const counted = (count, one) => `${count} ${count === 1 ? one : `${one}s`}`;
+const SESSION_NOT_CONFIRMED = "Program not confirmed: this session passes on only when it exits, or after 8 h with no action.";
+const idleText = ms => { const m = Math.max(0, Math.floor(ms / 60_000)); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h`; };
+export function sessionRow(chief, now, clock) {
+  const head = `${chiefName(null, chief.provider) || "Chief"} · ${chief.id}`, holds = counted(chief.tasks, "task");
+  if (chief.session === "stopped") {
+    const ended = chief.reason === "ended";
+    return { dot: "stopped", word: ended ? "ended" : "stopped", head: `${head} · ${ended ? "ended" : "stopped"} ${clock(ended ? chief.endedAt : chief.reason === "quiet-8h" ? new Date(Date.parse(chief.heartbeat) + 8 * 3_600_000).toISOString() : chief.heartbeat)}`,
+      sub: [holds, chief.lost ? `${counted(chief.lost, "run")} lost` : null, chief.reason === "quiet-8h" ? "8 h with no action" : null].filter(Boolean).join(" · ") };
+  }
+  if (chief.session === "quiet") return { dot: "quiet", word: "quiet", head: `${head} · no action for ${idleText(Date.parse(now) - Date.parse(chief.heartbeat))}`,
+    sub: [holds, "no agent", chief.passOnAt ? `passes on at ${clock(chief.passOnAt)}` : "waits for your answer, so it keeps its tasks"].join(" · ") };
+  if (chief.session === "live") return { dot: "live", word: "live", head: `${head} · since ${clock(chief.startedAt)}`,
+    sub: [holds, counted(chief.agents, "agent"), chief.confirmed ? null : "program not confirmed"].filter(Boolean).join(" · "), note: chief.confirmed ? null : SESSION_NOT_CONFIRMED };
+  return { dot: "unknown", word: UNKNOWN, head: `${head} · no record`, sub: `${holds} · the session sends no sign of life` };
+}

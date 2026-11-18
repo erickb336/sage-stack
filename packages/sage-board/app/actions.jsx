@@ -158,8 +158,8 @@ document.addEventListener("visibilitychange", () => {
 });
 export const useSeen = () => useShared(seen.listeners, () => seen.previous || null);
 
-const dot = chief => chief.stopped ? "stopped" : chief.waitsForOwner ? "waits" : chief.stopped === false ? "live" : "unknown";
-const STATE = { live: chiefState("live"), stopped: chiefState("stopped"), waits: chiefState("waits"), unknown: UNKNOWN };
+const dot = chief => chief.stopped ? "stopped" : chief.waitsForOwner ? "waits" : chief.session ?? "unknown";
+const STATE = { live: chiefState("live"), quiet: chiefState("quiet"), stopped: chiefState("stopped"), waits: chiefState("waits"), unknown: UNKNOWN };
 
 function ChiefMenu({ chief, onFilter, close }) {
   const [name, setName] = useState(chief.named ? chief.name.replace(new RegExp(` · ${chief.id}$`), "") : ""), [said, setSaid] = useState(null);
