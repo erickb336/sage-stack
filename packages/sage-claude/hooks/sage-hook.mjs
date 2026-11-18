@@ -178,20 +178,21 @@ function handleEvent(input, state, slots) {
   const ours = OURS.test(input.agent_type ?? "");
   if (event === "PreToolUse" && input.tool_name === HANDBACK) {
     if (!ours || !input.agent_id) return undefined;
-    const text = input.tool_input?.message, reason = !slots.handback(input.agent_id) && reportProblem(input, text);
-    slots.handback(input.agent_id, reason ? {} : { text });
-    return reason ? deny(event, reason.replace(/^sage: /, "")) : undefined;
+    const reason = reportProblem(input, typeof input.tool_input?.message === "string" ? input.tool_input.message : "");
+    if (slots.refusedHandback(input.agent_id) || !reason) return undefined;
+    slots.refusedHandback(input.agent_id, true);
+    return deny(event, reason.replace(/^sage: /, ""));
   }
   if (event === "SubagentStop") {
-    const briefed = ours && input.agent_id && briefRunOfTranscript(input.agent_transcript_path);
+    const briefed = ours && input.agent_id && briefOfTranscript(input.agent_transcript_path);
     if (briefed) try { slots.bindByBriefRun(input.agent_id, input.agent_type, briefed); } catch {}
     const lead = input.agent_type === "sage:lead" && slots.leadOf(input.agent_id);
     const ended = lead && (() => { try { return logbookOf(lead.folder).leadRun(lead.task)?.id !== lead.run; } catch { return false; } })();
     const live = lead && !ended ? slots.running(leadKey(lead)) : [];
     if (live.length) return { decision: "block", reason: `sage: your helper${live.length === 1 ? "" : "s"} ${live.join(", ")} still run${live.length === 1 ? "s" : ""}, and a lead does not end while a helper runs. Run ${waitStep(lead.task)}: it returns at once with each helper that stopped and whose run you end, else when a helper stops or none runs, and after ${WAIT_MS / 60_000} minutes at the latest. It names once each run whose report the hook cannot read: the sage ends that run, so do not end it, and name it in FINDINGS of your report. Then go on with your steps.` };
-    const handed = ours && input.agent_id ? slots.handback(input.agent_id)?.text : undefined;
-    if (typeof handed === "string") input = { ...input, last_assistant_message: handed, stop_hook_active: true };
-    const reason = ours && !input.stop_hook_active && reportProblem(input, input.last_assistant_message);
+    const handed = ours ? handbackOfTranscript(input.agent_transcript_path) : undefined;
+    if (handed !== undefined) input = { ...input, last_assistant_message: handed };
+    const reason = ours && handed === undefined && !input.stop_hook_active && reportProblem(input, input.last_assistant_message);
     if (reason) return { decision: "block", reason };
   }
   if (!main && ours && input.agent_id) slots.touch(input.agent_id, input.agent_type);
@@ -1035,19 +1036,37 @@ function briefMark(prompt, role, cwd) {
   }
 }
 const briefRun = (prompt) => BRIEF_LINE.exec(String(prompt ?? "").split("\n", 1)[0])?.[1];
-function briefRunOfTranscript(path) {
-  if (typeof path !== "string" || !isAbsolute(path) || !path.endsWith(".jsonl")) return undefined;
+function transcriptRecords(path, fromEnd) {
+  if (typeof path !== "string" || !isAbsolute(path) || !path.endsWith(".jsonl")) return [];
   let fd;
   try {
     fd = openSync(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
-    const chunk = Buffer.alloc(1 << 16), size = readSync(fd, chunk, 0, chunk.length, 0);
-    const content = JSON.parse(chunk.subarray(0, size).toString("utf8").split("\n", 1)[0])?.message?.content;
-    return briefRun(typeof content === "string" ? content : Array.isArray(content) ? content.find((part) => part?.type === "text")?.text : undefined);
+    const stat = fstatSync(fd), length = Math.min(stat.size, fromEnd ? 1 << 20 : 1 << 16);
+    if (!stat.isFile()) return [];
+    const chunk = Buffer.alloc(length), lines = chunk.subarray(0, readSync(fd, chunk, 0, length, fromEnd ? stat.size - length : 0)).toString("utf8").split("\n");
+    if (fromEnd && length < stat.size) lines.shift();
+    return (fromEnd ? lines.reverse() : lines.slice(0, 1)).flatMap((line) => { try { return [JSON.parse(line)]; } catch { return []; } });
   } catch {
-    return undefined;
+    return [];
   } finally {
     if (fd !== undefined) closeSync(fd);
   }
+}
+const recordParts = (record) => Array.isArray(record?.message?.content) ? record.message.content : [];
+function briefOfTranscript(path) {
+  const first = transcriptRecords(path, false)[0], content = first?.message?.content;
+  const [, run, task] = BRIEF_LINE.exec(String((typeof content === "string" ? content : recordParts(first).find((part) => part?.type === "text")?.text) ?? "").split("\n", 1)[0]) ?? [];
+  return run && { run, task };
+}
+function handbackOfTranscript(path) {
+  const failed = new Set();
+  for (const record of transcriptRecords(path, true)) {
+    for (const part of recordParts(record)) if (part?.type === "tool_result" && part.is_error) failed.add(part.tool_use_id);
+    if (record?.type !== "assistant") continue;
+    const call = recordParts(record).find((part) => part?.type === "tool_use" && part.name === HANDBACK);
+    return call && !failed.has(call.id) && typeof call.input?.message === "string" ? call.input.message : undefined;
+  }
+  return undefined;
 }
 const spawnRun = (input, ti, given) => briefRun(ti.prompt) ?? (/^R[1-9]\d*$/.test(given) ? given : pendingSpawn(input, ti, given));
 function pendingSpawn(input, ti, given) {
@@ -1244,6 +1263,8 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
         if (role === "sage:lead" && lead?.named) initial.push("named");
         const run = role === "sage:lead" && lead ? lead.run : helper ? helper.run : brief === undefined ? briefRun(input?.prompt) : brief.run;
         if (run) initial.push(`run-${run}`);
+        const task = role === "sage:lead" ? undefined : helper ? helper.task : run && BRIEF_LINE.exec(String(input?.prompt ?? "").split("\n", 1)[0])?.[2];
+        if (task) initial.push(`task-${task}`);
         if (helper) initial.push(`helper-${helper.key}`);
         if (exact) initial.push("exact");
         if (caller !== undefined) initial.push(`parent-${hash(caller)}`);
@@ -1291,18 +1312,18 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
       else utimesSync(join(dir, slot), new Date(now), new Date(now));
     }),
     release: transaction(release),
-    bindByBriefRun: transaction((agent, role, run) => {
+    bindByBriefRun: transaction((agent, role, { run, task }) => {
       if (!valid(agent) || !run || stopped(agent) || ofSession().some(slot => ownsAgent(slot, agent)) || noted(`binding-${hash(agent)}`)) return;
       const calls = observationOf(agent)?.calls ?? [];
-      const mine = pendingFor(role).filter(slot => calls.includes(mark(slot, "call-")) && mark(slot, "run-") === run);
+      const mine = pendingFor(role).filter(slot => calls.includes(mark(slot, "call-")) && mark(slot, "run-") === run && mark(slot, "task-") === task);
       if (mine.length === 1) bindTo(mine[0], agent);
     }),
-    handback: (agent, entry) => {
-      if (!valid(agent)) return undefined;
-      const name = `handback-${hash(agent)}`;
-      if (entry) return void note(name, JSON.stringify(entry));
-      if (!noted(name)) return undefined;
-      try { return parsed(readFileSync(join(events, name), "utf8")); } finally { rmSync(join(events, name), { force: true }); }
+    refusedHandback: (agent, refuse) => {
+      if (!valid(agent)) return false;
+      const name = `handback-${hash(agent)}`, was = noted(name);
+      if (refuse) note(name);
+      else rmSync(join(events, name), { force: true });
+      return was;
     },
     drop: transaction((tool, caller) => {
       const slot = ofSession().find(slot => mark(slot, "call-") === callKey(tool, caller))
