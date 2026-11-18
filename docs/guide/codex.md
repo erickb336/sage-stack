@@ -327,8 +327,8 @@ The plugin starts a local MCP server, `sage`, in the desktop app and in the CLI.
 | `init`, `status` | `init`, `status` |
 | `link` | `link --to <folder>`, `link --separate`: [shared logbooks](using-sage.md#shared-logbooks), only after your answer |
 | `move` | `move --preview`, `move --plan <plan>`, `move --gate <G>`: [move an existing project](using-sage.md#move-an-existing-project), with `gate` only after your answer |
-| `claim` | `claim <T>`: take a task with no owning chief in a [shared logbook](using-sage.md#shared-logbooks) |
-| `offer`, `cancel`, `accept`, `unclaim` | `offer <T>`, `cancel <T>`, `accept <T>`, `unclaim <T>`: [hand a task to another chief](using-sage.md#shared-logbooks) |
+| `pickup` | `pickup`: take the work of each stopped session and each task with no owning chief in a [shared logbook](using-sage.md#shared-logbooks); every write of a chief does it first |
+| `unclaim` | `unclaim <T>`: give up your task, so that the next pick-up of another chief takes it. The tools claim, offer, cancel and accept are gone |
 | `task_add`, `task_set` | `task add`, `task <T> set` |
 | `milestone_propose` | `milestone propose`, `milestone propose <M>`: [a milestone](using-sage.md#waits-and-milestones) and its breakdown gate. A task joins or leaves with `task_set` `milestone=` |
 | `release_add`, `milestone_set` | `release add`, `milestone <M> set release=<name>`: [a release](using-sage.md#releases) and the milestones in it. A single task goes in with `task_set` `release=` |
@@ -348,8 +348,8 @@ The plugin starts a local MCP server, `sage`, in the desktop app and in the CLI.
 - The chief records the logbook, and a lead records its own task. Codex blocks another role agent's call of a tool that writes (for example `verdict`, `gate_answer` or `brief`), and the agent gets one line that says to put it in its report. Codex's own review thread (`/review`, the app's review button) and its approval check count as role agents here.
 - A role agent may call `status`, `standing`, `merge_check`, and `pages` without `record`.
 - In a [shared logbook](using-sage.md#shared-logbooks), the server finds the chief from the session, and a tool takes no chief field. A lead acts for the chief of its lead run.
-- A write on a task of another chief refuses and names the owning chief, as in Claude. A task with no owning chief refuses and prints its version: call `claim` with the task and that version.
-- To abandon a task with no owning chief, any chief needs no claim: call `task_set` with `fields` `{"state": "abandoned"}` alone and `why`, the reason. The task keeps no chief.
+- A write on a task of another chief refuses and names the owning chief, as in Claude. A task with no owning chief passes to the next chief that writes, by the pick-up, as in Claude. A moved task that no chief claimed goes only to a chief of its own provider.
+- To abandon a task that you unclaimed, call `task_set` with `fields` `{"state": "abandoned"}` alone and `why`, the reason. The task keeps no chief.
 - A review or QA `verdict` on a task with a build needs `run`: a done run of the task whose child had the run in its task name (`sage_qa_t12_r40`) and ended with its full report. At that stop, the report check keeps the report in the logbook, and `verdict` refuses a verdict that no kept report backs. A report that `pages` saved backs no verdict, because the chief gives its text.
 - Token counts: at the stop of a child that has the run in its task name (also a lead, `sage_lead_t12_r40`), the report check reads the child's own token total from its Codex session record. That is `total_tokens` of the last `token_usage_record` line of the child's own thread, not of its children. `run_done` records it as the run's tokens, and the logbook and the board show it, as for a Claude run.
 - When the record has no such line, or the check cannot read it, the run's usage is unavailable, with the reason.
@@ -405,7 +405,9 @@ PE, designer and arena acceptance still need actual runs and their saved artifac
 
 ## Task adoption
 
-Task adoption works only between two separate logbooks. In a [shared logbook](using-sage.md#shared-logbooks), `task_adopt` refuses and changes nothing, because the other provider's tasks are in that logbook already. There, a chief takes a task of another chief only through your answer to a takeover gate: the chief calls `gate_replace`, or `accept` for an offer to it.
+Task adoption works only between two separate logbooks. In a [shared logbook](using-sage.md#shared-logbooks), `task_adopt` refuses and changes nothing, because the other provider's tasks are in that logbook already. There, the work of a stopped session passes on by the pick-up.
+
+A chief takes a task of another, live chief only through your answer to a takeover gate: the chief calls `gate_replace`.
 
 With separate logbooks, ask the chief to take over an existing task and its PR when you change providers. Use the normal Codex app or CLI with the Sage plugin. The chief frames a destination task, then calls `task_adopt` before it starts new work.
 

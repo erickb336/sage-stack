@@ -221,7 +221,7 @@ test("boardChiefs, F-T1059-1, -2, -4, -7, -8: names stay apart, a silent chief t
   assert.equal("running" in c3, false);
 });
 
-test("the board model: a run that the board shows as stale keeps no chief from stopped, and a fresh run does", (t) => {
+test("the board model: a running run holds its chief live, also a run that the board shows as stale (F-T1172-20); with no running run, the chief stops", (t) => {
   const w = linked(t);
   for (const session of ["a", "b", "c"]) claude.chiefFor(w.project, session, w.env);
   const now = Date.parse("2026-11-13T12:00:00.000Z"), iso = (ms) => new Date(ms).toISOString(), DAY = 24 * 60 * MINUTE;
@@ -231,16 +231,16 @@ test("the board model: a run that the board shows as stale keeps no chief from s
   live("C2", 3 * DAY);
   live("C3", 3 * DAY);
   table(w, "tasks", [task("T1", "C1"), task("T2", "C2"), task("T3", "C3")]);
-  table(w, "runs", [run("R1", "T1", "C1", iso(now - 10 * DAY)), run("R2", "T2", "C2", iso(now - 3 * DAY)), run("R3", "T3", "C3", iso(now - 10 * MINUTE))]);
+  table(w, "runs", [run("R1", "T1", "C1", iso(now - 10 * DAY)), { ...run("R2", "T2", "C2", iso(now - 3 * DAY)), status: "done" }, run("R3", "T3", "C3", iso(now - 10 * MINUTE))]);
   const { model, project } = boardOf(w, now);
   assert.deepEqual(project.chiefs.map(({ id, agents, stopped }) => ({ id, agents, stopped })), [
-    { id: "C1", agents: 0, stopped: true },
+    { id: "C1", agents: 1, stopped: false },
     { id: "C2", agents: 0, stopped: true },
     { id: "C3", agents: 1, stopped: false },
   ]);
   const card = (id) => model.tasks.find((one) => one.id === id);
-  assert.deepEqual(["T1", "T2", "T3"].map((id) => card(id).agents.map((agent) => agent.stale)), [[true], [true], [false]], "the board's own clock agrees");
-  assert.ok(card("T1").reasons.some((reason) => reason.kind === "chief-unknown"), "the card says that C1 may have stopped, and the chief line agrees");
+  assert.deepEqual(["T1", "T2", "T3"].map((id) => card(id).agents.map((agent) => agent.stale)), [[true], [], [false]], "the board's own clock marks R1 stale");
+  assert.ok(card("T1").reasons.some((reason) => reason.kind === "chief-unknown"), "the card asks the owner to check C1, which no pick-up takes without the owner");
 });
 
 test("the board model: a live file more than 5 minutes in the future is not trusted: all its values are unknown, as with no live file", (t) => {
@@ -447,12 +447,14 @@ test("T1170: a record from another machine id, or with none, is never stopped by
   assert.deepEqual(sessionState(none, {}, T0 + 6 * MINUTE, probeOf({}, { machine: null })), { state: "live", reason: null });
 });
 
-test("T1170: a reboot stops every confirmed record of this Mac", (t) => {
+test("T1170, F-T1172-8: a reboot stops every confirmed record of this Mac by its gone program; a wall-clock step that moves the boot time alone stops nothing", (t) => {
   const probe = { current: probeOf({ 100: STARTED }) }, w = fakeWorld(t, probe);
   w.beat(w.beat(undefined, T0, 100), T0 + MINUTE, 100);
   const record = w.record();
   assert.deepEqual(sessionState(record, {}, T0 + 2 * MINUTE, probeOf({ 100: STARTED }, { boot: T0 - 24 * HOUR + 30_000 })), { state: "live", reason: null }, "the boot time moves a little between reads");
-  assert.deepEqual(sessionState(record, {}, T0 + 2 * MINUTE, probeOf({ 100: STARTED }, { boot: T0 + MINUTE + 1 })), { state: "stopped", reason: "gone" }, "a new boot: also a pid with the same number and start is another program");
+  assert.deepEqual(sessionState(record, {}, T0 + 2 * MINUTE, probeOf({ 100: STARTED }, { boot: T0 - 24 * HOUR + 2 * HOUR })), { state: "live", reason: null }, "a clock step of 2 h moves the boot time (now minus uptime), and the same program still runs: no false stop");
+  assert.deepEqual(sessionState(record, {}, T0 + 2 * MINUTE, probeOf({ 200: T0 + MINUTE + 5000 }, { boot: T0 + MINUTE + 1 })), { state: "stopped", reason: "gone" }, "a reboot ends the program");
+  assert.deepEqual(sessionState(record, {}, T0 + 2 * MINUTE, probeOf({ 100: T0 + MINUTE + 5000 }, { boot: T0 + MINUTE + 1 })), { state: "stopped", reason: "gone" }, "after a reboot, a pid with the same number is a program of another start time");
 });
 
 test("T1170: the quiet rule (G227): 8 h with no beat stops a session only with no open gate and no running run of its chief", (t) => {
@@ -508,6 +510,7 @@ for (const [name, say] of [["Claude", claudeSay], ["Codex", codexSay]]) test(`T1
   say(w, "sage mode off");
   assert.equal(recordOf(w, "C1").ended, "off");
   assert.deepEqual(sessionState(recordOf(w, "C1"), {}, Date.now(), null), { state: "stopped", reason: "ended" });
+  assert.deepEqual(sessionState(recordOf(w, "C1"), { running: 1 }, Date.now(), null), { state: "live", reason: null }, "F-T1172-13: the program stays after the off phrase, so a running agent of the session keeps it live");
   say(w, "sage mode");
   assert.equal(recordOf(w, "C1").ended, null, "the session is a chief again");
   assert.equal(chiefRows(w).length, 1);
@@ -614,6 +617,48 @@ test("F-T1170-11: one session that is no chief clears; its new session turns sag
   assert.deepEqual(chiefRows(w), ["C1 claude claude-3"]);
 });
 
+test("F-T1172-7: after a Claude /clear the new session stays in sage mode, with the chief's text at its first prompt; with no link it starts off", (t) => {
+  const w = linkedAt(t);
+  claudeSay(w, "sage mode");
+  claudeEvent(w, { hook_event_name: "SessionEnd", reason: "clear" });
+  other(w, { hook_event_name: "SessionStart", source: "clear" });
+  assert.equal(json(join(w.env.SAGE_HOOKS_STATE, "claude-2.json")).sage, true, "the hook copied sage mode to the new session at the link");
+  assert.equal(json(join(w.env.SAGE_HOOKS_STATE, "claude-2.json")).autopilot, undefined, "autopilot does not travel: only the owner's phrase turns it on");
+  const first = other(w, { hook_event_name: "UserPromptSubmit", prompt: "go on" })?.hookSpecificOutput?.additionalContext ?? "";
+  assert.match(first, /chief of staff/i, "the first prompt after the clear gets the chief's text again");
+  const off = linkedAt(t);
+  claudeEvent(off, { hook_event_name: "SessionEnd", reason: "clear" });
+  other(off, { hook_event_name: "SessionStart", source: "clear" });
+  assert.equal(existsSync(join(off.env.SAGE_HOOKS_STATE, "claude-2.json")), false, "a session that was not in sage mode gives no mode to the next");
+});
+
+test("F-T1172-9: a Codex beat records the start mark's pid only while it is still the hook's parent: a short-lived parent leaves no pid, so the probe never stops the session", (t) => {
+  const w = linkedAt(t, { [process.pid]: STARTED, 4242: STARTED });
+  codexThread(w, "codex-a");
+  assert.equal(recordOf(w, "C1").pid, process.pid, "the parent that stays (the Codex program) is recorded");
+  const marks = join(w.env.CODEX_HOME, "sage", ".hooks", "codex", "marks"), [mark] = readdirSync(marks);
+  writeFileSync(join(marks, mark), JSON.stringify({ ...json(join(marks, mark)), pid: 4242 }));
+  const due = join(w.env.CODEX_HOME, "sage", ".hooks", "codex", "live");
+  for (const name of readdirSync(due)) writeFileSync(join(due, name), JSON.stringify({ ...json(join(due, name)), at: 0 }));
+  codexEvent(w, { session_id: "codex-a", transcript_path: join(w.base, "rollout-codex-a.jsonl"), hook_event_name: "PostToolUse", tool_name: "read_file", tool_input: {}, tool_response: {} });
+  const record = recordOf(w, "C1");
+  assert.deepEqual([record.pid, record.confirmed], [null, false], "the mark names pid 4242, a shell that started the session and is not this hook's parent: no pid, no trust");
+  assert.deepEqual(sessionState(record, {}, Date.now() + 2 * MINUTE, { machine: "test-machine", boot: Date.now() - HOUR, alive: () => false, started: () => NaN }), { state: "live", reason: null }, "the probe never stops it");
+});
+
+test("F-T1172-6: the agent cap drops the Claude slots of a stopped session, and keeps the slots of a live one", async (t) => {
+  const { slotsFor } = await import(pathToFileURL(CLAUDE_HOOK).href);
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "sage-slots-")));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const theirs = slotsFor(join(dir, "slots"), "claude-b", Date.now(), "claude-b"), mine = slotsFor(join(dir, "slots"), "claude-a", Date.now(), "claude-a");
+  for (let k = 0; k < 3; k++) assert.deepEqual(theirs.take("app", 3, `call-${k}`, { role: "sage:implementer" }), { ok: true });
+  assert.equal(mine.take("app", 3, "call-x", { role: "sage:implementer", gone: [] }).refused, "total", "3 of 3 places are taken by the other session");
+  assert.equal(mine.take("app", 3, "call-y", { role: "sage:implementer", gone: ["claude-a"] }).refused, "total", "a session never drops its own slots");
+  assert.deepEqual(mine.take("app", 3, "call-z", { role: "sage:implementer", gone: ["claude-b"] }), { ok: true }, "the stopped session's places are free");
+  assert.deepEqual(mine.take("app", 3, "call-w", { role: "sage:implementer", caller: "agent-1", gone: ["claude-b"] }), { ok: true }, "a helper of a lead (an exact slot) takes a place too");
+  assert.equal(readdirSync(join(dir, "slots")).filter((name) => name.startsWith("slot-")).length, 2);
+});
+
 function codexThread(w, session) {
   const transcript = join(w.base, `rollout-${session}.jsonl`);
   writeFileSync(transcript, `${JSON.stringify({ type: "session_meta", payload: { id: session, session_id: session, cli_version: "0.164.0", source: "cli" } })}\n`);
@@ -689,14 +734,14 @@ test("T1173: the board gives each session its state: live, quiet with its pass-o
     C5: record({ at: iso(T0 - 2 * HOUR), confirmed: true, ended: { at: iso(T0 - 2 * HOUR), reason: "prompt_input_exit" } }),
     C6: record({ at: iso(T0 - MINUTE) }),
   };
-  const runs = [{ chief: "C1", status: "running" }, { chief: "C4", status: "running", clock: { stale: true } }, { chief: "C5", status: "running" }, { chief: "C5", status: "done" }];
+  const runs = [{ chief: "C1", status: "running" }, { chief: "C4", status: "done" }, { chief: "C5", status: "running" }, { chief: "C5", status: "done" }];
   const chiefs = boardChiefs({ rows, live, runs, waits: ["C3"], owners: ["C1", "C1", "C2", "C4", "C5", "C5", "C5"], now: T0 });
   const pick = ({ id, session, reason, stopped, passOnAt, endedAt, confirmed, tasks, agents, lost, waitsForOwner }) => ({ id, session, reason, stopped, passOnAt, endedAt, confirmed, tasks, agents, lost, waitsForOwner });
   assert.deepEqual(chiefs.map(pick), [
     { id: "C1", session: "live", reason: null, stopped: false, passOnAt: null, endedAt: null, confirmed: true, tasks: 2, agents: 1, lost: 0, waitsForOwner: false },
     { id: "C2", session: "quiet", reason: null, stopped: false, passOnAt: iso(T0 + 5 * HOUR), endedAt: null, confirmed: true, tasks: 1, agents: 0, lost: 0, waitsForOwner: false },
     { id: "C3", session: "quiet", reason: null, stopped: false, passOnAt: null, endedAt: null, confirmed: true, tasks: 0, agents: 0, lost: 0, waitsForOwner: true },
-    { id: "C4", session: "stopped", reason: "quiet-8h", stopped: true, passOnAt: null, endedAt: null, confirmed: true, tasks: 1, agents: 0, lost: 1, waitsForOwner: false },
+    { id: "C4", session: "stopped", reason: "quiet-8h", stopped: true, passOnAt: null, endedAt: null, confirmed: true, tasks: 1, agents: 0, lost: 0, waitsForOwner: false },
     { id: "C5", session: "stopped", reason: "ended", stopped: true, passOnAt: null, endedAt: iso(T0 - 2 * HOUR), confirmed: true, tasks: 3, agents: 1, lost: 1, waitsForOwner: false },
     { id: "C6", session: "live", reason: null, stopped: false, passOnAt: null, endedAt: null, confirmed: false, tasks: 0, agents: 0, lost: 0, waitsForOwner: false },
   ]);

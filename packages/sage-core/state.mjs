@@ -27,6 +27,7 @@ import { priorArtCommand } from "./prior-art-index.mjs";
 import { storageClean, storagePlan, storageView } from "./storage.mjs";
 import { CHIEF, TAKEOVER_OPTIONS, chiefOnly, createChiefs, crossed, offerOf, replaceOf, replaceQuestion, writerClass } from "./chiefs.mjs";
 import { NAMES_FILE, boardChiefs, chiefNames, readLiveRecord } from "./chief-live.mjs";
+import { PICKUP_TABLES, handoverOf, pickupDelta, pickupPlan, pickupText, stoppedState } from "./pickup.mjs";
 import { LEAD_COMMANDS, leadProblem as leadPolicy, leadRequest } from "./lead-policy.mjs";
 import { renderMessage } from "./message-checks.mjs";
 import { KINDS as MESSAGE_KINDS, MAX_SECTIONS, PAGE_DEPTH, PAGE_MAX, PAGE_TYPES, pageType, pageUrl } from "./message.mjs";
@@ -44,7 +45,7 @@ export const balancedModels = (strong, light) => ({
   "model.implementer.tiny": light, "model.code-reviewer.tiny": light, "model.qa.tiny": light, "model.qa.small": light,
 });
 
-export function createStateTool({ defaultRoot, legacyRoots: namedRoots = () => [], provider, models = ["inherit"], modelDefaults = {}, spawnFields = (model) => (model ? { model } : {}), usageInterfaces = [], claimStep = (task, version, chief) => `run sage claim ${task} --version ${version} --chief ${chief}`, replaceStep = (task, chief) => `run sage gate replace ${task} --to ${chief} --chief ${chief}`, takeoverCycle, queueWait = () => "", autopilot = () => false }) {
+export function createStateTool({ defaultRoot, legacyRoots: namedRoots = () => [], provider, models = ["inherit"], modelDefaults = {}, spawnFields = (model) => (model ? { model } : {}), usageInterfaces = [], replaceStep = (task, chief) => `run sage gate replace ${task} --to ${chief} --chief ${chief}`, takeoverCycle, queueWait = () => "", autopilot = () => false }) {
 if (typeof defaultRoot !== "function") throw new TypeError("defaultRoot must be a function");
 if (typeof namedRoots !== "function") throw new TypeError("legacyRoots must be a function");
 const rootsOf = (env) => namedRoots(env).map((root) => {
@@ -107,19 +108,16 @@ const CHIEF_COLUMN = "chief";
 const CHECKOUT_COLUMN = "checkout";
 const ADMITTED_COLUMN = "admitted";
 const RELEASE_COLUMN = "release";
-const SPARSE = { tasks: [CHIEF_COLUMN, "offer", RELEASE_COLUMN, "request"], runs: [CHIEF_COLUMN, CHECKOUT_COLUMN, ADMITTED_COLUMN, "failure"], gates: ["kind", CHIEF_COLUMN, "answered", "picked", "run"], milestones: [RELEASE_COLUMN] };
+const SPARSE = { tasks: [CHIEF_COLUMN, "offer", RELEASE_COLUMN, "request"], runs: [CHIEF_COLUMN, CHECKOUT_COLUMN, ADMITTED_COLUMN, "failure"], gates: ["kind", CHIEF_COLUMN, "answered", "picked", "run"], milestones: [RELEASE_COLUMN], decisions: ["handover"] };
 const TABLES = { ...PLAIN_TABLES, ...Object.fromEntries(Object.entries(SPARSE).map(([t, cols]) => [t, [...PLAIN_TABLES[t], ...cols]])) };
 const ADDED = { ...FILLED, ...Object.fromEntries(Object.entries(SPARSE).map(([t, cols]) => [t, [...(FILLED[t] ?? []), ...cols]])) };
 const RUN_ENDS = ["done", "blocked", "question", "failed"];
-const COMMANDS = ["init", "logbook", "standing", "pages", "message", "task", "task-adopt", "milestone", "release", "round", "run", "finding", "verdict", "lint", "gate", "log", "status", "stats", "merge-check", "config", "projects", "board", "observe", "link", "claim", "offer", "cancel", "accept", "unclaim", "move", "worktrees", "storage", "chief", "prior-art"];
+const GONE = ["claim", "offer", "cancel", "accept"];
+const COMMANDS = ["init", "logbook", "standing", "pages", "message", "task", "task-adopt", "milestone", "release", "round", "run", "finding", "verdict", "lint", "gate", "log", "status", "stats", "merge-check", "config", "projects", "board", "observe", "link", "unclaim", "pickup", "move", "worktrees", "storage", "chief", "prior-art"];
 const OPTIONS = {
   "logbook repair": ["accept-loss", "accept-change-loss"],
   link: ["to", "separate"],
   move: ["preview", "plan", "gate"],
-  claim: ["version"],
-  offer: ["to"],
-  cancel: ["offer"],
-  accept: ["offer", "version"],
   "gate replace": ["to"],
   "gate give": ["to"],
   "projects rebuild": ["accept-listing"],
@@ -501,8 +499,6 @@ function knownColumns(dir, table, cols) {
   const extra = cols.filter((c) => c && !TABLES[table].includes(c));
   if (extra.length) refuse(`${join(dir, `${table}.tsv`)} has columns that this version of sage does not know (${extra.join(", ")}): a newer sage wrote this logbook, and a write of this version would lose them. Update the sage plugin and restart this session. Nothing changed; status, logbook, standing and merge-check still work.`);
 }
-
-const taskVersion = ({ offer, ...task }) => createHash("sha256").update(JSON.stringify(offer ? { ...task, offer } : task)).digest("hex");
 
 const updateKeys = (value, keys) => value && typeof value === "object" && !Array.isArray(value)
   && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
@@ -919,7 +915,7 @@ function backingProblem(dir, task, kind, opt) {
   return `${run.id}'s report has ${needed.length} medium or high finding${needed.length === 1 ? "" : "s"} (${said}), and ${task.id} holds ${tally} of ${run.id}, but each one needs a row at its severity or above: ${found ? `${record}, then record ${kind}.` : `so it backs ${problemKind}. For ${cleanKind}, ${record}, then dismiss it with a reason, move it or close it.`}`;
 }
 
-function replaceDelta({ reference: { gate, task, to, runs, offer }, result: { at, answer, answered, picked } }, rows) {
+function replaceDelta({ reference: { gate, task, to, runs, offer, handover }, result: { at, answer, answered, picked } }, rows) {
   const row = rows.tasks.find((t) => t.id === task), asked = rows.gates.find((g) => g.id === gate);
   if (!row || !asked || runs.some((id) => !rows.runs.some((r) => r.id === id))) return false;
   if (offer !== undefined) {
@@ -928,14 +924,14 @@ function replaceDelta({ reference: { gate, task, to, runs, offer }, result: { at
   } else Object.assign(row, { chief: to, ...(row.offer ? { offer: "" } : {}) });
   for (const run of rows.runs) if (runs.includes(run.id)) Object.assign(run, { status: "failed", ended: at, failure: `ended when you gave ${task} to ${to} (${gate})` });
   Object.assign(asked, { answer, ...(answered === undefined ? {} : { answered }), ...(picked === undefined ? {} : { picked }) });
-  rows.decisions.push({ at, task, decision: `${asked.question} → ${answer}`, why: "the user's answer" });
+  rows.decisions.push({ at, task, decision: `${asked.question} → ${answer}`, why: "the user's answer", ...(handover ? { handover: JSON.stringify({ ...handover, to, tasks: [task] }) } : {}) });
   return true;
 }
 function validateReplaceWrite(receipt, tables) {
   const deny = () => refuse("The saved Replace is damaged. No table changed.");
   const { reference, result } = receipt;
   if (typeof reference?.gate !== "string" || typeof reference.task !== "string" || !CHIEF.test(reference.to) || !Array.isArray(reference.runs)
-    || !["undefined", "string"].includes(typeof reference.offer) || typeof result?.at !== "string" || typeof result.answer !== "string"
+    || !["undefined", "string"].includes(typeof reference.offer) || (reference.handover !== undefined && !["from", "fromProvider", "toProvider"].every((key) => typeof reference.handover?.[key] === "string")) || typeof result?.at !== "string" || typeof result.answer !== "string"
     || ["answered", "picked"].some((key) => !["undefined", "string"].includes(typeof result[key]))) deny();
   if (!tables) return;
   const columns = savedWriteColumns(tables, deny);
@@ -946,7 +942,21 @@ const REPLACE_TABLES = ["tasks", "runs", "gates", "decisions"];
 const replaceWrites = recordedWrites({ schema: 9, tables: REPLACE_TABLES, folder: "replace-requests",
   name: /^[0-9a-f]{64}\.json$/, receiptName: reference => createHash("sha256").update(JSON.stringify(reference)).digest("hex") + ".json", validate: validateReplaceWrite });
 
-const SAVED = { 7: usageWrites, 9: replaceWrites };
+function validatePickupWrite(receipt, tables) {
+  const deny = () => refuse("The saved pick-up is damaged. No table changed.");
+  const { reference, result } = receipt, ids = (value) => Array.isArray(value) && value.every((id) => typeof id === "string");
+  if (!CHIEF.test(reference?.to ?? "") || typeof reference.at !== "string" || result?.at !== reference.at || !Array.isArray(reference.groups) || !Array.isArray(reference.offers)
+    || !reference.groups.every((g) => ["from", "fromProvider", "toProvider", "reason", "since"].every((k) => typeof g?.[k] === "string") && ["tasks", "lost", "queued", "gates"].every((k) => ids(g[k])))
+    || !reference.offers.every((o) => ["task", "id", "to"].every((k) => typeof o?.[k] === "string"))) deny();
+  if (!tables) return;
+  const columns = savedWriteColumns(tables, deny);
+  const rows = Object.fromEntries(Object.entries(tables).map(([table, { before }]) => [table, rowsOf(sheetText(before))]));
+  if (!pickupDelta(receipt, rows) || Object.keys(tables).some((table) => tables[table].after !== tableText(table, rows[table], columns[table]))) deny();
+}
+const pickupWrites = recordedWrites({ schema: 10, tables: PICKUP_TABLES, folder: "pickup-requests",
+  name: /^[0-9a-f]{64}\.json$/, receiptName: reference => createHash("sha256").update(JSON.stringify(reference)).digest("hex") + ".json", validate: validatePickupWrite });
+
+const SAVED = { 7: usageWrites, 9: replaceWrites, 10: pickupWrites };
 function settle(dir) {
   let settled;
   try { settled = settlePendingWrite(dir, SAVED); }
@@ -1914,7 +1924,7 @@ function frame(dir, title, size, risk, add, tags = {}) {
   write(dir, "decisions", [...read(dir, "decisions"), { at: now(), task: task.id, decision: TASK_ADDED, why: "framed" }]);
   return task;
 }
-const tagsOf = (task) => `${task.priority ? ` · ${task.priority}` : ""}${task.kind ? ` · kind ${task.kind}` : ""}${task.milestone ? ` · milestone ${task.milestone}` : task.release ? ` · release ${oneLine(task.release)}` : ""}${task.chief ? ` · chief ${task.chief}` : ""}${offerOf(task) ? ` · offer ${offerOf(task).id} to ${offerOf(task).to} · version ${taskVersion(task)}` : ""}`;
+const tagsOf = (task) => `${task.priority ? ` · ${task.priority}` : ""}${task.kind ? ` · kind ${task.kind}` : ""}${task.milestone ? ` · milestone ${task.milestone}` : task.release ? ` · release ${oneLine(task.release)}` : ""}${task.chief ? ` · chief ${task.chief}` : ""}`;
 const framed = (task) => `${task.id} framed · ${task.size}${task.risk ? ` · risk ${task.risk}` : ""} · route ${task.route}${tagsOf(task)}${task.waits ? ` · waits ${task.waits.replaceAll(",", ", ")}` : ""}`;
 
 function move(task, to) {
@@ -2047,13 +2057,8 @@ function cleanMergesOfMain(project, from, head, reviewed) {
   return before === after ? "" : "the pull request's own diff changed (its patch-id is not the same)";
 }
 
-function takenAt(decisions) {
-  for (const d of decisions.filter((d) => / → (?:approve|replace)$/.test(d.decision)).reverse()) {
-    const p = replaceOf({ question: d.decision });
-    if (p && (p.fresh || (!!takeoverCycle && p.toProvider === provider && crossed(p)))) return d.at;
-    if (p && crossed(p)) return "";
-  }
-  return "";
+function takenAt(decisions, id) {
+  return decisions.findLast((d) => ((h) => h && crossed(h) && (d.task === id || h.tasks.includes(id)))(handoverOf(d)))?.at ?? "";
 }
 const olderThan = (since, runs) => (r) => !(Date.parse(r.at) > Date.parse(since)) || (!!r.run && !(Date.parse(runs.find((x) => x.id === r.run)?.started) > Date.parse(since)));
 
@@ -2242,8 +2247,8 @@ function judgeMerge(sha, env, { cycles, pr, readOnly, head, project, locked, ses
         const live = (runsOf.get(id) ?? []).filter((r) => LIVE.includes(r.status) && CHECKERS.includes(r.role)).map((r) => `${r.id} (${r.role}${r.status === "queued" ? ", queued" : ""})`);
         const busy = verdict.ok && live.length > 0 && { ok: false, reason: `${id} has a review or QA run that still runs: ${live.join(", ")}. End it with its report's findings recorded, then check again.` };
         const bar = candidateBar(task ?? { id }, head ?? task?.branch, candidates, runsOf.get(id) ?? []), arena = bar && { ok: false, reason: bar };
-        const since = verdict.ok && task && takenAt(decisionsOf.get(id) ?? []), older = since && olderThan(since, runsOf.get(id) ?? []);
-        const fresh = since && !cleanCycles(task, own.filter((r) => !older(r))) && { ok: false, reason: `${id} came from a chief of another provider through a takeover gate (${since}), so the cycles before that do not merge it alone: ${takeoverCycle ? takeoverCycle(id) : "its owning chief runs one cycle of its reviews and QA on this SHA, and records each verdict"}.` };
+        const since = verdict.ok && task && takenAt(decisions, id), older = since && olderThan(since, runsOf.get(id) ?? []);
+        const fresh = since && !cleanCycles(task, own.filter((r) => !older(r))) && { ok: false, reason: `${id} came from a chief of another provider (${since}, by a takeover gate or a pick-up), so the cycles before that do not merge it alone: ${takeoverCycle ? takeoverCycle(id) : "its owning chief runs one cycle of its reviews and QA on this SHA, and records each verdict"}.` };
         const notOwn = chief && task && liveBar(dir, task, chief), owner = notOwn && { ok: false, reason: notOwn };
         const archived = shut && { ok: false, reason: mine !== undefined && basename(dir) !== mine
           ? `${id} is in the logbook ${visible(basename(dir))}, and that project is archived, so ${id} does not merge: an archived project merges nothing. A chat restores only its own project, so do not restore that one from here. To merge the change, push a new commit, and record its verdicts only under this project's tasks. If the owner wants that project back, the owner restores it on the board or in that project's own chat.`
@@ -2512,13 +2517,8 @@ function folderHere() {
   }
 }
 
-const oldWord = (cmd, rest) => {
-  if (cmd === "program") return "milestone";
-  if (cmd !== "release") return undefined;
-  try { return TASK_ID.test(parse(cmd, rest).pos[0] ?? "") ? "unclaim" : undefined; } catch { return undefined; }
-};
 function sage(argv, env = process.env) {
-  const [cmd, ...rest] = argv, old = [], newCmd = oldWord(cmd, rest);
+  const [cmd, ...rest] = argv, old = [], newCmd = cmd === "program" ? "milestone" : undefined;
   const words = [newCmd ? (old.push(`${cmd} is ${newCmd} now`), newCmd) : cmd, ...rest.map((word, i) => {
     if (/^--program(?:=|$)/.test(word)) return old.push("--program is --milestone now"), word.replace("--program", "--milestone");
     if (cmd === "task" && rest[1] === "set" && i > 1 && word.startsWith("program=")) return old.push("program= is milestone= now"), `milestone=${word.slice(8)}`;
@@ -2529,12 +2529,12 @@ function sage(argv, env = process.env) {
 }
 function sageCommand(argv, env) {
   const [cmd, ...rest] = argv;
-  if (!COMMANDS.includes(cmd)) refuse(`unknown command "${cmd ?? ""}". Commands: ${COMMANDS.join(", ")}`);
+  if (!COMMANDS.includes(cmd)) refuse(`unknown command "${cmd ?? ""}". Commands: ${COMMANDS.join(", ")}${GONE.includes(cmd) ? `\n${cmd} is gone: give up your own task with unclaim <T>; the work of a stopped session and a task with no owning chief pass on by the pick-up; a task of a live chief moves only through the owner's takeover gate (gate replace <T> --to C<n>).` : ""}`);
   const { pos, opt } = parse(cmd, rest);
   if (cmd === "prior-art") return priorArtCommand(pos, opt, env, refuse);
   const readOnly = scopedRead(cmd, pos, opt);
   const root = sageRoot(env), project = resolve(opt.project ?? env.SAGE_PROJECT ?? folderHere());
-  if ((opt.chief !== undefined || opt.lead !== undefined || chiefOnly(cmd, pos)) && !locate(project, env).shared) refuse(chiefOnly(cmd, pos) && cmd !== "claim" ? `${visible(project)} has no shared logbook, so it has no chiefs to hand a task to. Nothing changed.` : `${visible(project)} has no shared logbook, and only a shared logbook has chiefs: leave out --chief and --lead, and a task here needs no claim. Nothing changed.`);
+  if ((opt.chief !== undefined || opt.lead !== undefined || chiefOnly(cmd, pos)) && !locate(project, env).shared) refuse(chiefOnly(cmd, pos) ? `${visible(project)} has no shared logbook, so it has no chiefs to hand a task to. Nothing changed.` : `${visible(project)} has no shared logbook, and only a shared logbook has chiefs: leave out --chief and --lead. Nothing changed.`);
   if (cmd === "board") {
     const hex = opt["name-hex"];
     if (pos.length > 1 || (hex !== undefined && unhex(hex) === undefined))
@@ -2650,16 +2650,46 @@ function lostChangeLine(dir, { request, aside }) {
   }
 }
 
+function pickup(dir, to, env) {
+  if (!CHIEF.test(to ?? "") || !chiefs(dir).some((r) => r.id === to)) return "";
+  let probe;
+  const plan = pickupPlan({ to, chiefs: chiefs(dir), rows: Object.fromEntries(PICKUP_TABLES.map((t) => [t, read(dir, t)])), now: now(),
+    records: (chief) => readLiveRecord(dir, chief), probe: () => (probe === undefined ? (probe = sessionProbe(dir, env)) : probe),
+    released: (task) => heldLast(dir, task).released, moved: (task) => heldLast(dir, task).moved });
+  if (!plan) return "";
+  const rows = Object.fromEntries(PICKUP_TABLES.map((t) => [t, read(dir, t)])), receipt = { reference: plan, result: { at: plan.at } };
+  pickupDelta(receipt, rows);
+  pickupWrites.commit(dir, receipt, Object.fromEntries(PICKUP_TABLES.map((t) => [t, tableText(t, rows[t])])));
+  const lost = plan.groups.flatMap((g) => g.lost);
+  return [...plan.groups.map((g) => `sage: ${pickupText(g, to)}.`), ...(plan.offers.length ? [`sage: open offers ended: ${plan.offers.map((o) => `${o.task} (${o.id})`).join(", ")}.`] : []),
+    `sage: tell the owner in one line what passed to ${to}${lost.length ? `, and start each lost run again now (${lost.join(", ")}), within the agent limit` : ""}.`].join("\n");
+}
+
+function stoppedSessions(project, env = process.env) {
+  const { dir, shared } = locate(project, env);
+  if (!shared) return [];
+  const rows = { runs: read(dir, "runs"), gates: read(dir, "gates") }, nowMs = Date.now();
+  let probe;
+  const once = () => (probe === undefined ? (probe = sessionProbe(dir, env)) : probe);
+  return chiefs(dir).filter((r) => r.provider === provider && stoppedState({ id: r.id, rows, record: readLiveRecord(dir, r.id), nowMs, probe: once })).map((r) => r.native);
+}
+
 function change(cmd, pos, opt, dir, env, skip, project, guarded) {
   const changeLoss = opt["accept-change-loss"] !== undefined;
   return withLock(dir, () => {
     if (!changeLoss) ready(dir, env, skip);
-    if (guarded) opt.chief = guard(dir, cmd, pos, opt, project, env);
-    if (!changeLoss && !skip.length && isShared(dir, env)) moveLimits(dir, env, cmd === "init");
-    const out = act(cmd, pos, opt, dir, env, skip, project);
-    checkout(dir, project, env);
-    if (!changeLoss) status(dir, true);
-    return out;
+    const picked = guarded && !changeLoss && !skip.length && opt.lead === undefined && writerClass(cmd, pos).kind !== "read" ? pickup(dir, opt.chief, env) : "";
+    try {
+      if (guarded) opt.chief = guard(dir, cmd, pos, opt, project, env);
+      if (!changeLoss && !skip.length && isShared(dir, env)) moveLimits(dir, env, cmd === "init");
+      const out = picked && cmd === "pickup" ? picked : act(cmd, pos, opt, dir, env, skip, project);
+      checkout(dir, project, env);
+      if (!changeLoss) status(dir, true);
+      return picked && cmd !== "pickup" ? `${out}\n${picked}` : out;
+    } catch (error) {
+      if (picked && error instanceof Refusal) error.message = `${error.message}\n${picked}`;
+      throw error;
+    }
   });
 }
 
@@ -2670,8 +2700,9 @@ function chiefLabel(dir, id) {
 function ownerBar(dir, task, chief, lead = false) {
   if (task.chief === chief) return "";
   const report = "Report this to your chief: a lead writes only while its chief owns the task.";
-  if (!task.chief) return `${task.id} has no owning chief, so ${chief} cannot change it. ${lead ? `Nothing changed. ${report}` : `Claim it first: ${claimStep(task.id, taskVersion(task), chief)}. Nothing changed.`}`;
-  return `${task.id} belongs to chief ${chiefLabel(dir, task.chief)}, not to ${chief}. Nothing changed. ${lead ? report : `Change only your own tasks. To take ${task.id}, ask ${task.chief} to offer it to you, or open a takeover gate for the owner to answer: ${replaceStep(task.id, chief)}.`}`;
+  const moved = !task.chief && !lead && heldLast(dir, task).moved;
+  if (!task.chief) return `${task.id} has no owning chief, so ${chief} cannot change it. ${lead ? `Nothing changed. ${report}` : moved ? `Nothing changed. It came in the move from the ${moved} logbook, so the next pick-up of a ${moved} chief takes it. To take it, open a takeover gate for the owner to answer: ${replaceStep(task.id, chief)}.` : `Nothing changed. ${chief} unclaimed it, so the next pick-up of another chief takes it. To get it back, open a takeover gate for the owner to answer: ${replaceStep(task.id, chief)}.`}`;
+  return `${task.id} belongs to chief ${chiefLabel(dir, task.chief)}, not to ${chief}. Nothing changed. ${lead ? report : `Change only your own tasks. A live chief keeps its work; to take ${task.id}, open a takeover gate for the owner to answer: ${replaceStep(task.id, chief)}.`}`;
 }
 const liveBar = (dir, task, chief) => (ENDED.includes(task.state) ? "" : ownerBar(dir, task, chief));
 function sessionBar(project, id, native, env = process.env) {
@@ -2693,15 +2724,10 @@ function branchBar(project, branch, native, env = process.env) {
 const activeRuns = (dir, id) => read(dir, "runs").filter((r) => r.task === id && !RUN_ENDS.includes(r.status));
 function runsBar(dir, task, what, chief) {
   const active = activeRuns(dir, task.id).map((r) => r.id);
-  const replace = what === "accept" ? replaceStep(task.id, chief) : `open one that names the chief that goes on with ${task.id}`;
+  const replace = `open one that names the chief that goes on with ${task.id}`;
   if (active.length) refuse(`${task.id} has ${active.join(", ")} active, so it takes no ${what} yet: a transfer waits for each active run to end. Nothing changed. Run this again after they end. A run that never ends, such as one of unknown status, ends only through a takeover gate that the owner answers: ${replace}.`);
 }
 const ownership = (dir, task, decision, why) => write(dir, "decisions", [...read(dir, "decisions"), { at: now(), task, decision: `${task} ${decision}`, why }]);
-function exactOffer(task, id) {
-  const open = offerOf(task);
-  if (open?.id !== need(id, "--offer with the offer's id")) refuse(`${task.id} has ${open ? `the open offer ${open.id}, not ${visible(id)}` : `no open offer ${visible(id)}`}, and an offer that was cancelled never comes back. Nothing changed. Read ${task.id} for its open offer. If it has none, ask its owning chief for a new offer.`);
-  return open;
-}
 function chiefNamed(dir, to) {
   need(to, "--to with a chief id, for example --to C2");
   if (!chiefs(dir).some((r) => r.id === to)) refuse(`${visible(to)} is not a chief of this logbook (${join(dir, "chiefs.tsv")}). A session gets its id at its first write. Nothing changed. Use an id from that file: each row is one chief, with its provider.`);
@@ -2890,7 +2916,8 @@ function replaceChief(dir, g, answer, project, env, marks) {
   const again = `Answer ${optionsOf(g)[1] ?? "decline"}, then open a new takeover gate. Nothing changed.`;
   if (task.chief !== plan.from) refuse(`${task.id} now belongs to ${task.chief ? `chief ${task.chief}` : "no chief"}, not to ${plan.from || "no chief"}, so ${g.id} is out of date. ${again}`);
   if (added.length) refuse(`${added.join(", ")} started after ${g.id} opened, so ${g.id} does not name each run that ends as failed. ${again}`);
-  commitReplace(dir, { reference: { gate: g.id, task: task.id, to: plan.to, runs: active }, result: { at: now(), answer, ...marks } });
+  const handover = { from: plan.from, fromProvider: plan.fromProvider ?? "", toProvider: plan.toProvider ?? chiefs(dir).find((r) => r.id === plan.to)?.provider ?? "" };
+  commitReplace(dir, { reference: { gate: g.id, task: task.id, to: plan.to, runs: active, handover }, result: { at: now(), answer, ...marks } });
   return `${g.id} answered · ${answer} · ${task.id} chief ${plan.to}${active.length ? ` · ${active.join(", ")} failed` : ""}${branchHeld(project, task.branch, plan.to, env)}`;
 }
 function declineOffer(dir, g, answer, marks) {
@@ -2925,15 +2952,10 @@ function takeoverGate(dir, task, to, offered = false) {
   if (open) return `${open.id} is open already · ${open.question}\n${next(open.id)}`;
   const pr = PR.test(prNumber(task.pr)) ? prNumber(task.pr) : "";
   const ask = (fresh) => replaceQuestion({ from: task.chief, to, task: task.id, pr, title: oneLine(task.title), runs: activeRuns(dir, task.id), label: (chief) => chiefLabel(dir, chief), ...(!task.chief && heldLast(dir, task)), fresh, offered });
-  const p = replaceOf({ question: ask(false) }), fresh = !!takeoverCycle && !!p && p.toProvider === provider && crossed(p);
+  const p = replaceOf({ question: ask(false) }), fresh = !!p && crossed(p);
   const g = { id: nextId(dir, "G"), task: task.id, question: ask(fresh), options: TAKEOVER_OPTIONS, recommendation: "approve", default: "", at: now(), kind: "replace", chief: to };
   write(dir, "gates", [...read(dir, "gates"), g]);
   return `${g.id} open · ${g.question}\n${next(g.id)}`;
-}
-function claimBar(dir, task, chief) {
-  const held = heldLast(dir, task);
-  if (held.released) return held.released === chief ? "" : `${chiefLabel(dir, held.released)} unclaimed ${task.id} last`;
-  return "moved" in held && held.moved !== chiefs(dir).find((r) => r.id === chief)?.provider ? `${task.id} came in the move from the ${held.moved} logbook` : "";
 }
 
 function abandonsUnclaimed(task, [, set, ...changes], opt, lead) {
@@ -2970,8 +2992,8 @@ function guard(dir, cmd, pos, opt, project, env) {
     : [need.task ?? (need.run && read(dir, "runs").find((r) => r.id === need.run)?.task)];
   const named = ids.filter(Boolean);
   if (need.kind !== "any") for (const id of new Set(named)) {
-    const task = tasks.find((t) => t.id === id), declines = need.recipient && !lead && offerOf(task ?? {})?.to === chief;
-    const bar = task && !declines && !(cmd === "task" && abandonsUnclaimed(task, pos, opt, lead)) && ownerBar(dir, task, chief, !!lead);
+    const task = tasks.find((t) => t.id === id);
+    const bar = task && !(cmd === "task" && abandonsUnclaimed(task, pos, opt, lead)) && ownerBar(dir, task, chief, !!lead);
     if (bar) throw Object.assign(new Refusal(bar), { code: "other-chief" });
   }
   return chief;
@@ -3101,50 +3123,17 @@ function act(cmd, pos, opt, dir, env, skip, project) {
     }
     case "config":
       return logbookConfig(dir, pos);
-    case "claim": {
-      const { tasks, task } = taskOf(dir, need(sub, "the task id"));
-      if (task.chief) refuse(`${task.id} belongs to chief ${task.chief}, so it takes no claim. Nothing changed.`);
-      const held = claimBar(dir, task, opt.chief);
-      if (held) refuse(`${held}, so ${opt.chief} takes it only through the owner's takeover gate. Nothing changed. Open one for the owner to answer: ${replaceStep(task.id, opt.chief)}.`);
-      if (opt.version !== taskVersion(task)) refuse(`${task.id} changed, so this claim is out of date: read it again, then claim it with --version ${taskVersion(task)}. Nothing changed.`);
-      task.chief = opt.chief;
-      write(dir, "tasks", tasks);
-      ownership(dir, task.id, `claimed by ${opt.chief}`, "claim");
-      return `${task.id} claimed · chief ${opt.chief}`;
-    }
-    case "offer": {
-      const { tasks, task } = taskOf(dir, need(sub, "the task id")), to = chiefNamed(dir, opt.to), open = offerOf(task);
-      if (open) refuse(`${task.id} has the open offer ${open.id} to ${open.to}: cancel it first. Nothing changed.`);
-      if (to === opt.chief) refuse(`${task.id} is yours, so an offer names another chief. Nothing changed.`);
-      task.offer = JSON.stringify({ id: randomUUID().slice(0, 8), from: opt.chief, to });
-      write(dir, "tasks", tasks);
-      ownership(dir, task.id, `offered to ${to}`, "offer");
-      return `${task.id} offered to ${to} · offer ${offerOf(task).id} · version ${taskVersion(task)}. You stay its owning chief until ${to} accepts.`;
-    }
-    case "cancel": {
-      const { tasks, task } = taskOf(dir, need(sub, "the task id")), open = exactOffer(task, opt.offer), declined = open.to === opt.chief;
-      task.offer = "";
-      write(dir, "tasks", tasks);
-      ownership(dir, task.id, declined ? `offer ${open.id} declined by ${opt.chief}` : `offer ${open.id} cancelled`, declined ? "decline" : "cancel");
-      return declined ? `${task.id} offer ${open.id} declined by ${opt.chief} · chief ${task.chief} keeps ${task.id}` : `${task.id} offer ${open.id} cancelled`;
-    }
-    case "accept": {
-      const { task } = taskOf(dir, need(sub, "the task id")), open = exactOffer(task, opt.offer);
-      if (open.to !== opt.chief) refuse(`offer ${open.id} of ${task.id} names ${open.to}, not ${opt.chief}. Nothing changed. Only ${open.to} accepts it. ${task.chief === opt.chief ? `You own ${task.id}: to end this offer, cancel it.` : `To get ${task.id}, ask its owning chief ${task.chief} to cancel this offer and offer it to you.`}`);
-      if (opt.version !== taskVersion(task)) refuse(`${task.id} changed, so this acceptance is out of date: read it again, then accept it with --version ${taskVersion(task)}. Nothing changed.`);
-      runsBar(dir, task, "accept", opt.chief);
-      return takeoverGate(dir, task, opt.chief, true);
-    }
     case "unclaim": {
-      const { tasks, task } = taskOf(dir, need(sub, "the task id")), open = offerOf(task);
-      if (open) refuse(`${task.id} has the open offer ${open.id} to ${open.to}: cancel it first. Nothing changed.`);
+      const { tasks, task } = taskOf(dir, need(sub, "the task id"));
       runsBar(dir, task, "unclaim", opt.chief);
       const last = read(dir, "decisions").filter(d => d.task === task.id).at(-1);
       if (last?.decision !== `${task.id} unclaimed by ${opt.chief}` || last.why !== "unclaim") ownership(dir, task.id, `unclaimed by ${opt.chief}`, "unclaim");
       task.chief = "";
       write(dir, "tasks", tasks);
-      return `${task.id} unclaimed · no owning chief. Only ${opt.chief} claims it back; another chief needs the owner's takeover gate.`;
+      return `${task.id} unclaimed · no owning chief. The next pick-up of another chief takes it; ${opt.chief} gets it back only through the owner's takeover gate.`;
     }
+    case "pickup":
+      return "nothing to pick up";
     case "init":
       for (const t of Object.keys(TABLES).reverse()) if (!existsSync(join(dir, `${t}.tsv`))) write(dir, t, []);
       if (!existsSync(join(dir, "standing.md"))) put(join(dir, "standing.md"), STANDING);
@@ -3781,9 +3770,9 @@ function probeFor(dir) {
   return { alive: (pid) => map[pid] !== null, started: (pid) => map[pid] ?? NaN };
 }
 
-function sessionProbe(dir) {
-  const env = process.env;
-  if (!["NODE_TEST_CONTEXT", "SAGE_TEST_PIDS", "SAGE_TEST_MACHINE_ID"].some((name) => Object.hasOwn(env, name))) return { ...realProbe, machine: machineIdentity(dir), boot: bootTime() };
+function sessionProbe(dir, given = process.env) {
+  const marks = ["NODE_TEST_CONTEXT", "SAGE_TEST_PIDS", "SAGE_TEST_MACHINE_ID"], env = marks.some((name) => Object.hasOwn(given, name)) ? given : process.env;
+  if (!marks.some((name) => Object.hasOwn(env, name))) return { ...realProbe, machine: machineIdentity(dir), boot: bootTime() };
   let map;
   try { map = JSON.parse(env.SAGE_TEST_PIDS ?? "null"); } catch {}
   if (!map || typeof map !== "object" || Array.isArray(map)) return null;
@@ -3909,5 +3898,5 @@ const { bindings, fillCommits, folderOf, link, locate, movePlans, notePlugin, pl
   listed: (root) => known(root, undefined, undefined, true),
   enroll });
 const { chiefs, chiefRow, rowOf } = createChiefs({ now, provider, readRegular, refuse, rowsOf, sheetText, swap });
-return { SIZES, BLOCKS, RISKS, KINDS, STATES, DEFAULTS, PR, LEAD_COMMANDS, leadProblem, leadRequest, sageRoot, locate, chiefFor, chiefLink, sessionProbe, sessionsHere, sessionBar, branchBar, actorOptions, git, projectRoot, roleReadProject, optionsOf, slug, worktreeRoot, pagesRoot, BRANCH, ofTask, branchOfTask, branchTip, projectName, storeDir, config, cyclesFor, modelFor, read, mergeCheck, boardLandingCheck, carryOver, logbookView, sage, keepReport, keepRunText, keepUsage, observePush, compareRetainedReport, ownGates, pickupAnswers, queueOf, chiefQueue, queueProblem, pendingRun, markStart, sweepQueue, withLock, command, runCli, waitingPlugins, writeIdFloors };
+return { SIZES, BLOCKS, RISKS, KINDS, STATES, DEFAULTS, PR, LEAD_COMMANDS, leadProblem, leadRequest, sageRoot, locate, chiefFor, chiefLink, sessionProbe, sessionsHere, stoppedSessions, sessionBar, branchBar, actorOptions, git, projectRoot, roleReadProject, optionsOf, slug, worktreeRoot, pagesRoot, BRANCH, ofTask, branchOfTask, branchTip, projectName, storeDir, config, cyclesFor, modelFor, read, mergeCheck, boardLandingCheck, carryOver, logbookView, sage, keepReport, keepRunText, keepUsage, observePush, compareRetainedReport, ownGates, pickupAnswers, queueOf, chiefQueue, queueProblem, pendingRun, markStart, sweepQueue, withLock, command, runCli, waitingPlugins, writeIdFloors };
 }

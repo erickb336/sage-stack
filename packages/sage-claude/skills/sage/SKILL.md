@@ -78,7 +78,7 @@ Read `skills/sage/references/merge-check-and-config.md` before a merge check of 
 
 ### A shared logbook
 
-Read `skills/sage/references/shared-logbook.md` before you run `link`, `move`, `claim`, `offer`, `cancel`, `accept`, `unclaim`, `gate replace` or `projects rebuild`, and when a command refuses for another chief or a legacy logbook.
+Read `skills/sage/references/shared-logbook.md` before you run `link`, `move`, `pickup`, `unclaim`, `gate replace` or `projects rebuild`, and when a command refuses for another chief or a legacy logbook.
 
 ## References
 

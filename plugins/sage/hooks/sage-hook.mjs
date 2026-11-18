@@ -348,7 +348,9 @@ function handleEvent(input, state, slots) {
     } catch (e) {
       return deny(event, `the state tool cannot load (${e?.message ?? e}), so sage starts no new agent: reinstall or update the sage plugin, and tell the user.`);
     }
-    const r = slots.take(project, caps.cap_total, input.tool_use_id ?? (main && spawned !== "sage:lead" ? String(Date.now()) : undefined), { role: spawned, caller: main ? undefined : input.agent_id, input: ti, lead: leadMark, helper: helperKey, brief: main && spawned !== "sage:lead" ? briefMark(ti.prompt, spawned, input.cwd) : undefined });
+    let gone = [];
+    try { gone = stateTool.stoppedSessions(realpathSync.native(input.cwd)); } catch {}
+    const r = slots.take(project, caps.cap_total, input.tool_use_id ?? (main && spawned !== "sage:lead" ? String(Date.now()) : undefined), { role: spawned, caller: main ? undefined : input.agent_id, input: ti, lead: leadMark, helper: helperKey, brief: main && spawned !== "sage:lead" ? briefMark(ti.prompt, spawned, input.cwd) : undefined, gone });
     if (r.refused) {
       slots.log(`${project} ${r.project} total ${r.total}/${caps.cap_total}`);
       const helperWait = `Wait for one of your helpers to stop: run ${waitStep(main ? undefined : slots.leadOf(input.agent_id)?.task)}, then start this helper again.`;
@@ -1238,10 +1240,12 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
     renew(candidates);
   };
   return {
-    take: transaction((project, capTotal, toolUseId, { role: raw, caller, input, lead, helper, brief } = {}) => {
+    take: transaction((project, capTotal, toolUseId, { role: raw, caller, input, lead, helper, brief, gone = [] } = {}) => {
       const role = raw === undefined ? undefined : String(raw).toLowerCase();
       mkdirSync(dir, { recursive: true });
       expire();
+      const goneScopes = new Set(gone.filter((native) => native !== rawSession).map(hash));
+      for (const slot of list()) if (goneScopes.has(mark(slot, "scope-"))) free(slot);
       const exact = caller !== undefined || role === "sage:lead";
       if (exact && (!valid(rawSession) || !valid(toolUseId) || (caller !== undefined && !valid(caller)))) return { refused: "identity", ...counts(project) };
       const tu = valid(toolUseId) ? toolUseId : String(now);
@@ -1465,10 +1469,24 @@ function sessionEdge(input) {
   const edge = { project: input.cwd, native: input.session_id, pid: process.ppid, now: Date.now(), tool: stateTool, env: process.env };
   if (input.hook_event_name === "SessionEnd" && input.reason === "clear") core.clearNote(edge);
   else if (input.hook_event_name === "SessionEnd" && ENDS.includes(input.reason)) core.chiefEnd({ ...edge, reason: input.reason });
-  else if (input.hook_event_name === "SessionStart" && input.source === "clear") core.clearLink(edge);
+  else if (input.hook_event_name === "SessionStart" && input.source === "clear") {
+    const chief = core.clearLink(edge);
+    if (chief && core.readLiveRecord(stateTool.locate(input.cwd).dir, chief)?.sageMode === true) keepSageMode(input.session_id);
+  }
   else if (input.hook_event_name === "SessionStart" && input.source === "resume") core.chiefResume(edge);
 }
 const EDGES = ["SessionStart", "SessionEnd"];
+function keepSageMode(native) {
+  const file = join(stateDir(), `${safe(native)}.json`), temp = `${file}.${randomUUID()}`;
+  let state = {};
+  try { state = JSON.parse(readFileSync(file, "utf8")); } catch {}
+  if (!state || typeof state !== "object" || Array.isArray(state)) state = {};
+  try {
+    mkdirSync(stateDir(), { recursive: true });
+    writeFileSync(temp, JSON.stringify({ ...state, sage: true }), { flag: "wx" });
+    renameSync(temp, file);
+  } catch {} finally { rmSync(temp, { force: true }); }
+}
 
 const stateDir = () => process.env.SAGE_HOOKS_STATE ?? join(process.env.SAGE_HOME ?? join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "sage"), ".hooks");
 

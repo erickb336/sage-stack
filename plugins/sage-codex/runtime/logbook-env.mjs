@@ -6,5 +6,4 @@ export const legacyRoots = (env) => (env.SAGE_HOME ? [env.SAGE_HOME] : [
   { provider: "codex", path: join(env.CODEX_HOME ?? join(env.HOME ?? homedir(), ".codex"), "sage") },
 ]);
 
-export const claimStep = (task, version) => `call the claim tool with this task and version ${version}`;
 export const replaceStep = (task, chief) => `call the gate_replace tool with this task and to ${chief}`;

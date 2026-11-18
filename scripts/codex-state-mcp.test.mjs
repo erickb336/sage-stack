@@ -21,7 +21,7 @@ async function connect(t, overrides = {}, { providerRoots = false } = {}) {
     const adapter = join(dir, "plugin/runtime/logbook-env.mjs");
     cpSync(adapter, join(dir, "plugin/runtime/logbook-env-default.mjs"));
     writeFileSync(adapter, `import { legacyRoots as discover } from "./logbook-env-default.mjs";
-export { claimStep, replaceStep } from "./logbook-env-default.mjs";
+export { replaceStep } from "./logbook-env-default.mjs";
 export const legacyRoots = (env) => discover({ HOME: env.HOME, CODEX_HOME: env.CODEX_HOME, CLAUDE_CONFIG_DIR: env.CLAUDE_CONFIG_DIR });
 `);
   }
@@ -85,7 +85,7 @@ test("the state server serves only a call that sage's gate saw: with no hook run
   assert.equal((await s.call("status", {}, { gate: false, callId: "chief_form" })).error, undefined, "the chief's own form serves");
 });
 
-test("a shared logbook through the server: the root's session is one chief, a lead acts for it, a child reads, and a task with no chief takes the claim tool (T604)", async (t) => {
+test("a shared logbook through the server: the root's session is one chief, a lead acts for it, a child reads, and a task with no chief passes to the next chief that writes (T604, T1172)", async (t) => {
   const shared = realpathSync(mkdtempSync(join(tmpdir(), "sage-state-mcp-shared-")));
   t.after(() => rmSync(shared, { recursive: true, force: true }));
   const s = await connect(t, { SAGE_SHARED_HOME: shared });
@@ -104,8 +104,8 @@ test("a shared logbook through the server: the root's session is one chief, a le
   const dir = tool.storeDir(s.project, s.env), tasks = join(dir, "tasks.tsv");
   assert.equal(readFileSync(join(dir, "chiefs.tsv"), "utf8").trim().split("\n").length, 3, "a header and two chiefs: the lead made no row");
   writeFileSync(tasks, readFileSync(tasks, "utf8").replace(/\tC2\n/, "\t\n"));
-  const version = /call the claim tool with this task and version ([0-9a-f]{64})/.exec((await s.call("task_set", { task: "T2", fields: { title: "x" } })).error)[1];
-  assert.equal(await s.call("claim", { task: "T2", version }), "T2 claimed · chief C1");
+  assert.match(await s.call("task_set", { task: "T2", fields: { title: "x" } }), /^T2 framed [^\n]*\nsage: pick-up from no chief to C1: tasks T2; they had no owning chief\./);
+  assert.equal(await s.call("pickup", {}), "nothing to pick up", "the pickup tool calls the same state tool step");
   writeFileSync(join(dir, "chiefs.tsv"), "id\tother\n");
   assert.match((await s.call("task_add", { title: "third", size: "small", priority: "P2" })).error, /^sage: .*chiefs\.tsv is damaged, so sage cannot tell which chief owns a task/, "F-T604-18: the tool gives the real cause");
 });
@@ -149,7 +149,7 @@ test("T1110: child pages reject another shared project before creating its direc
   assert.match((await a.call("pages", { task: "T1" }, { gate: false, callId: "damaged" })).error ?? "", /assigned shared project/);
 });
 
-test("T893: a Codex chief abandons, through task_set with why, a task with no owning chief that came in the move from the Claude logbook; any other change still needs the claim", async (t) => {
+test("T893: a Codex chief abandons, through task_set with why, a task that it unclaimed; any other change refuses", async (t) => {
   const shared = realpathSync(mkdtempSync(join(tmpdir(), "sage-state-mcp-abandon-")));
   t.after(() => rmSync(shared, { recursive: true, force: true }));
   const s = await connect(t, { SAGE_SHARED_HOME: shared });
@@ -158,17 +158,16 @@ test("T893: a Codex chief abandons, through task_set with why, a task with no ow
   const { tool } = await import(pathToFileURL(join(s.dir, "plugin/skills/sage/sage.mjs")).href);
   const file = join(tool.storeDir(s.project, s.env), "tasks.tsv");
   const cells = () => { const [head, line] = readFileSync(file, "utf8").split("\n"); return { cols: head.split("\t"), row: line.split("\t") }; };
-  const { cols, row } = cells(), adoption = { version: 2, provider: "claude", task: "T7", logbook: join(s.dir, "old"), project: s.project, round: 0, digest: "0".repeat(64) };
-  writeFileSync(file, `${cols.join("\t")}\n${row.with(cols.indexOf("chief"), "").with(cols.indexOf("adoption"), JSON.stringify(adoption)).join("\t")}\n`);
+  await s.call("unclaim", { task: "T1" });
   assert.equal((await s.call("task_set", { task: "T1", fields: { state: "abandoned" } })).error, `sage: T1 has no owning chief. Any chief may abandon it, with a reason: add --why "<reason>". Nothing changed.`);
-  assert.match((await s.call("task_set", { task: "T1", fields: { state: "abandoned", priority: "P1" }, why: "stale" })).error, /^sage: T1 has no owning chief, so C1 cannot change it\. Claim it first: call the claim tool/);
+  assert.match((await s.call("task_set", { task: "T1", fields: { state: "abandoned", priority: "P1" }, why: "stale" })).error, /^sage: T1 has no owning chief, so C1 cannot change it\. Nothing changed\. C1 unclaimed it, so the next pick-up of another chief takes it\. To get it back, open a takeover gate for the owner to answer: call the gate_replace tool/);
   assert.match(await s.call("task_set", { task: "T1", fields: { state: "abandoned" }, why: "stale: Codex native runtime work" }), /^T1 abandoned /);
   const after = cells();
   assert.deepEqual([after.row[after.cols.indexOf("state")], after.row[after.cols.indexOf("chief")]], ["abandoned", ""], "the abandon gives the task to no chief");
   assert.match(readFileSync(join(tool.storeDir(s.project, s.env), "decisions.tsv"), "utf8").trim().split("\n").at(-1), /\tT1\tstate abandoned\tstale: Codex native runtime work · abandoned by C1, with no owning chief$/);
 });
 
-test("the transfer commands through the server: offer, accept, cancel, unclaim and a Replace by the owner's answer, with the rules of the state tool (T618)", async (t) => {
+test("the transfer commands through the server: unclaim, pickup and a Replace by the owner's answer, with the rules of the state tool (T618, T1172)", async (t) => {
   const shared = realpathSync(mkdtempSync(join(tmpdir(), "sage-state-mcp-transfer-")));
   t.after(() => rmSync(shared, { recursive: true, force: true }));
   const s = await connect(t, { SAGE_SHARED_HOME: shared });
@@ -176,24 +175,17 @@ test("the transfer commands through the server: offer, accept, cancel, unclaim a
   await s.call("link", { separate: true });
   await s.call("task_add", { title: "first", size: "small", priority: "P2" });
   await s.call("task_add", { title: "second", size: "small", priority: "P2" }, as);
-  const [, first] = /offer ([0-9a-f]{8})/.exec(await s.call("offer", { task: "T1", to: "C2" }));
-  assert.match((await s.call("offer", { task: "T1", to: "C2" }, as)).error, /^sage: T1 belongs to chief C1/);
-  assert.equal(await s.call("cancel", { task: "T1", offer: first }), `T1 offer ${first} cancelled`);
-  const [, declined] = /offer ([0-9a-f]{8})/.exec(await s.call("offer", { task: "T1", to: "C2" }));
-  assert.equal(await s.call("cancel", { task: "T1", offer: declined }, as), `T1 offer ${declined} declined by C2 · chief C1 keeps T1`);
-  const [, offer, version] = /offer ([0-9a-f]{8}) · version ([0-9a-f]{64})/.exec(await s.call("offer", { task: "T1", to: "C2" }));
   const tools = await s.tools(), describe = (name) => tools.find((one) => one.name === name).description;
-  assert.match(describe("accept"), /The CLI's task command gives the offer's id \(in the task's offer cell\) and the version/);
-  assert.match(describe("cancel"), /decline an offer that another chief made to you/);
-  assert.match((await s.call("accept", { task: "T1", offer: first, version }, as)).error, /has the open offer/);
-  assert.match((await s.call("accept", { task: "T1", offer, version })).error, /names C2, not C1/);
-  assert.match(await s.call("accept", { task: "T1", offer, version }, as), /^G1 open · Hand T1 from C1 \(codex\) to C2 \(codex\)\? Runs that end as failed: none\. Approve: C2 owns T1\. C1 can no longer write T1\. .* Decline: C1 stays the owning chief, and the offer to C2 ends\. Title of T1: first\nAsk the owner to answer G1, in either chat\. Nothing changes until then\.$/);
+  assert.match(describe("unclaim"), /the next pick-up of another chief takes it/);
+  assert.match(describe("pickup"), /each stopped session/);
+  assert.match(await s.call("gate_replace", { task: "T1", to: "C2" }, as), /^G1 open · Hand T1 from C1 \(codex\) to C2 \(codex\)\? Runs that end as failed: none\. Approve: C2 owns T1\. C1 can no longer write T1\. .* Decline: nothing changes, and C1 stays the owning chief\. Title of T1: first\nAsk the owner to answer G1, in either chat\. Nothing changes until then\.$/);
   assert.match((await s.call("task_set", { task: "T1", fields: { title: "x" } }, as)).error, /^sage: T1 belongs to chief C1 \(codex\), not to C2\./, "the gate alone gives nothing");
   assert.equal(await s.call("gate_answer", { gate: "G1", option: 1 }), "G1 answered · approve · T1 chief C2");
   const { tool } = await import(pathToFileURL(join(s.dir, "plugin/skills/sage/sage.mjs")).href);
   const picked = JSON.parse(tool.read(tool.storeDir(s.project, s.env), "gates").find((g) => g.id === "G1").picked);
   assert.equal(picked.chief, "C1", "the gate records the chief whose tool applied the answer, not the receiving chief C2");
-  assert.equal(await s.call("unclaim", { task: "T2" }, as), "T2 unclaimed · no owning chief. Only C2 claims it back; another chief needs the owner's takeover gate.");
+  assert.equal(await s.call("unclaim", { task: "T2" }, as), "T2 unclaimed · no owning chief. The next pick-up of another chief takes it; C2 gets it back only through the owner's takeover gate.");
+  assert.match(await s.call("pickup", {}), /^sage: pick-up from C2 \(codex\) to C1: tasks T2; it unclaimed them\./);
   assert.match(await s.call("run_add", { task: "T1", role: "qa" }, as), /^R1 running/);
   assert.match(await s.call("gate_replace", { task: "T1", to: "C1" }), /^G2 open · Hand T1 from C2 \(codex\) to C1 \(codex\)\? Runs that end as failed: R1 \(qa\)\. Approve: C1 owns T1\. Each of those runs ends as failed, and work that it did not report may be lost\. .* Decline: nothing changes, and C2 stays the owning chief\. Title of T1: first\nAsk the owner to answer G2, in either chat\. Nothing changes until then\.$/);
   assert.equal(await s.call("gate_answer", { gate: "G2", option: 1 }), "G2 answered · approve · T1 chief C1 · R1 failed");
@@ -737,8 +729,8 @@ test("T1143: the Codex chief adds and reads the prior-art index through prior_ar
 test("the state server lists one tool for each state-tool command, and marks only the reads read-only", async (t) => {
   const s = await connect(t);
   const tools = await s.tools();
-  assert.deepEqual(tools.map((tool) => tool.name).sort(), ["accept", "brief", "cancel", "chief_name", "claim", "config", "finding_add", "finding_close", "finding_move", "finding_triage", "gate_add", "gate_answer", "gate_give", "gate_replace", "gate_undo",
-    "init", "link", "lint", "log", "merge_check", "message", "milestone_propose", "milestone_set", "move", "offer", "pages", "prior_art", "release_add", "report_compare", "round", "run_add", "run_done", "standing", "standing_add", "status", "task_add", "task_adopt", "task_set", "unclaim", "verdict", "worktrees"]);
+  assert.deepEqual(tools.map((tool) => tool.name).sort(), ["brief", "chief_name", "config", "finding_add", "finding_close", "finding_move", "finding_triage", "gate_add", "gate_answer", "gate_give", "gate_replace", "gate_undo",
+    "init", "link", "lint", "log", "merge_check", "message", "milestone_propose", "milestone_set", "move", "pages", "pickup", "prior_art", "release_add", "report_compare", "round", "run_add", "run_done", "standing", "standing_add", "status", "task_add", "task_adopt", "task_set", "unclaim", "verdict", "worktrees"]);
   assert.deepEqual(tools.filter((tool) => tool.annotations.readOnlyHint).map((tool) => tool.name).sort(), ["merge_check", "report_compare", "standing", "status"]);
   assert.ok(tools.every((tool) => tool.inputSchema.required.includes("project") && tool.inputSchema.additionalProperties === false));
   const add = tools.find((tool) => tool.name === "task_add").inputSchema;
@@ -1053,7 +1045,7 @@ test("T658: the Codex chief's list of tools names the move tool, with the owner'
 test("F-T618-3: the Codex chief's list of tools names each tool that moves a task between chiefs", () => {
   const { PROJECT_SETUP } = JSON.parse(readFileSync(join(ROOT, "plugins/sage-codex/chief-bindings.json"), "utf8"));
   const [list] = /The tools are .*?\./.exec(PROJECT_SETUP);
-  for (const name of ["claim", "offer", "cancel", "accept", "unclaim", "gate_replace"]) assert.ok(list.includes(`\`${name}\``), name);
+  for (const name of ["pickup", "unclaim", "gate_replace"]) assert.ok(list.includes(`\`${name}\``), name);
 });
 
 test("the Codex settings pass both roots to the state server", () => {

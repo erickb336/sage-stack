@@ -118,11 +118,12 @@ export function clearLink({ project, native, pid, now, tool, env }) {
 }
 
 const ahead = (record, now) => record.at - now > SKEW_MS;
+export const runningRuns = (runs, chief) => runs.filter((run) => run.chief === chief && run.status === "running");
 export function sessionState(record, { running = 0, gates = 0 } = {}, now, probe) {
   if (!record) return { state: "quiet", reason: null };
-  if (record.ended) return { state: "stopped", reason: "ended" };
-  if (record.confirmed && record.machine && probe?.machine === record.machine && Number.isFinite(probe.boot)) {
-    const gone = Math.abs(probe.boot - record.boot) > BOOT_MS || !probe.alive(record.pid) || Math.abs(probe.started(record.pid) - record.pidStart) > START_MS;
+  if (record.ended && (record.ended !== "off" || !running)) return { state: "stopped", reason: "ended" };
+  if (record.confirmed && record.machine && probe?.machine === record.machine) {
+    const gone = !probe.alive(record.pid) || Math.abs(probe.started(record.pid) - record.pidStart) > START_MS;
     if (gone) return { state: "stopped", reason: "gone" };
   }
   if (running > 0) return { state: "live", reason: null };
@@ -171,15 +172,15 @@ const iso = (ms) => (ms === null || !Number.isFinite(ms) ? null : new Date(ms).t
 export function boardChiefs({ rows, live = {}, names = {}, runs = [], waits = [], owners = [], now }) {
   const chiefs = rows.map((row) => {
     const record = live[row.id] ?? null, beat = record && ahead(record, now) ? null : record, heartbeat = beat?.at ?? null;
-    const running = runs.filter((run) => run.chief === row.id && run.status === "running"), working = running.filter((run) => !run.clock?.stale).length, gates = waits.filter((chief) => chief === row.id).length;
-    const found = sessionState(record ?? { at: null }, { running: working, gates }, now, null);
+    const running = runningRuns(runs, row.id).length, gates = waits.filter((chief) => chief === row.id).length;
+    const found = sessionState(record ?? { at: null }, { running, gates }, now, null);
     const state = !beat && found.state === "quiet" ? null : found.state, reason = found.reason, stopped = state && state === "stopped";
     return {
       id: row.id, provider: row.provider, name: names[row.id] ?? defaultChiefName(row, beat), named: Object.hasOwn(names, row.id), startedAt: utc(row.at) ? new Date(row.at).toISOString() : null,
       checkout: beat?.checkout ?? null, sageMode: stopped ? null : beat?.sageMode ?? null, autopilot: stopped ? null : beat?.autopilot ?? null,
-      heartbeat: iso(heartbeat), agents: working, tasks: owners.filter((chief) => chief === row.id).length,
-      session: state, reason, endedAt: iso(record?.endedAt ?? null), confirmed: !!record?.confirmed, lost: stopped ? running.length : 0,
-      passOnAt: state === "quiet" && !gates && heartbeat !== null ? iso(heartbeat + PASS_ON_MS) : null, quietAt: state === "live" && !working && heartbeat !== null ? iso(heartbeat + STOPPED_MS + 1) : null,
+      heartbeat: iso(heartbeat), agents: running, tasks: owners.filter((chief) => chief === row.id).length,
+      session: state, reason, endedAt: iso(record?.endedAt ?? null), confirmed: !!record?.confirmed, lost: stopped ? running : 0,
+      passOnAt: state === "quiet" && !gates && heartbeat !== null ? iso(heartbeat + PASS_ON_MS) : null, quietAt: state === "live" && !running && heartbeat !== null ? iso(heartbeat + STOPPED_MS + 1) : null,
       waitsForOwner: state === "quiet" && gates > 0, stopped,
     };
   });

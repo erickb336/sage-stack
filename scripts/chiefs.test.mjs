@@ -55,51 +55,12 @@ function row(text, id) {
   const [head, ...lines] = text.trim().split("\n"), cols = head.split("\t");
   return Object.fromEntries(cols.map((c, k) => [c, lines.map((l) => l.split("\t")).find((l) => l[0] === id)?.[k]]));
 }
-function versionOf(project, env, id) {
-  const { offer, ...task } = codex.read(codex.storeDir(project, env), "tasks").find((r) => r.id === id);
-  return createHash("sha256").update(JSON.stringify(offer ? { ...task, offer } : task)).digest("hex");
-}
 function setCells(dir, table, match, column, value) {
   const file = join(dir, `${table}.tsv`), [head, ...lines] = readFileSync(file, "utf8").split("\n"), k = head.split("\t").indexOf(column);
   writeFileSync(file, [head, ...lines.map((l) => (l && match(l) ? l.split("\t").with(k, value).join("\t") : l))].join("\n"));
 }
-function interruptUnclaim(t, w, release, table = "tasks", after = true) {
-  const rename = fs.renameSync, decisions = w.cells("decisions"), chief = row(w.cells("tasks"), "T1").chief;
-  let hit = false;
-  t.mock.method(fs, "renameSync", (...args) => {
-    if (!hit && String(args[1]) === join(w.dir, `${table}.tsv`)) {
-      if (after) rename(...args);
-      hit = true;
-      throw Object.assign(Error("Injected unclaim stop"), { code: "EIO" });
-    }
-    return rename(...args);
-  });
-  syncBuiltinESMExports();
-  try {
-    assert.throws(release, /Injected unclaim stop/);
-  } finally {
-    t.mock.restoreAll();
-    syncBuiltinESMExports();
-  }
-  assert.equal(hit, true, `the fault ran ${after ? "after" : "before"} publication of ${table}`);
-  assert.equal(row(w.cells("tasks"), "T1").chief ?? "", table === "tasks" && after ? "" : chief);
-  if (table === "decisions" && !after) assert.equal(w.cells("decisions"), decisions);
-  else assert.equal(codex.read(w.dir, "decisions").at(-1).decision, `T1 unclaimed by ${chief}`, "reclaim authority precedes an empty chief");
-  t.diagnostic(JSON.stringify({ interrupted: true, table, after, chief: row(w.cells("tasks"), "T1").chief, decisions: codex.read(w.dir, "decisions") }));
-}
-function refusesInterruptedClaim(t, w, claimant) {
-  const before = w.tables(), version = w.version();
-  let error, result;
-  try { result = claimant("claim", "T1", "--version", version); } catch (caught) { error = caught; }
-  t.diagnostic(JSON.stringify({ version, result, error: error?.message, chief: row(w.cells("tasks"), "T1").chief, decisions: codex.read(w.dir, "decisions") }));
-  assert.ok(error, "claim after interrupted release must refuse without an owner gate");
-  assert.match(error.message, /takeover gate/, "a current-version claim must refuse for ownership, not staleness");
-  assert.equal(w.tables(), before, "the refused claim preserves ownership and all decisions");
-  assert.throws(() => claimant("claim", "T1", "--version", w.version()), /takeover gate/);
-  assert.equal(w.tables(), before, "a repeated refusal changes nothing");
-}
 const pairs = [["Claude", claude, codex], ["Codex", codex, claude]];
-const asked = (from, to, title, runs, offered = false) => `Hand T1 from C1 (${from}) to C2 (${to})? Runs that end as failed: ${runs}. Approve: C2 owns T1.${runs === "none" ? "" : " Each of those runs ends as failed, and work that it did not report may be lost."} C1 can no longer write T1. The answer clears an open offer. The branch keeps its name. ${to === "claude" && from !== "claude" ? "The verdicts stay, and C2 runs one fresh cycle on its head before it merges." : "The verdicts on its head still count."} Decline: ${offered ? "C1 stays the owning chief, and the offer to C2 ends" : "nothing changes, and C1 stays the owning chief"}. Title of T1: ${title}`;
+const asked = (from, to, title, runs, offered = false) => `Hand T1 from C1 (${from}) to C2 (${to})? Runs that end as failed: ${runs}. Approve: C2 owns T1.${runs === "none" ? "" : " Each of those runs ends as failed, and work that it did not report may be lost."} C1 can no longer write T1. The branch keeps its name. ${to !== from ? "The verdicts stay, and C2 runs one fresh cycle on its head before it merges." : "The verdicts on its head still count."} Decline: ${offered ? "C1 stays the owning chief, and the offer to C2 ends" : "nothing changes, and C1 stays the owning chief"}. Title of T1: ${title}`;
 const next = (gate) => `\nAsk the owner to answer ${gate}, in either chat. Nothing changes until then.`;
 const owned = (w, name, ...args) => spawnSync(process.execPath, [name === "Claude" ? TOOL : CODEX_TOOL, ...args], { cwd: w.base, env: w.env, encoding: "utf8", timeout: 60_000 });
 const printed = (text, project) => text.match(/run: sage (logbook repair .*? --project) <the project>\./)[1].split(" ").concat(project);
@@ -119,26 +80,27 @@ test("F-T604-23: the printed repair line on a legacy project adds no chiefs.tsv 
   assert.equal(existsSync(join(dir, "chiefs.tsv")), false);
 });
 
-test("T995 F4: every command of the state tool is a read or has a writer class, also the old words program and release <T>, and the release level (T1003)", () => {
+test("T995 F4: every command of the state tool is a read or has a writer class, also the old word program, and the release level (T1003); release <T> is no command (F-T1172-16)", () => {
   let listed;
   try { claude.sage(["no-such-command"]); } catch (error) { listed = /Commands: (.*)$/.exec(error.message)[1].split(", "); }
   const READS = ["status", "stats", "merge-check", "board", "link", "worktrees", "message"];
   const WRITES = {
     init: [[]], logbook: [["repair"]], standing: [["add"]], pages: [["T1", "record"]], task: [["add"], ["T1", "set"]], "task-adopt": [["T1"]],
-    milestone: [["propose"], ["M1", "set"]], release: [["add"], ["T1"]], round: [["T1"]], run: [["add", "T1"], ["done", "R1"], ["usage", "R1"]], finding: [["add", "T1"], ["triage", "T1"], ["close", "T1"], ["move", "T1"]],
+    milestone: [["propose"], ["M1", "set"]], release: [["add"]], round: [["T1"]], run: [["add", "T1"], ["done", "R1"], ["usage", "R1"]], finding: [["add", "T1"], ["triage", "T1"], ["close", "T1"], ["move", "T1"]],
     verdict: [["T1"]], lint: [["T1"]], gate: [["add"], ["add", "T1"], ["answer", "G1"], ["replace", "T1"]], log: [["T1"], ["-"]], config: [["max_rounds=3"]], projects: [["rebuild"]],
-    observe: [["T1"]], claim: [["T1"]], offer: [["T1"]], cancel: [["T1"]], accept: [["T1"]], unclaim: [["T1"]], move: [[]], chief: [["name", "C1"]], storage: [["clean"]],
+    observe: [["T1"]], unclaim: [["T1"]], pickup: [[]], move: [[]], chief: [["name", "C1"]], storage: [["clean"]],
   };
   const OUTSIDE_LOGBOOKS = ["prior-art"];
   assert.deepEqual([...READS, ...OUTSIDE_LOGBOOKS, ...Object.keys(WRITES)].sort(), [...listed].sort(), "each listed command is a read, writes outside every logbook, or has its write forms here");
   assert.equal(writerClass("prior-art", ["reviews", "add"]).kind, "read", "the prior-art index is in no logbook, so an add names no chief");
   for (const [cmd, forms] of Object.entries({ ...WRITES, program: [["propose"], ["M1", "set"]] })) for (const pos of forms) assert.notEqual(writerClass(cmd, pos).kind, "read", `${cmd} ${pos.join(" ")}`);
-  assert.deepEqual([writerClass("program", ["propose"]), writerClass("release", ["T1"])], [writerClass("milestone", ["propose"]), writerClass("unclaim", ["T1"])], "an old word has the class of its new word");
+  assert.deepEqual(writerClass("program", ["propose"]), writerClass("milestone", ["propose"]), "an old word has the class of its new word");
+  assert.equal(writerClass("release", ["T1"]).kind, "read", "release T<n> writes nothing: the release command refuses it");
   assert.deepEqual([writerClass("release", ["add"]).kind, writerClass("milestone", ["M1", "set"]).kind], ["any", "any"]);
-  assert.deepEqual([chiefOnly("release", ["T1"]), chiefOnly("release", ["add"])], [true, false]);
+  assert.deepEqual([chiefOnly("release", ["T1"]), chiefOnly("release", ["add"]), chiefOnly("unclaim", ["T1"])], [false, false, true]);
 });
 
-test("a legacy project has no chief: no chiefs.tsv, no chief column, and no option or claim", (t) => {
+test("a legacy project has no chief: no chiefs.tsv, no chief column, and no option", (t) => {
   const w = scratch(t);
   const run = (...args) => codex.sage([...args, "--project", w.project], w.env);
   run("init");
@@ -150,7 +112,7 @@ test("a legacy project has no chief: no chiefs.tsv, no chief column, and no opti
   assert.equal(existsSync(join(dir, "chiefs.tsv")), false);
   assert.equal(codex.chiefFor(w.project, "session-a", w.env), undefined);
   assert.deepEqual(codex.actorOptions(w.project, ["task", "add"], { native: "session-a" }, w.env), []);
-  for (const args of [["status", "--chief", "C1"], ["task", "T1", "set", "title=b", "--chief", "C1"], ["status", "--lead", "R1"], ["claim", "T1", "--version", "0".repeat(64)]]) {
+  for (const args of [["status", "--chief", "C1"], ["task", "T1", "set", "title=b", "--chief", "C1"], ["status", "--lead", "R1"]]) {
     assert.throws(() => run(...args), /only a shared logbook has chiefs/);
   }
 });
@@ -173,10 +135,9 @@ test("a legacy project has no transfer: each command refuses, and a replace gate
   run("init");
   run("task", "add", "--title", "a", ...ADD);
   const dir = claude.storeDir(w.project, w.env), before = ["tasks", "gates"].map((table) => readFileSync(join(dir, `${table}.tsv`), "utf8")).join("\f");
-  for (const args of [["offer", "T1", "--to", "C2"], ["cancel", "T1", "--offer", "x"], ["accept", "T1", "--offer", "x", "--version", "0".repeat(64)], ["unclaim", "T1"], ["release", "T1"], ["gate", "replace", "T1", "--to", "C2"]]) {
+  for (const args of [["unclaim", "T1"], ["pickup"], ["gate", "replace", "T1", "--to", "C2"]]) {
     assert.throws(() => run(...args), /has no shared logbook, so it has no chiefs to hand a task to\. Nothing changed\.$/, args.join(" "));
   }
-  assert.throws(() => run("claim", "T1", "--version", "0".repeat(64)), /only a shared logbook has chiefs: leave out --chief and --lead, and a task here needs no claim/);
   assert.equal(["tasks", "gates"].map((table) => readFileSync(join(dir, `${table}.tsv`), "utf8")).join("\f"), before);
   assert.equal(before.split("\f")[1].split("\n")[0], "id\ttask\tquestion\toptions\trecommendation\tdefault\tanswer\tat", "a legacy gates table has no kind column");
 });
@@ -261,7 +222,7 @@ for (const [name, own, other] of pairs) {
     const provider = name === "Claude" ? "claude" : "codex";
     for (const args of writes) {
       const before = w.tables();
-      assert.throws(() => w.intruder(...args), { message: `T1 belongs to chief C1 (${provider}), not to C2. Nothing changed. Change only your own tasks. To take T1, ask C1 to offer it to you, or open a takeover gate for the owner to answer: ${name === "Claude" ? "call the gate_replace tool with this task and to C2" : "run sage gate replace T1 --to C2 --chief C2"}.` }, args.join(" "));
+      assert.throws(() => w.intruder(...args), { message: `T1 belongs to chief C1 (${provider}), not to C2. Nothing changed. Change only your own tasks. A live chief keeps its work; to take T1, open a takeover gate for the owner to answer: ${name === "Claude" ? "call the gate_replace tool with this task and to C2" : "run sage gate replace T1 --to C2 --chief C2"}.` }, args.join(" "));
       assert.throws(() => w.nobody(...args), NO_CHIEF, args.join(" "));
       assert.equal(w.tables(), before, args.join(" "));
     }
@@ -407,279 +368,36 @@ for (const [name, own, other] of pairs) {
     assert.throws(() => w.lead("R1", "task", "T1", "set", "title=x"), /R1 is not a running lead run, so this lead writes nothing/, "a lead whose run ended writes nothing");
   });
 
-  test(`${name}: a task with no owning chief takes a claim at its current version, once; a write before it names the claim`, (t) => {
-    const w = world(t, own, other);
-    w.owner("task", "add", "--title", "a", ...ADD);
-    writeFileSync(join(w.dir, "tasks.tsv"), w.cells("tasks").replace(/\tC1\n/, "\t\n"));
-    const version = versionOf(w.project, w.env, "T1");
-    const step = name === "Claude" ? `call the claim tool with this task and version ${version}` : `run sage claim T1 --version ${version} --chief C2`;
-    assert.throws(() => w.intruder("task", "T1", "set", "title=x"), { message: `T1 has no owning chief, so C2 cannot change it. Claim it first: ${step}. Nothing changed.` }, "F-T604-21: the reader of each provider gets only the form that it can use");
-    assert.throws(() => w.intruder("claim", "T1", "--version", "0".repeat(64)), /T1 changed, so this claim is out of date/);
-    assert.throws(() => w.nobody("claim", "T1", "--version", version), NO_CHIEF);
-    assert.equal(w.intruder("claim", "T1", "--version", version), "T1 claimed · chief C2");
-    assert.equal(row(w.cells("tasks"), "T1").chief, "C2");
-    assert.match(w.cells("decisions"), /T1 claimed by C2/);
-    assert.throws(() => w.owner("claim", "T1", "--version", version), /T1 belongs to chief C2, so it takes no claim/, "a competing claim");
-    assert.throws(() => w.owner("task", "T1", "set", "title=y"), /T1 belongs to chief C2/);
-  });
-
   const transfer = (t, keepSageHome = false) => {
     const w = world(t, own, other, keepSageHome);
     w.owner("task", "add", "--title", "a", ...ADD);
-    const version = () => versionOf(w.project, w.env, "T1");
-    const offer = () => JSON.parse(row(w.cells("tasks"), "T1").offer);
-    return { ...w, version, offer, answer: (...args) => other.sage(["gate", "answer", ...args, "--project", w.project], w.env) };
+    return { ...w, answer: (...args) => other.sage(["gate", "answer", ...args, "--project", w.project], w.env) };
   };
 
-  test(`T1132 ${name}: completed release permits only the former owner's explicit current-version reclaim`, (t) => {
-    const w = transfer(t, true);
-    const ownedVersion = w.version();
-    w.owner("unclaim", "T1");
-    assert.equal(row(w.cells("tasks"), "T1").chief ?? "", "");
-    assert.match(w.cells("decisions"), /T1 unclaimed by C1/);
-    const before = w.tables();
-    assert.throws(() => w.intruder("claim", "T1", "--version", w.version()), /takeover gate/);
-    assert.throws(() => w.owner("claim", "T1", "--version", ownedVersion), /out of date/);
-    assert.equal(w.tables(), before);
-    assert.equal(w.owner("claim", "T1", "--version", w.version()), "T1 claimed · chief C1");
-    assert.equal(row(w.cells("tasks"), "T1").chief, "C1");
-  });
-
-  test(`T1132 ${name}: interrupted first release cannot authorize another chief's current-version claim`, (t) => {
-    const w = transfer(t, true);
-    assert.equal(row(w.cells("tasks"), "T1").adoption, "");
-    assert.deepEqual(codex.read(w.dir, "decisions").map(({ decision }) => decision), ["task added"], "no previous release or adoption");
-    interruptUnclaim(t, w, () => w.owner("unclaim", "T1"));
-    refusesInterruptedClaim(t, w, w.intruder);
-    assert.equal(w.owner("claim", "T1", "--version", w.version()), "T1 claimed · chief C1");
-    w.owner("unclaim", "T1");
-    assert.equal(codex.read(w.dir, "decisions").filter(d => d.decision === "T1 unclaimed by C1").length, 2, "a later release records its own decision");
-  });
-
-  const releasedThenTaken = (t) => {
-    const w = transfer(t, true);
-    w.owner("unclaim", "T1");
-    assert.match(w.intruder("gate", "replace", "T1", "--to", "C2"), /^G1 open/);
-    assert.equal(w.answer("G1", "--option", "1"), "G1 answered · approve · T1 chief C2");
-    assert.equal(row(w.cells("tasks"), "T1").chief, "C2");
-    assert.equal(row(w.cells("gates"), "G1").answer, "approve");
-    return w;
-  };
-
-  test(`T1132 ${name}: an old release gives no claim while the later owner still owns the task`, (t) => {
-    const w = releasedThenTaken(t), before = w.tables();
-    assert.throws(() => w.owner("claim", "T1", "--version", w.version()), /T1 belongs to chief C2, so it takes no claim/);
-    assert.equal(w.tables(), before);
-  });
-
-  test(`T1132 ${name}: an old release cannot authorize a claim after the later owner's interrupted release`, (t) => {
-    const w = releasedThenTaken(t);
-    assert.match(w.cells("decisions"), /T1 unclaimed by C1/);
-    assert.doesNotMatch(w.cells("decisions"), /T1 unclaimed by C2/);
-    interruptUnclaim(t, w, () => w.intruder("unclaim", "T1"));
-    refusesInterruptedClaim(t, w, w.owner);
-    assert.equal(w.intruder("claim", "T1", "--version", w.version()), "T1 claimed · chief C2");
-  });
-
-  for (const [table, after] of [["decisions", false], ["decisions", true], ["tasks", false]]) {
-    test(`T1132 ${name}: release retry after a stop ${after ? "after" : "before"} ${table} publication preserves authority once`, (t) => {
-      const w = releasedThenTaken(t);
-      interruptUnclaim(t, w, () => w.intruder("unclaim", "T1"), table, after);
-      const before = w.tables();
-      assert.throws(() => w.owner("claim", "T1", "--version", w.version()), /T1 belongs to chief C2/);
-      assert.equal(w.tables(), before, "the earlier owner takes nothing during the interrupted release");
-      assert.match(w.intruder("unclaim", "T1"), /unclaimed/);
-      assert.equal(row(w.cells("tasks"), "T1").chief ?? "", "");
-      assert.equal(codex.read(w.dir, "decisions").filter(d => d.decision === "T1 unclaimed by C2").length, 1, "the retry records the release once");
-      const released = w.tables();
-      assert.throws(() => w.intruder("unclaim", "T1"), /no owning chief/);
-      assert.equal(w.tables(), released, "another release attempt changes nothing");
-      refusesInterruptedClaim(t, w, w.owner);
-      assert.equal(w.intruder("claim", "T1", "--version", w.version()), "T1 claimed · chief C2");
-    });
-  }
-
-  test(`${name}: offer: the owning chief names one other chief, stays the owner, and active runs go on; each refusal changes nothing`, (t) => {
-    const w = transfer(t);
-    w.owner("run", "add", "T1", "--role", "qa");
-    const before = w.tables();
-    for (const [args, why] of [[["offer", "T1", "--to", "C1"], /an offer names another chief/], [["offer", "T1", "--to", "C9"], /C9 is not a chief of this logbook .* Use an id from that file: each row is one chief, with its provider\.$/], [["offer", "T1"], /missing --to/]]) assert.throws(() => w.owner(...args), why);
-    assert.throws(() => w.intruder("offer", "T1", "--to", "C1"), /T1 belongs to chief C1/);
-    assert.throws(() => w.nobody("offer", "T1", "--to", "C2"), NO_CHIEF);
-    assert.equal(w.tables(), before);
-    assert.match(w.owner("offer", "T1", "--to", "C2"), /^T1 offered to C2 · offer [0-9a-f]{8} · version [0-9a-f]{64}\. You stay its owning chief until C2 accepts\.$/);
-    assert.equal(row(w.cells("tasks"), "T1").chief, "C1");
-    assert.deepEqual(Object.keys(w.offer()), ["id", "from", "to"]);
-    assert.deepEqual([w.offer().from, w.offer().to], ["C1", "C2"]);
-    assert.match(w.owner("task", "T1"), new RegExp(`· chief C1 · offer ${w.offer().id} to C2 · version ${w.version()}`), "the task line gives the recipient what accept needs");
-  });
-
-  test(`${name}: a task with an open offer takes no second offer, and the offer's cell changes only that task's version`, (t) => {
-    const w = transfer(t);
-    w.owner("task", "add", "--title", "b", ...ADD);
-    const other2 = versionOf(w.project, w.env, "T2");
-    w.owner("offer", "T1", "--to", "C2");
-    assert.throws(() => w.owner("offer", "T1", "--to", "C2"), /T1 has the open offer [0-9a-f]{8} to C2: cancel it first/);
-    assert.equal(versionOf(w.project, w.env, "T2"), other2);
-  });
-
-  test(`${name}: accept: only the named recipient, with the exact offer and the current version, while no run is active; it opens a takeover gate, and only the owner's answer sets the chief and clears the offer`, (t) => {
-    const w = transfer(t);
-    w.owner("offer", "T1", "--to", "C2");
-    const { id } = w.offer(), version = w.version();
-    other.chiefFor(w.project, "session-c", w.env);
-    const third = (...args) => own.sage([...args, "--project", w.project, "--chief", "C3"], w.env);
-    const before = w.tables();
-    assert.throws(() => third("accept", "T1", "--offer", id, "--version", version), /offer [0-9a-f]{8} of T1 names C2, not C3\. Nothing changed\. Only C2 accepts it\. To get T1, ask its owning chief C1 to cancel this offer and offer it to you\.$/);
-    assert.throws(() => w.owner("accept", "T1", "--offer", id, "--version", version), /names C2, not C1\. Nothing changed\. Only C2 accepts it\. You own T1: to end this offer, cancel it\.$/, "F-T618-23: the owning chief is not told to ask itself");
-    assert.throws(() => w.intruder("accept", "T1", "--offer", "nothing", "--version", version), /T1 has the open offer [0-9a-f]{8}, not nothing/);
-    assert.throws(() => w.intruder("accept", "T1", "--offer", id, "--version", "0".repeat(64)), new RegExp(`T1 changed, so this acceptance is out of date: read it again, then accept it with --version ${version}`));
-    assert.throws(() => w.nobody("accept", "T1", "--offer", id, "--version", version), NO_CHIEF);
-    assert.equal(w.tables(), before, "each refusal changes nothing");
-    const question = name === "Claude" ? asked("claude", "codex", "a", "none", true) : asked("codex", "claude", "a", "none", true);
-    assert.equal(w.intruder("accept", "T1", "--offer", id, "--version", version), `G1 open · ${question}${next("G1")}`, "T656: accept asks the owner");
-    assert.deepEqual([row(w.cells("tasks"), "T1").chief, w.offer().id, row(w.cells("gates"), "G1").kind, row(w.cells("gates"), "G1").options], ["C1", id, "replace", "approve|decline"], "the gate alone changes no chief and keeps the offer");
-    const gates = w.cells("gates");
-    assert.equal(w.intruder("accept", "T1", "--offer", id, "--version", version), `G1 is open already · ${question}${next("G1")}`);
-    assert.equal(w.cells("gates"), gates);
-    assert.throws(() => w.intruder("task", "T1", "set", "title=x"), /T1 belongs to chief C1/, "the recipient writes nothing before the answer");
-    assert.equal(w.answer("G1", "--option", "1"), "G1 answered · approve · T1 chief C2");
-    assert.equal(row(w.cells("tasks"), "T1").chief, "C2");
-    assert.ok(!row(w.cells("tasks"), "T1").offer);
-    assert.ok(w.cells("decisions").includes(`${question} → approve`));
-    assert.throws(() => w.owner("task", "T1", "set", "title=x"), /T1 belongs to chief C2/, "the old chief writes nothing");
-    assert.throws(() => w.intruder("accept", "T1", "--offer", id, "--version", version), /T1 has no open offer .* Read T1 for its open offer\. If it has none, ask its owning chief for a new offer\.$/, "an accepted offer is gone");
-    assert.match(w.intruder("task", "T1", "set", "title=x"), /^T1 framed/);
-  });
-
-  test(`T656 ${name}: the owner's decline of the gate of an accept keeps the task with its chief and ends the offer, in one write with a decision row (F-T656-28)`, (t) => {
-    const w = transfer(t);
-    w.owner("offer", "T1", "--to", "C2");
-    const { id } = w.offer(), version = w.version();
-    const opened = w.intruder("accept", "T1", "--offer", id, "--version", version);
-    const [runs, decisions] = [w.cells("runs"), w.cells("decisions")];
-    assert.equal(w.answer("G1", "--option", "2"), `G1 answered · decline · nothing replaced: T1 keeps its chief C1, and no run ended. The offer ${id} to C2 ended. G1 is spent: to change the chief, open a new takeover gate.`);
-    assert.match(opened, /^G1 open · Hand T1 from C1 .* Decline: C1 stays the owning chief, and the offer to C2 ends\. Title of T1: a\n/, "the question says so");
-    const task = row(w.cells("tasks"), "T1");
-    assert.deepEqual([task.chief, task.offer ?? ""], ["C1", ""]);
-    assert.equal(w.cells("runs"), runs, "no run ended");
-    assert.equal(row(w.cells("gates"), "G1").answer, "decline");
-    const added = w.cells("decisions").slice(decisions.length).trim().split("\n");
-    assert.deepEqual(added.map((l) => l.split("\t").slice(1)), [["T1", `${row(w.cells("gates"), "G1").question} → decline`, "the user's answer"]], "one decision row: the owner's answer");
-    assert.deepEqual(readdirSync(join(w.dir, "replace-requests")).length, 1, "one saved change");
-    assert.throws(() => w.intruder("accept", "T1", "--offer", id, "--version", version), /T1 has no open offer/, "the recipient cannot accept again at once");
-    assert.match(w.owner("task", "T1", "set", "title=x"), /^T1 framed/, "the owning chief writes on");
-    w.owner("offer", "T1", "--to", "C2");
-    const second = w.offer().id, tasks = w.cells("tasks");
-    assert.match(w.intruder("gate", "replace", "T1", "--to", "C2"), /^G2 open · .* Decline: nothing changes, and C1 stays the owning chief\. /);
-    assert.equal(w.answer("G2", "--option", "2"), "G2 answered · decline · nothing replaced: T1 keeps its chief C1, and no run ended. G2 is spent: to change the chief, open a new takeover gate.");
-    assert.equal(w.cells("tasks"), tasks);
-    assert.equal(w.offer().id, second);
-  });
-
-  test(`${name}: a change of the task after the offer makes an acceptance out of date`, (t) => {
-    const w = transfer(t);
-    w.owner("offer", "T1", "--to", "C2");
-    const { id } = w.offer(), version = w.version();
-    w.owner("task", "T1", "set", "title=x");
-    assert.throws(() => w.intruder("accept", "T1", "--offer", id, "--version", version), /T1 changed, so this acceptance is out of date/);
-    assert.match(w.intruder("accept", "T1", "--offer", id, "--version", w.version()), /^G1 open · Hand T1 from C1 /);
-  });
-
-  test(`${name}: F11: a run that ends does not advance a waiting transfer, and a transfer changes no run`, (t) => {
-    const w = transfer(t);
-    w.owner("run", "add", "T1", "--role", "qa");
-    w.owner("offer", "T1", "--to", "C2");
-    const { id } = w.offer(), version = w.version(), tasks = w.cells("tasks");
-    const replace = name === "Claude" ? "call the gate_replace tool with this task and to C2" : "run sage gate replace T1 --to C2 --chief C2";
-    assert.throws(() => w.intruder("accept", "T1", "--offer", id, "--version", version), { message: `T1 has R1 active, so it takes no accept yet: a transfer waits for each active run to end. Nothing changed. Run this again after they end. A run that never ends, such as one of unknown status, ends only through a takeover gate that the owner answers: ${replace}.` }, "F-T618-30");
-    w.owner("run", "done", "R1", "--status", "failed", "--why", "stopped");
-    assert.equal(w.cells("tasks"), tasks, "the run's end changes no task row");
-    assert.equal(w.version(), version);
-    assert.equal(row(w.cells("tasks"), "T1").chief, "C1", "the recipient still must accept");
-    const runs = w.cells("runs");
-    assert.match(w.intruder("accept", "T1", "--offer", id, "--version", version), /^G1 open · .* Runs that end as failed: none\./);
-    assert.equal(w.answer("G1", "--option", "1"), "G1 answered · approve · T1 chief C2");
-    assert.equal(w.cells("runs"), runs, "the run keeps the chief that dispatched it");
-    assert.equal(row(runs, "R1").chief, "C1");
-  });
-
-  test(`${name}: F11: cancel: only the exact open offer, also while a run is active; a cancelled offer never becomes valid: OFFER-1, cancel, OFFER-2`, (t) => {
-    const w = transfer(t);
-    w.owner("run", "add", "T1", "--role", "qa");
-    w.owner("offer", "T1", "--to", "C2");
-    const first = w.offer().id, firstVersion = w.version();
-    assert.throws(() => w.owner("cancel", "T1", "--offer", "nothing"), /T1 has the open offer [0-9a-f]{8}, not nothing/);
-    assert.equal(w.owner("cancel", "T1", "--offer", first), `T1 offer ${first} cancelled`, "an active run does not stop it");
-    assert.ok(!row(w.cells("tasks"), "T1").offer);
-    assert.throws(() => w.owner("cancel", "T1", "--offer", first), /T1 has no open offer/);
-    w.owner("run", "done", "R1", "--status", "failed", "--why", "stopped");
-    w.owner("offer", "T1", "--to", "C2");
-    const second = w.offer().id, secondVersion = w.version();
-    assert.notEqual(second, first);
-    assert.notEqual(secondVersion, firstVersion);
-    const before = w.tables();
-    assert.throws(() => w.intruder("accept", "T1", "--offer", first, "--version", firstVersion), /has the open offer/);
-    assert.throws(() => w.intruder("accept", "T1", "--offer", first, "--version", secondVersion), /has the open offer/);
-    assert.throws(() => w.intruder("accept", "T1", "--offer", second, "--version", firstVersion), /out of date/);
-    assert.equal(w.tables(), before, "acceptance of OFFER-1 changes nothing");
-    assert.match(w.intruder("accept", "T1", "--offer", second, "--version", secondVersion), /^G1 open · Hand T1 from C1 /);
-  });
-
-  test(`F-T618-31 ${name}: the recipient declines an offer with cancel: the offer clears, the owning chief keeps the task, and no other chief can`, (t) => {
-    const w = transfer(t);
-    w.owner("run", "add", "T1", "--role", "qa");
-    w.owner("offer", "T1", "--to", "C2");
-    const { id } = w.offer(), version = w.version();
-    other.chiefFor(w.project, "session-c", w.env);
-    const third = (...args) => own.sage([...args, "--project", w.project, "--chief", "C3"], w.env);
-    const before = w.tables();
-    assert.throws(() => third("cancel", "T1", "--offer", id), /^Error: T1 belongs to chief C1 /, "only the chief that the offer names declines it");
-    assert.throws(() => w.intruder("cancel", "T1", "--offer", "nothing"), /T1 has the open offer [0-9a-f]{8}, not nothing/);
-    assert.throws(() => w.nobody("cancel", "T1", "--offer", id), NO_CHIEF);
-    assert.equal(w.tables(), before, "each refusal changes nothing");
-    assert.equal(w.intruder("cancel", "T1", "--offer", id), `T1 offer ${id} declined by C2 · chief C1 keeps T1`, "an active run does not stop it");
-    const task = row(w.cells("tasks"), "T1");
-    assert.equal(task.chief, "C1");
-    assert.ok(!task.offer);
-    assert.match(w.cells("decisions"), new RegExp(`\tT1\tT1 offer ${id} declined by C2\tdecline\n`));
-    assert.throws(() => w.intruder("accept", "T1", "--offer", id, "--version", version), /T1 has no open offer/, "a declined offer never becomes valid");
-    assert.throws(() => w.intruder("cancel", "T1", "--offer", id), /^Error: T1 belongs to chief C1 /, "with no offer to it, the recipient is another chief again");
-    assert.throws(() => w.intruder("task", "T1", "set", "title=x"), /^Error: T1 belongs to chief C1 /, "a decline gives no other write");
-    assert.equal(w.owner("offer", "T1", "--to", "C2").split(" ")[0], "T1", "the owning chief can offer again");
-  });
-
-  test(`${name}: unclaim: the owning chief, with no open offer and no active run, clears the chief; the work stays, it claims the task back, and another chief takes it only through the owner's takeover gate`, (t) => {
+  test(`T1172 ${name}: unclaim: the owning chief, with no active run, clears the chief; the work stays, the next pick-up of another chief takes the task, and the unclaiming chief gets it back only through the owner's takeover gate`, (t) => {
     const w = transfer(t);
     w.owner("run", "add", "T1", "--role", "qa");
     assert.throws(() => w.intruder("unclaim", "T1"), /T1 belongs to chief C1/);
     assert.throws(() => w.owner("unclaim", "T1"), /T1 has R1 active, so it takes no unclaim yet: .* Run this again after they end\. A run that never ends, such as one of unknown status, ends only through a takeover gate that the owner answers: open one that names the chief that goes on with T1\.$/, "F-T618-30");
     w.owner("run", "done", "R1", "--status", "failed", "--why", "stopped");
-    w.owner("offer", "T1", "--to", "C2");
-    assert.throws(() => w.owner("unclaim", "T1"), /T1 has the open offer [0-9a-f]{8} to C2: cancel it first/);
-    w.owner("cancel", "T1", "--offer", w.offer().id);
     const runs = w.cells("runs");
-    assert.equal(w.owner("unclaim", "T1"), "T1 unclaimed · no owning chief. Only C1 claims it back; another chief needs the owner's takeover gate.", "F-T656-3");
+    assert.equal(w.owner("unclaim", "T1"), "T1 unclaimed · no owning chief. The next pick-up of another chief takes it; C1 gets it back only through the owner's takeover gate.");
     assert.ok(!row(w.cells("tasks"), "T1").chief);
     assert.equal(w.cells("runs"), runs, "the work stays");
-    assert.throws(() => w.owner("task", "T1", "set", "title=x"), /T1 has no owning chief, so C1 cannot change it\. Claim it first/);
-    const replace = name === "Claude" ? "call the gate_replace tool with this task and to C2" : "run sage gate replace T1 --to C2 --chief C2";
-    const tables = w.tables();
-    assert.throws(() => w.intruder("claim", "T1", "--version", w.version()), { message: `C1 (${name.toLowerCase()}) unclaimed T1 last, so C2 takes it only through the owner's takeover gate. Nothing changed. Open one for the owner to answer: ${replace}.` });
-    assert.equal(w.tables(), tables, "the refused claim changes nothing");
-    assert.equal(w.owner("claim", "T1", "--version", w.version()), "T1 claimed · chief C1", "the unclaiming chief claims it back");
-    assert.match(w.owner("release", "T1"), /^T1 unclaimed · no owning chief\. .*\nnote: release is unclaim now\. The old words work for one more version\.$/, "T995: the old word works for one version");
-    assert.match(w.intruder("release", "add", "--name", "1.0"), /^release 1\.0 added\. Put a milestone in it/);
-    const [mine, theirs] = name === "Claude" ? ["claude", "codex"] : ["codex", "claude"];
-    const verdicts = theirs === "claude" ? "The verdicts stay, and C2 runs one fresh cycle on its head before it merges." : "The verdicts on its head still count.";
-    assert.equal(w.intruder("gate", "replace", "T1", "--to", "C2"), `G1 open · Hand T1 to C2 (${theirs})? T1 has no owning chief: C1 (${mine}) unclaimed it last. Runs that end as failed: none. Approve: C2 owns T1. The answer clears an open offer. The branch keeps its name. ${verdicts} Decline: nothing changes, and T1 stays with no owning chief. Title of T1: a${next("G1")}`);
-    assert.ok(!row(w.cells("tasks"), "T1").chief, "the gate alone gives nothing");
-    assert.equal(w.answer("G1", "--option", "1"), "G1 answered · approve · T1 chief C2");
+    const replace = name === "Claude" ? "run sage gate replace T1 --to C1 --chief C1" : "call the gate_replace tool with this task and to C1";
+    assert.throws(() => w.owner("task", "T1", "set", "title=x"), { message: `T1 has no owning chief, so C1 cannot change it. Nothing changed. C1 unclaimed it, so the next pick-up of another chief takes it. To get it back, open a takeover gate for the owner to answer: ${replace}.` }, "the unclaiming chief's own writes pick up nothing of its own");
+    assert.equal(w.owner("pickup"), "nothing to pick up");
+    assert.throws(() => w.owner("release", "T1"), /^Error: release takes: add --name/, "F-T1172-16: release T<n> is no alias of unclaim");
+    const theirs = name === "Claude" ? "codex" : "claude", mine = name.toLowerCase();
+    const picked = w.intruder("pickup");
+    assert.match(picked, new RegExp(`^sage: pick-up from C1 \\(${mine}\\) to C2: tasks T1; it unclaimed them\\.\nsage: tell the owner in one line what passed to C2\\.$`));
     assert.equal(row(w.cells("tasks"), "T1").chief, "C2");
+    const handover = JSON.parse(codex.read(w.dir, "decisions").at(-1).handover);
+    assert.deepEqual(handover, { from: "C1", to: "C2", fromProvider: mine, toProvider: theirs, reason: "unclaimed", since: "", tasks: ["T1"], lost: [], queued: [], gates: [] });
     assert.match(w.intruder("task", "T1", "set", "title=x"), /^T1 framed/);
   });
 
-  test(`T656 ${name}: after the move, a chief claims a task that its own provider started; a task of the other provider needs the owner's takeover gate`, (t) => {
+  test(`T1172 ${name}, F-T1172-11: after the move, a moved task that no chief claimed passes only to a chief of its own provider`, (t) => {
     const w = world(t, own, other);
     w.owner("task", "add", "--title", "a", ...ADD);
     w.owner("task", "add", "--title", "b", ...ADD);
@@ -688,29 +406,30 @@ for (const [name, own, other] of pairs) {
     setCells(w.dir, "tasks", (l) => /^T[12]\t/.test(l), "chief", "");
     setCells(w.dir, "tasks", (l) => l.startsWith("T1\t"), "adoption", moved(mine, "T7"));
     setCells(w.dir, "tasks", (l) => l.startsWith("T2\t"), "adoption", moved(theirs, "T8"));
-    const version = (id) => versionOf(w.project, w.env, id);
-    const step = name === "Claude" ? "run sage gate replace T2 --to C1 --chief C1" : "call the gate_replace tool with this task and to C1";
-    assert.equal(w.owner("claim", "T1", "--version", version("T1")), "T1 claimed · chief C1", "its own provider's task: no gate");
-    const before = w.tables();
-    assert.throws(() => w.owner("claim", "T2", "--version", version("T2")), { message: `T2 came in the move from the ${theirs} logbook, so C1 takes it only through the owner's takeover gate. Nothing changed. Open one for the owner to answer: ${step}.` });
-    assert.equal(w.tables(), before, "the refused claim changes nothing");
-    assert.equal(w.intruder("claim", "T2", "--version", version("T2")), "T2 claimed · chief C2", "the chief of the provider that started it claims it");
+    const out = w.owner("task", "T1", "set", "title=x");
+    assert.match(out, new RegExp(`^T1 framed [^\n]*\nsage: pick-up from no chief \\(moved from the ${mine} logbook\\) to C1: tasks T1; they had no owning chief\\.\nsage: tell the owner`), "the write's own line, then the pick-up of its own provider's task only");
+    assert.deepEqual(["T1", "T2"].map((id) => row(w.cells("tasks"), id).chief || ""), ["C1", ""], `T2 came from the ${theirs} logbook, so C1 does not take it`);
+    const replace = name === "Claude" ? "run sage gate replace T2 --to C1 --chief C1" : "call the gate_replace tool with this task and to C1";
+    assert.throws(() => w.owner("task", "T2", "set", "title=y"), { message: `T2 has no owning chief, so C1 cannot change it. Nothing changed. It came in the move from the ${theirs} logbook, so the next pick-up of a ${theirs} chief takes it. To take it, open a takeover gate for the owner to answer: ${replace}.` });
+    assert.match(w.intruder("pickup"), new RegExp(`^sage: pick-up from no chief \\(moved from the ${theirs} logbook\\) to C2: tasks T2; they had no owning chief\\.`));
+    assert.deepEqual(["T1", "T2"].map((id) => row(w.cells("tasks"), id).chief), ["C1", "C2"]);
+    const rows = codex.read(w.dir, "decisions").filter((d) => d.handover).map((d) => JSON.parse(d.handover));
+    assert.deepEqual(rows.map((h) => [h.from, h.fromProvider, h.toProvider, h.tasks]), [["", mine, mine, ["T1"]], ["", theirs, theirs, ["T2"]]]);
+    assert.equal(w.owner("pickup"), "nothing to pick up", "the next pick-up finds nothing");
   });
 
-  test(`T893 ${name}: any chief abandons a task with no owning chief, with a reason; the task keeps no chief, and any other change still needs a claim`, (t) => {
+  test(`T893 ${name}: a chief abandons a task that it unclaimed, with a reason; the task keeps no chief, and any other change refuses`, (t) => {
     const w = world(t, own, other);
     w.owner("task", "add", "--title", "stale", ...ADD);
     w.intruder("task", "add", "--title", "owned", ...ADD);
-    const theirs = name === "Claude" ? "codex" : "claude";
-    setCells(w.dir, "tasks", (l) => l.startsWith("T1\t"), "chief", "");
-    setCells(w.dir, "tasks", (l) => l.startsWith("T1\t"), "adoption", JSON.stringify({ version: 2, provider: theirs, task: "T7", logbook: join(w.base, "old"), project: w.project, round: 0, digest: "0".repeat(64) }));
+    w.owner("unclaim", "T1");
     const before = w.tables();
     const noReason = { message: `T1 has no owning chief. Any chief may abandon it, with a reason: add --why "<reason>". Nothing changed.` };
     assert.throws(() => w.owner("task", "T1", "set", "state=abandoned"), noReason);
     assert.throws(() => w.owner("task", "T1", "set", "state=abandoned", "--why", ""), noReason);
     assert.throws(() => w.owner("task", "T1", "set", "state=abandoned", "--why", "  "), noReason);
     for (const changes of [["state=briefed"], ["priority=P1"], ["branch=sage/t1-a"], ["pr=5"], ["title=x"], ["state=abandoned", "priority=P1"], ["priority=P1", "state=abandoned"], ["state=abandoned", "state=abandoned"]]) {
-      assert.throws(() => w.owner("task", "T1", "set", ...changes, "--why", "stale"), /^Error: T1 has no owning chief, so C1 cannot change it\. Claim it first: /, changes.join(" "));
+      assert.throws(() => w.owner("task", "T1", "set", ...changes, "--why", "stale"), /^Error: T1 has no owning chief, so C1 cannot change it\. Nothing changed\. C1 unclaimed it/, changes.join(" "));
     }
     assert.throws(() => w.owner("task", "T2", "set", "state=abandoned", "--why", "stale"), /^Error: T2 belongs to chief C2 \(.*\), not to C1\. Nothing changed\. Change only your own tasks\./, "another chief's task: the takeover gate, as before");
     assert.equal(w.tables(), before, "each refusal changes nothing");
@@ -718,6 +437,7 @@ for (const [name, own, other] of pairs) {
     assert.equal(row(w.cells("tasks"), "T1").state, "abandoned");
     assert.equal(row(w.cells("tasks"), "T1").chief, "", "the abandon gives the task to no chief");
     assert.match(w.cells("decisions").trim().split("\n").at(-1), /\tT1\tstate abandoned\tstale: an old review checkout · abandoned by C1, with no owning chief$/);
+    assert.equal(w.intruder("pickup"), "nothing to pick up", "an abandoned task is no work to pick up");
     assert.throws(() => w.intruder("task", "T2", "set", "title=x", "--why", "a reason"), /--why gives the reason of an abandon/);
     assert.match(w.intruder("task", "T2", "set", "state=abandoned", "--why", "not needed"), /^T2 abandoned /);
     assert.match(w.cells("decisions").trim().split("\n").at(-1), /\tT2\tstate abandoned\tnot needed · abandoned by C2$/);
@@ -767,59 +487,48 @@ for (const [name, own, other] of pairs) {
     assert.equal(w.tables(), before);
   });
 
-  test(`T656 ${name}: one ledger after a takeover: merge-check --chief refuses the chief that lost the task, and the new chief lands under its provider's rule`, (t) => {
+  test(`T656 ${name}: one ledger after a takeover: merge-check --chief refuses the chief that lost the task, and the new chief of the other provider runs a fresh cycle (T1172)`, (t) => {
     const w = world(t, own, other);
     w.owner("task", "add", "--title", "a", ...ADD);
     for (const kind of ["checks-pass", "review-clean", "qa-pass"]) w.owner(...backed(["verdict", "T1", "--sha", SHA, "--kind", kind, "--pr", "41"], { cli: w.owner, keep: (fields) => own.keepReport(w.project, fields, w.env) }));
     const check = (tool, chief) => tool.sage(["merge-check", "--sha", SHA, "--pr", "41", "--project", w.project, "--chief", chief], w.env);
     assert.equal(check(own, "C1"), "T1 may merge: 1 clean cycle on this SHA");
     assert.throws(() => check(other, "C2"), /^Error: T1 belongs to chief C1 \(\w+\), not to C2\. Nothing changed\./, "a chief that does not own the task");
-    w.owner("offer", "T1", "--to", "C2");
-    w.intruder("accept", "T1", "--offer", JSON.parse(row(w.cells("tasks"), "T1").offer).id, "--version", versionOf(w.project, w.env, "T1"));
+    w.intruder("gate", "replace", "T1", "--to", "C2");
     other.sage(["gate", "answer", "G1", "--option", "1", "--project", w.project], w.env);
     setCells(w.dir, "ledger", () => true, "at", "2026-01-01T00:00:00Z");
-    setCells(w.dir, "decisions", (l) => /→ (?:approve|replace)\tthe user's answer$/.test(l), "at", "2026-01-01T00:00:01Z");
+    setCells(w.dir, "decisions", (l) => /→ (?:approve|replace)\tthe user's answer(?:\t|$)/.test(l), "at", "2026-01-01T00:00:01Z");
+    assert.deepEqual(JSON.parse(codex.read(w.dir, "decisions").at(-1).handover), { from: "C1", fromProvider: own === claude ? "claude" : "codex", toProvider: own === claude ? "codex" : "claude", to: "C2", tasks: ["T1"] }, "the typed hand-over of the takeover answer");
     assert.throws(() => check(own, "C1"), /^Error: T1 belongs to chief C2 \(\w+\), not to C1\. Nothing changed\./, "the chief that lost the task");
-    const hook = () => claude.mergeCheck(SHA, w.env, { pr: "41", project: w.project, session: "session-b" });
+    const tail = other === claude ? "run one cycle of its reviews and QA on this SHA, record each verdict, then merge with gh pr merge." : "its owning chief runs one cycle of its reviews and QA on this SHA, and records each verdict.";
+    const reason = "T1 came from a chief of another provider (2026-01-01T00:00:01Z, by a takeover gate or a pick-up), so the cycles before that do not merge it alone: ";
     const board = () => landingRule([{ id: "shared", path: w.env.SAGE_SHARED_HOME }])("shared", SHA, "41");
-    if (name === "Claude") {
-      assert.equal(check(other, "C2"), "T1 may merge: 1 clean cycle on this SHA", "a Codex chief that took a Claude task: the cycle that Claude recorded counts, and the owner lands it (design 6R)");
-      assert.deepEqual(board(), { ok: true, scope: "all", reason: "T1 may merge: 1 clean cycle on this SHA" });
-      return;
-    }
-    const fresh = /^Error: T1 came from a chief of another provider through a takeover gate \(2026-01-01T00:00:01Z\), so the cycles before that do not merge it alone: run one cycle of its reviews and QA on this SHA, record each verdict, then merge with gh pr merge\.$/;
-    assert.throws(() => check(other, "C2"), fresh);
-    assert.equal(hook().ok, false);
-    assert.deepEqual(board(), { ok: false, scope: "all", reason: "T1 came from a chief of another provider through a takeover gate (2026-01-01T00:00:01Z), so the cycles before that do not merge it alone: its owning chief runs one cycle of its reviews and QA on this SHA, and records each verdict." }, "the board does not say may merge");
+    assert.throws(() => check(other, "C2"), { message: reason + tail }, "the cycle before the takeover does not merge it alone, in either provider");
+    assert.deepEqual(board(), { ok: false, scope: "all", reason: `${reason}its owning chief runs one cycle of its reviews and QA on this SHA, and records each verdict.` }, "the board does not say may merge");
     for (const kind of ["review-clean", "qa-pass"]) w.intruder(...backed(["verdict", "T1", "--sha", SHA, "--kind", kind, "--cycle", "2", "--pr", "41"], { cli: w.intruder, keep: (fields) => other.keepReport(w.project, fields, w.env) }));
-    assert.equal(check(other, "C2"), "T1 may merge: 2 clean cycles on this SHA", "the Codex cycle and the Claude one count together: one ledger");
-    assert.deepEqual(hook(), { ok: true, reason: "T1 may merge: 2 clean cycles on this SHA" });
+    assert.equal(check(other, "C2"), "T1 may merge: 2 clean cycles on this SHA", "the cycle before and the fresh one count together: one ledger");
+    if (other === claude) assert.deepEqual(claude.mergeCheck(SHA, w.env, { pr: "41", project: w.project, session: "session-b" }), { ok: true, reason: "T1 may merge: 2 clean cycles on this SHA" });
     assert.deepEqual(board(), { ok: true, scope: "all", reason: "T1 may merge: 2 clean cycles on this SHA" }, "after the cycle the board says may merge");
   });
 
-  test(`F-T656-2 ${name}: a task that one chief unclaimed and another chief of the same provider took through the gate needs no fresh cycle`, (t) => {
+  test(`F-T656-2, T1172 ${name}: a task that a chief unclaimed passes to the next chief that writes; from a chief of the same provider it needs no fresh cycle, from the other provider it does`, (t) => {
     const w = world(t, own, other);
     w.owner("task", "add", "--title", "a", ...ADD);
     for (const kind of ["checks-pass", "review-clean", "qa-pass"]) w.owner(...backed(["verdict", "T1", "--sha", SHA, "--kind", kind, "--pr", "41"], { cli: w.owner, keep: (fields) => own.keepReport(w.project, fields, w.env) }));
     own.chiefFor(w.project, "session-c", w.env);
     const third = (...args) => own.sage([...args, "--project", w.project, "--chief", "C3"], w.env);
     w.owner("unclaim", "T1");
-    const provider = name.toLowerCase();
-    const opened = third("gate", "replace", "T1", "--to", "C3");
-    own.sage(["gate", "answer", "G1", "--option", "1", "--project", w.project], w.env);
+    assert.match(third("pickup"), /^sage: pick-up from C1 \(\w+\) to C3: tasks T1; it unclaimed them\./);
     setCells(w.dir, "ledger", () => true, "at", "2026-01-01T00:00:00Z");
-    setCells(w.dir, "decisions", (l) => /→ (?:approve|replace)\tthe user's answer$/.test(l), "at", "2026-01-01T00:00:01Z");
-    assert.equal(own.sage(["merge-check", "--sha", SHA, "--pr", "41", "--project", w.project, "--chief", "C3"], w.env), "T1 may merge: 1 clean cycle on this SHA");
-    assert.match(opened, new RegExp(`^G1 open · Hand T1 and PR 41 to C3 \\(${provider}\\)\\? T1 has no owning chief: C1 \\(${provider}\\) unclaimed it last\\. .* The branch keeps its name, and PR 41 keeps its number\\. The verdicts on its head still count\\. Decline: `));
+    setCells(w.dir, "decisions", (l) => /\tpick-up\t/.test(l), "at", "2026-01-01T00:00:01Z");
+    assert.equal(own.sage(["merge-check", "--sha", SHA, "--pr", "41", "--project", w.project, "--chief", "C3"], w.env), "T1 may merge: 1 clean cycle on this SHA", "the same provider: no fresh cycle");
     third("unclaim", "T1");
-    w.intruder("gate", "replace", "T1", "--to", "C2");
-    other.sage(["gate", "answer", "G2", "--option", "1", "--project", w.project], w.env);
+    assert.match(w.intruder("pickup"), /^sage: pick-up from C3 \(\w+\) to C2: tasks T1; it unclaimed them\./);
     const taken = () => other.sage(["merge-check", "--sha", SHA, "--pr", "41", "--project", w.project, "--chief", "C2"], w.env);
-    if (name === "Codex") assert.throws(taken, /^Error: T1 came from a chief of another provider through a takeover gate \(.*\), so the cycles before that do not merge it alone: run one cycle of its reviews and QA on this SHA, /);
-    else assert.equal(taken(), "T1 may merge: 1 clean cycle on this SHA", "a Codex chief counts the Claude cycle (design 6R)");
+    assert.throws(taken, /^Error: T1 came from a chief of another provider \(\S+, by a takeover gate or a pick-up\), so the cycles before that do not merge it alone: /, "the other provider: a fresh cycle");
   });
 
-  test(`${name}: Replace: any chief opens the gate, which names each run; the owner's answer sets the chief, clears the offer and ends each active or unknown run in one write`, (t) => {
+  test(`${name}: Replace: any chief opens the gate, which names each run; the owner's answer sets the chief and ends each active or unknown run in one write`, (t) => {
     const w = transfer(t);
     w.owner("run", "add", "T1", "--role", "lead");
     w.owner("run", "add", "T1", "--role", "qa");
@@ -827,7 +536,6 @@ for (const [name, own, other] of pairs) {
     w.owner("run", "done", "R3", "--status", "failed", "--why", "stopped");
     writeFileSync(join(w.dir, "runs.tsv"), w.cells("runs").replace(/^(R2\tT1\tqa\t\S*\t\t\t)running/m, "$1unknown"));
     assert.equal(row(w.cells("runs"), "R2").status, "unknown");
-    w.owner("offer", "T1", "--to", "C2");
     assert.throws(() => w.intruder("gate", "replace", "T1", "--to", "C1"), /T1 already belongs to C1/);
     assert.throws(() => w.intruder("gate", "replace", "T1", "--to", "C9"), /C9 is not a chief/);
     assert.throws(() => w.nobody("gate", "replace", "T1", "--to", "C2"), NO_CHIEF);
@@ -840,7 +548,6 @@ for (const [name, own, other] of pairs) {
     assert.equal(w.answer("G1", "--option", "1"), "G1 answered · approve · T1 chief C2 · R1, R2 failed");
     const task = row(w.cells("tasks"), "T1"), runs = w.cells("runs");
     assert.equal(task.chief, "C2");
-    assert.ok(!task.offer);
     assert.deepEqual(["R1", "R2", "R3"].map((id) => row(runs, id).status), ["failed", "failed", "failed"]);
     assert.ok(row(runs, "R1").ended && row(runs, "R2").ended);
     assert.deepEqual(["R1", "R2", "R3"].map((id) => row(runs, id).chief), ["C1", "C1", "C1"], "each run keeps the chief that dispatched it");
@@ -925,8 +632,7 @@ for (const [name, own, other] of pairs) {
     assert.equal(w.tables(), before);
     w.answer("G1", "--option", "2");
     w.owner("run", "done", "R1", "--status", "failed", "--why", "stopped");
-    w.owner("offer", "T1", "--to", "C2");
-    w.intruder("accept", "T1", "--offer", w.offer().id, "--version", w.version());
+    w.intruder("gate", "replace", "T1", "--to", "C2");
     w.answer("G2", "--option", "1");
     other.chiefFor(w.project, "session-c", w.env);
     w.intruder("gate", "replace", "T1", "--to", "C3");
@@ -935,8 +641,8 @@ for (const [name, own, other] of pairs) {
     assert.throws(() => w.answer("G3", "--option", "1"), /T1 now belongs to no chief, not to C2, so G3 is out of date/);
     assert.equal(w.tables(), before);
     w.intruder("gate", "replace", "T1", "--to", "C3");
-    w.intruder("claim", "T1", "--version", w.version());
-    assert.throws(() => w.answer("G4", "--option", "1"), /T1 now belongs to chief C2, not to no chief, so G4 is out of date/, "T656: a gate of a task with no chief is out of date after a claim");
+    assert.match(other.sage(["pickup", "--project", w.project, "--chief", "C3"], w.env), /^sage: pick-up from C2 \(\w+\) to C3: tasks T1; it unclaimed them\./);
+    assert.throws(() => w.answer("G4", "--option", "1"), /T1 now belongs to chief C3, not to no chief, so G4 is out of date/, "T656: a gate of a task with no chief is out of date after a pick-up");
   });
 
   test(`${name}: a Replace that stopped half way finishes at the next write of any chief, from the saved change alone`, (t) => {
@@ -1041,7 +747,7 @@ for (const [name, own, other] of pairs) {
     w.owner("run", "add", "T1", "--role", "qa");
     for (const line of ['log T1 "a decision" --why "a reason"', `gate add T1 --message ${QUESTION} --question "a question?" --options "a|b" --recommend a`, 'finding add T1 --source sage --severity low --summary "a problem"']) {
       const before = w.tables();
-      assert.throws(() => w.intruder(...words(line)), /^Error: T1 belongs to chief C1 .* Change only your own tasks\. To take T1, ask C1 to offer it to you, or open a takeover gate for the owner to answer: .*\.$/, line);
+      assert.throws(() => w.intruder(...words(line)), /^Error: T1 belongs to chief C1 .* Change only your own tasks\. A live chief keeps its work; to take T1, open a takeover gate for the owner to answer: .*\.$/, line);
       assert.throws(() => w.nobody(...words(line)), NO_CHIEF, line);
       assert.equal(w.tables(), before, line);
       w.owner(...words(line));
@@ -1120,10 +826,9 @@ test("F-T604-19: parallel processes get unique chiefs, the same ones on a repeat
 
   w.owner("task", "add", "--title", "a", ...ADD);
   writeFileSync(join(w.dir, "tasks.tsv"), w.cells("tasks").replace(/\tC1\n/, "\t\n"));
-  const version = versionOf(w.project, w.env, "T1");
-  const claims = await all(ids.slice(0, 8).map((id) => [TOOL, "claim", "T1", "--version", version, "--chief", id, "--project", w.project]));
-  assert.equal(claims.filter((c) => /^T1 claimed · chief C\d+$/.test(c)).length, 1, claims.join("\n"));
-  assert.equal(claims.filter((c) => /T1 belongs to chief C\d+, so it takes no claim/.test(c)).length, 7, claims.join("\n"));
+  const picks = await all(ids.slice(0, 8).map((id) => [TOOL, "pickup", "--chief", id, "--project", w.project]));
+  assert.equal(picks.filter((c) => /^sage: pick-up from no chief to C\d+: tasks T1; they had no owning chief\./.test(c)).length, 1, picks.join("\n"));
+  assert.equal(picks.filter((c) => c === "nothing to pick up").length, 7, picks.join("\n"));
 
   await all(ids.slice(0, 10).map((id, k) => [TOOL, "task", "add", "--title", `t${k}`, ...ADD, "--chief", id, "--project", w.project]));
   const rows = w.cells("tasks").trim().split("\n").slice(1).map((line) => line.split("\t")[0]);
@@ -1255,7 +960,7 @@ test("F-T618-17: in the Claude hook a replaced chief's gh pr merge refuses and n
   assert.match(merge("s2"), /^sage: the merge check refuses: T1 belongs to chief C1 \(claude\), not to C2\. Nothing changed\./, "a chief that never owned it");
   sage("gate", "replace", "T1", "--to", second, "--chief", second);
   sage("gate", "answer", "G1", "--option", "1");
-  assert.equal(merge("s1"), "sage: the merge check refuses: T1 belongs to chief C2 (claude), not to C1. Nothing changed. Change only your own tasks. To take T1, ask C2 to offer it to you, or open a takeover gate for the owner to answer: run sage gate replace T1 --to C1 --chief C1.", "the replaced chief");
+  assert.equal(merge("s1"), "sage: the merge check refuses: T1 belongs to chief C2 (claude), not to C1. Nothing changed. Change only your own tasks. A live chief keeps its work; to take T1, open a takeover gate for the owner to answer: run sage gate replace T1 --to C1 --chief C1.", "the replaced chief");
   assert.equal(merge("s2"), undefined, "the new owning chief merges");
   for (const prompt of ["sage mode", "autopilot on"]) w.send({ hook_event_name: "UserPromptSubmit", prompt, session_id: undefined });
   const anonymous = w.denied(w.send({ hook_event_name: "PreToolUse", tool_name: "Bash", session_id: undefined, tool_input: { command: `gh pr merge 41 --squash --delete-branch --match-head-commit ${SHA}` } }));
@@ -1287,7 +992,7 @@ test("the Claude hook names the chief on each transfer command, adds none to a g
   const w = hookWorld(t);
   const sage = (...args) => claude.sage([...args, "--project", w.project], w.env);
   sage("link", "--separate");
-  for (const line of ["offer T1 --to C2", "cancel T1 --offer x", `accept T1 --offer x --version ${"0".repeat(64)}`, "unclaim T1", "release T1", "gate replace T1 --to C2", `claim T1 --version ${"0".repeat(64)}`]) {
+  for (const line of ["unclaim T1", "gate replace T1 --to C2", "pickup"]) {
     assert.match(w.bash(line), /add --chief C1 to this command/, line);
     assert.match(w.bash(`${line} --chief C7`), /this session is chief C1/, line);
   }
@@ -1590,7 +1295,7 @@ test("T634: the Claude hook reads a review's branch tip in the checkout of the w
 });
 
 function stamp(dir, at) {
-  const file = join(dir, "decisions.tsv"), lines = readFileSync(file, "utf8").split("\n"), k = lines.findLastIndex((l) => /→ approve\tthe user's answer$/.test(l));
+  const file = join(dir, "decisions.tsv"), lines = readFileSync(file, "utf8").split("\n"), k = lines.findLastIndex((l) => /→ approve\tthe user's answer(?:\t|$)/.test(l));
   lines[k] = lines[k].split("\t").with(lines[0].split("\t").indexOf("at"), at).join("\t");
   writeFileSync(file, lines.join("\n"));
 }
@@ -1605,14 +1310,13 @@ test("F-T656-23: after a takeover from Codex, the fresh Claude cycle counts only
     w.owner("run", "done", id, "--status", "done", "--tokens", "1");
     return [kind, id];
   }));
-  w.owner("offer", "T1", "--to", "C2");
-  w.intruder("accept", "T1", "--offer", JSON.parse(row(w.cells("tasks"), "T1").offer).id, "--version", versionOf(w.project, w.env, "T1"));
+  w.intruder("gate", "replace", "T1", "--to", "C2");
   claude.sage(["gate", "answer", "G1", "--option", "1", "--project", w.project], w.env);
   setCells(w.dir, "ledger", () => true, "at", "2026-01-01T00:00:00Z");
   for (const column of ["started", "ended"]) setCells(w.dir, "runs", () => true, column, "2026-01-01T00:00:00Z");
   stamp(w.dir, "2026-01-01T00:00:01Z");
   const check = () => claude.sage(["merge-check", "--sha", SHA, "--pr", "41", "--project", w.project, "--chief", "C2"], w.env);
-  const fresh = /^Error: T1 came from a chief of another provider through a takeover gate \(2026-01-01T00:00:01Z\), so the cycles before that do not merge it alone: /;
+  const fresh = /^Error: T1 came from a chief of another provider \(2026-01-01T00:00:01Z, by a takeover gate or a pick-up\), so the cycles before that do not merge it alone: /;
   for (const kind of ["review-clean", "qa-pass"]) w.intruder("verdict", "T1", "--sha", SHA, "--kind", kind, "--cycle", "2", "--pr", "41", "--run", pending[kind]);
   assert.throws(check, fresh);
   assert.equal(claude.mergeCheck(SHA, w.env, { pr: "41", project: w.project, session: "session-b" }).ok, false, "the hook's check of C2's gh pr merge");
@@ -1621,7 +1325,7 @@ test("F-T656-23: after a takeover from Codex, the fresh Claude cycle counts only
   assert.equal(check(), "T1 may merge: 3 clean cycles on this SHA");
 });
 
-test("F-T656-20: the last takeover answer decides the fresh cycle: back to a Codex chief needs none, and a move between Claude chiefs keeps the one before it", (t) => {
+test("F-T656-20, T1172: the last hand-over between providers decides the fresh cycle: back to a Codex chief needs one too, and a move between Claude chiefs keeps the one before it", (t) => {
   const w = world(t, codex, claude);
   w.owner("task", "add", "--title", "a", ...ADD);
   for (const kind of ["checks-pass", "review-clean", "qa-pass"]) w.owner(...backed(["verdict", "T1", "--sha", SHA, "--kind", kind, "--pr", "41"], { cli: w.owner, keep: (fields) => codex.keepReport(w.project, fields, w.env) }));
@@ -1635,14 +1339,14 @@ test("F-T656-20: the last takeover answer decides the fresh cycle: back to a Cod
   answer("G1", "2026-01-01T00:00:01Z");
   w.intruder("gate", "replace", "T1", "--to", "C1");
   answer("G2", "2026-01-01T00:00:02Z");
-  assert.equal(check(codex, "C1"), "T1 may merge: 1 clean cycle on this SHA", "a Codex chief counts the cycles before (design 6R)");
-  assert.equal(landingRule([{ id: "shared", path: w.env.SAGE_SHARED_HOME }])("shared", SHA, "41").ok, true, "the board agrees");
+  assert.throws(() => check(codex, "C1"), /^Error: T1 came from a chief of another provider \(2026-01-01T00:00:02Z, by a takeover gate or a pick-up\)/, "T1172: a Codex chief that gets a task from Claude runs a fresh cycle too");
+  assert.equal(landingRule([{ id: "shared", path: w.env.SAGE_SHARED_HOME }])("shared", SHA, "41").ok, false, "the board agrees");
   w.intruder("gate", "replace", "T1", "--to", "C2");
   answer("G3", "2026-01-01T00:00:03Z");
   claude.chiefFor(w.project, "session-c", w.env);
   w.intruder("gate", "replace", "T1", "--to", "C3");
   answer("G4", "2026-01-01T00:00:04Z");
-  assert.throws(() => check(claude, "C3"), /^Error: T1 came from a chief of another provider through a takeover gate \(2026-01-01T00:00:03Z\)/);
+  assert.throws(() => check(claude, "C3"), /^Error: T1 came from a chief of another provider \(2026-01-01T00:00:03Z, by a takeover gate or a pick-up\)/);
 });
 
 const SESSION = new Map([[claude, "claude-session"], [codex, "codex-session"]]);
@@ -1675,7 +1379,7 @@ function pushWorld(t) {
   const sage = (tool, ...args) => tool.sage([...args, "--project", w.project], w.env);
   return { ...w, env, tree, calls, hook, push, sage };
 }
-const pushBar = (tool, branch, owner, provider, me) => `sage: ${branch} is a branch of T1, so only its owning chief pushes it. T1 belongs to chief ${owner} (${provider}), not to ${me}. Nothing changed. Change only your own tasks. To take T1, ask ${owner} to offer it to you, or open a takeover gate for the owner to answer: ${tool === claude ? `run sage gate replace T1 --to ${me} --chief ${me}.` : `call the gate_replace tool with this task and to ${me}`}`;
+const pushBar = (tool, branch, owner, provider, me) => `sage: ${branch} is a branch of T1, so only its owning chief pushes it. T1 belongs to chief ${owner} (${provider}), not to ${me}. Nothing changed. Change only your own tasks. A live chief keeps its work; to take T1, open a takeover gate for the owner to answer: ${tool === claude ? `run sage gate replace T1 --to ${me} --chief ${me}.` : `call the gate_replace tool with this task and to ${me}`}`;
 const providerOf = (tool) => (tool === claude ? "claude" : "codex");
 
 for (const [name, own, other] of pairs) {

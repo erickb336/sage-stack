@@ -16,9 +16,7 @@ const word = z.string().regex(/^(?!--)/, "a value that does not start with --");
 const optional = (what) => z.string().optional().describe(what);
 const count = (what) => z.union([z.number().int().nonnegative(), z.string()]).optional().describe(what);
 const sha = z.string().describe("the full 40-character SHA of the head commit");
-const version = z.string().regex(/^[0-9a-f]{64}$/).describe("the task's current version");
 const chief = id("C", "the id of a chief of this logbook");
-const offerId = z.string().describe("the id of the open offer");
 
 export const TOOLS = {
   init: { describe: "Make the project's logbook and its standing orders, or check an existing one. Run it once for a new project.", argv: () => ["init"] },
@@ -139,25 +137,13 @@ export const TOOLS = {
     describe: "Lint a head SHA of a task with the rules of the tip of origin/main: it scans the lines that the commit adds since its merge base with origin/main, with the root sgconfig.yml of origin/main, and records lint-pass or lint-fail. It prints each problem with its file and line, and the files that it did not check. When origin/main has no sgconfig.yml, lint records nothing, and its first run opens the lint offer, a gate for the owner (add the rules, not now, never for this project): ask it as any gate. The answer add frames a small task with its brief in the task's pages folder. Run it before merge_check; a lead may run it on its own task.",
     input: { task, sha }, pos: ["task"], argv: (i) => ["lint", i.task],
   },
-  claim: {
-    describe: "Take a task with no owning chief in a shared logbook: one that you unclaimed, or one that your provider started. The version is the one that the refusal of your last write printed. A task that another chief unclaimed last, or that came from the other provider's logbook, needs the owner's takeover gate (gate_replace).",
-    input: { task, version }, pos: ["task"], argv: (i) => ["claim", i.task],
-  },
-  offer: {
-    describe: "Offer your task to another chief of a shared logbook. You stay its owning chief until that chief accepts, and active runs go on.",
-    input: { task, to: chief }, pos: ["task"], argv: (i) => ["offer", i.task],
-  },
-  cancel: {
-    describe: "Cancel your open offer of a task, or decline an offer that another chief made to you; the task keeps its owning chief. A cancelled offer never becomes valid again.",
-    input: { task, offer: offerId }, pos: ["task"], argv: (i) => ["cancel", i.task],
-  },
-  accept: {
-    describe: "Ask for a task that another chief offered to you: it opens a takeover gate, and the task is yours only after the owner's answer approve. No run of the task may be active. The CLI's task command gives the offer's id (in the task's offer cell) and the version; so does the line that the offer printed.",
-    input: { task, offer: offerId, version }, pos: ["task"], argv: (i) => ["accept", i.task],
-  },
   unclaim: {
-    describe: "Give up your task. Only you claim it back; another chief takes it through the owner's takeover gate. The task needs no open offer and no active run. Its work and reports stay.",
+    describe: "Give up your task: the next pick-up of another chief takes it, and you get it back only through the owner's takeover gate. The task needs no active run. Its work and reports stay.",
     input: { task }, pos: ["task"], argv: (i) => ["unclaim", i.task],
+  },
+  pickup: {
+    describe: "Take the work of each stopped session (open tasks, runs, queued runs, open gates) and the tasks with no owning chief, in one locked write. Every write of yours does this first; call it alone to see what passes to you. Tell the owner in one line what you picked up, and start each lost run again.",
+    argv: () => ["pickup"],
   },
   round: { describe: "Start a repair round on the open findings marked fix, also on low findings only. It names the roles to run again. Past max_rounds it holds the task; while autopilot is on, the chief gives the next round itself with why, up to 5 rounds in all, also from that hold.",
     input: { task, why: optional("the chief's reason for an extra round past max_rounds") }, pos: ["task"], argv: (i) => ["round", i.task] },
@@ -207,7 +193,7 @@ export const TOOLS = {
     pos: ["task"], argv: (i) => ["gate", "add", i.task],
   },
   gate_replace: {
-    describe: "The takeover gate: ask the owner to give a task of another chief, or a task with no owning chief that you may not claim, to a chief (to). The gate names each run that ends as failed. The owner's answer does the takeover, through gate_answer.",
+    describe: "The takeover gate: ask the owner to give a task of another, live chief, or a task that you unclaimed, to a chief (to). The gate names each run that ends as failed. The owner's answer does the takeover, through gate_answer.",
     input: { task, to: chief }, pos: ["task"], argv: (i) => ["gate", "replace", i.task],
   },
   gate_answer: {
