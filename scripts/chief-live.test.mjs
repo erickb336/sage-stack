@@ -221,7 +221,7 @@ test("boardChiefs, F-T1059-1, -2, -4, -7, -8: names stay apart, a silent chief t
   assert.equal("running" in c3, false);
 });
 
-test("the board model: a run that the board shows as stale keeps no chief from stopped, and a fresh run does", (t) => {
+test("the board model: a running run holds its chief live, also a run that the board shows as stale (F-T1172-20); with no running run, the chief stops", (t) => {
   const w = linked(t);
   for (const session of ["a", "b", "c"]) claude.chiefFor(w.project, session, w.env);
   const now = Date.parse("2026-11-13T12:00:00.000Z"), iso = (ms) => new Date(ms).toISOString(), DAY = 24 * 60 * MINUTE;
@@ -231,16 +231,16 @@ test("the board model: a run that the board shows as stale keeps no chief from s
   live("C2", 3 * DAY);
   live("C3", 3 * DAY);
   table(w, "tasks", [task("T1", "C1"), task("T2", "C2"), task("T3", "C3")]);
-  table(w, "runs", [run("R1", "T1", "C1", iso(now - 10 * DAY)), run("R2", "T2", "C2", iso(now - 3 * DAY)), run("R3", "T3", "C3", iso(now - 10 * MINUTE))]);
+  table(w, "runs", [run("R1", "T1", "C1", iso(now - 10 * DAY)), { ...run("R2", "T2", "C2", iso(now - 3 * DAY)), status: "done" }, run("R3", "T3", "C3", iso(now - 10 * MINUTE))]);
   const { model, project } = boardOf(w, now);
   assert.deepEqual(project.chiefs.map(({ id, agents, stopped }) => ({ id, agents, stopped })), [
-    { id: "C1", agents: 0, stopped: true },
+    { id: "C1", agents: 1, stopped: false },
     { id: "C2", agents: 0, stopped: true },
     { id: "C3", agents: 1, stopped: false },
   ]);
   const card = (id) => model.tasks.find((one) => one.id === id);
-  assert.deepEqual(["T1", "T2", "T3"].map((id) => card(id).agents.map((agent) => agent.stale)), [[true], [true], [false]], "the board's own clock agrees");
-  assert.ok(card("T1").reasons.some((reason) => reason.kind === "chief-unknown"), "the card says that C1 may have stopped, and the chief line agrees");
+  assert.deepEqual(["T1", "T2", "T3"].map((id) => card(id).agents.map((agent) => agent.stale)), [[true], [], [false]], "the board's own clock marks R1 stale");
+  assert.ok(card("T1").reasons.some((reason) => reason.kind === "chief-unknown"), "the card asks the owner to check C1, which no pick-up takes without the owner");
 });
 
 test("the board model: a live file more than 5 minutes in the future is not trusted: all its values are unknown, as with no live file", (t) => {
@@ -734,14 +734,14 @@ test("T1173: the board gives each session its state: live, quiet with its pass-o
     C5: record({ at: iso(T0 - 2 * HOUR), confirmed: true, ended: { at: iso(T0 - 2 * HOUR), reason: "prompt_input_exit" } }),
     C6: record({ at: iso(T0 - MINUTE) }),
   };
-  const runs = [{ chief: "C1", status: "running" }, { chief: "C4", status: "running", clock: { stale: true } }, { chief: "C5", status: "running" }, { chief: "C5", status: "done" }];
+  const runs = [{ chief: "C1", status: "running" }, { chief: "C4", status: "done" }, { chief: "C5", status: "running" }, { chief: "C5", status: "done" }];
   const chiefs = boardChiefs({ rows, live, runs, waits: ["C3"], owners: ["C1", "C1", "C2", "C4", "C5", "C5", "C5"], now: T0 });
   const pick = ({ id, session, reason, stopped, passOnAt, endedAt, confirmed, tasks, agents, lost, waitsForOwner }) => ({ id, session, reason, stopped, passOnAt, endedAt, confirmed, tasks, agents, lost, waitsForOwner });
   assert.deepEqual(chiefs.map(pick), [
     { id: "C1", session: "live", reason: null, stopped: false, passOnAt: null, endedAt: null, confirmed: true, tasks: 2, agents: 1, lost: 0, waitsForOwner: false },
     { id: "C2", session: "quiet", reason: null, stopped: false, passOnAt: iso(T0 + 5 * HOUR), endedAt: null, confirmed: true, tasks: 1, agents: 0, lost: 0, waitsForOwner: false },
     { id: "C3", session: "quiet", reason: null, stopped: false, passOnAt: null, endedAt: null, confirmed: true, tasks: 0, agents: 0, lost: 0, waitsForOwner: true },
-    { id: "C4", session: "stopped", reason: "quiet-8h", stopped: true, passOnAt: null, endedAt: null, confirmed: true, tasks: 1, agents: 0, lost: 1, waitsForOwner: false },
+    { id: "C4", session: "stopped", reason: "quiet-8h", stopped: true, passOnAt: null, endedAt: null, confirmed: true, tasks: 1, agents: 0, lost: 0, waitsForOwner: false },
     { id: "C5", session: "stopped", reason: "ended", stopped: true, passOnAt: null, endedAt: iso(T0 - 2 * HOUR), confirmed: true, tasks: 3, agents: 1, lost: 1, waitsForOwner: false },
     { id: "C6", session: "live", reason: null, stopped: false, passOnAt: null, endedAt: null, confirmed: false, tasks: 0, agents: 0, lost: 0, waitsForOwner: false },
   ]);

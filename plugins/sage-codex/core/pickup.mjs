@@ -1,6 +1,6 @@
 import { offerOf, replaceOf } from "./chiefs.mjs";
 import { ENDED } from "./milestone-rules.mjs";
-import { sessionState } from "./chief-live.mjs";
+import { runningRuns, sessionState } from "./chief-live.mjs";
 
 export const PICKUP_TABLES = ["tasks", "runs", "gates", "decisions"];
 export const FRESH_MS = 2 * 60_000;
@@ -10,7 +10,7 @@ const iso = (ms) => (Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 1
 
 export function stoppedState({ id, rows, record, nowMs, probe }) {
   if (record && !record.ended && nowMs - record.at < FRESH_MS) return undefined;
-  const running = rows.runs.filter((r) => r.chief === id && r.status === "running").length, gates = rows.gates.filter((g) => g.chief === id && !g.answer).length;
+  const running = runningRuns(rows.runs, id).length, gates = rows.gates.filter((g) => g.chief === id && !g.answer).length;
   const state = sessionState(record, { running, gates }, nowMs, probe());
   return state.state === "stopped" ? state : undefined;
 }
@@ -24,7 +24,7 @@ export function pickupPlan({ to, chiefs, rows, records, probe, now, released, mo
     if (chief.id === to) continue;
     const held = {
       tasks: ofTask((t) => t.chief === chief.id),
-      lost: rows.runs.filter((r) => r.chief === chief.id && r.status === "running").map((r) => r.id),
+      lost: runningRuns(rows.runs, chief.id).map((r) => r.id),
       queued: rows.runs.filter((r) => r.chief === chief.id && r.status === "queued").map((r) => r.id),
       gates: rows.gates.filter((g) => g.chief === chief.id && !g.answer).map((g) => g.id),
     };

@@ -4,11 +4,13 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs, { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import * as claude from "../plugins/sage/skills/sage/sage.mjs";
 import { tool as codex } from "../plugins/sage-codex/skills/sage/sage.mjs";
+import { readBoardSources } from "../plugins/sage/core/board-reader.mjs";
+import { buildBoardModel } from "../plugins/sage/core/board-model.mjs";
 import { backed } from "./verdict-backing.mjs";
 import { QUESTION } from "./fixtures/question-message.mjs";
 
@@ -268,4 +270,28 @@ test("T1172 F-T1172-13: after the off phrase, a session whose agent still runs s
   w.set("runs", "R1", { status: "done", ended: new Date().toISOString().slice(0, 19) + "Z" });
   assert.deepEqual(claude.stoppedSessions(w.project, w.env), ["s-b"], "no agent of it runs now: it is stopped");
   assert.match(c1("pickup"), /^sage: pick-up from C2 \(claude\) to C1: tasks T1; its session stopped \(ended\) at /, "no run is lost");
+});
+
+test("T1172 F-T1172-20: the board and the pick-up agree on a session 9 h quiet: a running run holds it live, also with no news for 24 h; with no running run it is stopped", (t) => {
+  const DAY = 24 * HOUR, iso = (ms) => new Date(ms).toISOString().slice(0, 19) + "Z";
+  const look = (started) => {
+    const w = world(t, { 100: STARTED });
+    const c1 = w.as(claude, w.chief(claude, "s-a")), c2 = w.as(claude, w.chief(claude, "s-b"));
+    c2("task", "add", "--title", "a", ...ADD);
+    if (started !== null) {
+      c2("run", "add", "T1", "--role", "lead");
+      const old = iso(Date.now() - started);
+      for (const table of ["runs", "decisions"]) writeFileSync(join(w.dir, `${table}.tsv`), readFileSync(join(w.dir, `${table}.tsv`), "utf8").replace(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z/g, old));
+    }
+    w.record("C1");
+    w.record("C2", { ago: 9 * HOUR });
+    const now = Date.now(), model = buildBoardModel(readBoardSources([{ id: "shared", path: w.env.SAGE_SHARED_HOME, label: "shared" }], { now }), { now: new Date(now).toISOString() });
+    const chief = model.projects.find((p) => p.books.includes(`shared/${basename(w.dir)}`)).chiefs.find((c) => c.id === "C2");
+    const stale = model.tasks.find((one) => one.id === "T1").agents.map((agent) => agent.stale);
+    const gone = claude.stoppedSessions(w.project, w.env).includes("s-b"), picked = c1("pickup") !== "nothing to pick up";
+    return { board: chief.session, lost: chief.lost, stale, hook: gone, pickup: picked };
+  };
+  assert.deepEqual(look(3 * DAY), { board: "live", lost: 0, stale: [true], hook: false, pickup: false }, "a run with no news for 24 h: the board shows it stale, and the session stays live in the board, the hook and the pick-up");
+  assert.deepEqual(look(10 * 60_000), { board: "live", lost: 0, stale: [false], hook: false, pickup: false }, "a fresh run holds the session live everywhere");
+  assert.deepEqual(look(null), { board: "stopped", lost: 0, stale: [], hook: true, pickup: true }, "with no running run, all three say stopped");
 });
