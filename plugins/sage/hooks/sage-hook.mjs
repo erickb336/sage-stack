@@ -1242,8 +1242,8 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
       const role = raw === undefined ? undefined : String(raw).toLowerCase();
       mkdirSync(dir, { recursive: true });
       expire();
-      const stopped = new Set(gone.filter((native) => native !== rawSession).map(hash));
-      for (const slot of list()) if (stopped.has(mark(slot, "scope-"))) free(slot);
+      const goneScopes = new Set(gone.filter((native) => native !== rawSession).map(hash));
+      for (const slot of list()) if (goneScopes.has(mark(slot, "scope-"))) free(slot);
       const exact = caller !== undefined || role === "sage:lead";
       if (exact && (!valid(rawSession) || !valid(toolUseId) || (caller !== undefined && !valid(caller)))) return { refused: "identity", ...counts(project) };
       const tu = valid(toolUseId) ? toolUseId : String(now);

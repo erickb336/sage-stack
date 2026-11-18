@@ -651,7 +651,8 @@ test("F-T1172-6: the agent cap drops the Claude slots of a stopped session, and 
   assert.equal(mine.take("app", 3, "call-x", { role: "sage:implementer", gone: [] }).refused, "total", "3 of 3 places are taken by the other session");
   assert.equal(mine.take("app", 3, "call-y", { role: "sage:implementer", gone: ["claude-a"] }).refused, "total", "a session never drops its own slots");
   assert.deepEqual(mine.take("app", 3, "call-z", { role: "sage:implementer", gone: ["claude-b"] }), { ok: true }, "the stopped session's places are free");
-  assert.equal(readdirSync(join(dir, "slots")).filter((name) => name.startsWith("slot-")).length, 1);
+  assert.deepEqual(mine.take("app", 3, "call-w", { role: "sage:implementer", caller: "agent-1", gone: ["claude-b"] }), { ok: true }, "a helper of a lead (an exact slot) takes a place too");
+  assert.equal(readdirSync(join(dir, "slots")).filter((name) => name.startsWith("slot-")).length, 2);
 });
 
 function codexThread(w, session) {
