@@ -234,6 +234,8 @@ function handleEvent(input, state, slots) {
   if (event === "PostToolUse" && input.tool_name === "Bash" && input.agent_type === "sage:lead") return void leadWrote(input, slots);
   if (event === "PostToolUse" && input.tool_name === "Bash" && main) {
     chiefEnded(input, slots);
+    const asked = state.sage && ASKED.exec(outText(input))?.[1];
+    if (asked) state.asked = [...new Set([...(state.asked ?? []), asked])];
     const picked = pickupNote(input, state);
     return picked ? context(event, picked) : undefined;
   }
@@ -738,21 +740,27 @@ function pickupNote(input, state) {
   try { lines = stateTool.pickupAnswers(realpathSync.native(input.cwd), input.session_id, process.env); } catch { return ""; }
   return lines.length ? [`sage: the owner answered on the board, and this hook applied ${lines.length === 1 ? "that answer" : "those answers"} for you. Tell the owner what each one did, and go on from it:`, ...lines.map((line) => `- ${line}`)].join("\n") : "";
 }
+const ASKED = /^(G[1-9]\d*) open · /m;
 const busy = (task) => task?.status === undefined || ["running", "pending"].includes(task.status);
 function gatesWaitNote(input, state) {
   if (!Array.isArray(input.background_tasks) || input.background_tasks.some(busy) || stateTool.error || typeof input.cwd !== "string") return "";
   let own;
   try { own = stateTool.ownGates(realpathSync.native(input.cwd), { native: input.session_id }, process.env); } catch { return ""; }
-  const key = own.open.join(",");
+  const legacy = own.me === "", open = legacy ? own.open.filter((id) => state.asked?.includes(id)) : own.open, key = open.join(",");
+  if (legacy) state.asked = (state.asked ?? []).filter((id) => own.open.includes(id) || own.pending.some((p) => p.id === id));
   if (!key) delete state.gatesTold;
   if (!key || state.gatesTold === key) return "";
   state.gatesTold = key;
-  return `sage: ${own.open.join(", ")} ${own.open.length === 1 ? "waits" : "wait"} for the owner, and no agent or command of yours runs, so nothing wakes you when the owner answers on the board. Before you end the turn, start the gates wait, as a Bash command of its own with run_in_background true, in the project's folder: ${nodeCommand(WAIT, `--gates${own.me ? ` ${own.me}` : ""}`)}. It ends when an answer comes, and then this hook applies a board answer at your next step.`;
+  return `sage: ${open.join(", ")} ${open.length === 1 ? "waits" : "wait"} for the owner, and no agent or command of yours runs, so nothing wakes you when the owner answers on the board. Before you end the turn, start the gates wait, as a Bash command of its own with run_in_background true, in the project's folder: ${nodeCommand(WAIT, `--gates ${legacy ? key : own.me}`)}. It ends when an answer comes, and then this hook applies a board answer at your next step.`;
 }
 export async function waitForGates(chief, cwd, { ms = WAIT_MS, every = 5_000 } = {}) {
-  const usage = "usage: node wait.mjs --gates [C<n>], in the project's folder; a shared logbook needs your chief id, for example node wait.mjs --gates C1";
-  if (chief !== undefined && !/^C[1-9]\d*$/.test(chief)) return usage;
-  const folder = realpathSync.native(cwd), look = () => stateTool.ownGates(folder, chief === undefined ? {} : { chief }, process.env);
+  const usage = "usage: node wait.mjs --gates [C<n>], in the project's folder; a shared logbook needs your chief id, for example node wait.mjs --gates C1; a logbook that is not shared takes the ids of the gates that you asked, for example node wait.mjs --gates G3,G4";
+  const ids = /^G[1-9]\d*(?:,G[1-9]\d*)*$/.test(chief ?? "") ? chief.split(",") : undefined;
+  if (chief !== undefined && !ids && !/^C[1-9]\d*$/.test(chief)) return usage;
+  const folder = realpathSync.native(cwd), look = () => {
+    const own = stateTool.ownGates(folder, chief === undefined || ids ? {} : { chief }, process.env);
+    return ids ? { ...own, open: own.open.filter((id) => ids.includes(id)), pending: own.pending.filter((p) => ids.includes(p.id)) } : own;
+  };
   const first = look(), started = Date.now();
   if (first.me === undefined) return usage;
   for (;;) {

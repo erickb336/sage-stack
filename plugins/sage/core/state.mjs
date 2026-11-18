@@ -3315,7 +3315,7 @@ function act(cmd, pos, opt, dir, env, skip, project) {
       write(dir, "tasks", tasks);
       write(dir, "gates", [...gates, g]);
       write(dir, "decisions", [...decisions, ...rowsOfMoves, ...unreleased, ...kept, { at, task: pilot.id, decision, why: PROPOSE }]);
-      return `${pid} proposed${round > 1 ? ` (round ${round})` : ""} · pilot ${pilot.id} · ${others.length ? `tasks ${others.map((t) => t.id).join(", ")}` : "no other task"} · ${g.id} open: ask the owner to approve, change or drop it. To say what to change, the owner may answer in own words. Until the owner approves, no task of ${pid} builds.`;
+      return `${pid} proposed${round > 1 ? ` (round ${round})` : ""} · pilot ${pilot.id} · ${others.length ? `tasks ${others.map((t) => t.id).join(", ")}` : "no other task"}\n${g.id} open · ask the owner to approve, change or drop it. To say what to change, the owner may answer in own words. Until the owner approves, no task of ${pid} builds.`;
     }
     case "release": {
       if (sub !== "add" || id !== undefined) refuse(`release takes: add --name "<name>" [--goal "<goal>"]. A milestone goes into a release with sage milestone <M> set release=<name>, and a task outside a milestone with sage task <T> set release=<name>.`);

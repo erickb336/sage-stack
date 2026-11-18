@@ -360,3 +360,12 @@ test("F-T1158-7 and F-T1158-3: when a logbook cannot be read, Stats shows one ba
   chmodSync(join(project, "runs.tsv"), 0o644);
   assert.deepEqual(problems, []);
 });
+
+test("F-T1168-8: a board that only reads says so once on the Overview, and gives each piece of advice once", async t => {
+  const { page } = await open(t, { viewport: { width: 390, height: 900 } });
+  const body = await page.locator("body").innerText(), count = pattern => body.match(pattern)?.length ?? 0;
+  assert.equal(count(/only reads/g), 1, "one read-only note");
+  assert.equal(count(/stop (?:this|the) board/gi), 1, "one way to stop the board: ask the chief");
+  assert.equal(count(/the chief's chat/g), 1, "one place to answer: the chief's chat");
+  assert.equal(await page.locator(`section[aria-labelledby="needs-h"] .card-h .hint`).textContent(), "Oldest first", "no pairing advice on a board that cannot pair");
+});

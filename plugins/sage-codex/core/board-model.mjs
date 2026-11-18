@@ -390,7 +390,7 @@ function movedIn(project, task) {
 }
 export const isOpen = task => !ENDED.includes(task.state) && !task.moved;
 const DAY_MS = 86400000, ACTIVE_DAYS = 14, OLDER_DAYS = 30;
-const PROBLEM_NEEDS = ["logbook", "milestones", "releases", "missing", "source"];
+const PROBLEM_NEEDS = ["logbook", "milestones", "releases", "missing", "source", "unread"];
 const bookTimes = project => [...(project.tables.decisions ?? NONE).map(row => row.at), ...(project.tables.gates ?? NONE).flatMap(gate => [gate.at, boardAnswer(gate)?.at])].map(time).filter(at => at !== null);
 const ARCHIVE_ROWS = ["project archived", "project restored"];
 const logbookLabel = ({ source }) => source.provider ? source.label ?? source.provider : "shared";

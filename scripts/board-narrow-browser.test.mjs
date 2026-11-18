@@ -121,8 +121,8 @@ test("T1099 F-T1099-54: in the Tasks rows, a step that needs you carries ? and a
   assert.deepEqual([...new Set(of("run").map(step => step.shown))], [""], "a step in progress needs no mark");
 });
 
-const HEADER_BOUND_WITH_ANY_SYSTEM_FONTS = 250;
-test("T1159 (F-T1159-50): on a phone the board's shell is compact and never covers the page: the header ends by 250 px on any system (283 px before on macOS), scrolls away with the page, and keeps 44 px targets", async t => {
+const HEADER_BOUND_WITH_ANY_SYSTEM_FONTS = 280;
+test("T1159 (F-T1159-50): on a phone the board's shell is compact and never covers the page: the header ends by 280 px on any system (283 px before on macOS), scrolls away with the page, and keeps 44 px targets", async t => {
   const base = await board(t);
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   t.after(() => context.close());
@@ -134,8 +134,37 @@ test("T1159 (F-T1159-50): on a phone the board's shell is compact and never cove
       const top = document.querySelector("header.top"), box = element => element.getBoundingClientRect();
       return { bottom: Math.round(box(top).bottom), position: getComputedStyle(top).position, small: [...document.querySelectorAll(".nav a, header.top button")].filter(item => box(item).height < 44).map(item => item.textContent) };
     });
-    assert.ok(shell.bottom <= HEADER_BOUND_WITH_ANY_SYSTEM_FONTS, `${name}: the header ends at ${shell.bottom} px, not by ${HEADER_BOUND_WITH_ANY_SYSTEM_FONTS} px (201 px with the fonts of macOS, 232 px with the wider fonts of CI's Linux runner)`);
+    assert.ok(shell.bottom <= HEADER_BOUND_WITH_ANY_SYSTEM_FONTS, `${name}: the header ends at ${shell.bottom} px, not by ${HEADER_BOUND_WITH_ANY_SYSTEM_FONTS} px (218 px with the fonts of macOS; 232 px on CI's Linux runner before the 44 px chips of F-T1168-7, which add 17 px for each row of chips)`);
     assert.equal(shell.position, "static", `${name}: the header scrolls away, so it covers nothing`);
     assert.deepEqual(shell.small, [], `${name}: each page link and header button is at least 44 px high`);
+  }
+});
+
+test("F-T1168-7: at 390 px each control on Overview, Tasks and a task page is a 44 px touch target: chips, filters, tabs and buttons", async t => {
+  const base = await board(t);
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  t.after(() => context.close());
+  const page = await context.newPage();
+  for (const [name, path, ready] of [["overview", "/app/#", ".needs .q"], ["tasks", "/app/#tasks", ".row"], ["task", `/app/#task?key=${encodeURIComponent(KEY("T2"))}`, ".about-card"]]) {
+    await page.goto(`${base}${path}`);
+    await page.locator(ready).first().waitFor();
+    const small = await page.evaluate(() => [...document.querySelectorAll("button, select, input:not([type=radio], [type=checkbox]), summary, [role=tab], .chip, a.limit")]
+      .filter(item => item.getClientRects().length && getComputedStyle(item).visibility !== "hidden")
+      .map(item => [item.tagName.toLowerCase(), item.className, item.textContent.trim().slice(0, 30), Math.round(item.getBoundingClientRect().height)])
+      .filter(([, , , height]) => height < 44));
+    assert.deepEqual(small, [], `${name}: each control is at least 44 px high`);
+  }
+});
+
+test("F-T1159-50 in CI (a flaky test): on a phone the side bar keeps its own height when the page is shorter than the screen, also while a page loads", async t => {
+  const base = await board(t);
+  const context = await browser.newContext({ viewport: { width: 390, height: 3000 }, colorScheme: "dark" });
+  t.after(() => context.close());
+  const page = await context.newPage();
+  for (const [name, path] of [["overview", "/app/#"], ["question", `/app/#question?key=${encodeURIComponent(KEY("G4"))}`], ["stats", "/app/#stats"]]) {
+    await page.goto(`${base}${path}`);
+    await page.locator("main h1").waitFor();
+    const { side, nav } = await page.evaluate(() => ({ side: Math.round(document.querySelector(".side").getBoundingClientRect().height), nav: Math.round(document.querySelector(".side > nav").getBoundingClientRect().height) }));
+    assert.ok(side <= nav + 60, `${name}: the side bar is ${side} px high for a ${nav} px page list: the grid gave it the empty space of the screen`);
   }
 });

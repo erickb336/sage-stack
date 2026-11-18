@@ -138,7 +138,7 @@ test("T1083 F-T1083-7, F-T1083-10: the Status trail uses the route's step words,
   const base = await board(t), trail = page => aboutPart(page, "Status").locator(".trail li").allTextContents();
   const open = await openPage(t, base, "T2", "Sample chief records");
   assert.deepEqual(await trail(open), ["build (now)", "reviews (not started)", "QA (not started)"], "route build,code-review,qa: no Plan and no Merge");
-  assert.match(await open.locator(".facts-line").first().textContent(), /Run by Claude · C1 \(chief in progress\)/, "an open task names the chief's state as the chief's");
+  assert.match(await open.locator(".facts-line").first().textContent(), /Run by Claude · C1 \(chief active\)/, "F-T1168-8: an open task says that its chief is active, not \"chief in progress\"");
   const merged = await openPage(t, base, "T1", "Sample pinned bundle");
   assert.deepEqual(await trail(merged), ["build ✓ (done)", "reviews ✓ (done)", "QA ✓ (done)"]);
   assert.equal(await merged.locator(".facts-line").first().textContent(), "doneP1 · small · Run by Claude · C1", "a merged task shows one state, done, and no chief activity");
