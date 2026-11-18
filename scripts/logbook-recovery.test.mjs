@@ -411,10 +411,10 @@ for (const [name, provider] of [['Claude', claude], ['Codex', codex]]) test(`T59
   const { one } = fixture(t);
   savedUsage(t, one);
   const file = join(one.dir, MARKER);
-  rewrite(file, value => { value.schema = 10; });
+  rewrite(file, value => { value.schema = 11; });
   const saved = snapshot(one.dir);
   assert.throws(() => one.run(provider, 'init'), { message: STUCK });
-  assert.throws(() => one.run(provider, ...REPAIR), { message: 'This saved change has schema 10, and this version of sage knows schemas up to 9: a newer sage wrote it and may finish it. Nothing changed. Update the sage plugin and restart this session. Then any write finishes the change or says what to do.' });
+  assert.throws(() => one.run(provider, ...REPAIR), { message: 'This saved change has schema 11, and this version of sage knows schemas up to 10: a newer sage wrote it and may finish it. Nothing changed. Update the sage plugin and restart this session. Then any write finishes the change or says what to do.' });
   assert.deepEqual(snapshot(one.dir), saved);
 });
 

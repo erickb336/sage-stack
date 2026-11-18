@@ -10,6 +10,7 @@ import { test } from "node:test";
 import * as claude from "../plugins/sage/skills/sage/sage.mjs";
 import { tool as codex } from "../plugins/sage-codex/skills/sage/sage.mjs";
 import { backed } from "./verdict-backing.mjs";
+import { QUESTION } from "./fixtures/question-message.mjs";
 
 const SHA = "b".repeat(40), ADD = ["--size", "small", "--priority", "P2"], HOUR = 3_600_000, STARTED = Date.parse("2026-11-17T08:00:00.000Z");
 const LAUNCHER = [fileURLToPath(new URL("../plugins/sage/hooks/launcher.mjs", import.meta.url)), "sage-hook.mjs"];
@@ -47,7 +48,7 @@ test("T1172 rule 1: a live or quiet chief never loses work: two live chiefs move
   const w = world(t, { 100: STARTED });
   const c1 = w.as(claude, w.chief(claude, "s-a")), c2 = w.as(codex, w.chief(codex, "s-b"));
   c2("task", "add", "--title", "theirs", ...ADD);
-  c2("gate", "add", "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes");
+  c2("gate", "add", "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes", "--message", QUESTION);
   w.record("C1");
   w.record("C2");
   assert.equal(c1("pickup"), "nothing to pick up", "two live chiefs");
@@ -67,7 +68,7 @@ test("T1172 rule 2 (F-T1172-1): all holdings move: a stopped chief with no task,
   c1("run", "add", "T1", "--role", "code-reviewer");
   w.set("runs", "R1", { chief: "C2" });
   w.set("runs", "R2", { chief: "C2", status: "queued" });
-  c2("gate", "add", "--question", "A question of C2?", "--options", "yes|no", "--recommend", "yes");
+  c2("gate", "add", "--question", "A question of C2?", "--options", "yes|no", "--recommend", "yes", "--message", QUESTION);
   w.record("C1");
   w.record("C2", { ago: 5 * 60_000, ended: "prompt_input_exit" });
   const out = c1("pickup");

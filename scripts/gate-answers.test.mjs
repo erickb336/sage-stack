@@ -510,7 +510,7 @@ for (const [from, to] of [["claude", "codex"], ["codex", "claude"]]) {
 }
 
 for (const [from, to] of [["claude", "codex"], ["codex", "claude"]]) {
-  test(`after the owner hands a ${from} task to the ${to} chief and the ${to} chief unclaims it, the task's older gates stay with the ${to} chief, the one chief that may claim it back`, (t) => {
+  test(`after the owner hands a ${from} task to the ${to} chief and the ${to} chief unclaims it, the task's older gates stay with the ${to} chief until a pick-up (T1172)`, (t) => {
     const w = shared(t);
     const giver = w.chiefs[from], taker = w.chiefs[to];
     const wait = (chief) => spawnSync(process.execPath, [WAIT, "--gates", chief], { cwd: w.project, env: { ...w.env, SAGE_WAIT_MS: "300" }, encoding: "utf8", timeout: 60_000 }).stdout;
@@ -519,7 +519,7 @@ for (const [from, to] of [["claude", "codex"], ["codex", "claude"]]) {
     w.as(from, "gate", "add", "--message", QUESTION, "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes");
     w.owner(from, "gate", "give", "T1", "--to", taker);
     w.owner(to, "gate", "answer", "G2", "--option", "1", "--via", `${to}-card`);
-    assert.match(w.as(to, "unclaim", "T1"), new RegExp(`^T1 unclaimed · no owning chief\\. Only ${taker} claims it back`));
+    assert.match(w.as(to, "unclaim", "T1"), new RegExp(`^T1 unclaimed · no owning chief\\. The next pick-up of another chief takes it; ${taker} gets it back only through the owner's takeover gate\\.$`));
     assert.equal(w.task("T1").chief, "");
     assert.deepEqual([wait(giver), wait(taker)], [NONE, WAITS], "G1 stays with the chief that unclaimed T1");
     const told = claudeEvent(w, { hook_event_name: "Stop", stop_hook_active: false, last_assistant_message: "ok", background_tasks: [] });
