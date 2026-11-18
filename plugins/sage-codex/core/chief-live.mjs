@@ -125,7 +125,7 @@ export function chiefRecord(dir, chief) {
 const ahead = (record, now) => record.at - now > SKEW_MS;
 export function sessionState(record, { running = 0, gates = 0 } = {}, now, probe) {
   if (!record) return { state: "quiet", reason: null };
-  if (record.ended) return { state: "stopped", reason: "ended" };
+  if (record.ended && (record.ended !== "off" || !running)) return { state: "stopped", reason: "ended" };
   if (record.confirmed && record.machine && probe?.machine === record.machine) {
     const gone = !probe.alive(record.pid) || Math.abs(probe.started(record.pid) - record.pidStart) > START_MS;
     if (gone) return { state: "stopped", reason: "gone" };

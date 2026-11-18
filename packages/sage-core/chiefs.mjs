@@ -13,7 +13,7 @@ export function writerClass(cmd, [sub, id] = []) {
     case "task": return sub === "add" ? NEW : id === "set" ? onTask(sub) : READ;
     case "unclaim": return onTask(sub);
     case "pickup": return ANY;
-    case "release": return TASK.test(sub ?? "") ? onTask(sub) : sub === "add" ? ANY : READ;
+    case "release": return sub === "add" ? ANY : READ;
     case "task-adopt": case "round": case "verdict": case "lint": return onTask(sub);
     case "finding": return onTask(id);
     case "milestone": case "program": return id === "set" ? ANY : { kind: "milestone" };
@@ -34,7 +34,7 @@ export function writerClass(cmd, [sub, id] = []) {
   }
 }
 
-export const chiefOnly = (cmd, [sub] = []) => ["unclaim", "pickup"].includes(cmd) || (cmd === "release" && TASK.test(sub ?? "")) || (cmd === "gate" && sub === "replace");
+export const chiefOnly = (cmd, [sub] = []) => ["unclaim", "pickup"].includes(cmd) || (cmd === "gate" && sub === "replace");
 
 export function offerOf(task) {
   try {

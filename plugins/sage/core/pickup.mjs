@@ -1,4 +1,4 @@
-import { offerOf } from "./chiefs.mjs";
+import { offerOf, replaceOf } from "./chiefs.mjs";
 import { ENDED } from "./milestone-rules.mjs";
 import { sessionState } from "./chief-live.mjs";
 
@@ -38,6 +38,7 @@ export function pickupPlan({ to, chiefs, rows, records, probe, now, released, mo
     const from = released(task) ?? "";
     if (from === to) continue;
     const fromProvider = from ? chiefs.find((c) => c.id === from)?.provider ?? "" : moved(task) ?? "";
+    if (!from && fromProvider && fromProvider !== me.provider) continue;
     const key = `${from}\t${fromProvider}`;
     if (!free.has(key)) free.set(key, { from, fromProvider, reason: FREE[from ? 0 : 1], since: "", tasks: [], lost: [], queued: [], gates: [] });
     free.get(key).tasks.push(task.id);
@@ -49,7 +50,7 @@ export function pickupPlan({ to, chiefs, rows, records, probe, now, released, mo
 
 export const handoverOf = (decision) => {
   try {
-    const h = JSON.parse(decision.handover || "null");
+    const h = decision.handover ? JSON.parse(decision.handover) : / → (?:approve|replace)$/.test(decision.decision ?? "") ? replaceOf({ question: decision.decision }) : null;
     return h && typeof h.to === "string" && typeof h.from === "string" ? { fromProvider: "", toProvider: "", ...h, tasks: Array.isArray(h.tasks) ? h.tasks : [] } : undefined;
   } catch { return undefined; }
 };

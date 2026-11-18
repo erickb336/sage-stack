@@ -643,7 +643,7 @@ A moved folder with no Git commits, or that is no Git repository, has no first c
 | --- | --- |
 | The task belongs to another chief | The write refuses, names the owning chief and changes nothing, on every path. To take the task, a chief opens a takeover gate for you. |
 | A push of a branch that a live task of another chief uses | The hook refuses `git push`, also from the chief's agents, and names the owning chief and the takeover gate. A task uses its `branch=` and the branch of each of its runs. A branch that no task uses, or that only an ended task uses, takes the push. |
-| The task has no owning chief | The next write of a chief picks it up first (see below), so the write goes on. Only the chief that unclaimed the task does not pick it up: its write refuses and names the takeover gate. |
+| The task has no owning chief | The next write of a chief picks it up first (see below), so the write goes on. Two chiefs do not pick it up, and their write refuses and names the takeover gate: the chief that unclaimed the task, and, for a task that came in the move and that no chief claimed, a chief of the other provider. |
 | A chief abandons a task that it unclaimed | It may do it, with a reason, and needs no takeover gate: `sage task <T> set state=abandoned --why "<reason>" --chief C<n>`, or `task_set` with that state alone and `why` in Codex. The task keeps no chief, and the decision row keeps the reason and the chief. |
 | `task-adopt` in a shared logbook | It refuses: after the move, the other provider's tasks are in the logbook already. An old, separate logbook keeps `task-adopt` as before. |
 
@@ -651,7 +651,7 @@ A moved folder with no Git commits, or that is no Git repository, has no first c
 
 | A session is stopped when | Example |
 | --- | --- |
-| It ended cleanly | You exited Claude, or you said the off phrase in it. |
+| It ended cleanly | You exited Claude, or you said the off phrase in it. After the off phrase, the program still runs, so the session stays live until no agent of it runs. |
 | Its program is surely gone | Sage saw the same program in two actions at least 1 min apart, on this Mac, and that program no longer runs. |
 | 8 h with no action, no agent at work and no open gate of its own | A closed Codex desktop thread: the app stays open, so only this rule passes its work on. |
 

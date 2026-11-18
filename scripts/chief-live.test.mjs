@@ -507,6 +507,7 @@ for (const [name, say] of [["Claude", claudeSay], ["Codex", codexSay]]) test(`T1
   say(w, "sage mode off");
   assert.equal(recordOf(w, "C1").ended, "off");
   assert.deepEqual(sessionState(recordOf(w, "C1"), {}, Date.now(), null), { state: "stopped", reason: "ended" });
+  assert.deepEqual(sessionState(recordOf(w, "C1"), { running: 1 }, Date.now(), null), { state: "live", reason: null }, "F-T1172-13: the program stays after the off phrase, so a running agent of the session keeps it live");
   say(w, "sage mode");
   assert.equal(recordOf(w, "C1").ended, null, "the session is a chief again");
   assert.equal(chiefRows(w).length, 1);

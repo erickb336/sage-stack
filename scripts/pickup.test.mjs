@@ -209,11 +209,63 @@ test("T1172 F-T1172-4: a closed Codex desktop thread, whose app program stays op
   assert.match(c1("pickup"), /^sage: pick-up from C2 \(codex\) to C1: tasks T1; its session stopped \(quiet-8h\) at /, "8 h with no action, no agent and no open gate: it passes on");
 });
 
-test("T1172 F-T1172-5: no command is named release for a task's owner: release T<n> is the old word for unclaim, and claim, offer, cancel and accept are gone", (t) => {
+test("T1172 F-T1172-18: claim, offer, cancel and accept are gone, and each points to unclaim, the pick-up and the takeover gate", (t) => {
   const w = world(t);
   const c1 = w.as(claude, w.chief(claude, "s-a"));
   c1("task", "add", "--title", "a", ...ADD);
-  for (const cmd of ["claim", "offer", "cancel", "accept"]) assert.throws(() => c1(cmd, "T1"), new RegExp(`^Error: unknown command "${cmd}"`), cmd);
-  assert.match(c1("release", "T1"), /^T1 unclaimed · no owning chief\. The next pick-up of another chief takes it;.*\nnote: release is unclaim now\./s);
+  for (const cmd of ["claim", "offer", "cancel", "accept"]) {
+    assert.throws(() => c1(cmd, "T1"), new RegExp(`^Error: unknown command "${cmd}"\\. Commands: [^\\n]+\\n${cmd} is gone: .*unclaim <T>.*pick-up.*takeover gate`), `F-T1172-18: ${cmd} points to what replaced it`);
+  }
+  assert.throws(() => c1("frobnicate", "T1"), (e) => /^unknown command "frobnicate"\. Commands: [^\n]+$/.test(e.message), "another unknown word gets the plain list only");
+});
+
+test("T1172 F-T1172-5, F-T1172-16: no command is named release for a task's owner: release T<n> is no alias of unclaim", (t) => {
+  const w = world(t);
+  const c1 = w.as(claude, w.chief(claude, "s-a"));
+  c1("task", "add", "--title", "a", ...ADD);
+  assert.throws(() => c1("release", "T1"), /^Error: release takes: add --name/, "F-T1172-16: release T<n> is no command: no alias of unclaim");
+  assert.equal(row(w, "tasks", "T1").chief, "C1", "release T1 changed nothing");
   assert.match(c1("release", "add", "--name", "1.0"), /^release 1\.0 added/, "release stays the word for a version");
+});
+
+for (const [name, from, fresh] of [["a Codex chief", codex, true], ["another Claude chief", claude, false]]) {
+  test(`T1172 F-T1172-10, -12: a takeover from ${name} answered before the typed hand-over (a decision row with no handover cell) ${fresh ? "still needs a fresh cycle" : "needs no fresh cycle"}`, (t) => {
+    const w = world(t);
+    const c1 = w.as(claude, w.chief(claude, "s-a")), c2 = w.as(from, w.chief(from, "s-b"));
+    c2("task", "add", "--title", "a", ...ADD);
+    for (const kind of ["checks-pass", "review-clean", "qa-pass"]) c2(...backed(["verdict", "T1", "--sha", SHA, "--kind", kind, "--pr", "41"], { cli: c2, keep: (fields) => from.keepReport(w.project, fields, w.env) }));
+    c1("gate", "replace", "T1", "--to", "C1");
+    claude.sage(["gate", "answer", "G1", "--option", "1", "--project", w.project], w.env);
+    const old = "2026-01-01T00:00:00Z", file = (table) => join(w.dir, `${table}.tsv`);
+    const edit = (table, cell) => {
+      const [head, ...lines] = readFileSync(file(table), "utf8").trim().split("\n"), cols = head.split("\t");
+      writeFileSync(file(table), [head, ...lines.map((l) => l.split("\t").map((v, k) => cell(cols[k], v, l)).join("\t"))].join("\n") + "\n");
+    };
+    edit("ledger", (col, v) => (col === "at" ? old : v));
+    edit("runs", (col, v) => (["started", "ended"].includes(col) && v ? old : v));
+    edit("decisions", (col, v, l) => (!/ → approve\t/.test(l) ? v : col === "at" ? "2026-01-01T00:00:01Z" : col === "handover" ? "" : v));
+    const answered = w.rows("decisions").find((d) => / → approve$/.test(d.decision));
+    assert.deepEqual([answered.handover ?? "", answered.task], ["", "T1"], "the row has the shape that an older sage wrote");
+    assert.equal(row(w, "tasks", "T1").chief, "C1");
+    const check = () => claude.sage(["merge-check", "--sha", SHA, "--pr", "41", "--project", w.project, "--chief", "C1"], w.env);
+    if (!fresh) return assert.equal(check(), "T1 may merge: 1 clean cycle on this SHA", "a takeover between two Claude chiefs keeps the cycle");
+    assert.throws(check, /^Error: T1 came from a chief of another provider \(2026-01-01T00:00:01Z, by a takeover gate or a pick-up\)/);
+    for (const kind of ["review-clean", "qa-pass"]) c1(...backed(["verdict", "T1", "--sha", SHA, "--kind", kind, "--cycle", "2", "--pr", "41"], { cli: c1, keep: (fields) => claude.keepReport(w.project, fields, w.env) }));
+    assert.equal(check(), "T1 may merge: 2 clean cycles on this SHA", "after one cycle of runs that started after the takeover");
+  });
+}
+
+test("T1172 F-T1172-13: after the off phrase, a session whose agent still runs stays live: no pick-up, its slots stay; once no agent of it runs, its work passes on", (t) => {
+  const w = world(t, { 100: STARTED });
+  const c1 = w.as(claude, w.chief(claude, "s-a")), c2 = w.as(claude, w.chief(claude, "s-b"));
+  c2("task", "add", "--title", "a", ...ADD);
+  c2("run", "add", "T1", "--role", "lead");
+  w.record("C1");
+  w.record("C2", { ago: 5 * 60_000, ended: "off" });
+  assert.deepEqual(claude.stoppedSessions(w.project, w.env), [], "the hook frees no slot of s-b");
+  assert.equal(c1("pickup"), "nothing to pick up", "its program and its lead still run, so the session is live");
+  assert.deepEqual([row(w, "runs", "R1").status, row(w, "tasks", "T1").chief], ["running", "C2"]);
+  w.set("runs", "R1", { status: "done", ended: new Date().toISOString().slice(0, 19) + "Z" });
+  assert.deepEqual(claude.stoppedSessions(w.project, w.env), ["s-b"], "no agent of it runs now: it is stopped");
+  assert.match(c1("pickup"), /^sage: pick-up from C2 \(claude\) to C1: tasks T1; its session stopped \(ended\) at /, "no run is lost");
 });

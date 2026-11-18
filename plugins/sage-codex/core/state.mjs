@@ -112,6 +112,7 @@ const SPARSE = { tasks: [CHIEF_COLUMN, "offer", RELEASE_COLUMN, "request"], runs
 const TABLES = { ...PLAIN_TABLES, ...Object.fromEntries(Object.entries(SPARSE).map(([t, cols]) => [t, [...PLAIN_TABLES[t], ...cols]])) };
 const ADDED = { ...FILLED, ...Object.fromEntries(Object.entries(SPARSE).map(([t, cols]) => [t, [...(FILLED[t] ?? []), ...cols]])) };
 const RUN_ENDS = ["done", "blocked", "question", "failed"];
+const GONE = ["claim", "offer", "cancel", "accept"];
 const COMMANDS = ["init", "logbook", "standing", "pages", "message", "task", "task-adopt", "milestone", "release", "round", "run", "finding", "verdict", "lint", "gate", "log", "status", "stats", "merge-check", "config", "projects", "board", "observe", "link", "unclaim", "pickup", "move", "worktrees", "storage", "chief", "prior-art"];
 const OPTIONS = {
   "logbook repair": ["accept-loss", "accept-change-loss"],
@@ -2506,13 +2507,8 @@ function folderHere() {
   }
 }
 
-const oldWord = (cmd, rest) => {
-  if (cmd === "program") return "milestone";
-  if (cmd !== "release") return undefined;
-  try { return TASK_ID.test(parse(cmd, rest).pos[0] ?? "") ? "unclaim" : undefined; } catch { return undefined; }
-};
 function sage(argv, env = process.env) {
-  const [cmd, ...rest] = argv, old = [], newCmd = oldWord(cmd, rest);
+  const [cmd, ...rest] = argv, old = [], newCmd = cmd === "program" ? "milestone" : undefined;
   const words = [newCmd ? (old.push(`${cmd} is ${newCmd} now`), newCmd) : cmd, ...rest.map((word, i) => {
     if (/^--program(?:=|$)/.test(word)) return old.push("--program is --milestone now"), word.replace("--program", "--milestone");
     if (cmd === "task" && rest[1] === "set" && i > 1 && word.startsWith("program=")) return old.push("program= is milestone= now"), `milestone=${word.slice(8)}`;
@@ -2523,7 +2519,7 @@ function sage(argv, env = process.env) {
 }
 function sageCommand(argv, env) {
   const [cmd, ...rest] = argv;
-  if (!COMMANDS.includes(cmd)) refuse(`unknown command "${cmd ?? ""}". Commands: ${COMMANDS.join(", ")}`);
+  if (!COMMANDS.includes(cmd)) refuse(`unknown command "${cmd ?? ""}". Commands: ${COMMANDS.join(", ")}${GONE.includes(cmd) ? `\n${cmd} is gone: give up your own task with unclaim <T>; the work of a stopped session and a task with no owning chief pass on by the pick-up; a task of a live chief moves only through the owner's takeover gate (gate replace <T> --to C<n>).` : ""}`);
   const { pos, opt } = parse(cmd, rest);
   if (cmd === "prior-art") return priorArtCommand(pos, opt, env, refuse);
   const readOnly = scopedRead(cmd, pos, opt);
@@ -2694,7 +2690,8 @@ function chiefLabel(dir, id) {
 function ownerBar(dir, task, chief, lead = false) {
   if (task.chief === chief) return "";
   const report = "Report this to your chief: a lead writes only while its chief owns the task.";
-  if (!task.chief) return `${task.id} has no owning chief, so ${chief} cannot change it. ${lead ? `Nothing changed. ${report}` : `Nothing changed. ${chief} unclaimed it, so the next pick-up of another chief takes it. To get it back, open a takeover gate for the owner to answer: ${replaceStep(task.id, chief)}.`}`;
+  const moved = !task.chief && !lead && heldLast(dir, task).moved;
+  if (!task.chief) return `${task.id} has no owning chief, so ${chief} cannot change it. ${lead ? `Nothing changed. ${report}` : moved ? `Nothing changed. It came in the move from the ${moved} logbook, so the next pick-up of a ${moved} chief takes it. To take it, open a takeover gate for the owner to answer: ${replaceStep(task.id, chief)}.` : `Nothing changed. ${chief} unclaimed it, so the next pick-up of another chief takes it. To get it back, open a takeover gate for the owner to answer: ${replaceStep(task.id, chief)}.`}`;
   return `${task.id} belongs to chief ${chiefLabel(dir, task.chief)}, not to ${chief}. Nothing changed. ${lead ? report : `Change only your own tasks. A live chief keeps its work; to take ${task.id}, open a takeover gate for the owner to answer: ${replaceStep(task.id, chief)}.`}`;
 }
 const liveBar = (dir, task, chief) => (ENDED.includes(task.state) ? "" : ownerBar(dir, task, chief));

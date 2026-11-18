@@ -80,13 +80,13 @@ test("F-T604-23: the printed repair line on a legacy project adds no chiefs.tsv 
   assert.equal(existsSync(join(dir, "chiefs.tsv")), false);
 });
 
-test("T995 F4: every command of the state tool is a read or has a writer class, also the old words program and release <T>, and the release level (T1003)", () => {
+test("T995 F4: every command of the state tool is a read or has a writer class, also the old word program, and the release level (T1003); release <T> is no command (F-T1172-16)", () => {
   let listed;
   try { claude.sage(["no-such-command"]); } catch (error) { listed = /Commands: (.*)$/.exec(error.message)[1].split(", "); }
   const READS = ["status", "stats", "merge-check", "board", "link", "worktrees", "message"];
   const WRITES = {
     init: [[]], logbook: [["repair"]], standing: [["add"]], pages: [["T1", "record"]], task: [["add"], ["T1", "set"]], "task-adopt": [["T1"]],
-    milestone: [["propose"], ["M1", "set"]], release: [["add"], ["T1"]], round: [["T1"]], run: [["add", "T1"], ["done", "R1"], ["usage", "R1"]], finding: [["add", "T1"], ["triage", "T1"], ["close", "T1"], ["move", "T1"]],
+    milestone: [["propose"], ["M1", "set"]], release: [["add"]], round: [["T1"]], run: [["add", "T1"], ["done", "R1"], ["usage", "R1"]], finding: [["add", "T1"], ["triage", "T1"], ["close", "T1"], ["move", "T1"]],
     verdict: [["T1"]], lint: [["T1"]], gate: [["add"], ["add", "T1"], ["answer", "G1"], ["replace", "T1"]], log: [["T1"], ["-"]], config: [["max_rounds=3"]], projects: [["rebuild"]],
     observe: [["T1"]], unclaim: [["T1"]], pickup: [[]], move: [[]], chief: [["name", "C1"]], storage: [["clean"]],
   };
@@ -94,9 +94,10 @@ test("T995 F4: every command of the state tool is a read or has a writer class, 
   assert.deepEqual([...READS, ...OUTSIDE_LOGBOOKS, ...Object.keys(WRITES)].sort(), [...listed].sort(), "each listed command is a read, writes outside every logbook, or has its write forms here");
   assert.equal(writerClass("prior-art", ["reviews", "add"]).kind, "read", "the prior-art index is in no logbook, so an add names no chief");
   for (const [cmd, forms] of Object.entries({ ...WRITES, program: [["propose"], ["M1", "set"]] })) for (const pos of forms) assert.notEqual(writerClass(cmd, pos).kind, "read", `${cmd} ${pos.join(" ")}`);
-  assert.deepEqual([writerClass("program", ["propose"]), writerClass("release", ["T1"])], [writerClass("milestone", ["propose"]), writerClass("unclaim", ["T1"])], "an old word has the class of its new word");
+  assert.deepEqual(writerClass("program", ["propose"]), writerClass("milestone", ["propose"]), "an old word has the class of its new word");
+  assert.equal(writerClass("release", ["T1"]).kind, "read", "release T<n> writes nothing: the release command refuses it");
   assert.deepEqual([writerClass("release", ["add"]).kind, writerClass("milestone", ["M1", "set"]).kind], ["any", "any"]);
-  assert.deepEqual([chiefOnly("release", ["T1"]), chiefOnly("release", ["add"])], [true, false]);
+  assert.deepEqual([chiefOnly("release", ["T1"]), chiefOnly("release", ["add"]), chiefOnly("unclaim", ["T1"])], [false, false, true]);
 });
 
 test("a legacy project has no chief: no chiefs.tsv, no chief column, and no option", (t) => {
@@ -134,7 +135,7 @@ test("a legacy project has no transfer: each command refuses, and a replace gate
   run("init");
   run("task", "add", "--title", "a", ...ADD);
   const dir = claude.storeDir(w.project, w.env), before = ["tasks", "gates"].map((table) => readFileSync(join(dir, `${table}.tsv`), "utf8")).join("\f");
-  for (const args of [["unclaim", "T1"], ["release", "T1"], ["pickup"], ["gate", "replace", "T1", "--to", "C2"]]) {
+  for (const args of [["unclaim", "T1"], ["pickup"], ["gate", "replace", "T1", "--to", "C2"]]) {
     assert.throws(() => run(...args), /has no shared logbook, so it has no chiefs to hand a task to\. Nothing changed\.$/, args.join(" "));
   }
   assert.equal(["tasks", "gates"].map((table) => readFileSync(join(dir, `${table}.tsv`), "utf8")).join("\f"), before);
@@ -386,7 +387,7 @@ for (const [name, own, other] of pairs) {
     const replace = name === "Claude" ? "run sage gate replace T1 --to C1 --chief C1" : "call the gate_replace tool with this task and to C1";
     assert.throws(() => w.owner("task", "T1", "set", "title=x"), { message: `T1 has no owning chief, so C1 cannot change it. Nothing changed. C1 unclaimed it, so the next pick-up of another chief takes it. To get it back, open a takeover gate for the owner to answer: ${replace}.` }, "the unclaiming chief's own writes pick up nothing of its own");
     assert.equal(w.owner("pickup"), "nothing to pick up");
-    assert.throws(() => w.owner("release", "T1"), /T1 has no owning chief/, "T995: the old word is unclaim");
+    assert.throws(() => w.owner("release", "T1"), /^Error: release takes: add --name/, "F-T1172-16: release T<n> is no alias of unclaim");
     const theirs = name === "Claude" ? "codex" : "claude", mine = name.toLowerCase();
     const picked = w.intruder("pickup");
     assert.match(picked, new RegExp(`^sage: pick-up from C1 \\(${mine}\\) to C2: tasks T1; it unclaimed them\\.\nsage: tell the owner in one line what passed to C2\\.$`));
@@ -396,7 +397,7 @@ for (const [name, own, other] of pairs) {
     assert.match(w.intruder("task", "T1", "set", "title=x"), /^T1 framed/);
   });
 
-  test(`T1172 ${name}: after the move, the first chief that writes picks up every moved task, and a task of the other provider's logbook needs a fresh cycle`, (t) => {
+  test(`T1172 ${name}, F-T1172-11: after the move, a moved task that no chief claimed passes only to a chief of its own provider`, (t) => {
     const w = world(t, own, other);
     w.owner("task", "add", "--title", "a", ...ADD);
     w.owner("task", "add", "--title", "b", ...ADD);
@@ -406,11 +407,15 @@ for (const [name, own, other] of pairs) {
     setCells(w.dir, "tasks", (l) => l.startsWith("T1\t"), "adoption", moved(mine, "T7"));
     setCells(w.dir, "tasks", (l) => l.startsWith("T2\t"), "adoption", moved(theirs, "T8"));
     const out = w.owner("task", "T1", "set", "title=x");
-    assert.match(out, new RegExp(`^T1 framed [^\n]*\nsage: pick-up from no chief \\(moved from the ${mine} logbook\\) to C1: tasks T1; they had no owning chief\\.\nsage: pick-up from no chief \\(moved from the ${theirs} logbook\\) to C1: tasks T2; they had no owning chief\\.\n`), "the write's own line, then one line for each source");
-    assert.deepEqual(["T1", "T2"].map((id) => row(w.cells("tasks"), id).chief), ["C1", "C1"]);
+    assert.match(out, new RegExp(`^T1 framed [^\n]*\nsage: pick-up from no chief \\(moved from the ${mine} logbook\\) to C1: tasks T1; they had no owning chief\\.\nsage: tell the owner`), "the write's own line, then the pick-up of its own provider's task only");
+    assert.deepEqual(["T1", "T2"].map((id) => row(w.cells("tasks"), id).chief || ""), ["C1", ""], `T2 came from the ${theirs} logbook, so C1 does not take it`);
+    const replace = name === "Claude" ? "run sage gate replace T2 --to C1 --chief C1" : "call the gate_replace tool with this task and to C1";
+    assert.throws(() => w.owner("task", "T2", "set", "title=y"), { message: `T2 has no owning chief, so C1 cannot change it. Nothing changed. It came in the move from the ${theirs} logbook, so the next pick-up of a ${theirs} chief takes it. To take it, open a takeover gate for the owner to answer: ${replace}.` });
+    assert.match(w.intruder("pickup"), new RegExp(`^sage: pick-up from no chief \\(moved from the ${theirs} logbook\\) to C2: tasks T2; they had no owning chief\\.`));
+    assert.deepEqual(["T1", "T2"].map((id) => row(w.cells("tasks"), id).chief), ["C1", "C2"]);
     const rows = codex.read(w.dir, "decisions").filter((d) => d.handover).map((d) => JSON.parse(d.handover));
-    assert.deepEqual(rows.map((h) => [h.from, h.fromProvider, h.toProvider, h.tasks]), [["", mine, mine, ["T1"]], ["", theirs, mine, ["T2"]]]);
-    assert.equal(w.intruder("pickup"), "nothing to pick up", "the second pick-up finds nothing");
+    assert.deepEqual(rows.map((h) => [h.from, h.fromProvider, h.toProvider, h.tasks]), [["", mine, mine, ["T1"]], ["", theirs, theirs, ["T2"]]]);
+    assert.equal(w.owner("pickup"), "nothing to pick up", "the next pick-up finds nothing");
   });
 
   test(`T893 ${name}: a chief abandons a task that it unclaimed, with a reason; the task keeps no chief, and any other change refuses`, (t) => {
@@ -987,7 +992,7 @@ test("the Claude hook names the chief on each transfer command, adds none to a g
   const w = hookWorld(t);
   const sage = (...args) => claude.sage([...args, "--project", w.project], w.env);
   sage("link", "--separate");
-  for (const line of ["unclaim T1", "release T1", "gate replace T1 --to C2", "pickup"]) {
+  for (const line of ["unclaim T1", "gate replace T1 --to C2", "pickup"]) {
     assert.match(w.bash(line), /add --chief C1 to this command/, line);
     assert.match(w.bash(`${line} --chief C7`), /this session is chief C1/, line);
   }
