@@ -1358,13 +1358,18 @@ function liveLeadRun(folder, task, run) {
 }
 
 const BEATS = ["PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop"];
-function beat(input, state) {
+function beat(input, state, session) {
   if (!BEATS.includes(input.hook_event_name) || stateTool.error || core.error || typeof input.session_id !== "string" || typeof input.cwd !== "string") return;
-  const sageMode = state.sage === true;
+  const file = join(stateDir(), "live", `${session}.json`), temp = `${file}.${randomUUID()}`, sageMode = state.sage === true;
   try {
-    const last = core.chiefBeat({ last: state.live, mode: { sageMode, autopilot: sageMode && state.autopilot === true }, now: Date.now(), project: input.cwd, native: input.session_id, provider: "claude", tool: stateTool, env: process.env, pid: process.ppid });
-    if (last) state.live = last;
-  } catch {}
+    let last;
+    try { last = JSON.parse(readFileSync(file, "utf8")); } catch {}
+    const next = core.chiefBeat({ last, mode: { sageMode, autopilot: sageMode && state.autopilot === true }, now: Date.now(), project: input.cwd, native: input.session_id, provider: "claude", tool: stateTool, env: process.env, pid: process.ppid });
+    if (next === last) return;
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(temp, JSON.stringify(next), { flag: "wx" });
+    renameSync(temp, file);
+  } catch {} finally { rmSync(temp, { force: true }); }
 }
 
 const ENDS = ["prompt_input_exit", "logout", "other"];
@@ -1418,11 +1423,9 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
     };
     const before = JSON.stringify(state);
     const output = handle(input, state, slotsFor(join(stateDir(), "slots"), session, Date.now(), input.session_id ?? null));
-    const handled = JSON.stringify(state);
-    if (handled !== before) keep();
+    if (JSON.stringify(state) !== before) keep();
     if (output) process.stdout.write(JSON.stringify(output));
-    beat(input, state);
-    if (JSON.stringify(state) !== handled) try { keep(); } catch {}
+    beat(input, state, session);
   } catch (e) {
     let commands;
     try { commands = commandFields(input?.tool_input ?? {}); } catch {}

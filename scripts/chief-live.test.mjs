@@ -145,9 +145,9 @@ test("chiefBeat: a beat is due after a minute, or at once on a change, and never
 });
 
 const agentCall = (w) => claudeEvent(w, { hook_event_name: "PreToolUse", tool_name: "Agent", tool_input: { subagent_type: "Explore", description: "find", prompt: "find x" } });
+const lastBeat = (w) => join(w.env.SAGE_HOOKS_STATE, "live", "claude-1.json");
 function beatDue(w) {
-  const file = join(w.env.SAGE_HOOKS_STATE, "claude-1.json"), state = json(file);
-  writeFileSync(file, JSON.stringify({ ...state, live: { ...state.live, at: 0 } }));
+  writeFileSync(lastBeat(w), JSON.stringify({ ...json(lastBeat(w)), at: 0 }));
 }
 
 test("a failed beat in a sage mode session never throws, and the hook still allows the call", (t) => {
@@ -164,7 +164,7 @@ test("a failed beat in a sage mode session never throws, and the hook still allo
     assert.equal(agentCall(w), undefined, "the beat was due and failed, and the hook still allows the call with no second answer");
   } finally { writable(0o700); }
   assert.equal(readFileSync(w.live("C1"), "utf8"), first, "the failed beat changed nothing");
-  assert.ok(json(join(w.env.SAGE_HOOKS_STATE, "claude-1.json")).live.at > 0, "the hook noted the failed beat");
+  assert.ok(json(lastBeat(w)).at > 0, "the hook noted the failed beat");
 });
 
 test("the Claude hook prints its answer before the beat, so a beat that never returns loses no deny", (t) => {
@@ -636,4 +636,28 @@ test("T1170: agent actions renew the chief's record, in Claude and in Codex", (t
   claudeEvent(w, { hook_event_name: "PreToolUse", agent_id: "agent-1", agent_type: "sage:implementer", tool_name: "Read", tool_input: { file_path: join(w.project, "x") } });
   codexEvent(w, { hook_event_name: "PostToolUse", agent_id: "agent-1", tool_name: "read_file", tool_input: {}, tool_response: {} });
   for (const id of ["C1", "C2"]) assert.ok(Date.now() - recordOf(w, id).at < MINUTE, `${id}: an agent action wrote a fresh beat`);
+});
+
+test("F-T1170-18: an agent event with a due beat never writes the session hook state, so the owner's off phrase in the same moment stays", (t) => {
+  const w = linked(t);
+  claudeSay(w, "sage mode");
+  claudeSay(w, "autopilot on");
+  const file = join(w.env.SAGE_HOOKS_STATE, "claude-1.json");
+  assert.equal(json(file).autopilot, true);
+  const preload = join(w.base, "owner-off-during-beat.mjs");
+  writeFileSync(preload, [
+    'import fs from "node:fs"; import { syncBuiltinESMExports } from "node:module";',
+    "const now = Date.now; Date.now = () => now() + 2 * 60_000;",
+    "const write = fs.writeFileSync, record = `${process.env.TEST_LOGBOOK}/live/C`, state = process.env.TEST_STATE;",
+    "fs.writeFileSync = function (path, ...rest) {",
+    "  if (String(path).startsWith(record)) write.call(this, state, JSON.stringify({ ...JSON.parse(fs.readFileSync(state, 'utf8')), autopilot: false }));",
+    "  return write.call(this, path, ...rest);",
+    "};",
+    "syncBuiltinESMExports();",
+  ].join("\n"));
+  const at = json(w.live("C1")).at;
+  claudeEvent({ ...w, env: { ...w.env, TEST_LOGBOOK: w.dir, TEST_STATE: file, NODE_OPTIONS: `--import=${pathToFileURL(preload).href}` } },
+    { hook_event_name: "PostToolUse", agent_id: "agent-1", agent_type: "sage:implementer", tool_name: "Read", tool_input: { file_path: join(w.project, "x") }, tool_response: {} });
+  assert.notEqual(json(w.live("C1")).at, at, "the agent event renewed the chief's record");
+  assert.equal(json(file).autopilot, false, "the owner's off phrase stays in the session hook state");
 });
