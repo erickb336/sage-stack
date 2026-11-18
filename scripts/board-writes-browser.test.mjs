@@ -47,7 +47,7 @@ async function openBoard(t, { write, copy = false } = {}) {
   const dir = claude.storeDir(project, env), now = Date.now(), iso = ms => new Date(ms).toISOString();
   writeFileSync(join(dir, "chiefs.tsv"), `id\tprovider\tnative\tat\nC1\tclaude\tclaude-1\t${iso(now - 3 * 3600_000)}\nC2\tcodex\tcodex-1\t${iso(now - 2 * 3600_000)}\nC3\tclaude\tclaude-3\t${iso(now - 5 * 3600_000)}\nC4\tcodex\tcodex-4\t${iso(now - 4 * 3600_000)}\n`);
   mkdirSync(join(dir, "live"));
-  for (const [id, ago, autopilot] of [["C1", 0, true], ["C2", 0, false], ["C3", 2 * 3600_000, false]]) writeFileSync(join(dir, "live", `${id}.json`), JSON.stringify({ provider: id === "C2" ? "codex" : "claude", checkout: project, sageMode: true, autopilot, at: iso(now - ago) }));
+  for (const [id, ago, autopilot] of [["C1", 0, true], ["C2", 0, false], ["C3", 9 * 3600_000, false]]) writeFileSync(join(dir, "live", `${id}.json`), JSON.stringify({ provider: id === "C2" ? "codex" : "claude", checkout: project, sageMode: true, autopilot, at: iso(now - ago) }));
   const as = (chief, ...args) => claude.sage([...args, "--project", project, "--chief", chief], env);
   as("C1", "task", "add", "--title", "Sample shared list permissions", "--size", "small", "--priority", "P1");
   writeFileSync(join(base, "question.json"), JSON.stringify(MESSAGE));
