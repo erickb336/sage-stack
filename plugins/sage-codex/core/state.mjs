@@ -2964,6 +2964,11 @@ function chiefFor(project, native, env = process.env, known = false) {
   return rowOf(dir, native)?.id ?? (known ? undefined : withLock(dir, () => chiefRow(dir, native).id));
 }
 
+function chiefLink(project, native, chief, from, env = process.env) {
+  const { dir, shared } = locate(project, env);
+  return shared && CHIEF.test(chief ?? "") && typeof from === "string" ? withLock(dir, () => chiefRow(dir, native, chief, from)?.id) : undefined;
+}
+
 function actorOptions(project, [cmd, ...rest], { native, leadTask }, env = process.env) {
   const { pos } = parse(cmd, rest);
   if (cmd === "merge-check") return locate(project, env).shared ? [`--chief=${chiefFor(project, native, env)}`] : [];
@@ -3757,6 +3762,16 @@ function probeFor(dir) {
   return { alive: (pid) => map[pid] !== null, started: (pid) => map[pid] ?? NaN };
 }
 
+function sessionProbe(dir) {
+  const env = process.env;
+  if (!["NODE_TEST_CONTEXT", "SAGE_TEST_PIDS", "SAGE_TEST_MACHINE_ID"].some((name) => Object.hasOwn(env, name))) return { ...realProbe, machine: machineIdentity(dir), boot: bootTime() };
+  let map;
+  try { map = JSON.parse(env.SAGE_TEST_PIDS ?? "null"); } catch {}
+  if (!map || typeof map !== "object" || Array.isArray(map)) return null;
+  const machine = /^[A-Za-z0-9-]{1,128}$/.test(env.SAGE_TEST_MACHINE_ID ?? "") ? env.SAGE_TEST_MACHINE_ID : null;
+  return { alive: (pid) => map[pid] !== null, started: (pid) => map[pid] ?? NaN, machine, boot: Number.isFinite(Number(env.SAGE_TEST_BOOT)) && env.SAGE_TEST_BOOT ? Number(env.SAGE_TEST_BOOT) : bootTime() };
+}
+
 function bootTime() {
   try {
     return Date.now() - uptime() * 1000;
@@ -3875,5 +3890,5 @@ const { bindings, fillCommits, folderOf, link, locate, movePlans, notePlugin, pl
   listed: (root) => known(root, undefined, undefined, true),
   enroll });
 const { chiefs, chiefRow, rowOf } = createChiefs({ now, provider, readRegular, refuse, rowsOf, sheetText, swap });
-return { SIZES, BLOCKS, RISKS, KINDS, STATES, DEFAULTS, PR, LEAD_COMMANDS, leadProblem, leadRequest, sageRoot, locate, chiefFor, sessionBar, branchBar, actorOptions, git, projectRoot, roleReadProject, optionsOf, slug, worktreeRoot, pagesRoot, BRANCH, ofTask, branchOfTask, branchTip, projectName, storeDir, config, cyclesFor, modelFor, read, mergeCheck, boardLandingCheck, carryOver, logbookView, sage, keepReport, keepRunText, keepUsage, observePush, compareRetainedReport, ownGates, pickupAnswers, queueOf, chiefQueue, queueProblem, pendingRun, markStart, sweepQueue, withLock, command, runCli, waitingPlugins, writeIdFloors };
+return { SIZES, BLOCKS, RISKS, KINDS, STATES, DEFAULTS, PR, LEAD_COMMANDS, leadProblem, leadRequest, sageRoot, locate, chiefFor, chiefLink, sessionProbe, sessionBar, branchBar, actorOptions, git, projectRoot, roleReadProject, optionsOf, slug, worktreeRoot, pagesRoot, BRANCH, ofTask, branchOfTask, branchTip, projectName, storeDir, config, cyclesFor, modelFor, read, mergeCheck, boardLandingCheck, carryOver, logbookView, sage, keepReport, keepRunText, keepUsage, observePush, compareRetainedReport, ownGates, pickupAnswers, queueOf, chiefQueue, queueProblem, pendingRun, markStart, sweepQueue, withLock, command, runCli, waitingPlugins, writeIdFloors };
 }
