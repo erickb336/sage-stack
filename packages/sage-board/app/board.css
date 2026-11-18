@@ -203,6 +203,9 @@ header.top { position: sticky; top: 0; z-index: 20; min-height: 52px; display: f
 .lbl { font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 18px 0 6px; }
 .dot.live { background: var(--done); }
 .dot.waits { background: var(--need); }
+.dot.quiet { background: var(--need); }
+.stack { display: grid; gap: 20px; align-content: start; }
+.ses > li { grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; padding: 10px 18px; }
 .dot.stopped { background: none; box-shadow: inset 0 0 0 1.5px var(--faint); }
 .dot.unknown { background: none; box-shadow: inset 0 0 0 1.5px var(--faint); opacity: .6; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 24px; border-bottom: 1px solid var(--line); }

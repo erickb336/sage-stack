@@ -1,6 +1,6 @@
 import { LINE } from "./logbook-fields.mjs";
 import { ENDED, lostClause, milestoneName } from "./milestone-rules.mjs";
-import { KINDS as KIND, MARKS, STEPS, UNKNOWN, URGENCY, releaseWord, runWord, shown } from "./state-words.mjs";
+import { KINDS as KIND, MARKS, STEPS, UNKNOWN, URGENCY, releaseWord, runWord, sessionRow, shown } from "./state-words.mjs";
 import { box, columns } from "./picture.mjs";
 const md = value => String(value ?? "").replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029]/g, " ").replace(/\p{Cf}/gu, "").replace(/[\\`*_{}\[\]()<>#+.!|&~:@]/g, c => String.fromCharCode(92) + c);
 const mdLines = (value, join = "\n") => String(value ?? "").split(LINE).map(md).join(join);
@@ -166,7 +166,8 @@ export function renderBoardText(model) {
   const top = block([`**sage board** · built ${md(day(model.at))} UTC`, ...changing, ...moved,`🔴 ${n} needs you · ${counts.recordedAgents} agents at work${counts.inferredWork ? ` · ${counts.inferredWork} inferred PRs` : ""} · 🔁 ${counts.inReview} in review · ${counts.tasks} tasks`, standIns ? `${md("*")} A stand-in: the run does not record its provider, so the board names the logbook's source.` : ""]);
   const end = block([model.archived.length ? `Archived: ${model.archived.map(book => `${md(book.name)} (${archivedCounts(book)})`).join(", ")}` : "",
     ...model.diagnostics.map(d => `Incomplete source: ${md(d.source)}${d.project ? ` · ${md(d.project)}` : ""} · ${md(d.message)}`), ...model.warnings.map(d => `Setting ignored: ${md(d.source)} · ${md(d.project)} · ${md(d.message)}`), ...(model.notes ?? []).map(d => `Logbook note: ${md(d.source)} · ${md(d.project)} · ${md(d.message)}`)]);
-  return [top, `### 🔴 Needs you\n${needs}`, ...whereText(model), milestoneText, ...model.columns.map(section), end].filter(Boolean).join("\n\n");
+  const sessions = (model.projects ?? []).filter(project => !project.archived && project.chiefs?.length).map(project => `#### ${md(project.name)}\n${project.chiefs.map(chief => sessionRow(chief, model.at, at => `${hhmm(at) || "?"} UTC`)).map(row => `- ${md(row.head)} · **${md(row.word)}**\n  ${md(row.sub)}`).join("\n")}`);
+  return [top, `### 🔴 Needs you\n${needs}`, sessions.length ? `### Sessions\n${sessions.join("\n\n")}` : "", ...whereText(model), milestoneText, ...model.columns.map(section), end].filter(Boolean).join("\n\n");
 }
 export function renderBoardStatus(model) {
   const states = new Map(); for (const task of model.tasks.filter(task => !task.archived)) states.set(task.state, (states.get(task.state) ?? 0) + 1);

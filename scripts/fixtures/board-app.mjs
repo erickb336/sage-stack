@@ -199,7 +199,7 @@ export function writeTasksLogbook(root, worktrees, now, { unicode = false, hosti
     for (const [id, autopilot] of [["C1", true], ["C2", false]]) writeFileSync(join(dir, "live", `${id}.json`), JSON.stringify({ at: new Date(Date.parse(now) - MIN).toISOString().slice(0, 19) + "Z", sageMode: true, autopilot }));
   }
   if (edge) { mkdirSync(join(dir, "live")); writeFileSync(join(dir, "live", "C1.json"), JSON.stringify({ at: at(2) })); }
-  if (chiefCases) { mkdirSync(join(dir, "live"), { recursive: true }); writeFileSync(join(dir, "live", "C3.json"), JSON.stringify({ at: at(2) })); }
+  if (chiefCases) { mkdirSync(join(dir, "live"), { recursive: true }); writeFileSync(join(dir, "live", "C3.json"), JSON.stringify({ at: at(9) })); }
   mkdirSync(join(dir, "kept"), { recursive: true });
   writeFileSync(join(dir, "kept", "R5.json"), JSON.stringify({ task: "T3", run: "R5", role: "code-reviewer", sha: HEAD, text: `STATUS        done\nRESULT        CLEAN. The limits change is correct.${hostile ? " <img src=x onerror=window.hacked=8>" : ""}\nEVIDENCE      ran the tests\n`, at: at(1) }));
   writeFileSync(join(dir, "kept", "R7.json"), JSON.stringify({ task: "T2", run: "R7", role: "implementer", sha: "", text: "STATUS done\nRESULT a report that names another task", at: at(1) }));

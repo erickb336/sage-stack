@@ -55,7 +55,7 @@ Each task, step, milestone and agent shows one of six state words, on both views
 
 The same words and marks show the steps of a task and the agents, from one table in sage's code. Two more marks:
 
-- `!` is a problem: failed, blocked, may be stuck, running long or run still open. The problem shows after the word, for example "in progress · may be stuck".
+- `!` is a problem: failed, blocked, may be stuck, running long, run still open or lost. The problem shows after the word, for example "in progress · may be stuck".
 - `◌` is a state that the board does not know. It reads "unknown".
 
 Two marks are not states:
@@ -132,7 +132,11 @@ The address of the board opens the Overview. From the top:
 - **The top bar:** the [picker and the signal](#one-project-at-a-time), then the counts of agents and leads against this project's limits, for example "Agents 8 of 10 · C1 4 · C2 4 · 3 waiting" and "Leads 4 of 5". A count turns amber at its limit, and a click opens the Agents page.
 - **All projects:** with more than one project, "12 in progress in all projects" counts the running agents of every project. The board does not read Claude's total cap of agents for all projects, so it shows no limit for that count.
 - **The time and the theme:** "Live · read 10:56" gives the time of the last read. The board is dark until you choose the light theme with the switch, and it keeps your choice in this browser.
-- **The chief chips:** one chip for each chief, Claude and Codex alike, with a green dot for a live chief, a yellow dot for a chief that waits for your answer, a ring for a stopped chief, and "autopilot on" or "autopilot off". A click on a chip shows only that chief's work, on each page; "All chiefs" shows all again. In a window narrower than 760 px, the chips fold into one chip with each chief's id and dot; a tap shows them all.
+- **The chief chips:** one chip for each chief, Claude and Codex alike, with a green dot for a live chief, a yellow dot for a quiet chief or a chief that waits for your answer, a ring for a stopped chief, and "autopilot on" or "autopilot off". A click on a chip shows only that chief's work, on each page; "All chiefs" shows all again. In a window narrower than 760 px, the chips fold into one chip with each chief's id and dot; a tap shows them all.
+- **Sessions:** one row for each sage session (chief) of the project, Claude and Codex alike, with its dot and its state word:
+  - **live**, with its start time, its tasks and its agents, for example "Claude · C3 · since 21:07" and "14 tasks · 3 agents". "program not confirmed" says that sage did not yet see the session's program in two actions 1 min apart: the session then passes on only when it exits, or after 8 h with no action.
+  - **quiet**: no action for 30 min or more and no agent at work. It shows when its tasks pass on, for example "passes on at 17:10", 8 h after its last action. A quiet session with an open question of yours keeps its tasks.
+  - **stopped**, after 8 h with no action, or **ended**, after a clean exit or the off phrase, with the time and its runs that the logbook still shows as running: "1 run lost".
 - **Needs you:** each open question and each problem, oldest first, with its chief, its task and when it was asked. A click on a question opens the [question view](#the-question-view-and-the-reader).
 - **Milestones:** each milestone by the top priority of its open tasks, with its state word, its goal, its progress bar ("2 of 9 merged") and its pilot. A click opens the Tasks page with only that milestone's tasks; "Show all tasks" shows the rest again.
 - **Since you looked**, or **In the last 24 hours** on the first visit in a browser, or **In the last 7 days** after a longer absence: the tasks merged, the runs "with a problem flag", and the tasks added. A run has a problem flag when its agent is silent for 30 minutes or stopped, or when it failed in the last 24 hours, its task is still open, and no later run of the same role started. A click on "Merged" opens those tasks on the Tasks page, newest first; a click on "With a problem flag" opens the Agents page, which uses the same label.
@@ -205,6 +209,7 @@ A click on a card's title, on "About" or on an agent opens the task page. A run 
 | ! in progress · may be stuck | No hook activity for 30 min or more, and no running helper. Or the logbook says that the run runs, and no agent slot holds it (the hook frees a slot after 60 min with no activity). |
 | ! in progress · running long | The time running is more than 2 times the median of the same role's ended runs in this project. It needs 5 ended runs. |
 | ! stopped · run still open | The hook saw the helper stop, but the logbook still says that the run runs. The chief must end the run. |
+| ! stopped · lost | The session of the run's chief stopped or ended, but the logbook still says that the run runs. No agent works on it. |
 
 The page reads files only: the logbooks, the hook's agent slots and helper notes (by name and time, not their content) and the limits in `config.json`. It runs no command and reads no process list. To join a slot to its run, the hook marks each agent slot with the run id from the first line of the agent's brief ("Run R12 · task T3").
 

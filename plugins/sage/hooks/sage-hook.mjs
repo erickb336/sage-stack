@@ -164,6 +164,8 @@ function handleEvent(input, state, slots) {
     if (state.sage && !state.given) {
       state.given = true;
       notes.unshift(chiefText());
+      const others = main ? sessionsNote(input) : "";
+      if (others) notes.push(others);
     }
     if (state.sage && state.shapeNote) notes.push(state.shapeNote);
     delete state.shapeNote;
@@ -1448,13 +1450,17 @@ function beat(input, state, session) {
   const file = join(stateDir(), "live", `${session}.json`), temp = `${file}.${randomUUID()}`, sageMode = state.sage === true;
   try {
     let last;
-    try { last = JSON.parse(readFileSync(file, "utf8")); } catch {}
+    try { last = JSON.parse(readFileSync(file, "utf8")); } catch { last = state.live; }
     const next = core.chiefBeat({ last, mode: { sageMode, autopilot: sageMode && state.autopilot === true }, now: Date.now(), project: input.cwd, native: input.session_id, provider: "claude", tool: stateTool, env: process.env, pid: process.ppid });
     if (next === last) return;
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(temp, JSON.stringify(next), { flag: "wx" });
     renameSync(temp, file);
   } catch {} finally { rmSync(temp, { force: true }); }
+}
+
+function sessionsNote(input) {
+  try { return stateTool.error || core.error ? "" : core.sessionsLine(stateTool.sessionsHere(input.cwd ?? process.cwd(), input.session_id, process.env)); } catch { return ""; }
 }
 
 const ENDS = ["prompt_input_exit", "logout", "other"];
@@ -1465,7 +1471,7 @@ function sessionEdge(input) {
   else if (input.hook_event_name === "SessionEnd" && ENDS.includes(input.reason)) core.chiefEnd({ ...edge, reason: input.reason });
   else if (input.hook_event_name === "SessionStart" && input.source === "clear") {
     const chief = core.clearLink(edge);
-    if (chief && core.chiefRecord(stateTool.locate(input.cwd).dir, chief)?.sageMode === true) keepSageMode(input.session_id);
+    if (chief && core.readLiveRecord(stateTool.locate(input.cwd).dir, chief)?.sageMode === true) keepSageMode(input.session_id);
   }
   else if (input.hook_event_name === "SessionStart" && input.source === "resume") core.chiefResume(edge);
 }

@@ -117,11 +117,6 @@ export function clearLink({ project, native, pid, now, tool, env }) {
   } catch { return undefined; }
 }
 
-export function chiefRecord(dir, chief) {
-  const data = readLive(join(dir, LIVE_FOLDER, `${chief}.json`));
-  return Object.keys(data).length ? liveRecord(data) : null;
-}
-
 const ahead = (record, now) => record.at - now > SKEW_MS;
 export function sessionState(record, { running = 0, gates = 0 } = {}, now, probe) {
   if (!record) return { state: "quiet", reason: null };
@@ -143,8 +138,12 @@ export function liveRecord(data) {
   const at = typeof data.at === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(data.at) ? Date.parse(data.at) : NaN;
   const checkout = typeof data.checkout === "string" && data.checkout.length <= 4096 && isAbsolute(data.checkout) && !/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(data.checkout) ? data.checkout : null;
   const number = (value) => (Number.isFinite(value) ? value : null), ended = data.ended && typeof data.ended === "object" && END_REASONS.includes(data.ended.reason) ? data.ended.reason : null;
+  const endedAt = ended && typeof data.ended.at === "string" && Number.isFinite(Date.parse(data.ended.at)) ? Date.parse(data.ended.at) : null;
   return { checkout, sageMode: flag(data.sageMode), autopilot: flag(data.autopilot), at: Number.isFinite(at) ? at : null,
-    pid: Number.isSafeInteger(data.pid) ? data.pid : null, pidStart: number(data.pidStart), machine: typeof data.machine === "string" ? data.machine : null, boot: number(data.boot), confirmed: data.confirmed === true, ended };
+    pid: Number.isSafeInteger(data.pid) ? data.pid : null, pidStart: number(data.pidStart), machine: typeof data.machine === "string" ? data.machine : null, boot: number(data.boot), confirmed: data.confirmed === true, ended, endedAt };
+}
+export function readLiveRecord(dir, chief) {
+  return CHIEF.test(chief ?? "") ? liveRecord(readLive(join(dir, LIVE_FOLDER, `${chief}.json`))) : null;
 }
 
 export function chiefNames(data) {
@@ -168,19 +167,34 @@ export function defaultChiefName(row, live) {
   return [title(plainName(row.provider)), live?.checkout && folderPart(live.checkout), utc(row.at)].filter(Boolean).join(" · ");
 }
 
-export function boardChiefs({ rows, live = {}, names = {}, runs = [], waits = [], now }) {
+const iso = (ms) => (ms === null || !Number.isFinite(ms) ? null : new Date(ms).toISOString());
+export function boardChiefs({ rows, live = {}, names = {}, runs = [], waits = [], owners = [], now }) {
   const chiefs = rows.map((row) => {
     const record = live[row.id] ?? null, beat = record && ahead(record, now) ? null : record, heartbeat = beat?.at ?? null;
-    const agents = runs.filter((run) => run.chief === row.id && run.status === "running" && !run.clock?.stale).length;
-    const waiting = waits.filter((chief) => chief === row.id).length;
-    const silent = heartbeat === null ? null : now - heartbeat > STOPPED_MS;
-    const stopped = agents ? false : silent && waiting ? false : silent;
+    const running = runs.filter((run) => run.chief === row.id && run.status === "running"), working = running.filter((run) => !run.clock?.stale).length, gates = waits.filter((chief) => chief === row.id).length;
+    const found = sessionState(record ?? { at: null }, { running: working, gates }, now, null);
+    const state = !beat && found.state === "quiet" ? null : found.state, reason = found.reason, stopped = state && state === "stopped";
     return {
       id: row.id, provider: row.provider, name: names[row.id] ?? defaultChiefName(row, beat), named: Object.hasOwn(names, row.id), startedAt: utc(row.at) ? new Date(row.at).toISOString() : null,
       checkout: beat?.checkout ?? null, sageMode: stopped ? null : beat?.sageMode ?? null, autopilot: stopped ? null : beat?.autopilot ?? null,
-      heartbeat: heartbeat === null ? null : new Date(heartbeat).toISOString(), agents, waitsForOwner: !!(silent && !agents && waiting), stopped,
+      heartbeat: iso(heartbeat), agents: working, tasks: owners.filter((chief) => chief === row.id).length,
+      session: state, reason, endedAt: iso(record?.endedAt ?? null), confirmed: !!record?.confirmed, lost: stopped ? running.length : 0,
+      passOnAt: state === "quiet" && !gates && heartbeat !== null ? iso(heartbeat + PASS_ON_MS) : null, quietAt: state === "live" && !working && heartbeat !== null ? iso(heartbeat + STOPPED_MS + 1) : null,
+      waitsForOwner: state === "quiet" && gates > 0, stopped,
     };
   });
   const fold = (name) => name.normalize("NFKC").toLowerCase();
   return chiefs.map((chief) => chiefs.some((other) => other !== chief && fold(other.name) === fold(chief.name)) ? { ...chief, name: `${chief.name} · ${chief.id}` } : chief);
+}
+
+const counted = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const holds = (chief) => `${counted(chief.tasks, "task")}, ${counted(chief.agents, "agent")}`;
+export function sessionsLine(here) {
+  if (!here) return "";
+  const { others, running, limit } = here, share = Number.isFinite(limit) ? ` You share ${limit} agents; ${Math.max(0, limit - running)} are free.` : "";
+  if (!others.length) return "sage: no other sage session works on this project now.";
+  const who = (chief) => `${title(chief.provider)} session ${chief.id}`;
+  if (others.length === 1) return `sage: a ${who(others[0])} also works on this project: ${holds(others[0])}. Each session keeps its own tasks.${share} Tell the user this in one line.`;
+  const list = others.map((chief) => `${who(chief)} (${holds(chief)})`);
+  return `sage: ${others.length} other sessions also work on this project: ${list.slice(0, -1).join(", ")} and ${list.at(-1)}. Each session keeps its own tasks.${share} Tell the user this in one line.`;
 }
