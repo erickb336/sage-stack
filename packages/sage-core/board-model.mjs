@@ -478,8 +478,8 @@ function plainProblem(message) {
 export const AGENT_QUIET_MS = 30 * 60_000;
 const LONG_FACTOR = 2, LONG_BASIS = 5;
 const NO_SLOT_NOTES = ["codex"];
-export const AGENT_STATES = ["stuck", "stop", "long", "wait", "work", "unk"];
-const LOOK = ["stuck", "stop", "long"];
+export const AGENT_STATES = ["lost", "stuck", "stop", "long", "wait", "work", "unk"];
+const LOOK = ["lost", "stuck", "stop", "long"];
 const sha256 = text => createHash("sha256").update(text).digest("hex");
 const minutes = ms => Math.max(0, Math.floor(ms / 60_000));
 const span = ms => { const m = minutes(ms); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""}`; };
@@ -495,7 +495,7 @@ function slotOf(slot) {
     bound: hex(mark("bound-")), parent: hex(mark("parent-")), logbook: hex(mark("logbook-")), lead: helper?.[1] ?? null };
 }
 
-function agentsOf(sources, groups, groupOf, cards, at) {
+function agentsOf(sources, groups, groupOf, cards, at, stoppedChiefs = new Set()) {
   const rows = [], problems = [];
   const bare = name => name.replace(/-[0-9a-f]{6}$/, "");
   const groupNamed = name => groups.find(group => group.books.some(book => bare(book.project.name) === name));
@@ -555,7 +555,8 @@ function agentsOf(sources, groups, groupOf, cards, at) {
     agent.running = started === null ? null : Math.max(0, at - started);
     agent.idle = agent.activity === null ? null : Math.max(0, at - agent.activity);
     const helpers = agent.children.filter(child => child.slot);
-    if (agent.slot) {
+    if (agent.run?.chief && stoppedChiefs.has(`${agent.logbook}/${agent.run.chief}`)) [agent.state, agent.why] = ["lost", `its chief ${agent.run.chief} stopped, so no agent works on it; the logbook still says running`];
+    else if (agent.slot) {
       if (helpers.length) [agent.state, agent.why] = ["wait", `${helpers.filter(child => at - child.activity < AGENT_QUIET_MS).length} of ${agent.children.length} helper${agent.children.length === 1 ? "" : "s"} working`];
       else if (agent.idle >= AGENT_QUIET_MS) [agent.state, agent.why] = ["stuck", `no activity for ${span(agent.idle)}`];
       else { [agent.state, agent.why] = ["work", ""]; soon(agent.activity + AGENT_QUIET_MS); }
@@ -757,12 +758,12 @@ export function buildBoardModel(input,{ now = new Date().toISOString(), landing 
   const projects = groups.map(group => {
     const own = tasks.filter(task => task.group === group.key), live = shown.filter(task => task.group === group.key);
     const last = Math.max(0, ...own.map(recent), ...group.books.flatMap(book => bookTimes(book.project))), extra = milestoneNeeds.filter(need => need.group === group.key), needsOwner = live.filter(task => task.reasons.length).length + extra.length;
-    const chiefs = group.books.filter(book => book.project.shared && !book.project.old).flatMap(({ project }) => boardChiefs({ rows: project.chiefs ?? NONE, live: project.chiefLive, names: project.chiefNames, runs: own.filter(task => task.project === project.key).flatMap(task => task.runs), waits: own.filter(task => task.project === project.key && !ENDED.includes(task.state)).flatMap(task => task.reasons.filter(reason => reason.owner).map(reason => reason.owner)), now: at }).map(chief => ({ key: `${project.key}/${chief.id}`, ...chief })));
+    const chiefs = group.books.filter(book => book.project.shared && !book.project.old).flatMap(({ project }) => boardChiefs({ rows: project.chiefs ?? NONE, live: project.chiefLive, names: project.chiefNames, runs: own.filter(task => task.project === project.key).flatMap(task => task.runs), waits: own.filter(task => task.project === project.key && !ENDED.includes(task.state)).flatMap(task => task.reasons.filter(reason => reason.owner).map(reason => reason.owner)), owners: own.filter(task => task.project === project.key && isOpen(task) && task.owner).map(task => task.owner.id), now: at }).map(chief => ({ key: `${project.key}/${chief.id}`, ...chief })));
     return { key: group.key, name: group.name, sub: group.sub, pathSub: group.pathSub ?? null, terms: group.terms, paths: group.paths, books: group.books.map(book => book.project.key), providers: group.providers, chiefs, archived: group.archived, mixed: group.mixed, problem: group.problem, unread: group.books.map(book => ({ logbook: book.project.old ? `old ${title(book.project.old.provider)}` : title(book.source.label), tables: TABLE_NAMES.filter(name => cannotRead(book.project, name)) })).filter(book => book.tables.length), tasks: own.length, needsOwner, problems: extra.filter(need => PROBLEM_NEEDS.includes(need.kind)).length, agents: live.reduce((n, task) => n + task.agents.filter(agent => !agent.stale).length, 0), lastActivity: last ? new Date(last).toISOString() : null,
       list: listOf(group.archived, needsOwner, last, at), ...archiveFacts(group.books.filter(book => !book.project.old), own) };
   }).sort((a, b) => LISTS.indexOf(a.list) - LISTS.indexOf(b.list) || (a.list === "needs" ? b.needsOwner - a.needsOwner : 0) || (Date.parse(b.lastActivity ?? 0) || 0) - (Date.parse(a.lastActivity ?? 0) || 0) || a.name.localeCompare(b.name));
   const archived = projects.filter(project => project.archived).map(project => ({ key: project.key, name: project.name, tasks: project.tasks, needsOwner: project.needsOwner }));
-  const agents = agentsOf(sources, groups, groupOf, byKey, at);
+  const agents = agentsOf(sources, groups, groupOf, byKey, at, new Set(projects.flatMap(project => project.chiefs.filter(chief => chief.stopped).map(chief => chief.key))));
   const moved = sources.flatMap(source => source.projects.filter(project => project.movedAt && at - Date.parse(project.movedAt) >= 0 && at - Date.parse(project.movedAt) <= 7 * 86400000 && !groupOf.get(project.key)?.archived)
     .map(project => ({ project: groupOf.get(project.key)?.name ?? project.name, folder: project.name, at: project.movedAt, tasks: tasks.filter(task => task.project === project.key && task.was && task.column !== "done").length, finished: tasks.filter(task => task.project === project.key && task.was && task.column === "done").length })));
   return { at: new Date(at).toISOString(), tasks, milestones, releases, milestoneNeeds: liveNeeds, projects, notes, agents, moved, columns: COLUMNS.map(([key, name]) => ({ key, name, tasks: columnOf(key, visible), archivedTasks: columnOf(key, shown.filter(task => task.archived)) })), needsOwner: visible.filter(task => task.reasons.length), archived, counts: { tasks: visible.length, needsOwner: visible.filter(task => task.reasons.length).length + liveNeeds.length, recordedAgents: visible.reduce((n, task) => n + task.agents.filter(agent => !agent.stale).length, 0), inferredWork: visible.filter(task => task.inferredWork).length, inReview: visible.filter(task => task.column === "review").length }, sources: sources.map(source => ({ id: source.id, label: source.label, standIn: standIn(source), diagnostics: source.diagnostics, ...(source.shared && { shared: true }) })), changing: changingOf(sources, groupOf), diagnostics: sources.flatMap(source => [...source.diagnostics.map(message => ({ source: source.id, message: plainProblem(message) })), ...source.projects.flatMap(project => project.diagnostics.map(message => ({ source: source.id, project: project.key, message: plainProblem(message) })))]), warnings: sources.flatMap(source => source.projects.flatMap(project => (project.warnings ?? []).map(message => ({ source: source.id, project: project.key, message: plainProblem(message) })))) };

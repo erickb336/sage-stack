@@ -2,6 +2,7 @@ import { useState } from "react";
 import { CopyCommand, GiveBox, PairBox, PairNote, UndoButton, chiefLabel, useAccess, useSeen } from "./actions.jsx";
 import { useNow, when } from "./use-model.js";
 import { StateIcon } from "./icons.jsx";
+import { Sessions } from "./sessions.jsx";
 import { chiefSub, milestoneLink, ofChief, questionLink, taskLink } from "./task.jsx";
 import { FLAGGED, OBJECTS, UNKNOWN, chiefName } from "../../sage-core/state-words.mjs";
 
@@ -227,6 +228,7 @@ export function Overview({ model, shown, chief }) {
       </div>
       <PairNote />
       <PairBox />
+      <Sessions chiefs={model.chiefs} now={now} />
       <div className="grid">
         <NeedsYou model={model} shown={shown} now={now} />
         <Milestones milestones={model.milestones} hiddenDone={model.hiddenDone} />

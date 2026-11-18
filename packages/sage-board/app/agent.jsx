@@ -2,7 +2,7 @@ import { taskLink } from "./task.jsx";
 import { MARKS, OBJECTS, runWord, shown } from "../../sage-core/state-words.mjs";
 
 const MIN = 60_000;
-const STATE = Object.fromEntries(["stuck", "stop", "long", "wait", "work", "unk"].map(key => [key, shown(OBJECTS.agent.states[key]).text]));
+const STATE = Object.fromEntries(["lost", "stuck", "stop", "long", "wait", "work", "unk"].map(key => [key, shown(OBJECTS.agent.states[key]).text]));
 const ORDINAL = ["th", "st", "nd", "rd"];
 export const ordinal = n => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : ORDINAL[n % 10] ?? "th"}`;
 export const clock = at => Number.isFinite(Date.parse(at)) ? new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "a time not recorded";

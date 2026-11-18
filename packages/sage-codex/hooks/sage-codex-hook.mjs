@@ -2,7 +2,7 @@
 import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { boardNote, exactPhrase, MODE_DAMAGED, parseBoardIntent, PHRASES, protectionNote, readModeFile, renderChiefInstructions, ROLE_PRINCIPLES, switchModes } from "sage-core";
+import { boardNote, exactPhrase, MODE_DAMAGED, parseBoardIntent, PHRASES, protectionNote, readModeFile, renderChiefInstructions, ROLE_PRINCIPLES, sessionsLine, switchModes } from "sage-core";
 import { takeNote } from "./message-check.mjs";
 import { NEW_ON, onCanCount, readRecord } from "./owner-record.mjs";
 import { modeDirectory, privateDirectory, readState, saveState, stateKey } from "./hook-state.mjs";
@@ -100,6 +100,7 @@ export function handle(input, state, env = process.env) {
   if (state.sage && !state.given) {
     state.given = true;
     notes.unshift(chiefText());
+    try { const others = sessionsLine(tool.sessionsHere(input.cwd, input.session_id, env)); if (others) notes.push(others); } catch {}
   }
   if (state.sage) notes.push(...admittedNotes(input, state, env));
   if (was.autopilot && !state.autopilot) notes.push(OFF_IN_CODEX);
