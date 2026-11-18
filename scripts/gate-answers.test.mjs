@@ -588,12 +588,12 @@ test("T1177: in a logbook that is not shared, the Stop hook and the gates wait n
   const event = (session, e) => claudeEvent(w, { session_id: session, ...e });
   for (const session of ["claude-a", "claude-b"]) event(session, { hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
   const ask = (session, question) => {
-    const args = ["gate", "add", "T1", "--question", question, "--options", "yes|no", "--recommend", "yes"];
+    const args = ["gate", "add", "T1", "--question", question, "--options", "yes|no", "--recommend", "yes", "--message", QUESTION];
     const out = run(...args);
     event(session, { hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: `node ${TOOLS.claude} ${args.join(" ")}` }, tool_response: { stdout: `${out}\n` } });
   };
   const stop = (session) => event(session, { hook_event_name: "Stop", stop_hook_active: false, last_assistant_message: "ok", background_tasks: [] });
-  run("gate", "add", "T1", "--question", "Old?", "--options", "yes|no", "--recommend", "yes");
+  run("gate", "add", "T1", "--question", "Old?", "--options", "yes|no", "--recommend", "yes", "--message", QUESTION);
   ask("claude-a", "Ship it?");
   assert.equal(stop("claude-b")?.decision, undefined, "session B asked no gate, so it waits for none");
   const told = stop("claude-a");
