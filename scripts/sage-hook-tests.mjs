@@ -12,6 +12,7 @@ import { keepReport } from "../plugins/sage/skills/sage/sage.mjs";
 import { backed } from "./verdict-backing.mjs";
 import { REPORT_FIELDS } from "../packages/sage-core/report.mjs";
 import { readReport } from "../packages/sage-core/report-reader.mjs";
+import { QUESTION } from "./fixtures/question-message.mjs";
 
 const CALL_MS = 60_000;
 const bounded = (options = {}) => ({ timeout: CALL_MS, killSignal: "SIGKILL", ...options });
@@ -3323,7 +3324,7 @@ test("T72-C5-STATECMD: with the plugin in a folder with a space, the read-only b
   const env = { ...process.env, HOME: join(dir, "home"), SAGE_HOME: join(dir, "root"), SAGE_HOOKS_STATE: undefined };
   const project = join(dir, "app");
   execFileSync("git", ["init", "-q", project]);
-  for (const args of [["init"], ["task", "add", "--priority", "P2", "--title", "t", "--size", "tiny"], ["gate", "add", "T1", "--question", "q?", "--options", "yes|no", "--recommend", "yes"]])
+  for (const args of [["init"], ["task", "add", "--priority", "P2", "--title", "t", "--size", "tiny"], ["gate", "add", "--message", QUESTION, "T1", "--question", "q?", "--options", "yes|no", "--recommend", "yes"]])
     execFileSync("node", [tool, ...args, "--project", project], { env });
   const r = spawnSync("node", [join(dir, "my plugins", "sage", "hooks", "sage-hook.mjs")], { input: JSON.stringify({ session_id: "s1", cwd: project, ...prompt("show board") }), encoding: "utf8", env });
   assert.equal(r.status, 0, r.stderr);

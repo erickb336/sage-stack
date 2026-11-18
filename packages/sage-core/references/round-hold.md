@@ -7,7 +7,7 @@ A round hold needs an explicit answer from the owner. A default answer does not 
 For a task with four spent rounds and a current limit of three, open a gate on that task:
 
 ```text
-sage gate add T1 --question "Approve one more repair round for T1 after 4 spent rounds and limit 3?" --options "approve|decline" --recommend approve
+sage gate add T1 --question "Approve one more repair round for T1 after 4 spent rounds and limit 3?" --options "approve|decline" --recommend approve --message <the question message file>
 ```
 
 After the owner chooses approve, record that answer with `sage gate answer G1 --option 1 --project <folder>`, then run `sage task T1 set state=building approval=G1`. Use the actual gate ID. Use `briefed` instead of `building` when a new brief is needed.

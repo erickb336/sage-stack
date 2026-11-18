@@ -11,6 +11,7 @@ import { tool as codex } from "../plugins/sage-codex/skills/sage/sage.mjs";
 import { runBoardCli } from "../plugins/sage/board/cli.mjs";
 import { createBoardServer, loadBoardApp } from "../plugins/sage/board/server.mjs";
 import { ownerWrite, writeInWorker } from "../plugins/sage/board/writes.mjs";
+import { QUESTION } from "./fixtures/question-message.mjs";
 
 const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
 const gitEnv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
@@ -257,7 +258,7 @@ test("F-T1137-2: a provider logbook without checkout.txt is refused with its tru
 
 test("T1152: a Claude or Codex logbook without checkout.txt can be archived on the board after one normal write of the chief", async t => {
   const w = await world(t), headers = await pair(w), inCodex = { ...w.own, SAGE_HOME: join(w.env.CODEX_HOME, "sage") };
-  const gate = project => ["gate", "add", "T1", "--question", "Keep the sample format?", "--options", "keep|drop", "--recommend", "keep", "--project", project];
+  const gate = project => ["gate", "add", "--message", QUESTION, "T1", "--question", "Keep the sample format?", "--options", "keep|drop", "--recommend", "keep", "--project", project];
   for (const [name, sage, env] of [["harbor", claude.sage, w.inClaude], ["meadow", codex.sage, inCodex]]) {
     rmSync(join(w.dirs[name], "checkout.txt"));
     const key = projectOf(await until(w, all => projectOf(all, name), `the board shows ${name}`), name).key;
@@ -271,7 +272,7 @@ test("T1152: a Claude or Codex logbook without checkout.txt can be archived on t
 
 test("F-T1137-12: the server records no answer or other write for an archived project, and records it again after Restore", async t => {
   const w = await world(t), headers = await pair(w);
-  claude.sage(["gate", "add", "T1", "--question", "Keep the sample format?", "--options", "keep|drop", "--recommend", "keep", "--project", w.checkouts.lantern, "--chief", "C1"], w.own);
+  claude.sage(["gate", "add", "--message", QUESTION, "T1", "--question", "Keep the sample format?", "--options", "keep|drop", "--recommend", "keep", "--project", w.checkouts.lantern, "--chief", "C1"], w.own);
   let all = await until(w, all => all.needs?.some(need => need.gate === "G1" && need.digest), "the board shows G1");
   const key = projectOf(all, "lantern").key, need = all.needs.find(item => item.gate === "G1");
   const body = { logbook: need.logbook, gate: "G1", option: 1, digest: need.digest };

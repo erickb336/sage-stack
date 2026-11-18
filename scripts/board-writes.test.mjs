@@ -13,6 +13,7 @@ import { startLink } from "../plugins/sage/board/access.mjs";
 import { createBoardServer, loadBoardApp, withoutPaths } from "../plugins/sage/board/server.mjs";
 import { writeInWorker } from "../plugins/sage/board/writes.mjs";
 import { boardCommandPort } from "./fixtures/board-port.mjs";
+import { QUESTION } from "./fixtures/question-message.mjs";
 
 const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
 const CLI = new URL("../plugins/sage/board/cli.mjs", import.meta.url).pathname, TEST_CHILD = new URL("./board-test-child.mjs", import.meta.url).pathname;
@@ -59,7 +60,7 @@ async function board(t, options = {}) {
   writeFileSync(join(dir, "chiefs.tsv"), `id\tprovider\tnative\tat\nC1\tclaude\tclaude-1\t${new Date().toISOString()}\nC2\tcodex\tcodex-1\t${new Date().toISOString()}\n`);
   const as = (...args) => claude.sage([...args, "--project", project, "--chief", "C1"], env);
   as("task", "add", "--title", "Sample share sheet", "--size", "small", "--priority", "P1");
-  as("gate", "add", "T1", "--question", "Can a viewer copy a shared list?", "--options", "yes|no", "--recommend", "yes");
+  as("gate", "add", "--message", QUESTION, "T1", "--question", "Can a viewer copy a shared list?", "--options", "yes|no", "--recommend", "yes");
   const config = join(base, "home", ".config", "sage-board", "board.json");
   const stateDir = join(base, "home", ".config", "sage-board", "state");
   const server = createBoardServer({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port: 0, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair", ...options });

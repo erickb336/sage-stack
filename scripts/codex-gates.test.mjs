@@ -9,6 +9,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { tool as codexTool } from "../plugins/sage-codex/skills/sage/sage.mjs";
 import { backed } from "./verdict-backing.mjs";
+import { QUESTION } from "./fixtures/question-message.mjs";
 
 const SCRATCH_HOME = realpathSync(mkdtempSync(join(tmpdir(), "sage-gates-home-")));
 process.env.HOME = SCRATCH_HOME;
@@ -838,7 +839,7 @@ test("only the chief records the logbook: a child's sage tool that writes is den
   const writes = [["verdict", { task: "T1", kind: "review-clean", sha: SHA, cycle: 1, pr: 41 }], ["gate_answer", { gate: "G1", option: 1 }], ["brief", { task_name: "sage_qa_t1", brief: "GOAL x" }],
     ["finding_add", { task: "T1", source: "qa", severity: "low" }], ["finding_triage", { task: "T1", key: "F-T1-1", decision: "dismiss", reason: "x" }], ["finding_close", { task: "T1", key: "F-T1-1" }],
     ["task_set", { task: "T1", fields: { state: "verified" } }], ["task_add", { title: "x", size: "tiny" }], ["standing_add", { order: "x" }], ["run_add", { task: "T1", role: "qa" }],
-    ["run_done", { run: "R1", status: "done" }], ["round", { task: "T1" }], ["log", { task: "T1", decision: "x", why: "y" }], ["gate_add", { task: "T1", question: "q", options: "a|b", recommend: "a" }],
+    ["run_done", { run: "R1", status: "done" }], ["round", { task: "T1" }], ["log", { task: "T1", decision: "x", why: "y" }], ["gate_add", { message: QUESTION, task: "T1", question: "q", options: "a|b", recommend: "a" }],
     ["finding_move", { task: "T1", key: "F-T1-1", to: "x" }], ["init", {}], ["pages", { task: "T1", record: "/p/page.html" }],
     ["pages", { task: "T1", run: "R1", text: "STATUS done" }], ["pages", { task: "T1", text: "STATUS done" }], ["unknown_tool", {}]];
   const reads = [["status", {}], ["standing", {}], ["merge_check", { sha: SHA }]];
