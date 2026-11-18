@@ -10,6 +10,7 @@ import { actorOptions, locate as claudeLocate, sage as claudeRun, sageRoot as cl
 import { tool } from "../plugins/sage-codex/skills/sage/sage.mjs";
 import { buildBoardModel, createStateTool, readBoardSources, renderBoardText, renderTaskText, sharedRoot } from "../packages/sage-core/index.mjs";
 import { githubRemote } from "../packages/sage-core/shared-root.mjs";
+import { QUESTION } from "./fixtures/question-message.mjs";
 
 const acting = (run, options) => (argv, env) => run([...argv, ...options(argv[argv.indexOf("--project") + 1], argv, { native: "test-chief" }, env)], env);
 const claudeSage = acting(claudeRun, actorOptions), codexSage = acting(tool.sage, tool.actorOptions);
@@ -163,7 +164,7 @@ test("no row: an existing project works as before, and no row or table appears f
 });
 
 for (const provider of ["claude", "codex"]) {
-  const gate = ["gate", "add", "T1", "--question", "Keep it?", "--options", "yes|no", "--recommend", "yes"];
+  const gate = ["gate", "add", "--message", QUESTION, "T1", "--question", "Keep it?", "--options", "yes|no", "--recommend", "yes"];
   const task = ["task", "add", "--title", "More", "--size", "tiny", "--priority", "P2"];
   const started = (t) => {
     const w = world(t), sage = w[provider];
@@ -210,7 +211,7 @@ test("T1152: a shared logbook gets no checkout.txt from normal writes of either 
   const dir = tool.storeDir(w.project, w.env);
   w.claude("task", "add", "--title", "From Claude", "--size", "tiny", "--priority", "P2");
   w.codex("task", "add", "--title", "From Codex", "--size", "tiny", "--priority", "P2");
-  w.codex("gate", "add", "T2", "--question", "Keep it?", "--options", "yes|no", "--recommend", "yes");
+  w.codex("gate", "add", "--message", QUESTION, "T2", "--question", "Keep it?", "--options", "yes|no", "--recommend", "yes");
   w.claude("standing", "add", "Keep the sample order.");
   assert.equal(dirname(dir), w.shared);
   assert.equal(lstatSync(join(dir, "checkout.txt"), { throwIfNoEntry: false }), undefined);
@@ -1277,14 +1278,14 @@ test("the id floors of the move make nextId give the next number above both old 
   w.claude("init");
   w.claude("task", "add", "--title", "old claude task", "--size", "tiny", "--priority", "P2");
   w.claude("run", "add", "T1", "--role", "qa");
-  w.claude("gate", "add", "T1", "--question", "Go?", "--options", "yes|no", "--recommend", "yes");
+  w.claude("gate", "add", "--message", QUESTION, "T1", "--question", "Go?", "--options", "yes|no", "--recommend", "yes");
   const renumber = (root, map) => {
     for (const name of readdirSync(join(root, w.folder())).filter((n) => n.endsWith(".tsv"))) rewrite(join(root, w.folder(), name), (text) => text.replace(/(?<![A-Za-z0-9])(T|R|G)1(?![0-9])/g, (_, p) => map[p]));
   };
   renumber(w.claudeRoot, { T: "T644", R: "R2469", G: "G103" });
   w.codex("init");
   w.codex("task", "add", "--title", "old codex task", "--size", "tiny", "--priority", "P2");
-  w.codex("gate", "add", "T1", "--question", "Go?", "--options", "yes|no", "--recommend", "yes");
+  w.codex("gate", "add", "--message", QUESTION, "T1", "--question", "Go?", "--options", "yes|no", "--recommend", "yes");
   w.codex("log", "-", "M4 was planned", "--why", "a milestone id in a decision counts");
   renumber(w.codexRoot, { T: "T95", R: "R1", G: "G200" });
   const fresh = w.repo("fresh");
@@ -1301,7 +1302,7 @@ test("the id floors of the move make nextId give the next number above both old 
   assert.equal(floors.length, 4);
   assert.match(w.claude("task", "add", "--title", "new", "--size", "tiny", "--priority", "P2", "--project", fresh), /^T645 /);
   assert.match(w.claude("run", "add", "T645", "--role", "qa", "--project", fresh), /^R2470 /);
-  assert.match(w.claude("gate", "add", "T645", "--question", "Go?", "--options", "yes|no", "--recommend", "yes", "--project", fresh), /^G201 /);
+  assert.match(w.claude("gate", "add", "--message", QUESTION, "T645", "--question", "Go?", "--options", "yes|no", "--recommend", "yes", "--project", fresh), /^G201 /);
   const none = w.repo("none");
   w.claude("init", "--project", none);
   const empty = w.claudeTool.storeDir(none, w.env);
@@ -1317,7 +1318,7 @@ test("an older sage reads the floor rows as they are written: plain decision row
     ...["T644 is the task floor", "R2469 is the run floor", "G103 is the gate floor"].map((d) => `2026-11-03T00:00:00Z\t\t${d} of the move from claude\tthe move keeps every new id above the ids of the old logbooks`)].join("\n") + "\n");
   assert.match(w.claude("task", "add", "--title", "new", "--size", "tiny", "--priority", "P2"), /^T645 /);
   assert.match(w.claude("run", "add", "T645", "--role", "qa"), /^R2470 /);
-  assert.match(w.claude("gate", "add", "T645", "--question", "Go?", "--options", "yes|no", "--recommend", "yes"), /^G104 /);
+  assert.match(w.claude("gate", "add", "--message", QUESTION, "T645", "--question", "Go?", "--options", "yes|no", "--recommend", "yes"), /^G104 /);
 });
 
 test("waitingPlugins names each provider that is not at the move's contract, and an unused provider does not wait (T641)", (t) => {
@@ -1366,7 +1367,7 @@ function moveWorld(t) {
   w.claude("task", "add", "--title", "claude open", "--size", "small", "--priority", "P1", "--waits", "T1");
   w.claude("task", "add", "--title", "claude verified", "--size", "tiny", "--priority", "P2");
   w.claude("finding", "add", "T2", "--source", "sage", "--severity", "medium", "--summary", "a loose end");
-  w.claude("gate", "add", "T2", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes");
+  w.claude("gate", "add", "--message", QUESTION, "T2", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes");
   w.claude("standing", "add", "Claude order five.");
   setStates(claudeDir, { T1: "merged", T3: "verified" });
   w.codex("init");
@@ -1510,7 +1511,7 @@ test("the move takes the open tasks of both old logbooks into one shared logbook
   assert.match(readFileSync(join(w.shared, "projects.tsv"), "utf8"), new RegExp(`\n${folder}\t\\S+\tinit\n`), "the shared root knows the new logbook");
   assert.deepEqual(readdirSync(join(w.shared, "moves")), [], "the plan and the asked plan are gone");
   assert.match(w.codex("task", "add", "--title", "after", "--size", "tiny", "--priority", "P2"), /^T7 /);
-  assert.match(w.claude("gate", "add", "--question", "Go?", "--options", "yes|no", "--recommend", "yes"), /^G4 /);
+  assert.match(w.claude("gate", "add", "--message", QUESTION, "--question", "Go?", "--options", "yes|no", "--recommend", "yes"), /^G4 /);
   assert.match(w.claude("status"), /T4/);
   const results = readBoardSources([{ id: "shared", path: w.shared }, { id: "claude", path: w.claudeRoot, provider: "claude" }, { id: "codex", path: w.codexRoot, provider: "codex" }]);
   const shared = results.find((r) => r.id === "shared");
@@ -1572,7 +1573,7 @@ test("a move gate whose plan no longer matches the logbooks moves nothing and sa
   assert.equal(existsSync(join(w.claudeDir, "moved.json")) || existsSync(join(w.codexDir, "moved.json")), false);
   assert.equal(existsSync(join(w.shared, "moves", `${w.folder()}.json`)), false, "no plan is saved");
   assert.throws(() => w.claude("gate", "answer", id, "--option", "2"), /G2 has the answer "move" already, from the chat at \S+: the first answer wins, so this answer is not recorded\. To move later, run the preview again: sage move --preview\. Nothing changed\./);
-  assert.throws(() => w.claude("gate", "add", "--question", "move · plan 1234abcd", "--options", "a|b", "--recommend", "a"), /a question that starts with "move · plan" is a move gate, and only sage move --plan opens one/);
+  assert.throws(() => w.claude("gate", "add", "--message", QUESTION, "--question", "move · plan 1234abcd", "--options", "a|b", "--recommend", "a"), /a question that starts with "move · plan" is a move gate, and only sage move --plan opens one/);
   assert.throws(() => w.claude("move", "--plan", plan), new RegExp(`refused: plan ${plan} is not the plan of the logbooks now: the preview now gives plan [0-9a-f]{8}\\n  If plan ${plan} was typed by hand, check its 8 hex\\. If not, a logbook changed after the preview\\.\\nNothing changed\\. Show the owner the preview again`), "a gate opens only for the plan that the owner saw");
   const again = w.ask();
   assert.notEqual(again.plan, plan);
@@ -1760,7 +1761,7 @@ const boardOf = (w, options) => buildBoardModel(readBoardSources([{ id: "shared"
 test("an adopted task's open gate and finding move with the task that adopted it, and the plan and the end check count them (F-T640-18)", (t) => {
   const w = moveWorld(t);
   w.codex("finding", "add", "T1", "--source", "sage", "--severity", "low", "--summary", "codex loose end");
-  w.codex("gate", "add", "T1", "--question", "Codex T1 ready?", "--options", "yes|no", "--recommend", "yes");
+  w.codex("gate", "add", "--message", QUESTION, "T1", "--question", "Codex T1 ready?", "--options", "yes|no", "--recommend", "yes");
   setCells(w.claudeDir, "T2", { branch: "sage/t1-shared", pr: "7", adoption: JSON.stringify(adoptionV1(w.codexDir, w.project, "T1")) });
   const preview = w.claude("move", "--preview");
   assert.match(preview, /\nopen findings       1  new keys       1  new keys\nopen gates          1  G3             1  G4\n/);
@@ -1805,7 +1806,7 @@ test("a moved repair approval gate names the new task, so the owner's approve an
   w.codex("init");
   setStates(claudeDir, { T1: "merged" });
   setCells(claudeDir, "T2", { state: "held", hold: "round", round: "3" });
-  w.claude("gate", "add", "T2", "--question", "Approve one more repair round for T2 after 3 spent rounds and limit 3?", "--options", "approve|decline", "--recommend", "approve");
+  w.claude("gate", "add", "--message", QUESTION, "T2", "--question", "Approve one more repair round for T2 after 3 spent rounds and limit 3?", "--options", "approve|decline", "--recommend", "approve");
   w.claude("move", "--gate", askPlain(w));
   const dir = join(w.shared, w.folder()), moved = rowsIn(join(dir, "gates.tsv")).find((g) => g.options === "approve|decline");
   assert.deepEqual([moved.id, moved.task, moved.question], ["G3", "T3", "Approve one more repair round for T3 after 3 spent rounds and limit 3?"]);
@@ -1972,7 +1973,7 @@ test("a moved gate's question names the same finding after the move: a finding k
   w.claude("finding", "add", "T2", "--source", "sage", "--severity", "medium", "--summary", "two");
   w.claude("finding", "add", "T2", "--source", "sage", "--severity", "medium", "--summary", "three");
   w.claude("finding", "triage", "T2", "F-T2-1", "dismiss", "--reason", "not real");
-  w.claude("gate", "add", "T2", "--question", "Move F-T2-2 to a follow-up task? F-T2-1 is dismissed, and T2 keeps F-T2-3.", "--options", "move|keep", "--recommend", "move");
+  w.claude("gate", "add", "--message", QUESTION, "T2", "--question", "Move F-T2-2 to a follow-up task? F-T2-1 is dismissed, and T2 keeps F-T2-3.", "--options", "move|keep", "--recommend", "move");
   const asked = rowsIn(join(w.claudeDir, "gates.tsv")).at(-1).id;
   w.claude("gate", "answer", asked, "--option", "1");
   w.claude("move", "--gate", w.ask().id);
@@ -2046,8 +2047,8 @@ test("two tasks with the same finding key keep their own findings: round keys ma
     const [head, ...lines] = text.trimEnd().split("\n"), col = head.split("\t").indexOf("keys");
     return [head, ...lines.map((l) => { const c = l.split("\t"); if (c[0] === "T2" || c[0] === "T3") c[col] = "F1"; return c.join("\t"); })].join("\n") + "\n";
   });
-  w.claude("gate", "add", "T2", "--question", "Move F1 to a follow-up task?", "--options", "move|keep", "--recommend", "move");
-  w.claude("gate", "add", "T3", "--question", "Fix F1 in T3 now?", "--options", "fix|wait", "--recommend", "fix");
+  w.claude("gate", "add", "--message", QUESTION, "T2", "--question", "Move F1 to a follow-up task?", "--options", "move|keep", "--recommend", "move");
+  w.claude("gate", "add", "--message", QUESTION, "T3", "--question", "Fix F1 in T3 now?", "--options", "fix|wait", "--recommend", "fix");
   const row = { id: "G9", task: "", question: "F-T2-1 first, or F1?", options: "first|F1", recommendation: "first", default: "first", answer: "", at: "2026-11-03T00:00:00Z" };
   rewrite(join(w.claudeDir, "gates.tsv"), (text) => `${text.trimEnd()}\n${text.split("\n")[0].split("\t").map((c) => row[c] ?? "").join("\t")}\n`);
   w.claude("move", "--gate", w.ask().id);
@@ -2193,7 +2194,7 @@ test("after a restore by hand, a new task or gate takes a number above the move'
   restoreByHand(w, plan);
   assert.match(w.claude("task", "add", "--title", "after the restore", "--size", "tiny", "--priority", "P2"), /^T7 /);
   assert.match(w.codex("task", "add", "--title", "after the restore", "--size", "tiny", "--priority", "P2"), /^T7 /);
-  assert.match(w.claude("gate", "add", "--question", "Go?", "--options", "yes|no", "--recommend", "yes"), /^G4 /);
+  assert.match(w.claude("gate", "add", "--message", QUESTION, "--question", "Go?", "--options", "yes|no", "--recommend", "yes"), /^G4 /);
   assert.deepEqual(rowsIn(join(w.codexDir, "decisions.tsv")).map((d) => d.decision).filter((d) => d !== "task added"), [`T6 is the task floor of the move to the shared logbook ${w.folder()}`, `G3 is the gate floor of the move to the shared logbook ${w.folder()}`]);
 });
 
@@ -2473,7 +2474,7 @@ test("the same --plan again shows the open gate and opens no second one, and an 
 
 test("a move gate takes an id above the gates of every old logbook, so two chiefs' gates never share an id (F-T640-64, F-T640-65)", (t) => {
   const w = moveWorld(t);
-  w.codex("gate", "add", "--question", "Codex first?", "--options", "yes|no", "--recommend", "yes");
+  w.codex("gate", "add", "--message", QUESTION, "--question", "Codex first?", "--options", "yes|no", "--recommend", "yes");
   const claudeGate = /^(G\d+) /.exec(w.claude("move", "--plan", w.planOf(w.claude("move", "--preview"))))[1];
   const codexGate = /^(G\d+) /.exec(w.codex("move", "--plan", w.planOf(w.codex("move", "--preview"))))[1];
   assert.deepEqual([claudeGate, codexGate], ["G2", "G3"], "the Codex gate is above the Claude move gate G2");

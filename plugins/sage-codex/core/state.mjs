@@ -29,7 +29,7 @@ import { CHIEF, TAKEOVER_OPTIONS, chiefOnly, createChiefs, crossed, offerOf, rep
 import { NAMES_FILE, chiefNames } from "./chief-live.mjs";
 import { LEAD_COMMANDS, leadProblem as leadPolicy, leadRequest } from "./lead-policy.mjs";
 import { renderMessage } from "./message-checks.mjs";
-import { MAX_SECTIONS, PAGE_DEPTH, PAGE_MAX, PAGE_TYPES, pageType, pageUrl } from "./message.mjs";
+import { KINDS as MESSAGE_KINDS, MAX_SECTIONS, PAGE_DEPTH, PAGE_MAX, PAGE_TYPES, pageType, pageUrl } from "./message.mjs";
 import { boardPort, pageFile, pageTaskFolder } from "./page-files.mjs";
 import { taskWord } from "./state-words.mjs";
 import { AST_GREP_VERSION, LINT_CONFIG, LINT_KINDS, astGrepBinary, lintBase, lintChange } from "./lint.mjs";
@@ -2822,10 +2822,11 @@ function readMessage(file, json, project, env) {
   let input;
   try { input = JSON.parse(text); } catch (e) { refuse(`the message is not JSON: ${e.message}. Nothing written.`); }
   if (/#pair=/i.test(text.replace(/\\u([0-9a-f]{4})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16))))) refuse("the message holds #pair=, the mark of a board pairing link. A pairing link opens the board for one browser, so it goes in the chat text only, never in a message or its page. Take it out. Nothing written.");
-  const logbook = basename(storeDir(project, env));
+  const logbook = basename(storeDir(project, env)), named = [];
   const pages = (blocks, depth = 0) => (Array.isArray(blocks) ? blocks : []).forEach((b) => {
     if (b?.t === "section" && depth < MAX_SECTIONS) pages(b.body, depth + 1);
     if (b?.t !== "page") return;
+    named.push(b);
     if (!TASK_ID.test(String(b.task)) || typeof b.file !== "string" || !pageType(b.file))
       refuse(`a page block names its page as { t: page, title, task, file }: a task id and a file in that task's pages folder that the board serves: 1 to ${PAGE_DEPTH} parts of letters, digits and . _ - (none that starts with a dot or holds ..), ending in .${Object.keys(PAGE_TYPES).join(", .")}; not ${JSON.stringify({ task: b.task, file: b.file })}. Nothing written.`);
     b.path = join(pagesDir(project, b.task, env), b.file);
@@ -2837,7 +2838,7 @@ function readMessage(file, json, project, env) {
     if (!folder || !pageFile(folder, b.file)) refuse(`the page block "${b.title}" names ${b.path}, and the board serves only a regular file with one name that it can read, of at most 16 MiB, with no link in its path or in the pages folders. Save the page itself there. Nothing written.`);
   });
   pages(input?.blocks);
-  return { input, logbook };
+  return { input, logbook, named };
 }
 function writeMessage(project, taskId, { input, logbook }, shape, env) {
   const folder = taskId && pagesDir(project, taskId, env);
@@ -2852,9 +2853,17 @@ function writeMessage(project, taskId, { input, logbook }, shape, env) {
   renameSync(temp, out.page.path);
   return out.text;
 }
+const MESSAGE_PAGE = new RegExp(`^(?:${Object.keys(MESSAGE_KINDS).map((k) => k.replace(/ /g, "-")).join("|")})-[0-9a-f]{8}\\.html$`);
+const workPages = (folder) => {
+  try { return readdirSync(folder, { recursive: true }).filter((f) => pageType(f) && !MESSAGE_PAGE.test(f)).sort(); } catch (e) { if (e.code === "ENOENT") return []; throw e; }
+};
+const PAGE_FORM = '{ "t": "page", "title": "<what to look at>", "task": "<T>", "file": "<file in that task\'s pages folder>" }';
 function questionMessage(file, project, taskId, env) {
+  if (file === undefined) refuse(`a question to the owner names what to look at: give --message <the JSON file of a question message> ({ kind: "question", title, blocks }), with a Page block ${PAGE_FORM} for the main page when the task has pages. Nothing changed.`);
   const given = readMessage(file, undefined, project, env);
   if (given.input?.kind !== "question") refuse(`--message is the file of a question message ({ kind: "question", title, blocks }), not of ${JSON.stringify(given.input?.kind ?? null)}. Nothing written.`);
+  const pages = taskId && !given.named.length ? workPages(pagesDir(project, taskId, env)) : [];
+  if (pages.length) refuse(`${taskId}'s pages folder holds ${pages.length === 1 ? "a page" : `${pages.length} pages`} (${pages.slice(0, 5).join(", ")}${pages.length > 5 ? ", …" : ""}), so the question names the main one: add a Page block ${PAGE_FORM.replace("<T>", taskId)} to the message's blocks; it may name another task's page. Nothing written.`);
   return { message: given.input, text: writeMessage(project, taskId, given, "the gate keeps no message in another shape", env) };
 }
 function keepGateMessage(dir, g, { message, text }) {
@@ -3481,7 +3490,7 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         if (f.status !== "open") refuse(`${f.key} is ${f.status}: only an open finding moves.`);
         if (f.severity === "high") refuse(`${f.key} is high, so it blocks ${id} until it is fixed: a high finding never moves to a follow-up task.`);
         if (roundKeys(taskOf(dir, id).task).includes(f.key) && !read(dir, "gates").some((g) => g.task === id && g.question.split(/[^\w-]+/).includes(f.key) && g.answer && g.answer === optionsOf(g)[0])) {
-          refuse(`${f.key} is a fix of ${id}'s current round, so it stays on ${id}: it is fixed in a round, or dismissed with a reason. It moves to a follow-up task only after the owner chose the first option of a gate of ${id} whose question names ${f.key}: sage gate add ${id} --question "Move ${f.key} to a follow-up task?" --options "move|keep" --recommend <move or keep>.`);
+          refuse(`${f.key} is a fix of ${id}'s current round, so it stays on ${id}: it is fixed in a round, or dismissed with a reason. It moves to a follow-up task only after the owner chose the first option of a gate of ${id} whose question names ${f.key}: sage gate add ${id} --question "Move ${f.key} to a follow-up task?" --options "move|keep" --recommend <move or keep> --message <the question message file>.`);
         }
         let to, tasks;
         if (into === undefined) {
@@ -3598,10 +3607,10 @@ function act(cmd, pos, opt, dir, env, skip, project) {
           if (run.task !== g.task) refuse(`--run ${run.id} is a run of ${run.task}, not of ${g.task}: name the run of ${g.task} that asked this question. Nothing changed.`);
           g.run = run.id;
         }
-        const message = opt.message === undefined ? undefined : questionMessage(opt.message, project, g.task, env);
-        if (message) keepGateMessage(dir, g, message);
+        const message = questionMessage(opt.message, project, g.task, env);
+        keepGateMessage(dir, g, message);
         write(dir, "gates", [...gates, g]);
-        return `${g.id} open · ${g.question}${message ? ` · its message: ${gateMessageFile(dir, g.id)}` : ""}`;
+        return `${g.id} open · ${g.question}`;
       }
       if (sub === "replace" || sub === "give") {
         if (sub === "give" && more.length) refuse("gate give takes one task id and --to <C id>: sage gate give <T> --to C<n>. Nothing changed.");

@@ -11,6 +11,7 @@ import { tool as codex } from "../plugins/sage-codex/skills/sage/sage.mjs";
 import { runBoardCli } from "../plugins/sage/board/cli.mjs";
 import { startLink } from "../plugins/sage/board/access.mjs";
 import { createBoardServer, loadBoardApp } from "../plugins/sage/board/server.mjs";
+import { QUESTION } from "./fixtures/question-message.mjs";
 
 const chromium = requireBrowser();
 const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
@@ -46,7 +47,7 @@ async function openBoard(t, { viewport = { width: 1440, height: 1000 } } = {}) {
   as("task", "add", "--title", "Sample import recipes", "--size", "small", "--priority", "P1");
   as("task", "T1", "set", "pr=12", "branch=sage/t1-import");
   as("task", "add", "--title", "Sample print a recipe", "--size", "small", "--priority", "P2");
-  as("gate", "add", "T1", "--question", "Keep the old export format?", "--options", "keep|drop", "--recommend", "keep");
+  as("gate", "add", "--message", QUESTION, "T1", "--question", "Keep the old export format?", "--options", "keep|drop", "--recommend", "keep");
   const inClaude = { ...env, SAGE_HOME: join(env.CLAUDE_CONFIG_DIR, "sage") }, dirs = { lantern: dir };
   for (const name of PROJECTS) {
     const path = repository(base, name);
