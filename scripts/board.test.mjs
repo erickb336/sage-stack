@@ -7,6 +7,7 @@ import { basename, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { mergeCheck, storeDir } from "../plugins/sage/skills/sage/sage.mjs";
+import { QUESTION } from "./fixtures/question-message.mjs";
 
 const FIXTURE = fileURLToPath(new URL("./fixtures/board/home", import.meta.url));
 const TOOL = fileURLToPath(new URL("../plugins/sage/skills/sage/sage.mjs", import.meta.url));
@@ -174,7 +175,7 @@ function twoProjects() {
     execFileSync("git", ["init", "-q", path]);
     sage(path, "init");
     sage(path, "task", "add", "--priority", "P2", "--title", `${name} task`, "--size", "tiny");
-    sage(path, "gate", "add", "T1", "--question", `${name}: give the bot access?`, "--options", "yes|no access", "--recommend", "yes");
+    sage(path, "gate", "add", "--message", QUESTION, "T1", "--question", `${name}: give the bot access?`, "--options", "yes|no access", "--recommend", "yes");
     return path;
   });
   const hook = (prompt, cwd) => {
@@ -213,7 +214,7 @@ test("T72-S6-OPTIONSHELL: an option with $(…) or a quote never goes into the n
   const w = twoProjects();
   const marker = join(w.dir, "X");
   const evil = `keep $(touch ${marker}) it`;
-  w.sage(w.beta, "gate", "add", "T1", "--question", "beta: which?", "--options", `say "hi|${evil}|\`touch ${marker}\``, "--recommend", "1");
+  w.sage(w.beta, "gate", "add", "--message", QUESTION, "T1", "--question", "beta: which?", "--options", `say "hi|${evil}|\`touch ${marker}\``, "--recommend", "1");
   const note = w.hook("show board for beta", w.alpha);
   for (const bad of ["$(", "touch", '"hi', "`"]) assert.ok(!note.includes(bad), `the note holds ${bad}`);
   assert.match(note, /full source\/project\/gate key/);

@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { buildBoardModel, readBoardSources, renderBoardText, taskWord } from "../packages/sage-core/index.mjs";
+import { QUESTION } from "./fixtures/question-message.mjs";
 
 const TOOL = fileURLToPath(new URL("../plugins/sage/skills/sage/sage.mjs", import.meta.url));
 const SPY = fileURLToPath(new URL("kill-spy.mjs", import.meta.url));
@@ -32,7 +33,7 @@ test("T1009: the T997 example, a milestone whose tasks need you and wait, is in 
   for (const n of [1, 2, 3]) s.ok("task", "add", "--title", `Sample task ${n}`, "--size", "small", "--priority", "P2");
   s.ok("milestone", "propose", "--name", "Sage feel", "--goal", "A sample goal", "--pilot", "T1", "--tasks", "T2");
   s.ok("gate", "answer", "G1", "--option", "1");
-  s.ok("gate", "add", "T1", "--question", "Sample: which layout?", "--options", "first|second", "--recommend", "first");
+  s.ok("gate", "add", "--message", QUESTION, "T1", "--question", "Sample: which layout?", "--options", "first|second", "--recommend", "first");
   s.ok("release", "add", "--name", "1.0");
   s.ok("milestone", "M1", "set", "release=1.0");
   s.ok("task", "T3", "set", "release=1.0");

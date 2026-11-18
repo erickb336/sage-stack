@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { pathToFileURL } from "node:url";
 import { ROOT } from "./build.mjs";
+import { QUESTION, pageQuestion } from "./fixtures/question-message.mjs";
 
 const SHA = "1".repeat(40);
 
@@ -301,7 +302,7 @@ test("T552: a lead's own task keeps the rules of the flow: its team, a kept repo
   await refused("run_add", { task: "T1", role: "implementer", branch: "sage/t2-a" }, /^sage: sage\/t2-a is not a branch of T1/);
   await refused("run_done", { run: "R1", status: "done" }, /^sage: R1 is a lead run: only the chief ends it/);
   await refused("finding_add", { task: "T1", source: "qa", severity: "low", summary: "x", key: "F-T1-1" }, /^sage: only the chief opens a known finding again/);
-  for (const [name, args] of Object.entries({ task_add: { title: "x", size: "small", priority: "P2" }, gate_add: { task: "T1", question: "q", options: "a|b", recommend: "a" }, gate_answer: { gate: "G1", option: 1 },
+  for (const [name, args] of Object.entries({ task_add: { title: "x", size: "small", priority: "P2" }, gate_add: { message: QUESTION, task: "T1", question: "q", options: "a|b", recommend: "a" }, gate_answer: { gate: "G1", option: 1 },
     log: { task: "T1", decision: "d", why: "w" }, standing_add: { order: "o" }, report_compare: { task: "T1", run: "R1", sha256: "0".repeat(64) }, finding_move: { task: "T1", key: "F-T1-1", to: "later" } })) {
     assert.equal((await lead(name, args)).denied, OFF_LIST(name), name);
   }
@@ -479,7 +480,7 @@ const CHIEF_NAMES = ["/root/sage_chief_t1", "/root/worker/sage_chief_t1", "/root
 test("F-T552-5: a child named like a chief calls only what a child calls, at the gate and at the server", async (t) => {
   const w = await reviewingWorld(t);
   await add(w, "low");
-  await w.call("gate_add", { task: "T1", question: "q", options: "a|b", recommend: "a" });
+  await w.call("gate_add", { message: QUESTION, task: "T1", question: "q", options: "a|b", recommend: "a" });
   const LOGBOOK = "sage: role agents report; only the chief records the logbook. Put this in your report";
   for (const agent of CHIEF_NAMES) {
     for (const [name, args] of [["gate_answer", { gate: "G1", option: 1 }], ["verdict", { task: "T1", kind: "checks-pass", sha: SHA }], ["task_set", { task: "T1", fields: { state: "merged" } }],
@@ -865,7 +866,7 @@ test("T48: task_adopt and approved repair reach the shared rule through Codex MC
   assert.match(await s.call('finding_triage', { task: 'T1', key: 'F-T1-1', decision: 'fix' }), /open · fix/);
   assert.match(await s.call('round', { task: 'T1' }), /held: 4 repair rounds/);
   assert.match((await s.call('task_set', { task: 'T1', fields: { state: 'building' } })).error, /approval/);
-  await s.call('gate_add', { task: 'T1', question: 'Approve one more repair round for T1 after 4 spent rounds and limit 3?', options: 'approve|decline', recommend: 'approve' });
+  await s.call('gate_add', { message: QUESTION, task: 'T1', question: 'Approve one more repair round for T1 after 4 spent rounds and limit 3?', options: 'approve|decline', recommend: 'approve' });
   await s.call('gate_answer', { gate: 'G1', option: 1 });
   assert.match(await s.call('task_set', { task: 'T1', fields: { state: 'building', approval: 'G1' } }), /T1 building.*round 4/);
   assert.equal(tool.read(dest, 'tasks')[0].extra, '2');
@@ -1128,8 +1129,8 @@ test("each tool writes the Codex logbook in CODEX_HOME/sage, and returns each re
   assert.match(await call("pages", { task: "T1", record: join(pages, "plan.md") }), /plan\.md/);
   assert.match((await call("pages", { task: "T1", record: join(s.dir, "elsewhere.md") })).error, /^sage: .*elsewhere\.md is not a file in .*pages\/T1\. Save the page there first\./);
 
-  assert.match((await call("gate_add", { task: "T1", question: "Ship it?", options: "yes|no", recommend: "maybe" })).error, /^sage: --recommend is one of the options/);
-  assert.equal(await call("gate_add", { task: "T1", question: "Ship it?", options: "yes|no", recommend: "yes" }), "G1 open · Ship it?");
+  assert.match((await call("gate_add", { message: QUESTION, task: "T1", question: "Ship it?", options: "yes|no", recommend: "maybe" })).error, /^sage: --recommend is one of the options/);
+  assert.equal(await call("gate_add", { message: pageQuestion("T1", "plan.md"), task: "T1", question: "Ship it?", options: "yes|no", recommend: "yes" }), "G1 open · Ship it?");
   assert.match((await call("gate_answer", { gate: "G1", option: 9 })).error, /^sage: gate answer G1 takes --option <n>/);
   assert.equal(await call("gate_answer", { gate: "G1", option: 1 }), "G1 answered · yes");
 });
@@ -1577,7 +1578,7 @@ test("T85 synthetic designer prototype, separate PE report and chief artifact re
     assert.equal(ledger(), before, "design reports grant no review verdict or design approval");
     retained.push(report);
   }
-  assert.match(await s.call("gate_add", { task: "T1", question: "SAMPLE: approve this design?", options: "approve|change", recommend: "approve" }), /^G1 open/);
+  assert.match(await s.call("gate_add", { message: pageQuestion("T1", "sample-prototype.html"), task: "T1", question: "SAMPLE: approve this design?", options: "approve|change", recommend: "approve" }), /^G1 open/);
   assert.match((await s.call("merge_check", { sha: SHA, pr: 1, head: branch })).error, /no verdicts/);
   assert.match(await s.call("gate_answer", { gate: "G1", option: "1" }), /G1/);
   assert.match(await s.call("run_add", { task: "T1", role: "implementer", branch }), /^R3 running/);
