@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -13,8 +13,8 @@ import { isMain } from "./is-main.mjs";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 export const OUT = { dark: "docs/assets/board-walkthrough-dark.gif", light: "docs/assets/board-walkthrough-light.gif" };
 export const VIEW = { width: 1320, height: 800 };
-const FPS = 20, MARGIN = 28, BAR = 36;
-const CANVAS = { width: VIEW.width + 2 * MARGIN, height: VIEW.height + BAR + 2 * MARGIN };
+const FPS = 20, MARGIN = 28, BAR = 36, BAND = 52;
+const CANVAS = { width: VIEW.width + 2 * MARGIN, height: VIEW.height + BAR + BAND + 2 * MARGIN };
 const FFMPEG_HELP = "The walkthrough needs ffmpeg 6 or later to write the GIF. Install it (macOS: brew install ffmpeg; Debian or Ubuntu: sudo apt-get install ffmpeg), or give its path in FFMPEG.";
 const CAPTIONS = {
   1: ["1", "Overview", "where every task and milestone stands"],
@@ -22,8 +22,8 @@ const CAPTIONS = {
   3: ["3", "A task", "its state, its next step and its agents"],
 };
 const THEMES = {
-  dark: { bg: "#0d1117", bar: "#16161b", line: "#2c2c34", text: "#8e8e98", cursor: "#fff", outline: "#111" },
-  light: { bg: "#ffffff", bar: "#f4f4f5", line: "#d4d4d8", text: "#63636d", cursor: "#111", outline: "#fff" },
+  dark: { bg: "#0d1117", bar: "#16161b", line: "#2c2c34", text: "#8e8e98", cursor: "#fff", outline: "#111", shadow: "" },
+  light: { bg: "#ffffff", bar: "#f4f4f5", line: "#b8b8c0", text: "#63636d", cursor: "#111", outline: "#fff", shadow: "0 3px 14px rgba(0,0,0,.16)," },
 };
 
 export function ffmpegCommand(env = process.env) {
@@ -55,34 +55,37 @@ const DRAW = st => {
     el.style.cssText = `position:fixed;pointer-events:none;${css}`;
     return el;
   };
-  const { cam, cursor, ring, cap, fade, colors } = st, dark = st.theme === "dark";
+  const { cam, cursor, ring, fade, colors } = st, dark = st.theme === "dark";
   document.body.style.transformOrigin = "0 0";
   document.body.style.transform = cam.s === 1 && !cam.tx && !cam.ty ? "" : `translate(${cam.tx}px,${cam.ty}px) scale(${cam.s})`;
   const pointer = make("walk-cursor", `z-index:10003;left:${cursor.x - 3}px;top:${cursor.y - 2}px;width:28px;height:34px;transform:scale(${cursor.press ? 0.86 : 1});transform-origin:3px 2px`);
   if (!pointer.firstChild) pointer.innerHTML = `<svg viewBox="0 0 28 34" width="28" height="34"><path d="M3 2 L3 26 L9.5 20 L14 30.5 L18.4 28.6 L14 18.6 L22.6 18.6 Z" fill="${colors.cursor}" stroke="${colors.outline}" stroke-width="1.8" stroke-linejoin="round"/></svg>`;
   make("walk-ring", ring ? `z-index:10002;left:${ring.x - ring.r}px;top:${ring.y - ring.r}px;width:${2 * ring.r}px;height:${2 * ring.r}px;border-radius:50%;border:3px solid rgba(${dark ? "154,162,255" : "79,70,229"},${ring.a});background:rgba(${dark ? "154,162,255" : "79,70,229"},${ring.a * 0.25})` : "display:none");
-  const font = "ui-sans-serif,-apple-system,system-ui,sans-serif";
-  const caption = make("walk-caption", `z-index:10001;left:50%;bottom:22px;transform:translateX(-50%) translateY(${(1 - cap.a) * 6}px);opacity:${cap.a};display:flex;align-items:center;gap:10px;padding:9px 16px 9px 10px;border-radius:999px;white-space:nowrap;font:500 16px/1.2 ${font};background:${dark ? "rgba(24,24,30,.94)" : "rgba(255,255,255,.96)"};color:${dark ? "#ededf0" : "#18181b"};border:1px solid ${dark ? "#34343e" : "#d4d4d8"};box-shadow:0 6px 24px rgba(0,0,0,${dark ? 0.45 : 0.12})`);
-  if (caption.dataset.key !== cap.parts[0]) {
-    caption.dataset.key = cap.parts[0];
-    const [n, label, text] = cap.parts, part = (tag, value, css) => Object.assign(document.createElement(tag), { textContent: value, style: css });
-    caption.replaceChildren(
-      part("span", n, `display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;font-weight:650;font-size:13px;background:${dark ? "#9aa2ff" : "#4f46e5"};color:${dark ? "#0b0b10" : "#fff"}`),
-      part("b", label, "font-weight:650"), part("span", text, `color:${dark ? "#a3a3ad" : "#52525b"}`));
-  }
-  make("walk-sample", `z-index:10001;right:16px;bottom:24px;padding:5px 10px;border-radius:999px;font:600 12px/1.2 ${font};letter-spacing:.02em;background:${dark ? "#3a1f0a" : "#fdf3e1"};color:${dark ? "#fbbf24" : "#8f5106"};border:1px solid ${dark ? "#6b4210" : "#f0d29a"}`).textContent = "SAMPLE DATA";
   const still = make("walk-fade", `left:0;top:0;width:${innerWidth}px;height:${innerHeight}px;z-index:10010;opacity:${fade ? fade.a : 0}`, "img");
   if (fade && !still.src.endsWith(fade.src)) still.src = fade.src;
   return fade ? still.complete : true;
 };
 
-const WINDOW = ({ c, view, margin, bar }) => `<body style="margin:0;background:transparent">
-  <div style="position:absolute;left:${margin - 1}px;top:${margin - 1}px;width:${view.width}px;height:${view.height + bar}px;border:1px solid ${c.line};border-radius:12px;box-shadow:0 0 0 3000px ${c.bg};overflow:hidden">
-    <div style="height:${bar}px;background:${c.bar};border-bottom:1px solid ${c.line};box-sizing:border-box;display:flex;align-items:center;padding:0 14px;gap:8px;position:relative">
+const FONT = "ui-sans-serif,-apple-system,system-ui,sans-serif";
+const SAMPLE = dark => `padding:5px 10px;border-radius:999px;font:600 12px/1.2 ${FONT};letter-spacing:.02em;background:${dark ? "#3a1f0a" : "#fdf3e1"};color:${dark ? "#fbbf24" : "#8f5106"};border:1px solid ${dark ? "#6b4210" : "#f0d29a"}`;
+const WINDOW = ({ c, dark }) => `<body style="margin:0;background:transparent">
+  <div style="position:absolute;left:${MARGIN - 1}px;top:${MARGIN - 1}px;width:${VIEW.width}px;height:${VIEW.height + BAR + BAND}px;border:1px solid ${c.line};border-radius:12px;box-shadow:${c.shadow}0 0 0 3000px ${c.bg};overflow:hidden">
+    <div style="height:${BAR}px;background:${c.bar};border-bottom:1px solid ${c.line};box-sizing:border-box;display:flex;align-items:center;padding:0 14px;gap:8px;position:relative">
       <i style="width:12px;height:12px;border-radius:50%;background:#ff5f57"></i><i style="width:12px;height:12px;border-radius:50%;background:#febc2e"></i><i style="width:12px;height:12px;border-radius:50%;background:#28c840"></i>
-      <span style="position:absolute;left:0;right:0;text-align:center;font:500 13px/1 -apple-system,system-ui,sans-serif;color:${c.text}">sage board · sample data</span>
+      <span style="position:absolute;left:0;right:0;text-align:center;font:500 13px/1 ${FONT};color:${c.text}">sage board</span>
+      <span style="position:absolute;right:12px;${SAMPLE(dark)}">SAMPLE DATA</span>
     </div>
   </div></body>`;
+
+const BAND_PAGE = ({ c }) => `<body style="margin:0;height:${BAND}px;box-sizing:border-box;background:${c.bar};border-top:1px solid ${c.line};display:flex;align-items:center;justify-content:center;overflow:hidden"><div id="cap"></div></body>`;
+const CAPTION = ({ cap, dark }) => {
+  const el = document.getElementById("cap"), font = "ui-sans-serif,-apple-system,system-ui,sans-serif";
+  el.style.cssText = `display:flex;align-items:center;gap:10px;white-space:nowrap;font:500 16px/1.2 ${font};color:${dark ? "#ededf0" : "#18181b"};opacity:${cap.a};transform:translateY(${(1 - cap.a) * 6}px)`;
+  const [n, label, text] = cap.parts, part = (tag, value, css) => Object.assign(document.createElement(tag), { textContent: value, style: css });
+  el.replaceChildren(
+    part("span", n, `display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;font-weight:650;font-size:13px;background:${dark ? "#9aa2ff" : "#4f46e5"};color:${dark ? "#0b0b10" : "#fff"}`),
+    part("b", label, "font-weight:650"), part("span", text, `color:${dark ? "#a3a3ad" : "#52525b"}`));
+};
 
 async function film(page, base, shot, st) {
   const files = new Map();
@@ -149,7 +152,10 @@ async function film(page, base, shot, st) {
   await play(1.6);
 
   st.fade = { src: `${base}/__walk/first.png`, a: 0 };
-  await play(0.6, p => { st.fade.a = ease(p); });
+  await play(0.6, p => {
+    st.fade.a = ease(p);
+    st.cap = p < 0.5 ? { parts: CAPTIONS[3], a: 1 - 2 * p } : { parts: CAPTIONS[1], a: 2 * p - 1 };
+  });
 }
 
 export async function record({ theme = "dark", browserPath = process.env.BOARD_BROWSER_PATH, framesDir = null, out = OUT[theme] } = {}) {
@@ -168,9 +174,12 @@ export async function record({ theme = "dark", browserPath = process.env.BOARD_B
   let server;
   try {
     const windowPage = await browser.newPage({ viewport: CANVAS, deviceScaleFactor: 1 });
-    await windowPage.setContent(WINDOW({ c: THEMES[theme], view: VIEW, margin: MARGIN, bar: BAR }));
+    await windowPage.setContent(WINDOW({ c: THEMES[theme], dark: theme === "dark" }));
     await windowPage.screenshot({ path: join(dir, "window.png"), omitBackground: true });
     await windowPage.close();
+    const band = await browser.newPage({ viewport: { width: VIEW.width, height: BAND }, deviceScaleFactor: 1 }), caps = join(dir, "captions");
+    await band.setContent(BAND_PAGE({ c: THEMES[theme] }));
+    mkdirSync(caps);
 
     writeTasksLogbook(join(dir, "logbooks"), process.env.SAGE_WORKTREES, new Date().toISOString(), { agents: true, about: true, prs: true, documents: true });
     const stateDir = join(dir, "board-state");
@@ -190,19 +199,22 @@ export async function record({ theme = "dark", browserPath = process.env.BOARD_B
     await page.getByText(/^This browser is paired\./).waitFor();
     const local = [dir, homedir(), ...[process.env.USER, process.env.LOGNAME].filter(name => name && name.length > 2)];
     const st = { theme, colors: THEMES[theme], cam: { s: 1, tx: 0, ty: 0 }, cursor: { x: 1180, y: 560, press: false }, ring: null, cap: { parts: CAPTIONS[1], a: 1 }, fade: null };
-    let count = 0;
+    let count = 0, lastCap = null;
     const shot = async () => {
       if (!await page.evaluate(DRAW, st)) await page.waitForFunction(() => document.getElementById("walk-fade").complete);
       refuseLocalText(await page.evaluate(() => document.body.innerText), local);
-      const file = join(frames, `${String(count++).padStart(4, "0")}.png`);
+      const name = `${String(count++).padStart(4, "0")}.png`, file = join(frames, name), cap = JSON.stringify(st.cap);
       await page.screenshot({ path: file });
+      if (cap === lastCap?.cap) copyFileSync(lastCap.file, join(caps, name));
+      else { await band.evaluate(CAPTION, { cap: st.cap, dark: theme === "dark" }); await band.screenshot({ path: join(caps, name) }); lastCap = { cap, file: join(caps, name) }; }
       return file;
     };
     await film(page, base, shot, st);
     if (problems.length) throw new Error(`the board page failed: ${problems.join("; ")}`);
-    const target = join(ROOT, out);
+    const target = resolve(ROOT, out);
     const encode = spawnSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-framerate", String(FPS), "-i", join(frames, "%04d.png"), "-i", join(dir, "window.png"),
-      "-filter_complex", `[0]pad=${CANVAS.width}:${CANVAS.height}:${MARGIN}:${MARGIN + BAR}[page];[page][1]overlay,split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];[b][p]paletteuse=dither=none:diff_mode=rectangle`,
+      "-framerate", String(FPS), "-i", join(caps, "%04d.png"),
+      "-filter_complex", `[0]pad=${CANVAS.width}:${CANVAS.height}:${MARGIN}:${MARGIN + BAR}[page];[page][2]overlay=${MARGIN}:${MARGIN + BAR + VIEW.height}[band];[band][1]overlay,split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];[b][p]paletteuse=dither=none:diff_mode=rectangle`,
       "-loop", "0", target], { encoding: "utf8" });
     if (encode.status !== 0) throw new Error(`ffmpeg could not write ${out}: ${encode.stderr || encode.error}`);
     return { out, bytes: statSync(target).size, frames: count, seconds: count / FPS, ffmpeg: version };

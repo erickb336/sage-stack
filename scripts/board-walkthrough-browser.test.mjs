@@ -1,6 +1,6 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { requireBrowser } from "./browser-prerequisite.mjs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -334,4 +334,28 @@ test("T1159 F-T1159-41, F-T1159-43: Back to the Overview from a page that a link
     await page.locator("main h1", { hasText: "Overview" }).waitFor();
     await page.waitForFunction(() => Math.abs(scrollY - 260) < 2);
   }
+});
+
+test("F-T1084-1: the walkthrough recorder stops at a frame with local text and writes no GIF; a clean run writes the GIF where it is told", async t => {
+  const dir = mkdtempSync(join(tmpdir(), "sage-walk-record-")), fake = join(dir, "ffmpeg"), calls = join(dir, "ffmpeg.log");
+  writeFileSync(fake, `#!/usr/bin/env node\nconst fs = require("fs"), a = process.argv.slice(2);\nif (a.includes("-version")) { console.log("ffmpeg version 7.1 sample"); process.exit(0); }\nfs.appendFileSync(${JSON.stringify(calls)}, a.join(" ") + "\\n");\nfs.writeFileSync(a[a.length - 1], "GIF89a sample");\n`, { mode: 0o755 });
+  const saved = Object.fromEntries(["FFMPEG", "HOME", "USER", "LOGNAME"].map(name => [name, process.env[name]]));
+  t.after(() => { for (const [name, value] of Object.entries(saved)) if (value === undefined) delete process.env[name]; else process.env[name] = value; rmSync(dir, { recursive: true, force: true }); });
+  Object.assign(process.env, { FFMPEG: fake, HOME: join(dir, "home"), LOGNAME: "zz" });
+  const { record } = await import("./board-walkthrough.mjs");
+
+  process.env.USER = "Sample";
+  const refused = join(dir, "refused.gif");
+  await assert.rejects(record({ theme: "light", out: refused, framesDir: join(dir, "refused-frames") }), /a frame shows the local text "Sample"/);
+  assert.equal(existsSync(refused), false, "no GIF after the guard stops the run");
+  assert.equal(existsSync(calls), false, "ffmpeg never encoded");
+
+  process.env.USER = "nobody-on-the-board";
+  const out = join(dir, "walk.gif"), frames = join(dir, "frames");
+  const done = await record({ theme: "light", out, framesDir: frames });
+  assert.equal(readFileSync(out, "utf8"), "GIF89a sample", "the GIF is at the out path");
+  assert.equal(done.bytes, Buffer.byteLength("GIF89a sample"));
+  assert.equal(done.frames, readdirSync(frames).filter(name => name.endsWith(".png")).length, "the count is the frames kept");
+  assert.ok(done.frames > 100, `${done.frames} frames`);
+  assert.equal(readFileSync(calls, "utf8").trim().split("\n").length, 1, "one encode");
 });

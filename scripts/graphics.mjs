@@ -585,6 +585,23 @@ function arena(t, id) {
   return panel(t, id, W, H, body, "The arena: one brief and a hidden rubric go to three candidates on a mix of Claude models, each with a different angle. The arena judge scores them, picks a base and grafts the best parts into one final version, which then goes through reviews and QA.");
 }
 
+function shared(t, id) {
+  const W = 1100, H = 640, size = SMALL, aw = 480, ay = 96, ah = 112, cy = 280, ch = 150, ly = 500, lh = 100;
+  const adapters = [["Claude Code", ["plugin sage: hooks,", "agents, launcher"], 36], ["Codex", ["plugin sage: hooks,", "MCP tools, launcher"], W - 36 - aw]];
+  const body = [
+    backdrop(t, id, W, H, { moon: [W / 2, 360, 130], seeds: [37, 61, 8], far: [H - 100, 60, 190, 70, 140], near: [H + 40, 90, 230, 80, 170], mist: [140, 280, H - 150], mistK: 0.6 }),
+    heading(t, 36, 62, "ONE SHARED CORE, TWO THIN ADAPTERS"),
+    ...adapters.map(([name, sub, x]) => tile(t, id, x, ay, aw, ah, name, sub, false, { titleY: 38, gap: 32 }) + flow(id, `M${x + aw / 2} ${ay + ah + 4} L ${x + aw / 2} ${cy - 18}`, t.edge, "hot", { sw: 2.5 })),
+    rect(36, cy - 10, W - 72, ch + 20, { rx: 12, fill: t.panel, stroke: t.edge, sw: 1.5, dash: "8 6" }),
+    text(W / 2, cy + 22, "shared code, the same in both plugins", { size, weight: 700, fill: t.loop, anchor: "middle" }),
+    tile(t, id, 60, cy + 40, 600, 92, "sage-core", "routes, rules, logbook, merge check", true, { titleY: 36, gap: 32 }),
+    tile(t, id, 690, cy + 40, 350, 92, "the board", "one view for both", true, { titleY: 36, gap: 32 }),
+    flow(id, `M${W / 2} ${cy + ch + 14} L ${W / 2} ${ly - 8}`, t.edge, "hot", { sw: 2.5 }),
+    tile(t, id, 220, ly, W - 440, lh, "One logbook for each project", "tasks, runs, verdicts and gates", true, { titleY: 40, gap: 34, ...chiefTile(id) }),
+  ].join("\n");
+  return panel(t, id, W, H, body, "One shared core, two thin adapters: the Claude Code plugin and the Codex plugin each add only their own hooks, agents or tools and a launcher. Both use the same shared code, sage-core (routes, rules, the logbook and the merge check) and the board. Both write one logbook for each project, so either chief and the board see the same tasks, runs, verdicts and gates.");
+}
+
 const tip = (lines, label) => (t, id) => {
   const W = 1100, H = 230 + Math.max(0, lines.length - 3) * 34, size = 24, lh = 1.4;
   const sx = 222, sy = 32, sw = W - 36 - sx, sh = H - 64;
@@ -605,7 +622,7 @@ const tip = (lines, label) => (t, id) => {
 };
 
 const GRAPHICS = {
-  hero, loop, routes, lifecycle, arena,
+  hero, loop, routes, lifecycle, arena, shared,
   "tip-start": tip(["Send “sage mode” alone to switch it on,", "and “sage mode off” alone to switch it off.", "With any other words, it does nothing."], "The toad sage's tip: send sage mode alone to switch it on, and sage mode off alone to switch it off. With any other words, it does nothing."),
   "tip-try": tip(["Try it on one small, real bug, from your phone.", "Then look at the result, not the code."], "The toad sage's tip: try it on one small, real bug from your phone, then look at the result, not the code."),
   "tip-seal": tip(["Seal the lesson: give a mistake that comes back twice", "a lasting fix, at the highest level that works: the", "architecture, a type, a check whose error names the fix,", "a test, and a written rule last. Prove that each new", "check fails on the past mistake. That's how the dojo", "gets stronger."], "The toad sage's tip: seal the lesson. Give a mistake that comes back twice a lasting fix, at the highest level that works: the architecture, a type, a check whose error names the fix, a test, and a written rule last. Prove that each new check fails on the past mistake. That is how the dojo gets stronger."),
