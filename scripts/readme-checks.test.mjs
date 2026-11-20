@@ -187,16 +187,16 @@ test("the Codex install line names a GitHub remote, as docs/guide/codex.md does 
   assert.match(readFileSync(join(ROOT, "docs/guide/codex.md"), "utf8"), /a GitHub remote for the project/);
 });
 
-test("the board image's alt text names the Overview and its parts as the sample shows them (T467-3, T770)", () => {
-  const alt = realReadme().match(/<img alt="The Overview of the board[^"]*"/)[0];
-  assert.match(alt, /SAMPLE DATA: the chief chips under the top bar, Needs you with two items, the Milestones card by priority/);
-  assert.doesNotMatch(alt, /columns|card of the Backlog/);
+test("the board walkthrough's alt text says sample data and names the three scenes of its captions (T467-3, G226)", () => {
+  const alt = realReadme().match(/<img alt="([^"]*)" src="docs\/assets\/board-walkthrough-light\.gif"/)[1];
+  assert.match(alt, /SAMPLE DATA: every task, milestone and session is made up/);
+  for (const scene of ["The Overview", "Needs you", "opens one task"]) assert.ok(alt.includes(scene), scene);
 });
 
 test("the README defines the on phrase and the update warning in words the reader has met (R1661)", () => {
   const readme = realReadme();
   assert.match(readme, /Send the on phrase, the words below, as a message of its own/);
-  assert.match(readme, /> \*\*Warning:\*\* before you use milestones \(tasks of one goal\) or tasks that wait for other tasks, update sage/);
+  assert.match(readFileSync(join(ROOT, "docs/guide/using-sage.md"), "utf8"), /> \*\*Warning:\*\* before you use waits or milestones, update sage/, "the update warning lives in Using sage (T1084)");
 });
 
 test("the README has How sage works, no Safety and limits section, and links the rules page and SECURITY.md in Learn more (T521)", () => {
@@ -207,11 +207,12 @@ test("the README has How sage works, no Safety and limits section, and links the
   assert.match(learnMore, /^- \[SECURITY\.md\]\(SECURITY\.md\)/m);
 });
 
-test("the README's lead and agent caps are the ones that the hook and the state tool hold (T521)", async () => {
+test("the lead and agent caps of the README and How sage works are the ones that the hook and the state tool hold (T521, T1084)", async () => {
   const { AGENT_CAPS } = await import("../packages/sage-core/logbook-fields.mjs");
   const helpers = readFileSync(join(ROOT, "packages/sage-claude/hooks/sage-hook.mjs"), "utf8").match(/^const LEAD_HELPERS = (\d+);$/m)[1];
-  const readme = realReadme().replace(/\s+/g, " ");
+  const readme = realReadme().replace(/\s+/g, " "), guide = readFileSync(join(ROOT, "docs/guide/how-it-works.md"), "utf8").replace(/\s+/g, " ");
   assert.ok(readme.includes(`with up to ${helpers} helpers at once`), "the lead's helpers");
-  assert.ok(readme.includes(`at most ${AGENT_CAPS.max_agents} agents at once by default (\`max_agents\`), so one lead and its ${helpers} helpers fit`), "the project's cap");
-  assert.ok(readme.includes(`all projects ${AGENT_CAPS.cap_total} (\`cap_total\`)`), "the total cap");
+  assert.ok(guide.includes(`A lead runs up to ${helpers} helpers at once. A project runs at most ${AGENT_CAPS.max_agents} agents at once by default (\`max_agents\`)`), "the project's cap");
+  assert.ok(guide.includes(`so one lead and its ${helpers} helpers fit`), "a lead and its helpers fit the cap");
+  assert.ok(guide.includes(`all projects ${AGENT_CAPS.cap_total} (\`cap_total\`)`), "the total cap");
 });
