@@ -81,7 +81,10 @@ Send `show board` to see the board in the chat: what needs you, the sessions and
   <img alt="A short loop of the board in the browser, with SAMPLE DATA: every task, milestone and session is made up. The Overview shows Needs you, the live sessions and the milestones. The view zooms in on Needs you, the questions that wait for your answer, then a click opens one task with its state, its next step and its agents." src="docs/assets/board-walkthrough-light.gif" width="100%">
 </picture>
 
-*The board on a laptop screen, with sample data. Watch the [full tour of every page](docs/assets/board-tour.mp4) (an MP4 video, 53 seconds), or read the [board guide](docs/guide/board.md).*
+*The board on a laptop screen, with sample data. Watch the full tour below, or read the [board guide](docs/guide/board.md).*\
+*Below: a full tour of all 9 board pages, with sample data (53 seconds). If no player shows, open the [MP4 file](docs/assets/board-tour.mp4).*
+
+https://github.com/user-attachments/assets/f9d9da6e-ae5a-40d3-80b7-2c588b4f9565
 
 ## What to say
 
