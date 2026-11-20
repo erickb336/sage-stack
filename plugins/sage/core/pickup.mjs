@@ -93,3 +93,18 @@ export function pickupDelta({ reference: { to, at, groups, offers } }, rows) {
   rows.decisions.push(...decisions);
   return true;
 }
+
+export function pickupsOf(decisions) {
+  const events = new Map();
+  for (const row of decisions) {
+    const h = row.why === "pick-up" && row.handover ? handoverOf(row) : undefined;
+    if (!h) continue;
+    const key = `${row.at}\t${h.to}`;
+    if (!events.has(key)) events.set(key, { at: row.at, to: h.to, toProvider: h.toProvider, tasks: 0, sources: [], lost: [] });
+    const event = events.get(key);
+    event.tasks += h.tasks.length;
+    event.sources.push({ from: h.from, fromProvider: h.fromProvider, tasks: h.tasks.length });
+    event.lost.push(...(Array.isArray(h.lost) ? h.lost : []));
+  }
+  return [...events.values()];
+}

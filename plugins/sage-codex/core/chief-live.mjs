@@ -169,8 +169,10 @@ export function defaultChiefName(row, live) {
 }
 
 const iso = (ms) => (ms === null || !Number.isFinite(ms) ? null : new Date(ms).toISOString());
-export function boardChiefs({ rows, live = {}, names = {}, runs = [], waits = [], owners = [], now }) {
+export function boardChiefs({ rows, live = {}, names = {}, runs = [], waits = [], owners = [], pickups = [], now }) {
+  const last = (keep) => pickups.filter(keep).reduce((a, b) => (a && Date.parse(a.at) > Date.parse(b.at) ? a : b), null);
   const chiefs = rows.map((row) => {
+    const picked = last((p) => p.to === row.id), passed = last((p) => p.sources.some((s) => s.from === row.id));
     const record = live[row.id] ?? null, beat = record && ahead(record, now) ? null : record, heartbeat = beat?.at ?? null;
     const running = runningRuns(runs, row.id).length, gates = waits.filter((chief) => chief === row.id).length;
     const found = sessionState(record ?? { at: null }, { running, gates }, now, null);
@@ -182,6 +184,7 @@ export function boardChiefs({ rows, live = {}, names = {}, runs = [], waits = []
       session: state, reason, endedAt: iso(record?.endedAt ?? null), confirmed: !!record?.confirmed, lost: stopped ? running : 0,
       passOnAt: state === "quiet" && !gates && heartbeat !== null ? iso(heartbeat + PASS_ON_MS) : null, quietAt: state === "live" && !running && heartbeat !== null ? iso(heartbeat + STOPPED_MS + 1) : null,
       waitsForOwner: state === "quiet" && gates > 0, stopped,
+      pickedUp: picked && { at: picked.at, tasks: picked.tasks, lost: picked.lost.length }, passedOn: passed && { at: passed.at, to: passed.to },
     };
   });
   const fold = (name) => name.normalize("NFKC").toLowerCase();

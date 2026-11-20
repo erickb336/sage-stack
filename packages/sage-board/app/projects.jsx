@@ -11,7 +11,7 @@ export const projectOfKey = (projects, key) => projects.find(project => project.
 export function projectView(model, key) {
   const own = row => row.project === key, agents = model.agents.filter(own);
   return { ...model, archived: !!model.projects.find(project => project.key === key)?.archived, tasks: model.tasks.filter(own), needs: model.needs.filter(need => need.project === key || need.project === null), answered: model.answered.filter(own),
-    milestones: model.milestones.filter(own), hiddenDone: model.hiddenDone[key] ?? 0, chiefs: model.chiefs.filter(own), agents, stuck: agents.reduce((n, book) => n + book.look, 0),
+    milestones: model.milestones.filter(own), hiddenDone: model.hiddenDone[key] ?? 0, chiefs: model.chiefs.filter(own), pickups: (model.pickups ?? []).filter(own), agents, stuck: agents.reduce((n, book) => n + book.look, 0),
     others: model.projects.filter(project => project.key !== key && project.list === "needs") };
 }
 

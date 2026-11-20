@@ -1,6 +1,6 @@
 import { LINE } from "./logbook-fields.mjs";
 import { ENDED, lostClause, milestoneName } from "./milestone-rules.mjs";
-import { KINDS as KIND, MARKS, STEPS, UNKNOWN, URGENCY, releaseWord, runWord, sessionRow, shown } from "./state-words.mjs";
+import { KINDS as KIND, MARKS, STEPS, UNKNOWN, URGENCY, pickupLine, releaseWord, runWord, sessionRow, shown } from "./state-words.mjs";
 import { box, columns } from "./picture.mjs";
 const md = value => String(value ?? "").replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029]/g, " ").replace(/\p{Cf}/gu, "").replace(/[\\`*_{}\[\]()<>#+.!|&~:@]/g, c => String.fromCharCode(92) + c);
 const mdLines = (value, join = "\n") => String(value ?? "").split(LINE).map(md).join(join);
@@ -101,7 +101,7 @@ export function renderTaskText(task) {
   const head = task.currentHead ? `${md(task.currentHead)}${task.headBasis === "ledger" ? " (newest verdict)" : ""}` : "not recorded";
   const where = row => row.movedTo ? ` · moved to ${md(row.movedTo)}` : row.movedFrom ? ` · from ${md(row.movedFrom)}` : "";
   const rows = task.loop.steps.map(step => `${MARK[status(step.status)]} ${md(step.label)}: ${WORD[status(step.status)]}${step.detail ? ` · ${md(step.detail)}` : ""}${step.parts?.length ? `\n  ${step.parts.map(([name, value]) => `${MARK[status(value)]} ${md(name)}: ${WORD[status(value)]}`).join(" · ")}` : ""}`).join("\n");
-  const holder = `${task.shared ? `Owning chief: ${md(task.holder)}${task.owner?.unlisted ? `\n${md(`${task.owner.id} is not in chiefs.tsv, so the board does not know its provider.`)}` : ""}${task.offer ? `\n${MARKS.offer} ${md(task.offer)}` : ""}\n` : ""}${task.old ? `${md(`${oldWhat(task, "of")}.${task.old.finished ? "" : " The move did not take it to the shared logbook."} It stays there, read-only, and its number belongs to that old logbook.`)}\n` : ""}`;
+  const holder = `${task.shared ? `Owning chief: ${md(task.holder)}${task.owner?.unlisted ? `\n${md(`${task.owner.id} is not in chiefs.tsv, so the board does not know its provider.`)}` : ""}\n` : ""}${task.old ? `${md(`${oldWhat(task, "of")}.${task.old.finished ? "" : " The move did not take it to the shared logbook."} It stays there, read-only, and its number belongs to that old logbook.`)}\n` : ""}`;
   return `**${md(task.title)}** ${md(task.id)}${task.was ? ` · ${md(task.was)}` : ""}\n${md(task.holder ?? task.sourceLabel)} · ${md(task.projectName)}${wordText(task)} · ${md(task.size)}${tagText(task)}${task.risk ? ` · risk: ${md(task.risk)}` : ""}${task.pr ? ` · PR ${prUrl(task) ? `[${md(task.pr)}](${mdUrl(prUrl(task))})` : md(task.pr)}` : ""}\n${holder}\n**Loop**\n${stepText(task)}\n${nowText(task)}\n${rows}\nRecorded state: ${md(task.state)} · repair round ${md(task.round)} · last commit ${head}\n\n**Brief**\nGoal: ${mdBlock(task.briefFields.goal ?? "not recorded")}\nAcceptance: ${mdBlock(task.briefFields.acceptance ?? "not recorded")}\n\nFull brief:\n${mdBlock(task.brief ?? "No verified brief content is available.")}\n\n**Agent runs**\n${task.runs.map(r => `${md(r.id)} ${providerText(r.provider, task)} · ${md(r.role)}${r.checkoutName ? ` · checkout ${md(r.checkoutName)}${r.checkoutGone ? " (gone)" : r.checkoutGone === null ? " (not checked)" : ""}` : ""} · ${md(runWord(r.status, task.runClocks?.[r.id]?.stale).text)} · ${md(task.runClocks?.[r.id]?.text ?? runTime(r))} · tokens ${md(r.tokens || "unknown")}`).join("\n") || "No runs recorded."}${goneText(task)}\n\n**Evidence**\n${task.ledger.map(r => `${md(r.kind || `verdict ${UNKNOWN}`)} · cycle ${md(r.cycle || UNKNOWN)} · ${md(r.sha || `commit ${UNKNOWN}`)} · ${md(r.run || `run ${UNKNOWN}`)} · ${md(r.at || `time ${UNKNOWN}`)}`).join("\n") || "No verdicts recorded."}${evidenceArtifacts(task).map(r => `\n\n${md(r.data.label)} · ${md(r.source)} · ${md(r.observedAt)} · ${md(r.data.run ?? "run unknown")} · digest verified\n${mdBlock(r.content.text)}`).join("")}\n\n**Findings**\n${task.findings.map(r => `${md(SEVERITIES.includes(r.severity) ? r.severity : `severity ${UNKNOWN}`)} · ${md(r.summary)} · ${md(r.status)}${where(r)}${r.reason ? ` · ${md(r.reason)}` : ""}`).join("\n") || "No findings recorded."}\n\n**Artifacts**\n${task.artifacts.map(r => `${md(r.data.label)} · ${md(r.data.url ?? (r.content?.verified ? "local artifact; digest verified" : "local artifact; content not verified"))}`).join("\n") || "No artifacts recorded."}\n\n**Latest decisions**\n${task.decisions.map(r => `${md(r.at)} · ${md(r.decision)} · ${md(r.why)}`).join("\n") || "No decisions recorded."}`;
 }
 const BREAK = "\\\n";
@@ -135,8 +135,7 @@ export function renderBoardText(model) {
     task.inferredWork ? "Inferred from the open PR." : "",
     task.column === "done" ? "" : stepText(task),
     task.waitLine ? `${WAIT_MARK[task.waitLine.never ? "never" : "wait"]} ${md(task.waitLine.text)}` : "",
-    task.column === "done" || task.loop.now.needs || task.waitLine ? "" : `Now: ${md(task.loop.now.text)}`,
-    task.column === "done" || !task.offer ? "" : `${MARKS.offer} ${md(task.offer)}`]);
+    task.column === "done" || task.loop.now.needs || task.waitLine ? "" : `Now: ${md(task.loop.now.text)}`]);
   const section = column => {
     const name = COLUMN_NAME[column.key] ?? column.name, rest = column.tasks.length - CHAT_SHOWN;
     return `### ${columnMark(column.key)} ${md(name)} (${column.tasks.length})\n${column.tasks.slice(0, CHAT_SHOWN).map(line).join("\n\n") || "No tasks."}${rest > 0 ? `\n\n${rest} more in ${md(name)}: open the board's Tasks page for all.` : ""}`;
@@ -166,7 +165,9 @@ export function renderBoardText(model) {
   const top = block([`**sage board** · built ${md(day(model.at))} UTC`, ...changing, ...moved,`🔴 ${n} needs you · ${counts.recordedAgents} agents at work${counts.inferredWork ? ` · ${counts.inferredWork} inferred PRs` : ""} · 🔁 ${counts.inReview} in review · ${counts.tasks} tasks`, standIns ? `${md("*")} A stand-in: the run does not record its provider, so the board names the logbook's source.` : ""]);
   const end = block([model.archived.length ? `Archived: ${model.archived.map(book => `${md(book.name)} (${archivedCounts(book)})`).join(", ")}` : "",
     ...model.diagnostics.map(d => `Incomplete source: ${md(d.source)}${d.project ? ` · ${md(d.project)}` : ""} · ${md(d.message)}`), ...model.warnings.map(d => `Setting ignored: ${md(d.source)} · ${md(d.project)} · ${md(d.message)}`), ...(model.notes ?? []).map(d => `Logbook note: ${md(d.source)} · ${md(d.project)} · ${md(d.message)}`)]);
-  const sessions = (model.projects ?? []).filter(project => !project.archived && project.chiefs?.length).map(project => `#### ${md(project.name)}\n${project.chiefs.map(chief => sessionRow(chief, model.at, at => `${hhmm(at) || "?"} UTC`)).map(row => `- ${md(row.head)} · **${md(row.word)}**\n  ${md(row.sub)}`).join("\n")}`);
+  const utc = at => `${hhmm(at) || "?"} UTC`;
+  const pickups = project => project.pickups?.length ? `\nPick-ups, last 7 days:\n${project.pickups.map(item => `- ${md(pickupLine(item, at => `${day(at)} UTC`))}`).join("\n")}` : "";
+  const sessions = (model.projects ?? []).filter(project => !project.archived && project.chiefs?.length).map(project => `#### ${md(project.name)}\n${project.chiefs.map(chief => sessionRow(chief, model.at, utc)).map(row => `- ${md(row.head)} · **${md(row.word)}**\n  ${md(row.sub)}`).join("\n")}${pickups(project)}`);
   return [top, `### 🔴 Needs you\n${needs}`, sessions.length ? `### Sessions\n${sessions.join("\n\n")}` : "", ...whereText(model), milestoneText, ...model.columns.map(section), end].filter(Boolean).join("\n\n");
 }
 export function renderBoardStatus(model) {

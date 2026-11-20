@@ -51,7 +51,7 @@ export const WORDS = ["not started", "waiting", "needs you", "in progress", "don
 export const URGENCY = ["needs you", "in progress", "waiting", "not started", "done", "stopped"];
 export const FLAGS = ["failed", "blocked", "may be stuck", "running long", "run still open", "lost"];
 export const UNKNOWN = "unknown";
-export const MARKS = { "not started": "○", waiting: "⧗", "needs you": "?", "in progress": "▶", done: "✓", stopped: "■", problem: "!", unknown: "◌", milestone: "◫", release: "◎", offer: "⇄", "cannot start": "⊘" };
+export const MARKS = { "not started": "○", waiting: "⧗", "needs you": "?", "in progress": "▶", done: "✓", stopped: "■", problem: "!", unknown: "◌", milestone: "◫", release: "◎", "cannot start": "⊘" };
 export const FLAGGED = "with a problem flag";
 export const KINDS = { design: ["◇", "Design"], ui: ["▢", "UI"], orchestration: ["⋈", "Orchestration"], optimization: ["↗", "Optimization"], "bug-fix": ["✱", "Bug fix"], logbook: ["≡", "Logbook"], docs: ["¶", "Docs"], security: ["▲", "Security"], providers: ["⊞", "Providers"], checks: ["⊨", "Checks"] };
 
@@ -82,12 +82,26 @@ export const chiefName = (id, provider) => [provider && `${String(provider).char
 const counted = (count, one) => `${count} ${count === 1 ? one : `${one}s`}`;
 const SESSION_NOT_CONFIRMED = "Program not confirmed: this session passes on only when it exits, or after 8 h with no action.";
 const idleText = ms => { const m = Math.max(0, Math.floor(ms / 60_000)); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h`; };
+const lostText = (count) => count ? `${counted(count, "run")} lost` : null;
+const pickupNotes = (chief, clock) => [chief.pickedUp && [`picked up ${counted(chief.pickedUp.tasks, "task")} at ${clock(chief.pickedUp.at)}`, lostText(chief.pickedUp.lost)].filter(Boolean).join(", "),
+  chief.passedOn && `passed on to ${chief.passedOn.to} at ${clock(chief.passedOn.at)}`].filter(Boolean);
+const andList = (list) => list.length < 2 ? list.join("") : `${list.slice(0, -1).join(", ")} and ${list.at(-1)}`;
+export function pickupLine(pickup, clock) {
+  const from = pickup.sources.map((source) => `${source.tasks} ${source.from ? `from ${chiefName(source.from, source.fromProvider)}` : "with no owning chief"}`);
+  const lost = pickup.lost.length ? `${lostText(pickup.lost.length)}: ${pickup.lost.join(", ")}` : "no run lost";
+  return `${clock(pickup.at)} · ${chiefName(pickup.to, pickup.toProvider)} picked up ${counted(pickup.tasks, "task")}: ${andList(from)} · ${lost}`;
+}
+
 export function sessionRow(chief, now, clock) {
+  const row = sessionWords(chief, now, clock), notes = pickupNotes(chief, clock);
+  return notes.length ? { ...row, sub: [row.sub, ...notes].join(" · ") } : row;
+}
+function sessionWords(chief, now, clock) {
   const head = `${chiefName(null, chief.provider) || "Chief"} · ${chief.id}`, holds = counted(chief.tasks, "task");
   if (chief.session === "stopped") {
     const ended = chief.reason === "ended";
     return { dot: "stopped", word: ended ? "ended" : "stopped", head: `${head} · ${ended ? "ended" : "stopped"} ${clock(ended ? chief.endedAt : chief.reason === "quiet-8h" ? new Date(Date.parse(chief.heartbeat) + 8 * 3_600_000).toISOString() : chief.heartbeat)}`,
-      sub: [holds, chief.lost ? `${counted(chief.lost, "run")} lost` : null, chief.reason === "quiet-8h" ? "8 h with no action" : null].filter(Boolean).join(" · ") };
+      sub: [holds, lostText(chief.lost), chief.reason === "quiet-8h" ? "8 h with no action" : null].filter(Boolean).join(" · ") };
   }
   if (chief.session === "quiet") return { dot: "quiet", word: "quiet", head: `${head} · no action for ${idleText(Date.parse(now) - Date.parse(chief.heartbeat))}`,
     sub: [holds, "no agent", chief.passOnAt ? `passes on at ${clock(chief.passOnAt)}` : "waits for your answer, so it keeps its tasks"].join(" · ") };

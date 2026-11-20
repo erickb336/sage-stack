@@ -9,6 +9,7 @@ import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { changedPart, readBoardSources } from "../packages/sage-core/board-reader.mjs";
 import { buildBoardModel } from "../packages/sage-core/board-model.mjs";
+import { boardOverview } from "../packages/sage-core/board-overview.mjs";
 import { renderBoardText, renderTaskText } from "../packages/sage-core/board-render.mjs";
 import { replaceQuestion } from "../packages/sage-core/chiefs.mjs";
 import { sharedRoot } from "../packages/sage-core/shared-root.mjs";
@@ -120,16 +121,20 @@ test("the provider of each run comes from its chief in chiefs.tsv; a run with no
   assert.match(renderTaskText(card(model, "T319")), /R412 Codex · designer · in progress/);
 });
 
-test("each shared card names its owning chief, an open offer, or Unclaimed; the Who filter goes by the owning chief's provider", t => {
+test("each shared card names its owning chief or Unclaimed; the Who filter goes by the owning chief's provider", t => {
   const model = modelOf(world(t).sources);
   assert.deepEqual(["T321", "T322", "T323", "T324"].map(id => card(model, id).holder), ["Claude · C1", "Unclaimed", "Codex · C2", "C9"]);
-  assert.equal(card(model, "T321").offer, "Offered to Codex · C2. It waits for R407 and R420 to end, then Codex · C2 accepts.");
-  assert.equal(card(model, "T323").offer, "Offered to Claude · C1. Ready: Claude · C1 can accept.");
-  assert.equal(card(model, "T322").offer, null);
   assert.equal(card(model, "T324").owner.unlisted, true, "an unknown chief id shows on its task's page");
   assert.ok(!model.needsOwner.some(item => item.id === "T324"), "an unknown chief id is a warning, not a need");
   assert.match(renderBoardText(model), /\*\*Show the board in both providers\*\* T321 · in progress · Claude · C1 · lantern · PR 88/);
-  assert.match(renderBoardText(model), /⇄ Offered to Codex · C2\\\. It waits for R407 and R420 to end, then Codex · C2 accepts\\\./);
+});
+
+test("F-T1182-3: a left-over offer of an older sage shows no offer cell and no accept text: accept is gone, and the next pick-up ends the offer", t => {
+  const model = modelOf(world(t).sources), text = renderBoardText(model);
+  assert.ok(["T321", "T323"].every(id => card(model, id).offer === undefined), "the tasks keep their offer in the logbook, but the card has no offer cell");
+  assert.doesNotMatch(text, /accept|Offered to|⇄/);
+  assert.doesNotMatch(renderTaskText(card(model, "T321")), /accept|Offered to|⇄/, "the chat lookup of one task");
+  assert.doesNotMatch(JSON.stringify(boardOverview(model)), /accepts|can accept|Offered to/, "the board in the browser");
 });
 
 test("Needs you: an open takeover gate asks its question in one line, and a stale run of the owning chief says that the chief may have stopped (G103 default)", t => {
@@ -673,8 +678,6 @@ test("T656: the takeover gate's recommendation says that the owning chief offere
   assert.deepEqual([first("T324").text, first("T324").recommendation], ["Hand T324 from C9 to Claude · C1? No run ends as failed.", "replace, because no run of T324 ends as failed"]);
   assert.equal(card(model, "T320").reasons[0].recommendation, "approve, when you know that Claude · C1 stopped", "a gate with no offer keeps the T631 text");
   assert.match(renderBoardText(model), /Recommended: approve, because Claude · C1 offered T321 to Codex · C2/);
-  assert.equal(card(model, "T321").offer, "Codex · C2 asks to take this. Needs you: G8.");
-  assert.equal(card(model, "T323").offer, "Offered to Claude · C1. Ready: Claude · C1 can accept.");
 });
 
 test("T656: inferred work on an open PR reads the owning chief's provider, not the codex/ prefix of the branch, which a takeover keeps", () => {

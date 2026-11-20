@@ -4,7 +4,7 @@ import { useNow, when } from "./use-model.js";
 import { StateIcon } from "./icons.jsx";
 import { Sessions } from "./sessions.jsx";
 import { chiefSub, milestoneLink, ofChief, questionLink, taskLink } from "./task.jsx";
-import { FLAGGED, OBJECTS, UNKNOWN, chiefName } from "../../sage-core/state-words.mjs";
+import { FLAGGED, OBJECTS, UNKNOWN, chiefName, pickupLine } from "../../sage-core/state-words.mjs";
 
 export const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
@@ -29,6 +29,7 @@ function Counts({ model, previous, now, chief }) {
     ["stuck", model.stuck, FLAGGED[0].toUpperCase() + FLAGGED.slice(1), "runs of open tasks that failed in the last 24 hours and did not run again, or agents silent for 30 min or stopped"],
     ["added", known ? after(tasks.map(task => task.addedAt), since) : null, "New tasks", !known ? `${UNKNOWN} · no task in the logbook has a time when it was added` : unknown ? "tasks added to the logbook; older tasks have no time" : "tasks added to the logbook"],
   ];
+  const pickups = (model.pickups ?? []).filter(item => Date.parse(item.at) > since && (!chief || item.logbook === chief.logbook && (item.to === chief.id || item.sources.some(source => source.from === chief.id))));
   return (
     <section className="counts" aria-labelledby="counts-h">
       <h2 id="counts-h">{old ? <>In the last 7 days <span className="hint">· you last looked more than 7 days ago, and the board keeps 7 days</span></> : previous ? <>Since you looked <span className="hint">· you left the board at {when(previous)}, {ago(previous, now)}</span></> : "In the last 24 hours"}</h2>
@@ -41,6 +42,10 @@ function Counts({ model, previous, now, chief }) {
           </div>
         ))}
       </div>
+      {pickups.length > 0 && <div aria-labelledby="pickups-h">
+        <h3 id="pickups-h" className="lbl">Pick-ups</h3>
+        <ul className="owned">{pickups.map(item => <li key={item.key} data-pickup={item.key}>{pickupLine(item, when)}</li>)}</ul>
+      </div>}
     </section>
   );
 }
