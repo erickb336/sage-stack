@@ -216,6 +216,7 @@ export function boardOverview(model) {
       agents: project.agents, open: tasks.filter(task => task.group === project.key && isOpen(task)).length, lastActivity: project.lastActivity, archived: project.archived, mixed: project.mixed ?? null,
       kept: { tasks: project.tasks, ...project.kept }, archives: project.archives ?? 0, archivedAt: project.archivedAt ?? null, welcome: !project.archived && !project.workSinceRestore && project.restoredAt || null })),
     chiefs,
+    pickups: (model.projects ?? []).flatMap(project => (project.pickups ?? []).map(item => ({ ...item, project: project.key }))),
     needs,
     answered: tasks.flatMap(task => task.boardAnswers.map(item => ({ ...item, task: { key: task.key, id: task.id, title: task.title }, project: task.group }))).sort((a, b) => (time(a.at) ?? 0) - (time(b.at) ?? 0)),
     tasks: tasks.map(task => taskRow(task, chiefs)),

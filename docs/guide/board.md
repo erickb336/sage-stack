@@ -63,7 +63,7 @@ Two marks are not states:
 - `⊘` is a wait that is never met: the task that it waits for stopped, so this task cannot start. For example "⊘ Waits for T20 (pilot, stopped): it cannot start".
 - 🔴 starts the chat board's top line, before the count of items that need you.
 
-Each kind tag (for example `◇ Design` or `⋈ Orchestration`) and the offer line (`⇄`) have marks of their own, which no state uses.
+Each kind tag (for example `◇ Design` or `⋈ Orchestration`) has a mark of its own, which no state uses.
 
 - A wait names the word of the task that it waits for, for example "Waits for T12 (in progress)".
 - A milestone's word comes from its breakdown: "needs you" while the breakdown waits for you, or when its pilot stopped; "stopped" when you dropped it. Else it comes from its tasks.
@@ -137,9 +137,11 @@ The address of the board opens the Overview. From the top:
   - **live**, with its start time, its tasks and its agents, for example "Claude · C3 · since 21:07" and "14 tasks · 3 agents". "program not confirmed" says that sage did not yet see the session's program in two actions 1 min apart: the session then passes on only when it exits, or after 8 h with no action.
   - **quiet**: no action for 30 min or more and no agent at work. It shows when its tasks pass on, for example "passes on at 17:10", 8 h after its last action. A quiet session with an open question of yours keeps its tasks.
   - **stopped**, after 8 h with no action, or **ended**, after a clean exit or the off phrase, with the time and its runs that the logbook still shows as running: "1 run lost".
+  - **The last pick-up** of the last 7 days, at the end of the row. The session that took the work says "picked up 146 tasks at 15:59", with "1 run lost" when a run of the stopped session was running. The stopped session says "passed on to C3 at 15:59".
 - **Needs you:** each open question and each problem, oldest first, with its chief, its task and when it was asked. A click on a question opens the [question view](#the-question-view-and-the-reader).
 - **Milestones:** each milestone by the top priority of its open tasks, with its state word, its goal, its progress bar ("2 of 9 merged") and its pilot. A click opens the Tasks page with only that milestone's tasks; "Show all tasks" shows the rest again.
 - **Since you looked**, or **In the last 24 hours** on the first visit in a browser, or **In the last 7 days** after a longer absence: the tasks merged, the runs "with a problem flag", and the tasks added. A run has a problem flag when its agent is silent for 30 minutes or stopped, or when it failed in the last 24 hours, its task is still open, and no later run of the same role started. A click on "Merged" opens those tasks on the Tasks page, newest first; a click on "With a problem flag" opens the Agents page, which uses the same label.
+  - **Pick-ups**: one line for each pick-up in the same time, with its time, the session that took the work, the count of tasks from each source and the lost runs by id. For example "20 Nov, 15:59 · Claude · C3 picked up 146 tasks: 69 from Claude · C1, 2 from Codex · C2 and 75 with no owning chief · no run lost". The chat board shows the same lines under Sessions, for the last 7 days.
 
 When the board has no project yet, the Overview shows one card, "Start your first task", with the three first steps: start a chief in the project, ask for a change, and come back to the board. A project that has a chief but no task yet shows the same card, with the first step marked done.
 

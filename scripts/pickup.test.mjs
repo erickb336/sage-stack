@@ -11,6 +11,8 @@ import * as claude from "../plugins/sage/skills/sage/sage.mjs";
 import { tool as codex } from "../plugins/sage-codex/skills/sage/sage.mjs";
 import { readBoardSources } from "../plugins/sage/core/board-reader.mjs";
 import { buildBoardModel } from "../plugins/sage/core/board-model.mjs";
+import { boardOverview } from "../plugins/sage/core/board-overview.mjs";
+import { renderBoardText } from "../plugins/sage/core/board-render.mjs";
 import { backed } from "./verdict-backing.mjs";
 import { QUESTION } from "./fixtures/question-message.mjs";
 
@@ -294,4 +296,51 @@ test("T1172 F-T1172-20: the board and the pick-up agree on a session 9 h quiet: 
   assert.deepEqual(look(3 * DAY), { board: "live", lost: 0, stale: [true], hook: false, pickup: false }, "a run with no news for 24 h: the board shows it stale, and the session stays live in the board, the hook and the pick-up");
   assert.deepEqual(look(10 * 60_000), { board: "live", lost: 0, stale: [false], hook: false, pickup: false }, "a fresh run holds the session live everywhere");
   assert.deepEqual(look(null), { board: "stopped", lost: 0, stale: [], hook: true, pickup: true }, "with no running run, all three say stopped");
+});
+
+function firstRealPickupOf20Nov(t) {
+  const w = world(t);
+  w.chief(claude, "s-a");
+  w.chief(codex, "s-b");
+  const c3 = w.as(claude, w.chief(claude, "s-c"));
+  const put = (table, rows) => {
+    const file = join(w.dir, `${table}.tsv`), cols = [...new Set([...readFileSync(file, "utf8").split("\n")[0].split("\t"), "chief"])];
+    writeFileSync(file, [cols, ...rows.map((r) => cols.map((c) => r[c] ?? ""))].map((line) => line.join("\t")).join("\n") + "\n");
+  };
+  const owners = [...Array(69).fill("C1"), ...Array(2).fill("C2"), ...Array(75).fill("")];
+  put("tasks", owners.map((chief, i) => ({ id: `T${i + 1}`, title: `task ${i + 1}`, size: "small", route: "build", state: "building", round: "0", priority: "P2", chief })));
+  put("runs", [{ id: "R1", task: "T1", role: "implementer", round: "0", status: "running", started: new Date(Date.now() - HOUR).toISOString(), chief: "C1" }]);
+  w.record("C1", { ago: 10 * 60_000, ended: "prompt_input_exit" });
+  w.record("C2", { ago: 10 * 60_000, ended: "prompt_input_exit" });
+  w.record("C3");
+  assert.match(c3("pickup"), /^sage: pick-up from C1/, "the pick-up ran");
+  const at = w.rows("decisions").findLast((d) => d.why === "pick-up").at, now = Date.now();
+  const model = buildBoardModel(readBoardSources([{ id: "shared", path: w.env.SAGE_SHARED_HOME, label: "shared" }], { now }), { now: new Date(now).toISOString() });
+  return { w, at, model, project: model.projects.find((p) => p.books.includes(`shared/${basename(w.dir)}`)) };
+}
+
+test("F-T1182-2: the board reads the pick-up decision rows: one pick-up for one write, with from, to, the task count of each source, the lost runs and the time", (t) => {
+  const { at, model, project } = firstRealPickupOf20Nov(t);
+  const want = { at, to: "C3", toProvider: "claude", tasks: 146, lost: ["R1"], sources: [{ from: "C1", fromProvider: "claude", tasks: 69 }, { from: "C2", fromProvider: "codex", tasks: 2 }, { from: "", fromProvider: "", tasks: 75 }] };
+  const shape = ({ at, to, toProvider, tasks, lost, sources }) => ({ at, to, toProvider, tasks, lost, sources });
+  assert.deepEqual((project.pickups ?? []).map(shape), [want], "the board model");
+  assert.deepEqual((boardOverview(model).pickups ?? []).map(shape), [want], "the board in the browser");
+  const chiefs = Object.fromEntries(project.chiefs.map((c) => [c.id, { pickedUp: c.pickedUp ?? null, passedOn: c.passedOn ?? null }]));
+  assert.deepEqual(chiefs, { C1: { pickedUp: null, passedOn: { at, to: "C3" } }, C2: { pickedUp: null, passedOn: { at, to: "C3" } }, C3: { pickedUp: { at, tasks: 146, lost: 1 }, passedOn: null } });
+});
+
+test("F-T1182-1: the Sessions part and the pick-up list show each pick-up short, in counts, with its lost run: on the chat board and in the browser", (t) => {
+  const { at, model, project } = firstRealPickupOf20Nov(t);
+  const hhmm = at.slice(11, 16), sessions = renderBoardText(model).split("### Sessions\n")[1]?.split("\n\n### ")[0] ?? "";
+  const row = (id) => sessions.split("\n").findIndex((line) => line.startsWith(`- Claude · ${id} `) || line.startsWith(`- Codex · ${id} `));
+  const sub = (id) => sessions.split("\n")[row(id) + 1] ?? "";
+  assert.match(sub("C3"), new RegExp(`· picked up 146 tasks at ${hhmm.replace(":", "\\\\:")} UTC, 1 run lost$`), "the session that took the work");
+  assert.match(sub("C1"), new RegExp(`· passed on to C3 at ${hhmm.replace(":", "\\\\:")} UTC$`), "a session that passed its work on");
+  const line = sessions.split("\n").map((one) => one.replaceAll("\\", "")).find((one) => one.includes("picked up 146 tasks:"));
+  assert.equal(line, `- ${at.slice(0, 10)} ${hhmm} UTC · Claude · C3 picked up 146 tasks: 69 from Claude · C1, 2 from Codex · C2 and 75 with no owning chief · 1 run lost: R1`);
+  assert.doesNotMatch(line, /T\d/, "counts, not task ids");
+  assert.ok(sessions.includes("Pick-ups, last 7 days:"), sessions);
+  const web = boardOverview(model), chief = web.chiefs.find((c) => c.id === "C3");
+  assert.deepEqual([chief.pickedUp, web.pickups.length], [{ at, tasks: 146, lost: 1 }, 1], "the browser gets the same notes for its Sessions part and its pick-up list");
+  assert.equal(project.chiefs.find((c) => c.id === "C3").tasks, 146);
 });
