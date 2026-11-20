@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -12,14 +12,26 @@ import { isMain } from "./is-main.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 export const OUT = { dark: "docs/assets/board-walkthrough-dark.gif", light: "docs/assets/board-walkthrough-light.gif" };
+export const TOUR = "docs/assets/board-tour.mp4";
 export const VIEW = { width: 1320, height: 800 };
 const FPS = 20, MARGIN = 28, BAR = 36, BAND = 52;
 const CANVAS = { width: VIEW.width + 2 * MARGIN, height: VIEW.height + BAR + BAND + 2 * MARGIN };
-const FFMPEG_HELP = "The walkthrough needs ffmpeg 6 or later to write the GIF. Install it (macOS: brew install ffmpeg; Debian or Ubuntu: sudo apt-get install ffmpeg), or give its path in FFMPEG.";
+const FFMPEG_HELP = "The walkthrough needs ffmpeg 6 or later to write the GIF and the video. Install it (macOS: brew install ffmpeg; Debian or Ubuntu: sudo apt-get install ffmpeg), or give its path in FFMPEG.";
 const CAPTIONS = {
   1: ["1", "Overview", "where every task and milestone stands"],
   2: ["2", "Needs you", "the questions that wait for your answer"],
   3: ["3", "A task", "its state, its next step and its agents"],
+};
+export const TOUR_CAPTIONS = {
+  1: ["1", "Overview", "where every task and milestone stands"],
+  2: ["2", "Needs you", "the questions that wait for your answer"],
+  3: ["3", "Sessions", "each chief's session: live, quiet or ended"],
+  4: ["4", "Tasks", "every task, by milestone, priority, chief or state"],
+  5: ["5", "A task", "its state, its next step and its agents"],
+  6: ["6", "Agents", "each chief, its leads and their helpers, against the limits"],
+  7: ["7", "Pull requests", "each open PR, by what happens next"],
+  8: ["8", "Stats", "merged PRs, agent time and tokens of the last 8 weeks"],
+  9: ["9", "Archive", "the projects that you put away, ready to restore"],
 };
 const THEMES = {
   dark: { bg: "#0d1117", bar: "#16161b", line: "#2c2c34", text: "#8e8e98", cursor: "#fff", outline: "#111", shadow: "" },
@@ -56,6 +68,7 @@ const DRAW = st => {
     return el;
   };
   const { cam, cursor, ring, fade, colors } = st, dark = st.theme === "dark";
+  if (st.scroll !== undefined) scrollTo(0, st.scroll);
   document.body.style.transformOrigin = "0 0";
   document.body.style.transform = cam.s === 1 && !cam.tx && !cam.ty ? "" : `translate(${cam.tx}px,${cam.ty}px) scale(${cam.s})`;
   const pointer = make("walk-cursor", `z-index:10003;left:${cursor.x - 3}px;top:${cursor.y - 2}px;width:28px;height:34px;transform:scale(${cursor.press ? 0.86 : 1});transform-origin:3px 2px`);
@@ -87,9 +100,22 @@ const CAPTION = ({ cap, dark }) => {
     part("b", label, "font-weight:650"), part("span", text, `color:${dark ? "#a3a3ad" : "#52525b"}`));
 };
 
-async function film(page, base, shot, st) {
-  const files = new Map();
-  await page.context().route(`${base}/__walk/*`, route => route.fulfill({ status: 200, contentType: "image/png", body: readFileSync(files.get(new URL(route.request().url()).pathname.split("/").pop())) }));
+const ARCHIVED = { folder: "sample-notes-d4e5f6", name: "Sample notes" };
+function writeArchivedSample(logbooks, now) {
+  const dir = join(logbooks, ARCHIVED.folder), from = join(logbooks, "sample-app-abc123"), daysAgo = days => new Date(Date.parse(now) - days * 86_400_000).toISOString();
+  const rows = {
+    tasks: [{ id: "T1", title: "Sample export notes", size: "small", route: "build,code-review,qa", state: "merged", round: "0", priority: "P2", chief: "C1" }],
+    decisions: [{ at: daysAgo(12), task: "T1", decision: "state merged", why: "sample" }, { at: daysAgo(5), task: "", decision: "project archived", why: "sample" }],
+  };
+  mkdirSync(dir);
+  writeFileSync(join(dir, "config.json"), JSON.stringify({ name: ARCHIVED.name, archived: true }));
+  for (const file of readdirSync(from).filter(name => name.endsWith(".tsv"))) {
+    const columns = readFileSync(join(from, file), "utf8").split("\n")[0].split("\t");
+    writeFileSync(join(dir, file), [columns, ...(rows[file.slice(0, -4)] ?? []).map(row => columns.map(column => row[column] ?? ""))].map(line => line.join("\t")).join("\n") + "\n");
+  }
+}
+
+function director(page, shot, st) {
   const play = async (seconds, step = () => {}) => {
     const count = Math.max(1, Math.round(seconds * FPS));
     for (let i = 1; i <= count; i++) { step(i / count); await shot(); }
@@ -103,11 +129,17 @@ async function film(page, base, shot, st) {
     const from = { ...st.cursor };
     return play(seconds, p => { const e = ease(p); st.cursor.x = mix(from.x, to.x, e); st.cursor.y = mix(from.y, to.y, e) - Math.sin(Math.PI * e) * 18; });
   };
-  const caption = async key => {
+  const caption = async parts => {
     await play(0.125, p => { st.cap.a = 1 - p; });
-    st.cap.parts = CAPTIONS[key];
+    st.cap.parts = parts;
     await play(0.125, p => { st.cap.a = p; });
   };
+  return { play, box, moveCamera, moveCursor, caption };
+}
+
+async function film(page, base, shot, st) {
+  const files = new Map(), { play, box, moveCamera, moveCursor, caption: show } = director(page, shot, st), caption = key => show(CAPTIONS[key]);
+  await page.context().route(`${base}/__walk/*`, route => route.fulfill({ status: 200, contentType: "image/png", body: readFileSync(files.get(new URL(route.request().url()).pathname.split("/").pop())) }));
 
   await page.goto(`${base}/app/`);
   await page.locator("main h1", { hasText: "Overview" }).first().waitFor();
@@ -158,7 +190,73 @@ async function film(page, base, shot, st) {
   });
 }
 
-export async function record({ theme = "dark", browserPath = process.env.BOARD_BROWSER_PATH, framesDir = null, out = OUT[theme] } = {}) {
+async function tourFilm(page, base, shot, st) {
+  const { play, box, moveCamera, moveCursor, caption } = director(page, shot, st), whole = { s: 1, tx: 0, ty: 0 };
+  const centre = r => ({ x: r.x + Math.min(r.w / 2, 60), y: r.y + r.h / 2 + 3 });
+  const click = async (locator, then) => {
+    await moveCursor(centre(await box(locator)), 0.7);
+    await play(0.15);
+    st.cursor.press = true; st.ring = { x: st.cursor.x, y: st.cursor.y, r: 8, a: 0.9 };
+    await shot();
+    st.cursor.press = false;
+    await locator.click();
+    await then();
+    st.scroll = 0;
+    await page.waitForTimeout(300);
+    const at = { ...st.ring };
+    await play(0.35, p => { st.ring = { x: at.x, y: at.y, r: mix(8, 30, p), a: 0.9 * (1 - p) }; });
+    st.ring = null;
+  };
+  const visit = async (locator, heading, key) => {
+    await click(locator, () => page.locator("main h1", { hasText: heading }).first().waitFor());
+    await caption(TOUR_CAPTIONS[key]);
+  };
+  const scroll = (to, seconds) => { const from = st.scroll; return play(seconds, p => { st.scroll = mix(from, to, ease(p)); }); };
+  const zoomOn = async (locator, key) => {
+    await caption(TOUR_CAPTIONS[key]);
+    await moveCamera(camera(await box(locator), 1.4), 0.9);
+    await play(2.6);
+    await moveCamera(whole, 0.7);
+  };
+  const nav = hash => page.locator(`nav a[href="#${hash}"]`);
+
+  await page.goto(`${base}/app/`);
+  await page.locator("main h1", { hasText: "Overview" }).first().waitFor();
+  await page.mouse.move(-10, -10);
+  await page.waitForTimeout(500);
+  st.scroll = 0;
+  await play(2.5);
+  await zoomOn(page.locator("section.card", { has: page.locator("#needs-h") }), 2);
+  await zoomOn(page.locator("section.card.sessions"), 3);
+
+  await visit(nav("tasks"), "Tasks", 4);
+  await play(2);
+  await scroll(320, 1.6);
+  await play(1.5);
+  await visit(page.locator("main a", { hasText: "Sample sync design" }).first(), "Sample sync design", 5);
+  await play(3.5);
+
+  await visit(nav("agents"), "Agents", 6);
+  await play(2);
+  await scroll(420, 1.8);
+  await play(2);
+  await visit(nav("pull-requests"), "Pull requests", 7);
+  await play(3.5);
+  await visit(nav("stats"), "Stats", 8);
+  await play(2);
+  await scroll(360, 1.6);
+  await play(2);
+
+  await click(nav(""), () => page.locator("main h1", { hasText: "Overview" }).first().waitFor());
+  await caption(TOUR_CAPTIONS[9]);
+  await click(page.locator("header .picker"), () => page.locator("summary", { hasText: "Archived" }).waitFor());
+  await click(page.locator("summary", { hasText: "Archived" }), () => page.getByText(ARCHIVED.name).first().waitFor());
+  await play(1.5);
+  await click(page.getByText(ARCHIVED.name).first(), () => page.locator("header .picker", { hasText: "archived" }).waitFor());
+  await play(3.5);
+}
+
+export async function record({ theme = "dark", tour = false, browserPath = process.env.BOARD_BROWSER_PATH, framesDir = null, out = tour ? TOUR : OUT[theme] } = {}) {
   if (!OUT[theme]) throw new TypeError(`--theme is dark or light, not ${theme}`);
   const { ffmpeg, version } = ffmpegCommand();
   const { chromium } = createRequire(import.meta.url)("playwright");
@@ -181,7 +279,9 @@ export async function record({ theme = "dark", browserPath = process.env.BOARD_B
     await band.setContent(BAND_PAGE({ c: THEMES[theme] }));
     mkdirSync(caps);
 
-    writeTasksLogbook(join(dir, "logbooks"), process.env.SAGE_WORKTREES, new Date().toISOString(), { agents: true, about: true, prs: true, documents: true });
+    const now = new Date().toISOString();
+    writeTasksLogbook(join(dir, "logbooks"), process.env.SAGE_WORKTREES, now, { agents: true, about: true, prs: true, documents: true });
+    if (tour) writeArchivedSample(join(dir, "logbooks"), now);
     const stateDir = join(dir, "board-state");
     mkdirSync(stateDir, { mode: 0o700 });
     server = createBoardServer({
@@ -200,24 +300,29 @@ export async function record({ theme = "dark", browserPath = process.env.BOARD_B
     const local = [dir, homedir(), ...[process.env.USER, process.env.LOGNAME].filter(name => name && name.length > 2)];
     const st = { theme, colors: THEMES[theme], cam: { s: 1, tx: 0, ty: 0 }, cursor: { x: 1180, y: 560, press: false }, ring: null, cap: { parts: CAPTIONS[1], a: 1 }, fade: null };
     let count = 0, lastCap = null;
+    const scenes = [];
     const shot = async () => {
       if (!await page.evaluate(DRAW, st)) await page.waitForFunction(() => document.getElementById("walk-fade").complete);
-      refuseLocalText(await page.evaluate(() => document.body.innerText), local);
+      const seen = await page.evaluate(() => ({ text: document.body.innerText, heading: document.querySelector("main h1")?.textContent ?? "", project: document.querySelector("header .picker")?.textContent ?? "" }));
+      refuseLocalText(seen.text, local);
+      const scene = { caption: st.cap.parts[1], heading: seen.heading, project: seen.project };
+      if (JSON.stringify(scene) !== JSON.stringify(scenes.at(-1))) scenes.push(scene);
       const name = `${String(count++).padStart(4, "0")}.png`, file = join(frames, name), cap = JSON.stringify(st.cap);
       await page.screenshot({ path: file });
       if (cap === lastCap?.cap) copyFileSync(lastCap.file, join(caps, name));
       else { await band.evaluate(CAPTION, { cap: st.cap, dark: theme === "dark" }); await band.screenshot({ path: join(caps, name) }); lastCap = { cap, file: join(caps, name) }; }
       return file;
     };
-    await film(page, base, shot, st);
+    await (tour ? tourFilm : film)(page, base, shot, st);
     if (problems.length) throw new Error(`the board page failed: ${problems.join("; ")}`);
-    const target = resolve(ROOT, out);
-    const encode = spawnSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-framerate", String(FPS), "-i", join(frames, "%04d.png"), "-i", join(dir, "window.png"),
-      "-framerate", String(FPS), "-i", join(caps, "%04d.png"),
-      "-filter_complex", `[0]pad=${CANVAS.width}:${CANVAS.height}:${MARGIN}:${MARGIN + BAR}[page];[page][2]overlay=${MARGIN}:${MARGIN + BAR + VIEW.height}[band];[band][1]overlay,split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];[b][p]paletteuse=dither=none:diff_mode=rectangle`,
-      "-loop", "0", target], { encoding: "utf8" });
+    const target = resolve(ROOT, out), frame = `[0]pad=${CANVAS.width}:${CANVAS.height}:${MARGIN}:${MARGIN + BAR}[page];[page][2]overlay=${MARGIN}:${MARGIN + BAR + VIEW.height}[band];[band][1]overlay=shortest=1`;
+    const encoding = tour
+      ? ["-filter_complex", `${frame},format=yuv420p`, "-c:v", "libx264", "-preset", "veryslow", "-crf", "30", "-tune", "stillimage", "-movflags", "+faststart", "-an", target]
+      : ["-filter_complex", `${frame},split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];[b][p]paletteuse=dither=none:diff_mode=rectangle`, "-loop", "0", target];
+    const encode = spawnSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-framerate", String(FPS), "-i", join(frames, "%04d.png"), "-loop", "1", "-framerate", String(FPS), "-i", join(dir, "window.png"),
+      "-framerate", String(FPS), "-i", join(caps, "%04d.png"), ...encoding], { encoding: "utf8" });
     if (encode.status !== 0) throw new Error(`ffmpeg could not write ${out}: ${encode.stderr || encode.error}`);
-    return { out, bytes: statSync(target).size, frames: count, seconds: count / FPS, ffmpeg: version };
+    return { out, bytes: statSync(target).size, frames: count, seconds: count / FPS, ffmpeg: version, scenes };
   } finally {
     await browser.close();
     await server?.close();
@@ -228,11 +333,11 @@ export async function record({ theme = "dark", browserPath = process.env.BOARD_B
 
 if (isMain(import.meta.url)) {
   const args = process.argv.slice(2), option = name => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
-  const themes = option("--theme") ? [option("--theme")] : Object.keys(OUT);
+  const tour = args.includes("--tour"), themes = tour ? ["dark"] : option("--theme") ? [option("--theme")] : Object.keys(OUT);
   try {
     for (const theme of themes) {
-      const framesDir = option("--frames") && join(option("--frames"), theme);
-      const done = await record({ theme, browserPath: option("--browser") ?? process.env.BOARD_BROWSER_PATH, framesDir });
+      const framesDir = option("--frames") && join(option("--frames"), tour ? "tour" : theme);
+      const done = await record({ theme, tour, browserPath: option("--browser") ?? process.env.BOARD_BROWSER_PATH, framesDir });
       console.log(`✓ ${done.out}: ${done.frames} frames, ${done.seconds.toFixed(2)} s at ${FPS} fps, ${(done.bytes / 1e6).toFixed(2)} MB (${done.ffmpeg})`);
     }
   } catch (error) { console.error(error.message); process.exit(1); }
