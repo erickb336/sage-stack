@@ -11,6 +11,7 @@
     "test:browser": "node scripts/browser-prerequisite.mjs check && env -u NODE_TEST_CONTEXT node --test scripts/browser-prerequisite.test.mjs scripts/publication-env.test.mjs scripts/board-pages-browser.test.mjs scripts/board-app-browser.test.mjs scripts/board-tasks-browser.test.mjs scripts/board-prs-browser.test.mjs scripts/board-writes-browser.test.mjs scripts/board-archive-browser.test.mjs scripts/board-agents-page-browser.test.mjs scripts/board-task-page-browser.test.mjs scripts/board-jobs-browser.test.mjs scripts/board-narrow-browser.test.mjs scripts/board-truth-browser.test.mjs scripts/board-arena-browser.test.mjs scripts/board-question-browser.test.mjs scripts/board-walkthrough-browser.test.mjs",
     "graphics": "node scripts/graphics.mjs",
     "walkthrough": "node scripts/board-walkthrough.mjs",
+    "tour": "node scripts/board-walkthrough.mjs --tour",
     "check:codex": "node scripts/check-codex.mjs",
     "board": "node packages/sage-board/cli.mjs board"
   },
