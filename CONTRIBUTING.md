@@ -136,7 +136,7 @@ npm run walkthrough
 - It writes the sample logbook of the screenshots (`scripts/fixtures/board-app.mjs`) to a temporary folder and starts a board server on a free port, with the built app.
 - It pairs a Playwright browser at 1320 by 800 pixels and plays one fixed path of three scenes: the Overview, a zoom on Needs you, and a click that opens one task. The clip is about 9 s long and loops.
 - It records frame by frame, 20 frames a second: for each frame it sets the zoom, the cursor, the click ring, the caption and any fade, then takes one screenshot. So the clip does not depend on the speed of the machine, and the text stays sharp in a zoom.
-- Each frame carries a caption and a SAMPLE DATA label. ffmpeg puts a window frame around each frame, with the title "sage board · sample data".
+- ffmpeg puts a window frame around each frame: a title bar with a SAMPLE DATA label, and a caption band under the board. So the label and the caption never cover board text.
 - The board server of the walkthrough refuses every write, so the script never runs the state tool.
 - It stops when a frame shows the temporary folder, the home folder or the user name.
 - It needs ffmpeg 6 or later, to write the GIF: on PATH, or its path in `FFMPEG` (macOS: `brew install ffmpeg`; Debian or Ubuntu: `sudo apt-get install ffmpeg`).
