@@ -8,7 +8,7 @@ You turn on sage mode in a session, and the session becomes your chief of staff.
   <a href="LICENSE"><img alt="licence" src="https://img.shields.io/github/license/erickb336/sage-stack"></a>
 </p>
 
-**Status:** early, used every day by its author to build sage-stack itself. It works in Claude Code and in Codex (the CLI and the desktop app). Tested on macOS, and in CI on Ubuntu (Linux); Windows is not supported.
+**Status:** early, used every day by its author to build sage-stack itself. Claude Code is supported; in Codex (the CLI and the desktop app), sage mode, autopilot, the shared logbook and the board phrases work through the sage plugin ([sage in Codex](docs/guide/codex.md)). Tested on macOS, and in CI on Ubuntu (Linux); Windows is not supported.
 
 Start with the [Quick start](#quick-start). Then follow one task from start to merge in [Learn sage in 5 minutes](docs/guide/learn-sage.md).
 
@@ -56,9 +56,11 @@ To update sage, run this in a terminal, then start a new session. To stop a task
 claude plugin update sage@sage
 ```
 
+> **Warning:** before you use milestones (tasks of one goal) or tasks that wait for other tasks, update sage and restart every session that was already open. An older session still merges a waiting task, or a task of a milestone that you did not approve.
+
 ### In Codex
 
-The same phrases, logbook and board work in Codex. You need Codex 0.164 or later and its CLI (also for the desktop app), one line in your Codex config, Node.js 20 or later, `gh` logged in, and a GitHub remote for the project (see [What you need](docs/guide/codex.md#what-you-need)).
+The same phrases, logbook and board work in Codex. You need Codex 0.164 or later and its CLI (also for the desktop app), and one line in your Codex config. You also need Node.js 20 or later, `gh` logged in, and a GitHub remote for the project (see [What you need](docs/guide/codex.md#what-you-need)).
 
 1. Add the sage marketplace and install sage, in a terminal:
    ```sh
@@ -68,7 +70,7 @@ The same phrases, logbook and board work in Codex. You need Codex 0.164 or later
    codex plugin add sage@sage
    ```
 2. Install sage's hooks once on each computer with the plugin's `hooks install` command, then run `codex` in a project folder and choose **Trust all and continue** at the "Hooks need review" screen ([Install](docs/guide/codex.md#install), step 3). Without that trust, no sage hook runs, so do the [gate check](docs/guide/codex.md#check-that-the-sage-gate-runs).
-3. Send `sage mode` alone, then your request. Codex asks you to approve some steps of each task ([The approval prompts](docs/guide/codex.md#the-approval-prompts-of-each-task)).
+3. Send `sage mode` alone, then your request. Codex asks you at least 5 times in each small task (the worktree, the add, the commit, the push and the pull request): read the choices, then approve ([The approval prompts](docs/guide/codex.md#the-approval-prompts-of-each-task)).
 
 ## The board
 

@@ -196,7 +196,7 @@ test("the board walkthrough's alt text says sample data and names the three scen
 test("the README defines the on phrase and the update warning in words the reader has met (R1661)", () => {
   const readme = realReadme();
   assert.match(readme, /Send the on phrase, the words below, as a message of its own/);
-  assert.match(readFileSync(join(ROOT, "docs/guide/using-sage.md"), "utf8"), /> \*\*Warning:\*\* before you use waits or milestones, update sage/, "the update warning lives in Using sage (T1084)");
+  assert.match(readme, /> \*\*Warning:\*\* before you use milestones \(tasks of one goal\) or tasks that wait for other tasks, update sage/);
 });
 
 test("the README has How sage works, no Safety and limits section, and links the rules page and SECURITY.md in Learn more (T521)", () => {
