@@ -558,7 +558,7 @@ test("T1138: GET /app/stats gives the numbers of all projects or of one, names a
   const get = async path => { const reply = await read(f, path); return { ...reply, json: reply.status === 200 ? JSON.parse(reply.body) : null }; };
   const all = await get("/app/stats");
   assert.equal(all.status, 200); assert.match(all.headers["content-type"], /^application\/json/);
-  assert.deepEqual([all.json.project, all.json.total.open, all.json.total.tokens, all.json.total.runs, all.json.gaps], [null, 1, 5000, 1, []]);
+  assert.deepEqual([all.json.project, all.json.total.open, all.json.total.tokens, all.json.total.measure.peak, all.json.total.runs, all.json.gaps], [null, 1, 0, 5000, 1, []]);
   const one = await get("/app/stats?project=project-abcdef");
   assert.deepEqual([one.status, one.json.project, one.json.projects.map(row => row.key)], [200, "project-abcdef", ["project-abcdef"]]);
   for (const [path, status] of [["/app/stats?project=other-abcdef", 404], ["/app/stats?project=", 404], ["/app/stats?project=a&project=b", 400], ["/app/stats?logbook=x", 400]]) assert.equal((await get(path)).status, status, path);
