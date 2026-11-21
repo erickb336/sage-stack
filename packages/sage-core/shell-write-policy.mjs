@@ -162,6 +162,8 @@ function gitDestroys(sub, rest) {
   }
   return worktree || !staged;
 }
+const CLONE_VALUE = /^(?:-[obucj]|--(?:origin|branch|initial-branch|upload-pack|reference|reference-if-able|depth|shallow-since|shallow-exclude|config|template|jobs|filter|server-option|bundle-uri|ref-format|object-format|revision))$/;
+const repoName = (url) => url && basename(url.replace(/\/+$/, "").replace(/\/\.git$/, "").replace(/^[^/]*:/, "")).replace(/\.(?:git|bundle)$/, "") || undefined;
 function gitTargets(args, destroys = false) {
   let tree = ".", k = 0, other = false;
   for (; args[k]?.startsWith("-"); k++) {
@@ -193,6 +195,31 @@ function gitTargets(args, destroys = false) {
     change ||= /^(?:set|unset|rename-section|remove-section|edit)$/.test(operands[0] ?? "") || (operands.length > 1 && !/^(?:get|list)$/.test(operands[0]));
     return !change ? [] : rest.some((a) => /^--(?:global|system)$/.test(a)) ? true : [tree];
   }
+  const into = (paths) => paths.map((p) => (isAbsolute(p) ? p : join(tree, p)));
+  if (sub === "clone" || sub === "init") {
+    const operands = [], gitDirs = [];
+    for (let i = 0; i < rest.length; i++) {
+      const separate = /^--separate-git-dir(?:=(.*))?$/.exec(rest[i]);
+      if (rest[i] === "--") { operands.push(...rest.slice(i + 1)); break; }
+      if (separate) gitDirs.push(separate[1] ?? rest[++i]);
+      else if (CLONE_VALUE.test(rest[i])) i++;
+      else if (!rest[i].startsWith("-")) operands.push(rest[i]);
+    }
+    const dir = sub === "init" ? operands[0] ?? "." : operands[1] ?? repoName(operands[0]);
+    return dir === undefined || gitDirs.includes(undefined) ? true : into([dir, ...gitDirs]);
+  }
+  if (sub === "archive" || sub === "format-patch") {
+    const option = sub === "archive" ? /^(?:-o|--output)(?:=(.*))?$/ : /^(?:-o|--output-directory|--output)(?:=(.*))?$/;
+    for (let i = 0; i < rest.length && rest[i] !== "--"; i++) {
+      const out = option.exec(rest[i]);
+      if (out) return out[1] ?? rest[i + 1] ? into([out[1] ?? rest[i + 1]]) : true;
+    }
+    return sub === "format-patch" && !rest.includes("--stdout") ? [tree] : [];
+  }
+  if (sub === "bundle" && rest[0] === "create") {
+    const file = rest.slice(1).find((a) => !a.startsWith("-"));
+    return file === undefined ? true : file === "-" ? [] : into([file]);
+  }
   if (sub === "worktree" && /^(?:add|move|remove)$/.test(rest[0] ?? "")) {
     const paths = [];
     for (let i = 1; i < rest.length; i++) {
@@ -200,7 +227,7 @@ function gitTargets(args, destroys = false) {
       else if (!rest[i].startsWith("-")) paths.push(rest[i]);
     }
     const changed = rest[0] === "move" ? paths.slice(0, 2) : paths.slice(0, 1);
-    return changed.length ? changed.map((p) => (isAbsolute(p) ? p : join(tree, p))) : true;
+    return changed.length ? into(changed) : true;
   }
   return [];
 }
@@ -209,14 +236,18 @@ function realPath(path) {
 }
 const under = (path, folder) => path.startsWith(folder.endsWith(sep) ? folder : folder + sep);
 const meets = (path, folder) => path === folder || under(path, folder) || under(folder, path);
-function intoScratch({ target, dir, uncertainDirectory }, cwd, scratch, { home, guard = [], protect } = {}) {
+function intoScratch({ target, dir, uncertainDirectory }, cwd, scratch, place = {}) {
+  const { home, guard = [], protect } = place;
   const word = home && /^~(?:\/|$)/.test(target) ? home + target.slice(1) : target;
   if ((!protect && !scratch.length) || uncertainDirectory || /[$`*?[\]{}~!]/.test(word)) return false;
   const absolute = resolve(dir ?? cwd, word), paths = [...new Set([join(realPath(dirname(absolute)), basename(absolute)), realPath(absolute)])];
   if (protect) {
-    const trees = checkouts(cwd, scratch), folders = protect.map((folder) => realPath(resolve(folder))), open = scratch.map((folder) => realPath(resolve(folder)));
-    return paths.every((path) => !trees.some((folder) => meets(path, folder)) &&
-      folders.every((folder) => !meets(path, folder) || open.some((inner) => under(inner, folder) && under(path, inner))));
+    const open = scratch.map((folder) => realPath(resolve(folder)));
+    const places = [...checkouts(cwd, scratch).map((path) => ({ path, name: "the project's checkout" })), ...protect.map((p) => ({ ...p, path: realPath(resolve(p.path)), prefix: p.prefix && join(realPath(dirname(resolve(p.path))), basename(p.path)) }))];
+    const hits = ({ path: folder, prefix }, path) => (meets(path, folder) || (prefix && path.startsWith(prefix))) && !open.some((inner) => under(inner, folder) && under(path, inner));
+    const hit = paths.flatMap((path) => places.filter((p) => hits(p, path)))[0];
+    place.hit ??= hit?.name;
+    return !hit;
   }
   const project = mainCheckout(realPath(resolve(cwd)));
   return paths.every((path) => !meets(path, project) && scratch.some((folder) => under(path, realPath(resolve(folder)))) && !inWorkTree(path, guard));
@@ -270,7 +301,11 @@ function inProject({ target, dir, uncertainDirectory }, cwd) {
 }
 export const commandWrites = (...args) => commandWritePart(...args) !== undefined;
 export function commandWritePart(text, cwd, scratch = [], { readOnly = false, placed = false, home, guard, protect } = {}) {
-  const place = { home, guard, protect }, whole = String(text);
+  const place = { home, guard, protect }, part = writePart(text, cwd, scratch, { readOnly, placed, home, protect }, place);
+  return part === undefined ? undefined : { part, place: place.hit };
+}
+function writePart(text, cwd, scratch, { readOnly, placed, home, protect }, place) {
+  const whole = String(text);
   placed ||= Boolean(protect);
   if (typeof text !== "string") return whole;
   try {
