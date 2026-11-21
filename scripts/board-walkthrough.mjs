@@ -14,8 +14,9 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 export const OUT = { dark: "docs/assets/board-walkthrough-dark.gif", light: "docs/assets/board-walkthrough-light.gif" };
 export const TOUR = "docs/assets/board-tour.mp4";
 export const VIEW = { width: 1320, height: 800 };
-const FPS = 20, MARGIN = 28, BAR = 36, BAND = 52;
-const CANVAS = { width: VIEW.width + 2 * MARGIN, height: VIEW.height + BAR + BAND + 2 * MARGIN };
+const FPS = 20, MARGIN = 28, BAR = 36;
+const CAPTION_PX = { gif: 44, tour: 16 }, bandOf = px => Math.round(px * 3.25);
+const canvasOf = band => ({ width: VIEW.width + 2 * MARGIN, height: VIEW.height + BAR + band + 2 * MARGIN });
 const FFMPEG_HELP = "The walkthrough needs ffmpeg 6 or later to write the GIF and the video. Install it (macOS: brew install ffmpeg; Debian or Ubuntu: sudo apt-get install ffmpeg), or give its path in FFMPEG.";
 const CAPTIONS = {
   1: ["1", "Overview", "where every task and milestone stands"],
@@ -81,8 +82,8 @@ const DRAW = st => {
 
 const FONT = "ui-sans-serif,-apple-system,system-ui,sans-serif";
 const SAMPLE = dark => `padding:5px 10px;border-radius:999px;font:600 12px/1.2 ${FONT};letter-spacing:.02em;background:${dark ? "#3a1f0a" : "#fdf3e1"};color:${dark ? "#fbbf24" : "#8f5106"};border:1px solid ${dark ? "#6b4210" : "#f0d29a"}`;
-const WINDOW = ({ c, dark }) => `<body style="margin:0;background:transparent">
-  <div style="position:absolute;left:${MARGIN - 1}px;top:${MARGIN - 1}px;width:${VIEW.width}px;height:${VIEW.height + BAR + BAND}px;border:1px solid ${c.line};border-radius:12px;box-shadow:${c.shadow}0 0 0 3000px ${c.bg};overflow:hidden">
+const WINDOW = ({ c, dark, band }) => `<body style="margin:0;background:transparent">
+  <div style="position:absolute;left:${MARGIN - 1}px;top:${MARGIN - 1}px;width:${VIEW.width}px;height:${VIEW.height + BAR + band}px;border:1px solid ${c.line};border-radius:12px;box-shadow:${c.shadow}0 0 0 3000px ${c.bg};overflow:hidden">
     <div style="height:${BAR}px;background:${c.bar};border-bottom:1px solid ${c.line};box-sizing:border-box;display:flex;align-items:center;padding:0 14px;gap:8px;position:relative">
       <i style="width:12px;height:12px;border-radius:50%;background:#ff5f57"></i><i style="width:12px;height:12px;border-radius:50%;background:#febc2e"></i><i style="width:12px;height:12px;border-radius:50%;background:#28c840"></i>
       <span style="position:absolute;left:0;right:0;text-align:center;font:500 13px/1 ${FONT};color:${c.text}">sage board</span>
@@ -90,13 +91,13 @@ const WINDOW = ({ c, dark }) => `<body style="margin:0;background:transparent">
     </div>
   </div></body>`;
 
-const BAND_PAGE = ({ c }) => `<body style="margin:0;height:${BAND}px;box-sizing:border-box;background:${c.bar};border-top:1px solid ${c.line};display:flex;align-items:center;justify-content:center;overflow:hidden"><div id="cap"></div></body>`;
-const CAPTION = ({ cap, dark }) => {
+const BAND_PAGE = ({ c, band }) => `<body style="margin:0;height:${band}px;box-sizing:border-box;background:${c.bar};border-top:1px solid ${c.line};display:flex;align-items:center;justify-content:center;overflow:hidden"><div id="cap"></div></body>`;
+const CAPTION = ({ cap, dark, px }) => {
   const el = document.getElementById("cap"), font = "ui-sans-serif,-apple-system,system-ui,sans-serif";
-  el.style.cssText = `display:flex;align-items:center;gap:10px;white-space:nowrap;font:500 16px/1.2 ${font};color:${dark ? "#ededf0" : "#18181b"};opacity:${cap.a};transform:translateY(${(1 - cap.a) * 6}px)`;
+  el.style.cssText = `display:flex;align-items:center;gap:${px * 0.625}px;white-space:nowrap;font:500 ${px}px/1.2 ${font};color:${dark ? "#ededf0" : "#18181b"};opacity:${cap.a};transform:translateY(${(1 - cap.a) * px * 0.375}px)`;
   const [n, label, text] = cap.parts, part = (tag, value, css) => Object.assign(document.createElement(tag), { textContent: value, style: css });
   el.replaceChildren(
-    part("span", n, `display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;font-weight:650;font-size:13px;background:${dark ? "#9aa2ff" : "#4f46e5"};color:${dark ? "#0b0b10" : "#fff"}`),
+    part("span", n, `display:inline-grid;place-items:center;width:${px * 1.5}px;height:${px * 1.5}px;border-radius:50%;font-weight:650;font-size:${px * 0.8125}px;background:${dark ? "#9aa2ff" : "#4f46e5"};color:${dark ? "#0b0b10" : "#fff"}`),
     part("b", label, "font-weight:650"), part("span", text, `color:${dark ? "#a3a3ad" : "#52525b"}`));
 };
 
@@ -271,12 +272,13 @@ export async function record({ theme = "dark", tour = false, browserPath = proce
   const browser = await chromium.launch({ headless: true, ...(browserPath ? { executablePath: browserPath } : {}) });
   let server;
   try {
+    const px = CAPTION_PX[tour ? "tour" : "gif"], BAND = bandOf(px), CANVAS = canvasOf(BAND);
     const windowPage = await browser.newPage({ viewport: CANVAS, deviceScaleFactor: 1 });
-    await windowPage.setContent(WINDOW({ c: THEMES[theme], dark: theme === "dark" }));
+    await windowPage.setContent(WINDOW({ c: THEMES[theme], dark: theme === "dark", band: BAND }));
     await windowPage.screenshot({ path: join(dir, "window.png"), omitBackground: true });
     await windowPage.close();
     const band = await browser.newPage({ viewport: { width: VIEW.width, height: BAND }, deviceScaleFactor: 1 }), caps = join(dir, "captions");
-    await band.setContent(BAND_PAGE({ c: THEMES[theme] }));
+    await band.setContent(BAND_PAGE({ c: THEMES[theme], band: BAND }));
     mkdirSync(caps);
 
     const now = new Date().toISOString();
@@ -310,7 +312,7 @@ export async function record({ theme = "dark", tour = false, browserPath = proce
       const name = `${String(count++).padStart(4, "0")}.png`, file = join(frames, name), cap = JSON.stringify(st.cap);
       await page.screenshot({ path: file });
       if (cap === lastCap?.cap) copyFileSync(lastCap.file, join(caps, name));
-      else { await band.evaluate(CAPTION, { cap: st.cap, dark: theme === "dark" }); await band.screenshot({ path: join(caps, name) }); lastCap = { cap, file: join(caps, name) }; }
+      else { await band.evaluate(CAPTION, { cap: st.cap, dark: theme === "dark", px }); await band.screenshot({ path: join(caps, name) }); lastCap = { cap, file: join(caps, name) }; }
       return file;
     };
     await (tour ? tourFilm : film)(page, base, shot, st);
