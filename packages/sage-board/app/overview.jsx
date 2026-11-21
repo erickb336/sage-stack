@@ -104,7 +104,7 @@ function Stopped({ model, shown }) {
             <span className="bullet stopped" aria-hidden="true" />
             <div>
               <p className="q">{chiefName(chief.id, chief.provider)} · {chiefSub(chief)}</p>
-              <p className="meta"><span>stopped: no event since {chief.heartbeat ? new Date(chief.heartbeat).toLocaleString([], { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short", hourCycle: "h23" }) : "a time not recorded"} and no running agent</span><span>nothing moves on its own</span></p>
+              <p className="meta"><span>stopped: no event since {chief.heartbeat ? new Date(chief.heartbeat).toLocaleString([], { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short", hourCycle: "h23" }) : "a time not recorded"} and no running agent</span><span>{chief.passedOn ? `its work passed on to ${chief.passedOn.to} at ${when(chief.passedOn.at)}` : "nothing moves on its own"}</span></p>
               {tasks.length ? <ul className="owned">{tasks.map(task => {
                 const need = model.needs.find(item => item.takeover && item.task?.key === task.key), answered = model.answered.find(item => item.takeover && item.task.key === task.key);
                 return (

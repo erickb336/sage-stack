@@ -83,17 +83,23 @@ const counted = (count, one) => `${count} ${count === 1 ? one : `${one}s`}`;
 const SESSION_NOT_CONFIRMED = "Program not confirmed: this session passes on only when it exits, or after 8 h with no action.";
 const idleText = ms => { const m = Math.max(0, Math.floor(ms / 60_000)); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h`; };
 const lostText = (count) => count ? `${counted(count, "run")} lost` : null;
-const pickupNotes = (chief, clock) => [chief.pickedUp && [`picked up ${counted(chief.pickedUp.tasks, "task")} at ${clock(chief.pickedUp.at)}`, lostText(chief.pickedUp.lost)].filter(Boolean).join(", "),
-  chief.passedOn && `passed on to ${chief.passedOn.to} at ${clock(chief.passedOn.at)}`].filter(Boolean);
+const MOVED = [["tasks", "task"], ["gates", "question"], ["queued", "queued run"]];
+const movedKinds = (counts) => MOVED.filter(([kind]) => counts[kind]).map(([kind, word]) => counted(counts[kind], word));
+const moved = (counts) => andList(movedKinds(counts)) || "no task";
+const pickupNotes = (chief, stamp) => [chief.pickedUp && [`picked up ${moved(chief.pickedUp)} at ${stamp(chief.pickedUp.at)}`, lostText(chief.pickedUp.lost)].filter(Boolean).join(", "),
+  chief.passedOn && `passed on to ${chief.passedOn.to} at ${stamp(chief.passedOn.at)}`].filter(Boolean);
 const andList = (list) => list.length < 2 ? list.join("") : `${list.slice(0, -1).join(", ")} and ${list.at(-1)}`;
 export function pickupLine(pickup, clock) {
-  const from = pickup.sources.map((source) => `${source.tasks} ${source.from ? `from ${chiefName(source.from, source.fromProvider)}` : "with no owning chief"}`);
+  const tasksOnly = !pickup.gates && !pickup.queued;
+  const from = pickup.sources.map((source) => `${source.tasks && tasksOnly ? source.tasks : andList(movedKinds(source)) || "nothing open"} ${source.from ? `from ${chiefName(source.from, source.fromProvider)}` : "with no owning chief"}`);
   const lost = pickup.lost.length ? `${lostText(pickup.lost.length)}: ${pickup.lost.join(", ")}` : "no run lost";
-  return `${clock(pickup.at)} · ${chiefName(pickup.to, pickup.toProvider)} picked up ${counted(pickup.tasks, "task")}: ${andList(from)} · ${lost}`;
+  return `${clock(pickup.at)} · ${chiefName(pickup.to, pickup.toProvider)} picked up ${moved(pickup)}: ${andList(from)} · ${lost}`;
 }
 
-export function sessionRow(chief, now, clock) {
-  const row = sessionWords(chief, now, clock), notes = pickupNotes(chief, clock);
+const DATED_AFTER_MS = 12 * 3_600_000;
+export function sessionRow(chief, now, clock, dated = clock) {
+  const stamp = (at) => (Date.parse(now) - Date.parse(at) < DATED_AFTER_MS ? clock(at) : dated(at));
+  const row = sessionWords(chief, now, clock), notes = pickupNotes(chief, stamp);
   return notes.length ? { ...row, sub: [row.sub, ...notes].join(" · ") } : row;
 }
 function sessionWords(chief, now, clock) {

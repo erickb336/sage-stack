@@ -13,6 +13,9 @@ import { readBoardSources } from "../plugins/sage/core/board-reader.mjs";
 import { buildBoardModel } from "../plugins/sage/core/board-model.mjs";
 import { boardOverview } from "../plugins/sage/core/board-overview.mjs";
 import { renderBoardText } from "../plugins/sage/core/board-render.mjs";
+import { pickupsOf } from "../plugins/sage/core/pickup.mjs";
+import { boardChiefs } from "../plugins/sage/core/chief-live.mjs";
+import { pickupLine, sessionRow } from "../plugins/sage/core/state-words.mjs";
 import { backed } from "./verdict-backing.mjs";
 import { QUESTION } from "./fixtures/question-message.mjs";
 
@@ -321,12 +324,12 @@ function firstRealPickupOf20Nov(t) {
 
 test("F-T1182-2: the board reads the pick-up decision rows: one pick-up for one write, with from, to, the task count of each source, the lost runs and the time", (t) => {
   const { at, model, project } = firstRealPickupOf20Nov(t);
-  const want = { at, to: "C3", toProvider: "claude", tasks: 146, lost: ["R1"], sources: [{ from: "C1", fromProvider: "claude", tasks: 69 }, { from: "C2", fromProvider: "codex", tasks: 2 }, { from: "", fromProvider: "", tasks: 75 }] };
+  const want = { at, to: "C3", toProvider: "claude", tasks: 146, lost: ["R1"], sources: [{ from: "C1", fromProvider: "claude", tasks: 69, gates: 0, queued: 0, passedOn: true }, { from: "C2", fromProvider: "codex", tasks: 2, gates: 0, queued: 0, passedOn: true }, { from: "", fromProvider: "", tasks: 75, gates: 0, queued: 0, passedOn: false }] };
   const shape = ({ at, to, toProvider, tasks, lost, sources }) => ({ at, to, toProvider, tasks, lost, sources });
   assert.deepEqual((project.pickups ?? []).map(shape), [want], "the board model");
   assert.deepEqual((boardOverview(model).pickups ?? []).map(shape), [want], "the board in the browser");
   const chiefs = Object.fromEntries(project.chiefs.map((c) => [c.id, { pickedUp: c.pickedUp ?? null, passedOn: c.passedOn ?? null }]));
-  assert.deepEqual(chiefs, { C1: { pickedUp: null, passedOn: { at, to: "C3" } }, C2: { pickedUp: null, passedOn: { at, to: "C3" } }, C3: { pickedUp: { at, tasks: 146, lost: 1 }, passedOn: null } });
+  assert.deepEqual(chiefs, { C1: { pickedUp: null, passedOn: { at, to: "C3" } }, C2: { pickedUp: null, passedOn: { at, to: "C3" } }, C3: { pickedUp: { at, tasks: 146, gates: 0, queued: 0, lost: 1 }, passedOn: null } });
 });
 
 test("F-T1182-1: the Sessions part and the pick-up list show each pick-up short, in counts, with its lost run: on the chat board and in the browser", (t) => {
@@ -341,6 +344,54 @@ test("F-T1182-1: the Sessions part and the pick-up list show each pick-up short,
   assert.doesNotMatch(line, /T\d/, "counts, not task ids");
   assert.ok(sessions.includes("Pick-ups, last 7 days:"), sessions);
   const web = boardOverview(model), chief = web.chiefs.find((c) => c.id === "C3");
-  assert.deepEqual([chief.pickedUp, web.pickups.length], [{ at, tasks: 146, lost: 1 }, 1], "the browser gets the same notes for its Sessions part and its pick-up list");
+  assert.deepEqual([chief.pickedUp, web.pickups.length], [{ at, tasks: 146, gates: 0, queued: 0, lost: 1 }, 1], "the browser gets the same notes for its Sessions part and its pick-up list");
   assert.equal(project.chiefs.find((c) => c.id === "C3").tasks, 146);
+});
+
+const AT = "2026-11-20T09:25:00.000Z", hhmm = (at) => at.slice(11, 16);
+const handover = (from, to, { at = AT, reason = "ended", tasks = [], lost = [], queued = [], gates = [], fromProvider = "claude" } = {}) =>
+  ({ at, task: "", decision: `pick-up from ${from} to ${to}`, why: "pick-up", handover: JSON.stringify({ from, to, fromProvider, toProvider: "claude", reason, since: "", tasks, lost, queued, gates }) });
+const CHIEFS = ["C1", "C2", "C3"].map((id) => ({ id, provider: "claude", at: "2026-11-01T00:00:00Z" }));
+const notesOf = (decisions, now = AT) => {
+  const chiefs = boardChiefs({ rows: CHIEFS, pickups: pickupsOf(decisions), now });
+  return Object.fromEntries(chiefs.map((c) => [c.id, sessionRow(c, now, hhmm, (at) => `${at.slice(0, 10)} ${hhmm(at)}`).sub.split(" · ").filter((part) => /^(picked up|passed on)/.test(part))]));
+};
+
+test("F-T1186-1: a source that passed on only a question or only a lost run shows what moved, never 0 tasks", () => {
+  const gateOnly = pickupsOf([handover("C1", "C3", { gates: ["G1"] })]), lostOnly = pickupsOf([handover("C2", "C3", { lost: ["R1"], fromProvider: "codex" })]);
+  assert.equal(pickupLine(gateOnly[0], hhmm), "09:25 · Claude · C3 picked up 1 question: 1 question from Claude · C1 · no run lost");
+  assert.equal(pickupLine(lostOnly[0], hhmm), "09:25 · Claude · C3 picked up no task: nothing open from Codex · C2 · 1 run lost: R1");
+  const mixed = pickupsOf([handover("C1", "C3", { tasks: ["T1", "T2"] }), handover("C2", "C3", { lost: ["R1"], fromProvider: "codex" })]);
+  assert.equal(pickupLine(mixed[0], hhmm), "09:25 · Claude · C3 picked up 2 tasks: 2 from Claude · C1 and nothing open from Codex · C2 · 1 run lost: R1", "the normal form stays for tasks");
+  assert.deepEqual(notesOf([handover("C1", "C3", { gates: ["G1"] })]).C3, ["picked up 1 question at 09:25"], "the session note of the chief that took it");
+});
+
+test("F-T1186-2: a chief that unclaimed its tasks gets no passed-on note; a stopped chief does", () => {
+  const notes = notesOf([handover("C1", "C3", { reason: "unclaimed", tasks: ["T1"] }), handover("C2", "C3", { tasks: ["T2"] })]);
+  assert.deepEqual([notes.C1, notes.C2], [[], ["passed on to C3 at 09:25"]]);
+});
+
+test("F-T1186-4: a passed-on or picked-up note 12 h old or more shows its date, and a fresh one only its time", () => {
+  const rows = [handover("C1", "C3", { tasks: ["T1"] })];
+  assert.deepEqual(notesOf(rows, "2026-11-20T15:00:00.000Z"), { C1: ["passed on to C3 at 09:25"], C2: [], C3: ["picked up 1 task at 09:25"] });
+  assert.deepEqual(notesOf(rows, "2026-11-22T10:00:00.000Z"), { C1: ["passed on to C3 at 2026-11-20 09:25"], C2: [], C3: ["picked up 1 task at 2026-11-20 09:25"] });
+});
+
+test("F-T1186-4: on the chat board, a passed-on note two days old shows its date", (t) => {
+  const { w } = firstRealPickupOf20Nov(t);
+  const file = join(w.dir, "decisions.tsv"), [head, ...lines] = readFileSync(file, "utf8").trim().split("\n"), cols = head.split("\t"), old = new Date(Date.now() - 2 * 86_400_000).toISOString();
+  writeFileSync(file, [head, ...lines.map((l) => (l.split("\t")[cols.indexOf("why")] === "pick-up" ? l.split("\t").with(cols.indexOf("at"), old).join("\t") : l))].join("\n") + "\n");
+  const now = Date.now(), model = buildBoardModel(readBoardSources([{ id: "shared", path: w.env.SAGE_SHARED_HOME, label: "shared" }], { now }), { now: new Date(now).toISOString() });
+  const text = renderBoardText(model).replaceAll("\\", "");
+  assert.ok(text.includes(`passed on to C3 at ${old.slice(0, 10)} ${hhmm(old)} UTC`), text);
+});
+
+test("F-T1186-6: a repeated pick-up row counts once", () => {
+  const row = handover("C1", "C3", { tasks: ["T1"], lost: ["R1", "R2"] }), [one] = pickupsOf([row, { ...row }]);
+  assert.equal(pickupLine(one, hhmm), "09:25 · Claude · C3 picked up 1 task: 1 from Claude · C1 · 2 runs lost: R1, R2");
+  assert.deepEqual(notesOf([row, { ...row }]).C3, ["picked up 1 task at 09:25, 2 runs lost"]);
+});
+
+test("F-T1186-7: a pick-up from a chief to itself shows one note: the one for the chief that took the work", () => {
+  assert.deepEqual(notesOf([handover("C3", "C3", { tasks: ["T1"] })]).C3, ["picked up 1 task at 09:25"]);
 });

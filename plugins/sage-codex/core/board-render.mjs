@@ -167,7 +167,7 @@ export function renderBoardText(model) {
     ...model.diagnostics.map(d => `Incomplete source: ${md(d.source)}${d.project ? ` · ${md(d.project)}` : ""} · ${md(d.message)}`), ...model.warnings.map(d => `Setting ignored: ${md(d.source)} · ${md(d.project)} · ${md(d.message)}`), ...(model.notes ?? []).map(d => `Logbook note: ${md(d.source)} · ${md(d.project)} · ${md(d.message)}`)]);
   const utc = at => `${hhmm(at) || "?"} UTC`;
   const pickups = project => project.pickups?.length ? `\nPick-ups, last 7 days:\n${project.pickups.map(item => `- ${md(pickupLine(item, at => `${day(at)} UTC`))}`).join("\n")}` : "";
-  const sessions = (model.projects ?? []).filter(project => !project.archived && project.chiefs?.length).map(project => `#### ${md(project.name)}\n${project.chiefs.map(chief => sessionRow(chief, model.at, utc)).map(row => `- ${md(row.head)} · **${md(row.word)}**\n  ${md(row.sub)}`).join("\n")}${pickups(project)}`);
+  const sessions = (model.projects ?? []).filter(project => !project.archived && project.chiefs?.length).map(project => `#### ${md(project.name)}\n${project.chiefs.map(chief => sessionRow(chief, model.at, utc, at => `${day(at)} UTC`)).map(row => `- ${md(row.head)} · **${md(row.word)}**\n  ${md(row.sub)}`).join("\n")}${pickups(project)}`);
   return [top, `### 🔴 Needs you\n${needs}`, sessions.length ? `### Sessions\n${sessions.join("\n\n")}` : "", ...whereText(model), milestoneText, ...model.columns.map(section), end].filter(Boolean).join("\n\n");
 }
 export function renderBoardStatus(model) {
