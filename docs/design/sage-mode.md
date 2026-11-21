@@ -446,7 +446,7 @@ Chief   T2: an empty search still crashed. Fixed in 4787c81.
 sage · ramen-finder · 14:32
 tasks   2 · verified 1 · repairing 1
 gates   1 open · G-3 lint rule, default no
-agents  11 runs · about 410k tokens
+agents  11 runs · about 410k weighted tokens
 ```
 
 ### ledger.tsv (sample)

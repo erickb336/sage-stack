@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { SPEND_FIELDS, USAGE_FIELDS, measureTotals, tokenCount, usageText, usageRegistry, usageSnapshot, validUsageSnapshot, usageSummary } from "./usage.mjs";
+import { SPEND_FIELDS, USAGE_FIELDS, measureTotals, spendText, tokenCount, usageText, usageRegistry, usageSnapshot, validUsageSnapshot, usageSummary } from "./usage.mjs";
 import { readLocalGit } from "./local-git.mjs";
 import { PENDING, recordedWrites, assertNoPendingWrite, hasPendingWrite, pendingRequest, pendingNames, settlePendingWrite, verifyPendingWrite, RecordedWriteError } from "./recorded-write.mjs";
 import { execFileSync } from "node:child_process";
@@ -2367,12 +2367,11 @@ function status(dir, save) {
   const graph = shownGraph(waitGraph(tasks, read(dir, "milestones"), all, read(dir, "decisions")), all);
   const count = {};
   for (const t of tasks) count[t.state] = (count[t.state] ?? 0) + 1;
-  const tokens = runs.reduce((n, r) => n + (r.status === "done" && tokenCount(r.tokens) ? Number(r.tokens) : 0), 0);
   const lines = [
     `sage · ${shownName({ name: basename(dir), ...logbookIdentity(dir) })} · ${now().slice(11, 16)} UTC`,
     `tasks   ${tasks.length}${Object.entries(count).map(([s, n]) => ` · ${s} ${n}`).join("")}`,
     `gates   ${gates.length} open${gates.map((g) => ` · ${g.id} ${gateShort(g, graph)} (default: ${g.default || "none"})`).join("")}${board.length ? ` · ${board.length} answered on the board, not picked up yet${board.map((g) => ` · ${g.id} ${gateShort(g, graph)} (board answer: ${visible(pendingOf(g).answer)})`).join("")}` : ""}`,
-    `agents  ${runs.length} runs · ${runs.filter((r) => r.status === "running").length} running${queueOrder(runs).length ? ` · ${queueOrder(runs).length} queued` : ""} · about ${Math.round(tokens / 1000)}k tokens · ${usageSummary(runs)}`,
+    `agents  ${runs.length} runs · ${runs.filter((r) => r.status === "running").length} running${queueOrder(runs).length ? ` · ${queueOrder(runs).length} queued` : ""} · about ${spendText(runs, (n) => `${Math.round(n / 1000)}k`)} · ${usageSummary(runs)}`,
   ];
   const waiting = tasks.filter((t) => !ENDED.includes(t.state)).map((t) => [t, shownOpen(t, graph)]).filter(([, open]) => open.length);
   if (waiting.length) lines.push(`waits   ${waiting.length} waiting${waiting.map(([t, open]) => ` · ${t.id} for ${waitList(open)}`).join("")}`);
@@ -2384,8 +2383,7 @@ function status(dir, save) {
   for (const r of runs) (runsOf.get(r.task) ?? runsOf.set(r.task, []).get(r.task)).push(r);
   lines.push(...tasks.map(t => {
     const own = runsOf.get(t.id) ?? [];
-    const measured = own.reduce((n, r) => n + (r.status === "done" && tokenCount(r.tokens) ? Number(r.tokens) : 0), 0);
-    return `usage ${t.id} · ${measured} measured tokens · ${usageSummary(own)}`;
+    return `usage ${t.id} · ${spendText(own)} · ${usageSummary(own)}`;
   }));
   const table = ["", "| Task | State | Size | Round | PR | Title |", "| --- | --- | --- | --- | --- | --- |", ...tasks.map((t) => `| ${t.id} | ${t.state} | ${t.size} | ${t.round} | ${t.pr} | ${t.title} |`)];
   if (save) put(join(dir, "status.md"), [`# ${lines[0]}`, "", ...lines.slice(1).map((l) => `    ${l}`), ...table].join("\n") + "\n");

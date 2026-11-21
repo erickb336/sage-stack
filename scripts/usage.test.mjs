@@ -85,7 +85,7 @@ test('T28 mixed legacy accounting and blocked enrichment preserve terminal facts
   const file=join(s.dir,'runs.tsv'),[head,...lines]=readFileSync(file,'utf8').trimEnd().split('\n');
   const keys=head.split('\t'),cells=lines[1].split('\t');cells[keys.indexOf('tokens')]='';cells[keys.indexOf('usage_status')]='';lines[1]=cells.join('\t');writeFileSync(file,[head,...lines].join('\n')+'\n');
   assert.match(s.run('stats'),/usage total · partial measured total; 0 measured, 1 unavailable, 1 legacy-unrecorded/);
-  assert.match(s.run('status'),/usage T1 · 0 measured tokens · partial measured total; 0 measured, 1 unavailable, 1 legacy-unrecorded/);
+  assert.match(s.run('status'),/usage T1 · 0 weighted tokens \(1 done without a weighted count\) · partial measured total; 0 measured, 1 unavailable, 1 legacy-unrecorded/);
 });
 
 test('T28 declared capability snapshot survives provider registry changes',async t=>{
@@ -136,9 +136,9 @@ test('T28 status shows exact per-task measured totals with incomplete accounting
   s.run('run','add','T2','--role','qa');s.run('run','done','R3','--status','blocked','--tokens','9000');
   s.run('run','add','T2','--role','qa',...binding);s.run('run','done','R4','--status','done',...unavailable);
   const status=s.run('status');
-  assert.match(status,/about 3k tokens · partial measured total; 2 measured, 1 unavailable, 0 legacy-unrecorded/);
-  assert.match(status,/^usage T1 · 1000 measured tokens · 1 measured, 0 unavailable, 0 legacy-unrecorded$/m);
-  assert.match(status,/^usage T2 · 2400 measured tokens · partial measured total; 1 measured, 1 unavailable, 0 legacy-unrecorded$/m);
+  assert.match(status,/about 0k weighted tokens \(2 done without a weighted count\) · partial measured total; 2 measured, 1 unavailable, 0 legacy-unrecorded/);
+  assert.match(status,/^usage T1 · 0 weighted tokens \(1 done without a weighted count\) · 1 measured, 0 unavailable, 0 legacy-unrecorded$/m);
+  assert.match(status,/^usage T2 · 0 weighted tokens \(1 done without a weighted count\) · partial measured total; 1 measured, 1 unavailable, 0 legacy-unrecorded$/m);
 });
 test('T954 a Claude lead run that ends with a report needs its tokens; a lead with no report ends without them',async t=>{
   const claude=await import('../plugins/sage/skills/sage/sage.mjs');
@@ -156,7 +156,7 @@ test('T954 a Claude lead run that ends with a report needs its tokens; a lead wi
   const failed=run('run','add','T1','--role','lead').split(' ')[0];
   assert.equal(run('run','done',failed,'--status','failed','--why','no report'),`${failed} failed`);
   assert.deepEqual(tokens(),['108973','108973','108973','']);
-  assert.match(run('status'),/about 109k tokens · 1 measured, 0 unavailable, 0 legacy-unrecorded/);
+  assert.match(run('status'),/about 0k weighted tokens \(1 done without a weighted count\) · 1 measured, 0 unavailable, 0 legacy-unrecorded/);
 });
 test('T969 a Claude lead with a report and no usage in its notice ends as unavailable, with its reason',async t=>{
   const claude=await import('../plugins/sage/skills/sage/sage.mjs');

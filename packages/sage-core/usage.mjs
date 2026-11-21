@@ -55,6 +55,11 @@ export function measureTotals(runs) {
   }
   return total;
 }
+export function spendText(runs, n = String) {
+  const t = measureTotals(runs.filter(r => r.status === "done"));
+  return [`${n(t.weighted)} weighted tokens${t.uncounted ? ` (${t.uncounted} done without a weighted count)` : ""}`,
+    ...Object.entries(t.providers).filter(([, o]) => o.counted).map(([p, o]) => `${p} own count ${n(o.tokens)}`)].join(" · ");
+}
 export function measureLabel(run) {
   const m = runMeasure(run);
   return m.weighted !== null ? `${m.weighted} weighted tokens` : m.own !== null ? `${m.own} tokens, ${m.provider} own count` : m.peak !== null ? `peak context ${m.peak}` : "tokens unknown";

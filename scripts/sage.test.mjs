@@ -894,7 +894,7 @@ test("T266-LEAD-SHOWN: status counts a lead run like any run, and the board show
   s.ok("task", "add", "--priority", "P2", "--title", "t", "--size", "small");
   s.ok("run", "add", "T1", "--role", "lead");
   s.ok("run", "add", "T1", "--role", "implementer", "--branch", "claude/t1");
-  assert.match(s.ok("status"), /^agents {2}2 runs · 2 running · about 0k tokens · 0 measured, 0 unavailable, 0 legacy-unrecorded$/m);
+  assert.match(s.ok("status"), /^agents {2}2 runs · 2 running · about 0k weighted tokens · 0 measured, 0 unavailable, 0 legacy-unrecorded$/m);
   const board = s.ok("board", "this");
   assert.match(board, /· 2 agents at work ·/, board);
   assert.match(board, /^.* · lead at work\\$/m, board);
@@ -3377,6 +3377,19 @@ test("T346: sage stats on a logbook with no review runs says so, and how its dat
   assert.equal(s.ok("stats"), "No review runs yet.\nData starts when a review or QA run ends with run done <R> --status done --tokens <n>, and its findings name it with finding add --run <R>.");
 });
 
+test("T1193: status sums each run's weighted spend, never its peak context, and counts the runs without one", () => {
+  const s = store();
+  s.ok("task", "add", "--priority", "P2", "--title", "a", "--size", "small");
+  for (const [tokens, weighted] of [["900000", 3000], ["800000", 4500], ["700000", undefined]]) {
+    const run = s.ok("run", "add", "T1", "--role", "qa").split(" ")[0];
+    s.ok("run", "done", run, "--status", "done", "--tokens", tokens);
+    if (weighted) s.spend(run, weighted);
+  }
+  const out = s.ok("status");
+  assert.match(out, /^agents {2}3 runs · 0 running · about 8k weighted tokens \(1 done without a weighted count\) · 3 measured/m);
+  assert.match(out, /^usage T1 · 7500 weighted tokens \(1 done without a weighted count\) · 3 measured/m);
+});
+
 test("T346: sage stats shows findings with no review runs, and review runs with no findings", () => {
   const s = store();
   s.ok("task", "add", "--priority", "P2", "--title", "a", "--size", "small");
@@ -4723,7 +4736,7 @@ test("T40: each agent role gets its model by task size; run add prints it and re
   o.ok("task", "add", "--priority", "P2", "--title", "t", "--size", "small");
   const file = join(o.dir, "runs.tsv");
   writeFileSync(file, "id\ttask\trole\tround\tcandidate\tbranch\tstatus\ttokens\treport\tstarted\tended\nR1\tT1\timplementer\t0\t\tb/1\tdone\t900\t\t2026-10-01T00:00:00Z\t2026-10-01T01:00:00Z\n");
-  assert.match(o.ok("status"), /agents  1 runs · 0 running · about 1k tokens/);
+  assert.match(o.ok("status"), /agents  1 runs · 0 running · about 0k weighted tokens \(1 done without a weighted count\)/);
   assert.equal(o.ok("run", "add", "T1", "--role", "qa"), "R2 running · qa on T1 · model sonnet");
   const [head, ...lines] = readFileSync(file, "utf8").trim().split("\n");
   assert.equal(head, "id\ttask\trole\tround\tcandidate\tbranch\tstatus\ttokens\treport\tstarted\tended\tmodel\tusage_provider\tusage_interface\tusage_capability\tusage_binding\tusage_reason\tusage_basis\tusage_status\tusage_source\tusage_evidence");
