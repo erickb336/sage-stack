@@ -615,7 +615,8 @@ A moved folder with no Git commits, or that is no Git repository, has no first c
 **One chief owns each task.** A task's `chief` column names its owning chief, and `task add` gives the task to the chief that adds it. An existing project shows no change: only a shared logbook has this column and `chiefs.tsv`.
 
 - Each chief has a row in `chiefs.tsv`, with its provider and its session. Sage mode adds the row when it turns on, also for a chief that only reads.
-- Each chief's own hook keeps `live/C<n>.json` in the logbook: its checkout, sage mode, autopilot and the time. It writes the file at most once a minute, and at once when sage mode or autopilot changes. The board shows a chief as stopped when that time is over 30 minutes old and the chief has no running run, other than a run that the board shows with no news for over 24 hours.
+- Each chief's own hook keeps `live/C<n>.json` in the logbook: its checkout, sage mode, autopilot and the time. It writes the file at most once a minute, and at once when sage mode or autopilot changes.
+- The board shows a chief as quiet when that time is over 30 minutes old and the chief has no running run. It shows a chief as stopped only by the pick-up rules below: the session ended, its program is surely gone, or 8 h passed with no action, no running run and no open question of yours.
 - A chief with an open question of yours is not stopped: the board shows that it waits for you. A stopped chief shows no sage mode and no autopilot state.
 - A chief with no live file, or with a time more than 5 minutes in the future, shows unknown values: the board does not know its sage mode, its autopilot or whether it stopped.
 - The board in the browser shows each chief as a chip under its top bar, by its default name, "provider · folder · start time". The folder part has at most 30 characters, and when two chiefs have the same name, each name ends with its chief id.

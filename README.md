@@ -60,7 +60,7 @@ claude plugin update sage@sage
 
 ### In Codex
 
-The same phrases, logbook and board work in Codex. You need Codex 0.164 or later and its CLI (also for the desktop app), and one line in your Codex config. You also need Node.js 20 or later, `gh` logged in, and a GitHub remote for the project (see [What you need](docs/guide/codex.md#what-you-need)).
+The same phrases, logbook and board work in Codex. You need Codex 0.164 or later and its CLI (also for the desktop app), a multi-agent v2 model for the chief and its agents, and two lines in your Codex config: `[agents]` and `max_concurrent_threads_per_session = 10`. You also need Node.js 20 or later, `gh` logged in, and a GitHub remote for the project (see [What you need](docs/guide/codex.md#what-you-need)).
 
 1. Add the sage marketplace and install sage, in a terminal:
    ```sh
@@ -94,10 +94,10 @@ https://github.com/user-attachments/assets/f9d9da6e-ae5a-40d3-80b7-2c588b4f9565
 | Your request, in your own words | The chief frames a task, asks its product questions in one batch, then brings evidence and a pull request. |
 | `show board` | The board in the chat, and on a Mac in the browser too. |
 | `show status` | The task states, the agents, what needs you, and the tasks with no priority. |
-| `autopilot on` / `autopilot off` | Verified pull requests merge by themselves after their clean cycles, or wait for you. Autopilot starts off. |
+| `autopilot on` / `autopilot off` | Verified pull requests merge by themselves after their clean cycles, or wait for you. Autopilot starts off. Send the on phrase when the chief is idle: sent while it works, it does nothing. |
 | `arena` in your request | Three designs from different agents, and a judge that combines the best parts ([The arena](docs/guide/how-it-works.md#the-arena)). |
 | "Take T12 from the other chief" | For a task of another live session, Claude or Codex: the chief asks you a takeover question. Your answer moves the task; its branch, pull request and verdicts stay. |
-| Nothing, when a session stops | Its work passes to the first live session that writes (pick-up). A session is stopped when it ended, when its program is gone, or after 8 h with no action, no agent at work and no open question. That chief then tells you in one chat line what passed to it. |
+| Nothing, when a session stops | Its work passes to the first live session that writes (pick-up). A session is stopped when it ended, when its program is surely gone (seen twice, then not running), or after 8 h with no action, no agent at work and no open question. That chief then tells you in one chat line what passed to it. |
 | "Move this project to a shared logbook" | The chief shows a preview and asks you once, then puts the open tasks of Claude and Codex in one logbook ([Shared logbooks](docs/guide/using-sage.md#shared-logbooks)). |
 | `sage mode off` | A normal session again. Autopilot goes off too. |
 | `sage help` | Every phrase, and whether sage mode and autopilot are on. |
@@ -125,14 +125,14 @@ You talk only to the chief. The chief frames each task and asks you the product 
 
 ### One core for Claude and Codex
 
-sage is one shared core with two thin adapters. The rules, the logbook, the merge check and the board are shared code, the same in both plugins. Each plugin adds only what its app needs: its hooks, and agents (Claude Code) or tools (Codex).
+sage is one shared core with two thin adapters. The routes, the shared rules, the logbook, the merge check and the board are shared code, the same in both plugins. Each plugin adds what its app needs: its hooks (Claude's hook also holds some rules of its own), and agents (Claude Code) or tools (Codex).
 
-So a Claude chief and a Codex chief can work on one project, and one board shows them both.
+So a Claude chief and a Codex chief can work on one project, and one board shows them both. Until you link or move the project to a shared logbook, each provider keeps its own logbook for it.
 
 <a href="docs/assets/shared-light.svg">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/shared-dark.svg">
-  <img alt="One shared core, two thin adapters: the Claude Code plugin and the Codex plugin each add only their own hooks, agents or tools and a launcher. Both use the same shared code, sage-core (routes, rules, the logbook and the merge check) and the board. Both write one logbook for each project." src="docs/assets/shared-light.svg" width="100%">
+  <img alt="One shared core, two thin adapters: the Claude Code plugin and the Codex plugin each add their own hooks, agents or tools and a launcher. The Claude hook also holds some rules that only Claude has. Both use the same shared code, sage-core (routes, the shared rules, the logbook and the merge check) and the board. After a link or a move, both write one shared logbook for each project." src="docs/assets/shared-light.svg" width="100%">
 </picture>
 </a>
 
