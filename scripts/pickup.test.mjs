@@ -352,8 +352,8 @@ const AT = "2026-11-20T09:25:00.000Z", hhmm = (at) => at.slice(11, 16);
 const handover = (from, to, { at = AT, reason = "ended", tasks = [], lost = [], queued = [], gates = [], fromProvider = "claude" } = {}) =>
   ({ at, task: "", decision: `pick-up from ${from} to ${to}`, why: "pick-up", handover: JSON.stringify({ from, to, fromProvider, toProvider: "claude", reason, since: "", tasks, lost, queued, gates }) });
 const CHIEFS = ["C1", "C2", "C3"].map((id) => ({ id, provider: "claude", at: "2026-11-01T00:00:00Z" }));
-const notesOf = (decisions, now = AT) => {
-  const chiefs = boardChiefs({ rows: CHIEFS, pickups: pickupsOf(decisions), now });
+const notesOf = (decisions, now = AT, live = {}) => {
+  const chiefs = boardChiefs({ rows: CHIEFS, live, pickups: pickupsOf(decisions), now });
   return Object.fromEntries(chiefs.map((c) => [c.id, sessionRow(c, now, hhmm, (at) => `${at.slice(0, 10)} ${hhmm(at)}`).sub.split(" · ").filter((part) => /^(picked up|passed on)/.test(part))]));
 };
 
@@ -381,6 +381,7 @@ test("F-T1186-4: on the chat board, a passed-on note two days old shows its date
   const { w } = firstRealPickupOf20Nov(t);
   const file = join(w.dir, "decisions.tsv"), [head, ...lines] = readFileSync(file, "utf8").trim().split("\n"), cols = head.split("\t"), old = new Date(Date.now() - 2 * 86_400_000).toISOString();
   writeFileSync(file, [head, ...lines.map((l) => (l.split("\t")[cols.indexOf("why")] === "pick-up" ? l.split("\t").with(cols.indexOf("at"), old).join("\t") : l))].join("\n") + "\n");
+  w.record("C1", { ago: 2 * 86_400_000 + 10 * 60_000, ended: "prompt_input_exit" });
   const now = Date.now(), model = buildBoardModel(readBoardSources([{ id: "shared", path: w.env.SAGE_SHARED_HOME, label: "shared" }], { now }), { now: new Date(now).toISOString() });
   const text = renderBoardText(model).replaceAll("\\", "");
   assert.ok(text.includes(`passed on to C3 at ${old.slice(0, 10)} ${hhmm(old)} UTC`), text);
@@ -390,6 +391,18 @@ test("F-T1186-6: a repeated pick-up row counts once", () => {
   const row = handover("C1", "C3", { tasks: ["T1"], lost: ["R1", "R2"] }), [one] = pickupsOf([row, { ...row }]);
   assert.equal(pickupLine(one, hhmm), "09:25 · Claude · C3 picked up 1 task: 1 from Claude · C1 · 2 runs lost: R1, R2");
   assert.deepEqual(notesOf([row, { ...row }]).C3, ["picked up 1 task at 09:25, 2 runs lost"]);
+});
+
+test("F-T1186-8: a stopped chief's two groups, the tasks it held and the tasks it unclaimed before, both count", () => {
+  const rows = [handover("C1", "C3", { tasks: ["T1"] }), handover("C1", "C3", { reason: "unclaimed", tasks: ["T2"] })], [one] = pickupsOf(rows);
+  assert.ok(pickupLine(one, hhmm).startsWith("09:25 · Claude · C3 picked up 2 tasks: "), pickupLine(one, hhmm));
+  assert.deepEqual(notesOf(rows), { C1: ["passed on to C3 at 09:25"], C2: [], C3: ["picked up 2 tasks at 09:25"] });
+});
+
+test("F-T1186-9: a chief that came back after its work passed on, and stopped again, shows no old passed-on note", () => {
+  const rows = [handover("C1", "C3", { tasks: ["T1"] })], beat = (at) => ({ C1: { checkout: null, sageMode: true, autopilot: false, at: Date.parse(at) } }), now = "2026-11-20T20:00:00.000Z";
+  assert.deepEqual(notesOf(rows, now, beat("2026-11-20T09:00:00.000Z")).C1, ["passed on to C3 at 09:25"], "its last event was before the pick-up");
+  assert.deepEqual(notesOf(rows, now, beat("2026-11-20T10:00:00.000Z")).C1, [], "its last event was after the pick-up");
 });
 
 test("F-T1186-7: a pick-up from a chief to itself shows one note: the one for the chief that took the work", () => {

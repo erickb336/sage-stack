@@ -184,7 +184,7 @@ export function boardChiefs({ rows, live = {}, names = {}, runs = [], waits = []
       session: state, reason, endedAt: iso(record?.endedAt ?? null), confirmed: !!record?.confirmed, lost: stopped ? running : 0,
       passOnAt: state === "quiet" && !gates && heartbeat !== null ? iso(heartbeat + PASS_ON_MS) : null, quietAt: state === "live" && !running && heartbeat !== null ? iso(heartbeat + STOPPED_MS + 1) : null,
       waitsForOwner: state === "quiet" && gates > 0, stopped,
-      pickedUp: picked && { at: picked.at, tasks: picked.tasks, gates: picked.gates, queued: picked.queued, lost: picked.lost.length }, passedOn: passed && { at: passed.at, to: passed.to },
+      pickedUp: picked && { at: picked.at, tasks: picked.tasks, gates: picked.gates, queued: picked.queued, lost: picked.lost.length }, passedOn: passed && !(Date.parse(passed.at) < heartbeat) ? { at: passed.at, to: passed.to } : null,
     };
   });
   const fold = (name) => name.normalize("NFKC").toLowerCase();

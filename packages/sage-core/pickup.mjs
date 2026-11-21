@@ -98,7 +98,7 @@ export function pickupsOf(decisions) {
   const events = new Map(), seen = new Set();
   for (const row of decisions) {
     const h = row.why === "pick-up" && row.handover ? handoverOf(row) : undefined;
-    const key = `${row.at}\t${h?.to}`, once = `${key}\t${h?.from}\t${h?.fromProvider}`;
+    const key = `${row.at}\t${h?.to}`, once = `${row.at}\t${row.handover}`;
     if (!h || seen.has(once)) continue;
     seen.add(once);
     if (!events.has(key)) events.set(key, { at: row.at, to: h.to, toProvider: h.toProvider, tasks: 0, gates: 0, queued: 0, sources: [], lost: [] });
