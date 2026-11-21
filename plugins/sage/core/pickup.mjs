@@ -95,15 +95,17 @@ export function pickupDelta({ reference: { to, at, groups, offers } }, rows) {
 }
 
 export function pickupsOf(decisions) {
-  const events = new Map();
+  const events = new Map(), seen = new Set();
   for (const row of decisions) {
     const h = row.why === "pick-up" && row.handover ? handoverOf(row) : undefined;
-    if (!h) continue;
-    const key = `${row.at}\t${h.to}`;
-    if (!events.has(key)) events.set(key, { at: row.at, to: h.to, toProvider: h.toProvider, tasks: 0, sources: [], lost: [] });
-    const event = events.get(key);
-    event.tasks += h.tasks.length;
-    event.sources.push({ from: h.from, fromProvider: h.fromProvider, tasks: h.tasks.length });
+    const key = `${row.at}\t${h?.to}`, once = `${row.at}\t${row.handover}`;
+    if (!h || seen.has(once)) continue;
+    seen.add(once);
+    if (!events.has(key)) events.set(key, { at: row.at, to: h.to, toProvider: h.toProvider, tasks: 0, gates: 0, queued: 0, sources: [], lost: [] });
+    const event = events.get(key), count = (ids) => (Array.isArray(ids) ? ids.length : 0);
+    const source = { from: h.from, fromProvider: h.fromProvider, tasks: h.tasks.length, gates: count(h.gates), queued: count(h.queued), passedOn: !FREE.includes(h.reason) && h.from !== h.to };
+    for (const kind of ["tasks", "gates", "queued"]) event[kind] += source[kind];
+    event.sources.push(source);
     event.lost.push(...(Array.isArray(h.lost) ? h.lost : []));
   }
   return [...events.values()];

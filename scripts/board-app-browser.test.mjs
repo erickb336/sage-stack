@@ -369,3 +369,31 @@ test("F-T1168-8: a board that only reads says so once on the Overview, and gives
   assert.equal(count(/the chief's chat/g), 1, "one place to answer: the chief's chat");
   assert.equal(await page.locator(`section[aria-labelledby="needs-h"] .card-h .hint`).textContent(), "Oldest first", "no pairing advice on a board that cannot pair");
 });
+
+test("F-T1186-3, F-T1186-5, F-T1186-4: the Overview renders its Pick-ups list; the stopped chief's card and Sessions row say where its work went, with a date for an older pick-up", async t => {
+  const dir = mkdtempSync(join(tmpdir(), "sage-board-app-pickups-")), shared = join(dir, "shared"), checkout = join(dir, "app"), now = Date.now(), at = h => new Date(now - h * 3_600_000).toISOString();
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  mkdirSync(join(checkout, ".git"), { recursive: true });
+  const project = writeAppLogbook(shared, new Date(now).toISOString()), picked = at(13);
+  writeFileSync(join(shared, "bindings.tsv"), `root\tfolder\tcommits\tat\n${checkout}\tsample-app-abc123\t${"a".repeat(40)}\t2026-10-01T00:00:00Z\n`);
+  writeFileSync(join(project, "chiefs.tsv"), `id\tprovider\tnative\tat\nC1\tclaude\tsession-a\t${at(48)}\nC3\tclaude\tsession-c\t${at(48)}\n`);
+  mkdirSync(join(project, "live"));
+  writeFileSync(join(project, "live", "C1.json"), JSON.stringify({ provider: "claude", at: at(14), sageMode: true, ended: { at: at(14), reason: "prompt_input_exit" } }));
+  const handover = { from: "C1", to: "C3", fromProvider: "claude", toProvider: "claude", reason: "ended", since: at(14), tasks: ["T2", "T3"], lost: ["R2"], queued: [], gates: ["G5"] };
+  const decisions = join(project, "decisions.tsv"), [head, ...lines] = readFileSync(decisions, "utf8").trim().split("\n");
+  writeFileSync(decisions, [`${head}\thandover`, ...lines.map(line => `${line}\t`), [picked, "", "pick-up from C1 to C3", "pick-up", JSON.stringify(handover)].join("\t")].join("\n") + "\n");
+  const server = createBoardServer({ sources: [{ id: "shared", path: shared, label: "Shared" }], port: 0, app: APP, settleReads: [] });
+  const { port } = await server.start(), context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  t.after(async () => { await context.close(); await server.close(); });
+  const page = await context.newPage();
+  await page.goto(`http://127.0.0.1:${port}/app/`);
+  await page.getByRole("heading", { name: "Pick-ups" }).waitFor();
+  const list = await texts(page.locator(".counts [data-pickup]"));
+  assert.equal(list.length, 1, "F-T1186-3: one pick-up, one row");
+  assert.match(list[0], / · Claude · C3 picked up 2 tasks and 1 question: 2 tasks and 1 question from Claude · C1 · 1 run lost: R2$/, "F-T1186-3");
+  const card = await page.locator('[data-stopped] .meta').first().textContent();
+  assert.doesNotMatch(card, /nothing moves on its own/, "F-T1186-5");
+  assert.match(card, /its work passed on to C3 at /, "F-T1186-5");
+  const row = await page.locator(".sessions li", { hasText: "C1" }).first().textContent();
+  assert.match(row, /passed on to C3 at [^·]*[A-Z][a-z]{2}[^·]*\d{2}:\d{2}/, `F-T1186-4: a pick-up 13 h old shows its date: ${row}`);
+});
