@@ -1402,7 +1402,7 @@ test("T506: the chief saves a report with pages, and each run_done example ends 
     assert.equal(await s.call("run_done", { ...call, project: s.project, run, report: path }), `${run} done`, where);
   }
   assert.deepEqual(readdirSync(folder).sort(), ["R1-report.md", "R3-report.md"]);
-  assert.match(await s.call("status"), /\nagents {2}3 runs · 1 running · about 0k tokens · partial measured total; 0 measured, 2 unavailable, 0 legacy-unrecorded\n/);
+  assert.match(await s.call("status"), /\nagents {2}3 runs · 1 running · about 0k weighted tokens · partial measured total; 0 measured, 2 unavailable, 0 legacy-unrecorded\n/);
 });
 
 

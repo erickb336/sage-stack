@@ -668,8 +668,8 @@ test("T954: at its stop, a Codex run's own token total from its session record b
     assert.match(r.usage_evidence, /^the record of thread 01a1b6ff-0000-7000-8000-000000000954, read at SubagentStop$/);
     assert.equal(r.usage_interface, "collaboration-tools", "the declared interface stays the run's basis");
   }
-  assert.match(ok("status"), /about 52k tokens · 2 measured, 0 unavailable, 0 legacy-unrecorded/);
-  assert.match(ok("board", "T12", "--view", "task"), new RegExp(`${lead} [^\\n]*· lead · done · [^\\n]*· tokens 25811\\n${qa} [^\\n]*· qa · done · [^\\n]*· tokens 25811`));
+  assert.match(ok("status"), /about 0k weighted tokens · codex own count 52k · 2 measured, 0 unavailable, 0 legacy-unrecorded/);
+  assert.match(ok("board", "T12", "--view", "task"), new RegExp(`${lead} [^\\n]*· lead · done · [^\\n]*· 25811 tokens, codex own count\\n${qa} [^\\n]*· qa · done · [^\\n]*· 25811 tokens, codex own count`));
   const blocked = add("lead"), file = record("lead", blocked);
   gate(stop({ agent_transcript_path: file, cwd: project, last_assistant_message: FULL }));
   writeFileSync(file, readFileSync(file, "utf8") + JSON.stringify({ ...recordLines()[5], payload: { ...recordLines()[5].payload, thread_token_usage: { ...recordLines()[5].payload.thread_token_usage, total_tokens: 30000 } } }) + "\n");

@@ -93,7 +93,7 @@ test("T1083: the task page shows each part from the logbook and the brief, in on
   await aboutPart(page, "Criteria").getByText("Who checked each line").click();
   assert.equal(await aboutPart(page, "Criteria").locator(".who li").textContent(), `${ABOUT.criteria[0]} · R45`);
   assert.match(await aboutPart(page, "Status").locator("p.now").textContent(), /^In progress: .*\. Next: /);
-  assert.match(await aboutPart(page, "Cost").textContent(), /^Cost\d+ runsAgent time: .+ of 2 h \(\d+ %\)Tokens: 2\d\d k of 1\.5 M \(\d+ %\)$/);
+  assert.match(await aboutPart(page, "Cost").textContent(), /^Cost\d+ runsAgent time: .+ of 2 h \(\d+ %\)Weighted tokens: 2\.75 M of 1\.5 M \(\d+ %\)largest peak context 210 k$/);
   assert.deepEqual(await page.locator(".links > *").allTextContents(), ["Brief R20", "Reports · 1", "Pull request · none yet", "Milestone"]);
   await page.getByRole("tab", { name: /Log/ }).click();
   assert.match(page.url(), /&tab=log$/);
@@ -154,7 +154,7 @@ test("T1083: a field with no data says unknown and why, never a blank", async t 
   const base = await board(t);
   const cases = [
     ["T40", "Sample crash fix", { Goal: "unknown · The logbook keeps no brief of R25: sage keeps briefs only for newer runs.", Criteria: "unknown · The logbook keeps no brief of R25: sage keeps briefs only for newer runs." }, /of an unknown budget: the brief is not read/],
-    ["T4", "Sample queue", { Goal: "unknown · No agent has run on this task yet, so there is no brief.", Criteria: "unknown · No agent has run on this task yet, so there is no brief." }, /Agent time: unknown · no run of this task has a start timeTokens: unknown · no run of this task recorded its tokens/],
+    ["T4", "Sample queue", { Goal: "unknown · No agent has run on this task yet, so there is no brief.", Criteria: "unknown · No agent has run on this task yet, so there is no brief." }, /Agent time: unknown · no run of this task has a start timeWeighted tokens: unknown · no run of this task has a weighted count/],
   ];
   for (const [id, title, parts, cost] of cases) {
     const { page, problems } = await open(t, base, taskPage(id));

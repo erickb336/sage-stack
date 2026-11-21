@@ -12,6 +12,7 @@ const modePolicy = await import("./mode-policy.mjs").catch((error) => ({ error }
 const filePolicy = await import("./file-policy.mjs").catch((error) => ({ error }));
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const commandReader = await import("./command-reader.mjs").catch((error) => ({ error }));
+const spendReader = await import("./transcript-spend.mjs").catch((error) => ({ error }));
 const TOOL = join(ROOT, "skills/sage/sage.mjs");
 const BOARD = join(ROOT, "board/cli.mjs");
 const FIRST_FORM = "gh api --hostname github.com -X POST repos/<owner>/<repo>/git/refs -f ref=refs/heads/main -f sha=<full commit id>";
@@ -188,6 +189,7 @@ function handleEvent(input, state, slots) {
   if (event === "SubagentStop") {
     const briefed = ours && input.agent_id && briefOfTranscript(input.agent_transcript_path);
     if (briefed) try { slots.bindByBriefRun(input.agent_id, input.agent_type, briefed); } catch {}
+    if (ours && input.agent_id) keepSpend(input, () => slots.helperFor(input.agent_id)?.folder, () => slots.runOf(input.agent_id)?.run);
     const lead = input.agent_type === "sage:lead" && slots.leadOf(input.agent_id);
     const ended = lead && (() => { try { return logbookOf(lead.folder).leadRun(lead.task)?.id !== lead.run; } catch { return false; } })();
     const live = lead && !ended ? slots.running(leadKey(lead)) : [];
@@ -730,6 +732,13 @@ function reportProblem(input, text) {
   if (missing.length) return `sage: your report has no ${missing.join(", ")}. End with the report of the sage:report skill: ${REPORT_FIELDS.join(", ")}, each at the start of a line that is not in a list or a code block, with "none" where a field has nothing.${input.agent_type === "sage:lead" ? " A lead that waits for its own background work may end its turn again instead: the work's notice wakes it, and it keeps its lead slot until its report." : ""}`;
   const role = input.agent_type.slice("sage:".length).toLowerCase();
   return REVIEWERS.includes(role) && core.stopReason(text, input.cwd ?? process.cwd(), { who: "the hook", proof: TEAM.slice(1).includes(role) });
+}
+function keepSpend(input, folderOf, runOf) {
+  if (stateTool.error || spendReader.error) return;
+  try {
+    const folder = folderOf() ?? input.cwd, run = typeof folder === "string" && runOf(), spend = run && spendReader.transcriptSpend(input.agent_transcript_path);
+    if (spend) stateTool.keepSpend(realpathSync.native(folder), { run, spend });
+  } catch {}
 }
 function keepRunText(cwd, kind, runOf, text, task) {
   if (typeof text !== "string" || stateTool.error) return;

@@ -150,7 +150,7 @@ test("T205 acceptance: task details show verified briefs, report proof, run time
   records(f.book, saved.map(([path, content, type, label]) => ({ kind: "artifact", data: { type, label, path, ...(type === "proof" ? { run: "R1" } : {}), sha256: createHash("sha256").update(content).digest("hex") } })));
   const before = snapshot(f.root), text = f.view("task", { id: "T1" });
   assert.ok(text.includes("Goal: Show recorded work")); assert.ok(text.includes("Acceptance: Keep both views equal\n- Preserve detail"));
-  assert.ok(text.includes("tests 12\npass 12")); assert.ok(text.includes("120 s")); assert.ok(text.includes("tokens 200"));
+  assert.ok(text.includes("tests 12\npass 12")); assert.ok(text.includes("120 s")); assert.ok(text.includes("peak context 200"));
   assert.ok(text.includes("R1 · digest verified")); assert.ok(text.includes("Full brief:")); assert.ok(text.includes("\\<sample proof\\>"));
   assert.ok(text.includes("Sample screenshot · local artifact; digest verified"));
   assert.ok(text.includes("digest verified")); assert.ok(!text.includes("content not verified"));

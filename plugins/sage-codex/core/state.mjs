@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { USAGE_FIELDS, tokenCount, usageText, usageRegistry, usageSnapshot, validUsageSnapshot, usageSummary } from "./usage.mjs";
+import { SPEND_FIELDS, USAGE_FIELDS, measureTotals, spendText, tokenCount, usageText, usageRegistry, usageSnapshot, validUsageSnapshot, usageSummary } from "./usage.mjs";
 import { readLocalGit } from "./local-git.mjs";
 import { PENDING, recordedWrites, assertNoPendingWrite, hasPendingWrite, pendingRequest, pendingNames, settlePendingWrite, verifyPendingWrite, RecordedWriteError } from "./recorded-write.mjs";
 import { execFileSync } from "node:child_process";
@@ -108,7 +108,7 @@ const CHIEF_COLUMN = "chief";
 const CHECKOUT_COLUMN = "checkout";
 const ADMITTED_COLUMN = "admitted";
 const RELEASE_COLUMN = "release";
-const SPARSE = { tasks: [CHIEF_COLUMN, "offer", RELEASE_COLUMN, "request"], runs: [CHIEF_COLUMN, CHECKOUT_COLUMN, ADMITTED_COLUMN, "failure"], gates: ["kind", CHIEF_COLUMN, "answered", "picked", "run"], milestones: [RELEASE_COLUMN], decisions: ["handover"] };
+const SPARSE = { tasks: [CHIEF_COLUMN, "offer", RELEASE_COLUMN, "request"], runs: [CHIEF_COLUMN, CHECKOUT_COLUMN, ADMITTED_COLUMN, "failure", ...SPEND_FIELDS], gates: ["kind", CHIEF_COLUMN, "answered", "picked", "run"], milestones: [RELEASE_COLUMN], decisions: ["handover"] };
 const TABLES = { ...PLAIN_TABLES, ...Object.fromEntries(Object.entries(SPARSE).map(([t, cols]) => [t, [...PLAIN_TABLES[t], ...cols]])) };
 const ADDED = { ...FILLED, ...Object.fromEntries(Object.entries(SPARSE).map(([t, cols]) => [t, [...(FILLED[t] ?? []), ...cols]])) };
 const RUN_ENDS = ["done", "blocked", "question", "failed"];
@@ -766,6 +766,20 @@ function keepUsage(project, { task, run, role, tokens, source, evidence } = {}, 
   writeFileSync(temporary, JSON.stringify({ task, run, role, ...(tokens === undefined ? {} : { tokens }), source, evidence, at: now() }), { flag: "wx", mode: 0o600 });
   renameSync(temporary, usageFile(dir, run));
   return usageFile(dir, run);
+}
+function keepSpend(project, { run, spend } = {}, env = process.env) {
+  const dir = storeDir(project, env);
+  if (!existsSync(join(dir, "tasks.tsv")) || lstatSync(join(dir, "moved.json"), { throwIfNoEntry: false })) refuse(`no logbook takes spend for the project ${visible(project)}.`);
+  const values = SPEND_FIELDS.map((c) => spend?.[c.slice(6)]);
+  if (!/^R[1-9]\d*$/.test(String(run)) || !values.every((v) => Number.isSafeInteger(v) && v >= 0 && v < 1e15)) refuse("kept spend needs its run id and a whole number of 0 or more for each of input, cache_write, cache_read, output and weighted. No spend is kept.");
+  return withLock(dir, () => {
+    assertNoPendingWrite(dir);
+    const runs = read(dir, "runs"), row = runs.find((r) => r.id === run);
+    if (!row) refuse(`no run ${run}, so no spend is kept.`);
+    SPEND_FIELDS.forEach((c, i) => { row[c] = String(values[i]); });
+    write(dir, "runs", runs);
+    return run;
+  });
 }
 function keptUsage(dir, run) {
   try {
@@ -2353,12 +2367,11 @@ function status(dir, save) {
   const graph = shownGraph(waitGraph(tasks, read(dir, "milestones"), all, read(dir, "decisions")), all);
   const count = {};
   for (const t of tasks) count[t.state] = (count[t.state] ?? 0) + 1;
-  const tokens = runs.reduce((n, r) => n + (r.status === "done" && tokenCount(r.tokens) ? Number(r.tokens) : 0), 0);
   const lines = [
     `sage · ${shownName({ name: basename(dir), ...logbookIdentity(dir) })} · ${now().slice(11, 16)} UTC`,
     `tasks   ${tasks.length}${Object.entries(count).map(([s, n]) => ` · ${s} ${n}`).join("")}`,
     `gates   ${gates.length} open${gates.map((g) => ` · ${g.id} ${gateShort(g, graph)} (default: ${g.default || "none"})`).join("")}${board.length ? ` · ${board.length} answered on the board, not picked up yet${board.map((g) => ` · ${g.id} ${gateShort(g, graph)} (board answer: ${visible(pendingOf(g).answer)})`).join("")}` : ""}`,
-    `agents  ${runs.length} runs · ${runs.filter((r) => r.status === "running").length} running${queueOrder(runs).length ? ` · ${queueOrder(runs).length} queued` : ""} · about ${Math.round(tokens / 1000)}k tokens · ${usageSummary(runs)}`,
+    `agents  ${runs.length} runs · ${runs.filter((r) => r.status === "running").length} running${queueOrder(runs).length ? ` · ${queueOrder(runs).length} queued` : ""} · about ${spendText(runs, (n) => `${Math.round(n / 1000)}k`)} · ${usageSummary(runs)}`,
   ];
   const waiting = tasks.filter((t) => !ENDED.includes(t.state)).map((t) => [t, shownOpen(t, graph)]).filter(([, open]) => open.length);
   if (waiting.length) lines.push(`waits   ${waiting.length} waiting${waiting.map(([t, open]) => ` · ${t.id} for ${waitList(open)}`).join("")}`);
@@ -2370,8 +2383,7 @@ function status(dir, save) {
   for (const r of runs) (runsOf.get(r.task) ?? runsOf.set(r.task, []).get(r.task)).push(r);
   lines.push(...tasks.map(t => {
     const own = runsOf.get(t.id) ?? [];
-    const measured = own.reduce((n, r) => n + (r.status === "done" && tokenCount(r.tokens) ? Number(r.tokens) : 0), 0);
-    return `usage ${t.id} · ${measured} measured tokens · ${usageSummary(own)}`;
+    return `usage ${t.id} · ${spendText(own)} · ${usageSummary(own)}`;
   }));
   const table = ["", "| Task | State | Size | Round | PR | Title |", "| --- | --- | --- | --- | --- | --- |", ...tasks.map((t) => `| ${t.id} | ${t.state} | ${t.size} | ${t.round} | ${t.pr} | ${t.title} |`)];
   if (save) put(join(dir, "status.md"), [`# ${lines[0]}`, "", ...lines.slice(1).map((l) => `    ${l}`), ...table].join("\n") + "\n");
@@ -2388,25 +2400,25 @@ function stats(dir, only) {
   const cycles = new Map();
   for (const l of read(dir, "ledger")) if (l.run && !cycles.has(`${l.task}\t${l.run}`)) cycles.set(`${l.task}\t${l.run}`, l.cycle);
   const whole = (v) => (/^(0|[1-9]\d*)$/.test(v ?? "") ? Number(v) : undefined);
-  const tokens = (v) => (/^[1-9]\d{0,11}$/.test(v ?? "") ? Number(v) : 0);
-  const tokensOf = (rs) => rs.reduce((n, r) => n + (r.status === "done" ? tokens(r.tokens) : 0), 0);
+  const measured = (rs) => measureTotals(rs.filter((r) => r.status === "done"));
   const k = (n) => `${Math.round(n / 1000)}k`;
   const esc = (v) => String(v).replace(/\|/g, "\\|");
+  const others = (m) => Object.entries(m.providers).map(([p, o]) => ` · ${esc(p)} own count ${k(o.tokens)}`).join("");
   const counts = (values) => [...values.reduce((m, v) => m.set(v, (m.get(v) ?? 0) + 1), new Map())].sort(([a], [b]) => (a < b ? -1 : 1)).map(([v, n]) => `${esc(v)}: ${n}`).join(" · ") || "none";
   const rows = tasks.map((t) => {
     const own = runs.get(t.id) ?? [], found = findings.get(t.id) ?? [];
     const cycle = (f) => { const c = f.run && cycles.get(`${t.id}\t${f.run}`); return c ? `cycle ${c}` : "none"; };
-    return { t, own, found, tokens: tokensOf(own), later: tokensOf(own.filter((r) => whole(r.round) >= 1)), round: whole(t.round || "0"), cycle };
-  }).sort((a, b) => b.tokens - a.tokens);
+    return { t, own, found, m: measured(own), later: measured(own.filter((r) => whole(r.round) >= 1)), round: whole(t.round || "0"), cycle };
+  }).sort((a, b) => b.m.weighted - a.m.weighted);
   const sum = (f) => rows.reduce((n, r) => n + f(r), 0);
   if (!sum((r) => r.own.length + r.found.length)) return "No review runs yet.\nData starts when a review or QA run ends with run done <R> --status done --tokens <n>, and its findings name it with finding add --run <R>.";
-  const more = rows.length - TOP;
+  const more = rows.length - TOP, all = measured(rows.flatMap((r) => r.own)), peak = (m) => (m.peak === null ? "none" : k(m.peak));
   return [
-    "Tokens in thousands (k), of done runs only. A round is one repair of findings; after round 0 counts the runs of round 1 and later. A cycle is one set of reviews and QA on one head commit.",
-    `total · ${rows.length} tasks · ${sum((r) => r.own.length)} review runs (${sum((r) => r.own.filter((x) => x.status === "done" && !tokens(x.tokens)).length)} done without tokens) · ${k(sum((r) => r.tokens))} tokens · ${k(sum((r) => r.later))} after round 0 · ${sum((r) => r.round ?? 0)} rounds · ${sum((r) => r.found.length)} findings`,
+    "Tokens in thousands (k), of done runs only. Weighted is the run's summed usage over all its API calls, weighted by price, from its transcript; a run without one has no weighted count. Peak context is the largest context of one API call, the count that run done --tokens records. A provider's own count is its own measure, never added to weighted. A round is one repair of findings; after round 0 counts the runs of round 1 and later. A cycle is one set of reviews and QA on one head commit.",
+    `total · ${rows.length} tasks · ${sum((r) => r.own.length)} review runs (${all.uncounted} done without a weighted count) · ${k(all.weighted)} weighted · ${k(sum((r) => r.later.weighted))} after round 0 · peak context ${peak(all)}${others(all)} · ${sum((r) => r.round ?? 0)} rounds · ${sum((r) => r.found.length)} findings`,
     "",
-    "| Task | Review runs | Review tokens | After round 0 | Rounds | Findings by role | Findings by cycle | Usage |", "| --- | --- | --- | --- | --- | --- | --- | --- |",
-    ...rows.slice(0, TOP).map((r) => `| ${esc(r.t.id)} | ${r.own.length} | ${k(r.tokens)} | ${k(r.later)} | ${r.round ?? "invalid"} | ${counts(r.found.map((f) => f.source))} | ${counts(r.found.map(r.cycle))} | ${usageSummary(r.own)} |`),
+    "| Task | Review runs | Weighted | After round 0 | Peak context | Rounds | Findings by role | Findings by cycle | Usage |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ...rows.slice(0, TOP).map((r) => `| ${esc(r.t.id)} | ${r.own.length} | ${k(r.m.weighted)}${others(r.m)} | ${k(r.later.weighted)} | ${peak(r.m)} | ${r.round ?? "invalid"} | ${counts(r.found.map((f) => f.source))} | ${counts(r.found.map(r.cycle))} | ${usageSummary(r.own)} |`),
     "", `usage total · ${usageSummary(rows.flatMap(r => r.own))}`,
     ...(rows.some(r => usageSummary(r.own).startsWith("partial")) ? ["Partial totals do not establish which task cost less."] : []),
     ...(more > 0 ? ["", `${more} more tasks not shown; use --task <T>`] : []),
@@ -3898,5 +3910,5 @@ const { bindings, fillCommits, folderOf, link, locate, movePlans, notePlugin, pl
   listed: (root) => known(root, undefined, undefined, true),
   enroll });
 const { chiefs, chiefRow, rowOf } = createChiefs({ now, provider, readRegular, refuse, rowsOf, sheetText, swap });
-return { SIZES, BLOCKS, RISKS, KINDS, STATES, DEFAULTS, PR, LEAD_COMMANDS, leadProblem, leadRequest, sageRoot, locate, chiefFor, chiefLink, sessionProbe, sessionsHere, stoppedSessions, sessionBar, branchBar, actorOptions, git, projectRoot, roleReadProject, optionsOf, slug, worktreeRoot, pagesRoot, BRANCH, ofTask, branchOfTask, branchTip, projectName, storeDir, config, cyclesFor, modelFor, read, mergeCheck, boardLandingCheck, carryOver, logbookView, sage, keepReport, keepRunText, keepUsage, observePush, compareRetainedReport, ownGates, pickupAnswers, queueOf, chiefQueue, queueProblem, pendingRun, markStart, sweepQueue, withLock, command, runCli, waitingPlugins, writeIdFloors };
+return { SIZES, BLOCKS, RISKS, KINDS, STATES, DEFAULTS, PR, LEAD_COMMANDS, leadProblem, leadRequest, sageRoot, locate, chiefFor, chiefLink, sessionProbe, sessionsHere, stoppedSessions, sessionBar, branchBar, actorOptions, git, projectRoot, roleReadProject, optionsOf, slug, worktreeRoot, pagesRoot, BRANCH, ofTask, branchOfTask, branchTip, projectName, storeDir, config, cyclesFor, modelFor, read, mergeCheck, boardLandingCheck, carryOver, logbookView, sage, keepReport, keepRunText, keepSpend, keepUsage, observePush, compareRetainedReport, ownGates, pickupAnswers, queueOf, chiefQueue, queueProblem, pendingRun, markStart, sweepQueue, withLock, command, runCli, waitingPlugins, writeIdFloors };
 }

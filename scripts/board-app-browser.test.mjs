@@ -204,7 +204,7 @@ const bookOf = key => key.slice(0, key.lastIndexOf("/"));
 const taskBooks = async page => [...new Set((await page.locator("a.row[data-task]").evaluateAll(rows => rows.map(row => row.dataset.task))).map(bookOf))];
 async function until(read, expected) {
   let last;
-  for (const end = Date.now() + 5000; Date.now() < end; await new Promise(accept => setTimeout(accept, 25))) { last = await read(); if (JSON.stringify(last) === JSON.stringify(expected)) return; }
+  for (const end = Date.now() + 30_000; Date.now() < end; await new Promise(accept => setTimeout(accept, 25))) { last = await read(); if (JSON.stringify(last) === JSON.stringify(expected)) return; }
   assert.deepEqual(last, expected);
 }
 

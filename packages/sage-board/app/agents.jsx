@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AgentRing, AgentTile, Glyph, Ring, StateBadge, age, clock, span, tokens } from "./agent.jsx";
+import { AgentRing, AgentTile, Glyph, Ring, StateBadge, age, clock, runTokens, span, tokens } from "./agent.jsx";
 import { chiefState, chiefSub, ofChief, readLink, taskLink } from "./task.jsx";
 import { FLAGGED, MARKS, OBJECTS, chiefName, runWord, shown } from "../../sage-core/state-words.mjs";
 
@@ -12,8 +12,8 @@ const chiefTitle = chief => chief.id ? chiefName(chief.id, chief.provider) : chi
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const arenaRun = run => !!run.candidate || run.role === "arena-judge";
 const spent = (runs, now) => runs.reduce((sum, run) => sum + Math.max(0, (run.ended ? Date.parse(run.ended) : now) - Date.parse(run.started) || 0), 0);
-const tokensOf = runs => runs.some(run => run.tokens !== null) ? runs.reduce((sum, run) => sum + (run.tokens ?? 0), 0) : null;
-const tok = n => n === null ? tokens(n) : `${tokens(n)} tok`;
+const tokensOf = runs => runs.some(run => run.weighted != null) ? runs.reduce((sum, run) => sum + (run.weighted ?? 0), 0) : null;
+const tok = n => n === null ? "no weighted count" : `${tokens(n)} weighted`;
 
 function useNow(at) {
   const [now, setNow] = useState(() => Date.now());
@@ -74,7 +74,7 @@ function LeadCard({ lead, helpers, queued, more, now, step }) {
       <More count={more} />
       <Fold runs={ended} total={lead.endedHelpers ?? ended.length} now={now} />
       <footer className="acard-f">
-        <span>Lead's own work: {age(lead, now)}{lead.tokens === null ? "" : ` · ${tokens(lead.tokens)}`} · {lead.model ?? "model not recorded"}</span>
+        <span>Lead's own work: {age(lead, now)}{runTokens(lead) ? ` · ${runTokens(lead)}` : ""} · {lead.model ?? "model not recorded"}</span>
         <span>{shown.filter(run => run.status === "running").length} {RUN}{queued > 0 && ` · ${queued} ${WAIT}`} · {plural(helpers.length + queued, "helper")}</span>
       </footer>
     </section>

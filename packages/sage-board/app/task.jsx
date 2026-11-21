@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AgentRing, age, span, stateText, tokens } from "./agent.jsx";
+import { AgentRing, age, otherCounts, span, stateText, tokens } from "./agent.jsx";
 import { MARKS, OBJECTS, UNKNOWN, chiefName as nameOf, prName, shown, taskWord } from "../../sage-core/state-words.mjs";
 
 export const questionLink = key => `#question?key=${encodeURIComponent(key)}`;
@@ -129,7 +129,8 @@ function Cost({ task, brief }) {
   return (
     <Section label="Cost" extra={cost.runs === 1 ? "1 run" : `${cost.runs} runs`}>
       <p>Agent time: {cost.timed ? <><strong>{hours(cost.ms)}</strong>{of(cost.ms, budget?.ms, hours, "time")}</> : <><strong>{UNKNOWN}</strong> <span className="faint">· no run of this task has a start time</span></>}</p>
-      <p>Tokens: {cost.counted ? <><strong>{tokens(cost.tokens)}</strong>{of(cost.tokens, budget?.tokens, tokens, "tokens")}</> : <><strong>{UNKNOWN}</strong> <span className="faint">· no run of this task recorded its tokens</span></>}</p>
+      <p>Weighted tokens: {cost.counted ? <><strong>{tokens(cost.weighted)}</strong>{of(cost.weighted, budget?.tokens, tokens, "tokens")}</> : <><strong>{UNKNOWN}</strong> <span className="faint">· no run of this task has a weighted count</span></>}</p>
+      {otherCounts(cost) && <p className="faint">{otherCounts(cost)}</p>}
     </Section>
   );
 }

@@ -77,10 +77,10 @@ test("T1062: J4 is one click from the Overview: the top bar counts open the Agen
   const r20 = box(page, "C1").locator("section.acard", { has: page.locator('[data-run="R20"]') });
   assert.deepEqual(await r20.locator("a.ag .r1").allTextContents(), ["code-reviewerR22", "security-reviewerR23"], "a lead's running helpers; the ended one is collapsed");
   assert.match(await r20.locator(".acard-f").textContent(), /^Lead's own work: 1 h 1\d min · opus2 in progress · 1 waiting · 4 helpers$/);
-  assert.match(await r20.locator(".acard-h").textContent(), /^Sample chief recordslead · R20 in progress · Build1 h 1\d min210 k tok · with helpersAbout ›$/, "the tokens of the lead and its helpers: R21 has 210 k");
+  assert.match(await r20.locator(".acard-h").textContent(), /^Sample chief recordslead · R20 in progress · Build1 h 1\d min2\.4 M weighted · with helpersAbout ›$/, "the tokens of the lead and its helpers: R21 has 2.4 M weighted");
   assert.equal(await r20.locator("button.more-ended").textContent(), "Show 1 ended helper");
   await r20.getByRole("button", { name: "Show 1 ended helper" }).click();
-  assert.match(await r20.locator("a.ag.ended").textContent(), /^✓implementerR21done38 min · 210 ksonnet$/);
+  assert.match(await r20.locator("a.ag.ended").textContent(), /^✓implementerR21done38 min · 2\.4 M weightedsonnet$/);
   assert.deepEqual(await box(page, "C2").locator(".acard.own a.ag .r1").allTextContents(), ["designerR31"], "a chief's own run with no lead");
   assert.deepEqual(await box(page, "C1").locator(".queue a.ag").evaluateAll(rows => rows.map(row => row.dataset.run + " " + row.querySelector(".mdl").textContent.split(" · ")[1])), ["R24 1st in line", "R33 3rd in line"]);
   assert.match(await box(page, "C2").locator(".queue a.ag").textContent(), /^leadT30 · R32waiting · 2nd in the queuewaits 1 minT30 · Sample crash reportsqueued \d\d:\d\d · 2nd in line$/);

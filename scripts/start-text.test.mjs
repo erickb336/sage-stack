@@ -29,3 +29,25 @@ test("T1109: the start text sizes are the same at a short and a very long checko
   appendFileSync(join(long, "skills/sage/SKILL.md"), "x".repeat(100));
   assert.equal((await startText("chief-of-staff", long)).bytes, (await startText("chief-of-staff", short)).bytes + 100, "the measure reads the plugin copy that it is given");
 });
+
+test("T1195: each helper role starts without the tools that it never uses, and keeps its skills", async () => {
+  const { readFileSync, readdirSync, existsSync } = await import("node:fs");
+  const agents = join(ROOT, "plugins/sage/agents");
+  const roles = readdirSync(agents).map((file) => file.replace(/\.md$/, "")).filter((role) => !["chief-of-staff", "lead"].includes(role));
+  assert.equal(roles.length, 10, "ten helper roles");
+  const walkers = [];
+  for (const role of roles) {
+    const [head, body] = readFileSync(join(agents, `${role}.md`), "utf8").split("\n---\n");
+    const denied = (/^disallowedTools: (.*)$/m.exec(head)?.[1] ?? "").split(/,\s*/);
+    for (const tool of ["Agent", "SendMessage"]) assert.ok(denied.includes(tool), `${role} starts without ${tool}: only a lead starts an agent, and no helper sends a message`);
+    const walksSimulator = /\bsimulator\b/i.test(body);
+    if (walksSimulator) walkers.push(role);
+    assert.equal(denied.includes("mcp__*"), !walksSimulator, `${role}: MCP tools are denied exactly when the role text does not ask for the simulator, which only a host MCP tool can tap`);
+    assert.equal(denied.includes("Skill"), denied.includes("Edit"), `${role}: a read-only role has its principles preloaded, so Skill and its long skill list are denied exactly when the role is read-only`);
+    assert.ok(!denied.includes("Bash") && !denied.includes("Read"), `${role} keeps Bash and Read`);
+    for (const skill of head.match(/^ {2}- sage:(.+)$/gm) ?? []) {
+      assert.ok(existsSync(join(ROOT, "plugins/sage/skills", skill.replace(/^ {2}- sage:/, ""), "SKILL.md")), `${role}: its skill ${skill.trim()} is in the plugin`);
+    }
+  }
+  assert.deepEqual(walkers.sort(), ["qa", "ux-reviewer"], "qa and the ux review walk screens in the simulator");
+});

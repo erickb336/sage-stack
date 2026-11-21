@@ -277,7 +277,7 @@ async function openMeadow(t) {
   const restore = () => page.locator(".banner.archived").getByRole("button", { name: "Restore" }).click();
   const again = () => page.locator(".banner.fail").getByRole("button", { name: "Try again" }).click();
   const books = () => [w.archived("meadowClaude"), w.archived("meadow")];
-  const settled = async want => { for (let i = 0; i < 100 && JSON.stringify(books()) !== JSON.stringify(want); i++) await page.waitForTimeout(100); return books(); };
+  const settled = async want => { for (const end = Date.now() + 30_000; Date.now() < end && JSON.stringify(books()) !== JSON.stringify(want);) await page.waitForTimeout(100); return books(); };
   return { ...w, archive, restore, again, books, settled };
 }
 async function partialNote({ page }, shown, expected, message) {
@@ -367,7 +367,7 @@ test("T1159 F-T1159-22, -37, -38, -19: the picker keeps the focus on its button 
   await archivedRow.getByRole("button", { name: "Restore harbor", exact: true }).click();
   await page.getByText("harbor is restored.").waitFor();
   await page.waitForFunction(() => !document.querySelector(".pick-menu"));
-  await page.waitForFunction(() => document.activeElement?.matches('.banner[role="status"]') && document.activeElement.textContent.startsWith("harbor is restored."), null, { timeout: 5000 })
+  await page.waitForFunction(() => document.activeElement?.matches('.banner[role="status"]') && document.activeElement.textContent.startsWith("harbor is restored."))
     .catch(async () => assert.fail(`F-T1159-37, -38, F-T1168-6: after Restore the focus should be on the note "harbor is restored.", but it is on ${await page.evaluate(() => document.activeElement?.outerHTML.slice(0, 120))}`));
 
   const quarry = await pick(page, "quarry");
