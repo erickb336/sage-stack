@@ -3681,12 +3681,12 @@ test("R1124-2: the merge check of dense waits in one merge is linear: 60 tasks, 
   assert.match(child.stdout, /^60 tasks have verdicts on a1b2c3d or belong to PR 5, and each must pass: /);
   const { mergeCheck } = await import(LIB);
   const t = process.cpuUsage();
-  const { ok } = mergeCheck(SHA, { SAGE_HOME: s.home }, { pr: "5", project: s.project });
+  const { ok } = mergeCheck(SHA, { SAGE_HOME: s.home, HOME: s.home, PATH: process.env.PATH }, { pr: "5", project: s.project });
   const { user, system } = process.cpuUsage(t);
   assert.equal(ok, true);
   assert.ok((user + system) / 1000 < 1000, `60 dense tasks: ${((user + system) / 1000).toFixed(1)} ms of CPU time (timing-ok: CPU time, a bound about 100 times the linear check's, and an exponential one takes minutes)`);
   write((id) => (id === "T1" ? "abandoned" : "verified"));
-  const { ok: after, reason } = mergeCheck(SHA, { SAGE_HOME: s.home }, { pr: "5", project: s.project });
+  const { ok: after, reason } = mergeCheck(SHA, { SAGE_HOME: s.home, HOME: s.home, PATH: process.env.PATH }, { pr: "5", project: s.project });
   assert.equal(after, false);
   assert.match(reason, /; 59 fail\. /);
 });
