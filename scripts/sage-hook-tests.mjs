@@ -7091,6 +7091,24 @@ function boundQa(s) {
   return { run, ...helperTranscript(s, child, BRIEF) };
 }
 
+test("T1193: at a sage agent's stop, its run's row gets the usage summed over its transcript's API calls, one count for each request, and its weighted total", () => {
+  const s = leadSession(), qa = boundQa(s), add = (record) => appendFileSync(qa.path, `${JSON.stringify(record)}\n`);
+  const call = (requestId, usage, text = "x") => add({ type: "assistant", requestId, message: { id: `msg-${requestId}`, role: "assistant", content: [{ type: "text", text }], usage } });
+  call("req-1", { input_tokens: 10, cache_creation_input_tokens: 1000, cache_read_input_tokens: 0, output_tokens: 3 });
+  call("req-1", { input_tokens: 10, cache_creation_input_tokens: 1000, cache_read_input_tokens: 0, output_tokens: 200 });
+  call("req-2", { input_tokens: 2, cache_creation_input_tokens: 400, cache_read_input_tokens: 20000, output_tokens: 100, cache_creation: { ephemeral_5m_input_tokens: 300, ephemeral_1h_input_tokens: 100 } });
+  add({ type: "user", message: { role: "user", content: "a usage word in a user record is not a call" }, usage: { input_tokens: 999999 } });
+  assert.equal(qa.stop(report("PASS")), undefined);
+  s.sage("run", "done", qa.run, "--status", "done", "--tokens", "21502");
+  const [head, ...rows] = readFileSync(join(s.sage("logbook"), "runs.tsv"), "utf8").trimEnd().split("\n").map((line) => line.split("\t"));
+  const row = Object.fromEntries(head.map((c, i) => [c, rows.find((r) => r[0] === qa.run)[i]]));
+  const weighted = 12 * 1 + 1300 * 1.25 + 100 * 2 + 20000 * 0.05 + 300 * 5;
+  assert.deepEqual([row.spend_input, row.spend_cache_write, row.spend_cache_read, row.spend_output, row.spend_weighted], ["12", "1400", "20000", "300", String(Math.round(weighted))],
+    "req-1 counts once, with its last record; the user record counts not");
+  assert.equal(row.tokens, "21502", "the count of run done stays: it is the peak context");
+  assert.match(s.sage("stats"), new RegExp(`^\\| T1 \\| \\d+ \\| ${Math.round(weighted / 1000)}k \\| 0k \\| 22k \\|`, "m"), "stats shows the weighted total and the peak context");
+});
+
 test("T1175 F-T1175-5: a handback whose tool call failed does not replace the closing text", () => {
   const s = leadSession(), qa = boundQa(s);
   assert.equal(qa.handback(report("PASS"), "failed"), undefined, "the gate lets the PASS through, and then the tool call fails");

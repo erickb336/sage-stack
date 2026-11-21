@@ -34,3 +34,28 @@ export function usageSummary(runs) {
   const c = usageCounts(runs);
   return `${c.partial ? "partial measured total; " : ""}${c.measured} measured, ${c.unavailable} unavailable, ${c.legacy} legacy-unrecorded`;
 }
+export const SPEND_FIELDS = ["spend_input", "spend_cache_write", "spend_cache_read", "spend_output", "spend_weighted"];
+const spendCount = value => /^(0|[1-9]\d{0,14})$/.test(value ?? "") ? Number(value) : null;
+export function runMeasure(run) {
+  const recorded = tokenCount(run.tokens) ? Number(run.tokens) : null;
+  if (run.usage_provider) return { weighted: null, peak: null, provider: run.usage_provider, own: recorded };
+  return { weighted: spendCount(run.spend_weighted), peak: recorded, provider: null, own: null };
+}
+export function measureTotals(runs) {
+  const total = { weighted: 0, counted: 0, uncounted: 0, peak: null, providers: {} };
+  for (const run of runs) {
+    const m = runMeasure(run);
+    if (m.provider) {
+      const p = total.providers[m.provider] ??= { tokens: 0, counted: 0, uncounted: 0 };
+      if (m.own === null) p.uncounted++; else { p.tokens += m.own; p.counted++; }
+      continue;
+    }
+    if (m.weighted === null) total.uncounted++; else { total.weighted += m.weighted; total.counted++; }
+    if (m.peak !== null && (total.peak === null || m.peak > total.peak)) total.peak = m.peak;
+  }
+  return total;
+}
+export function measureLabel(run) {
+  const m = runMeasure(run);
+  return m.weighted !== null ? `${m.weighted} weighted tokens` : m.own !== null ? `${m.own} tokens, ${m.provider} own count` : m.peak !== null ? `peak context ${m.peak}` : "tokens unknown";
+}

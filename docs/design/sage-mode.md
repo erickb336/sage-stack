@@ -258,7 +258,8 @@ erDiagram
 | Standing orders | Numbered lines, one rule each: models, concurrency cap, autopilot lanes, forbidden paths | `standing.md` | The chief, through the state tool |
 | Task | id, title, size, risk flags, route, state, branch, worktree, PR, head SHA, round | `tasks.tsv` | The state tool |
 | Brief | The template fields ([next section](#brief)) | `briefs/<task>-<round>.md` | The chief |
-| Run and report | role, model, tokens, status, report path | `runs.tsv`, `reports/` | The state tool, from the agent's report |
+| Run and report | role, model, peak context (`tokens`), status, report path | `runs.tsv`, `reports/` | The state tool, from the agent's report |
+| Real token use | input, cache write, cache read and output tokens, and their weighted total (`spend_*` columns; a Codex run keeps its own thread total in `tokens`) | `runs.tsv` | The Claude hook, from the agent's transcript at its stop |
 | Finding | key (it carries across rounds), source, severity, location, triage, reason | `findings.tsv` | The state tool |
 | Verdict | task, PR, head SHA, kind (checks-pass, checks-fail, review-clean, security-clean, ux-clean, qa-pass, qa-fail, findings, evidence-clean; lint-pass and lint-fail, which only `lint` writes), cycle, by which run | `ledger.tsv` | The state tool |
 | Gate and decision | question, options, recommendation, default on no answer, your answer | `gates.md`, `decisions.tsv` | The chief, and you |

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AlertIcon } from "./icons.jsx";
 import { plural } from "./overview.jsx";
+import { otherCounts } from "./agent.jsx";
 
 const big = n => n >= 1e6 ? `${(n / 1e6).toFixed(1)} M` : n >= 1e3 ? `${Math.round(n / 1e3)} k` : String(n);
 const week = day => new Date(`${day}T00:00:00Z`).toLocaleDateString([], { day: "numeric", month: "short", timeZone: "UTC" });
@@ -57,7 +58,7 @@ function Numbers({ stats }) {
     [total.open, "open tasks", "now"],
     [total.needs, "need you", "questions and merges that wait for you, now"],
     [`${total.hours} h`, "agent time", `from start to end of ${plural(total.runs - total.noTime, "ended run")}, last 8 weeks`],
-    [big(total.tokens), "tokens", total.noTokens ? `${total.noTokens} of ${total.runs} runs have no count and are left out` : "last 8 weeks"],
+    [big(total.tokens), "weighted tokens", [total.measure.uncounted ? `${total.measure.uncounted} of ${total.runs} runs have no weighted count and are left out` : "last 8 weeks", otherCounts(total.measure)].filter(Boolean).join("; ")],
     [total.rounds ?? "none", "repair rounds", "median per merged pull request"],
     [NONE, "money spent", "the logbooks do not keep it"],
     [NONE, "your own time", "the logbooks do not keep it"],
@@ -70,11 +71,11 @@ function Numbers({ stats }) {
     <div className="charts">
       <Chart title="Merged pull requests per week" y="Pull requests" x={WEEK_AXIS} axis="Pull requests, by the week they merged." rows={perWeek(stats.perWeek.merged)} />
       <Chart title="Agent time per week" y="Hours" x={WEEK_AXIS} axis="Hours from start to end of each ended run, by the week it ended. The runs of a task that moved to the shared logbook stay in its old logbook and count here." rows={perWeek(stats.perWeek.hours)} />
-      <Chart title="Tokens per week" y="Tokens" x={WEEK_AXIS} axis="Tokens of the runs that have a count, by the week the run ended." rows={perWeek(stats.perWeek.tokens)} value={row => big(row.value)} />
+      <Chart title="Weighted tokens per week" y="Weighted tokens" x={WEEK_AXIS} axis="Weighted tokens of the runs that have a weighted count, by the week the run ended: the run's summed usage over all its API calls, weighted by price." rows={perWeek(stats.perWeek.tokens)} value={row => big(row.value)} />
       <Chart title="Repair rounds per merged pull request" y="Pull requests" x="Repair rounds" axis="Pull requests merged in the last 8 weeks, by their repair rounds." rows={stats.rounds.map(row => ({ label: row.label, value: row.count }))} />
       <Chart title="Open tasks by state" axis="Open tasks now, by their state." across rows={stats.open.map(row => ({ label: row.word, value: row.count }))} />
       {all && <Chart title="Merged pull requests by project" axis="Pull requests merged in the last 8 weeks." across rows={byProject(stats.projects, "merged")} />}
-      {all && <Chart title="Agent time and tokens by project" axis="Hours of ended runs and their tokens, last 8 weeks." across rows={byProject(stats.projects, "hours")} value={row => `${row.value} h · ${big(row.tokens)}`} />}
+      {all && <Chart title="Agent time and tokens by project" axis="Hours of ended runs and their weighted tokens, last 8 weeks." across rows={byProject(stats.projects, "hours")} value={row => `${row.value} h · ${big(row.tokens)}`} />}
       {all && <Chart title="Need you, by project" axis="Questions and merges that wait for you now." across rows={byProject(stats.projects, "needs")} />}
     </div>
   </>;
