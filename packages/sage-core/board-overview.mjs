@@ -3,6 +3,7 @@ import { milestoneName } from "./milestone-rules.mjs";
 import { AGENT_QUIET_MS, isOpen } from "./board-model.mjs";
 import { TEAM } from "./role-policy.mjs";
 import { runWord, taskWord } from "./state-words.mjs";
+import { measureTotals, runMeasure } from "./usage.mjs";
 
 const DAY = 86_400_000, DONE_DAYS = 7;
 const ENDED = ["merged", "concluded", "abandoned"];
@@ -100,7 +101,6 @@ function taskRow(task, chiefs) {
 }
 
 const LIVE = ["running", "queued"], HELPERS_MAX = 20;
-const count = value => /^\d+$/.test(String(value ?? "")) ? Number(value) : null;
 
 
 const retried = (task, run) => task.runs.some(other => other.role === run.role && time(other.started) > time(run.started));
@@ -147,7 +147,7 @@ function agentsOf(model, recent, agents, chiefs) {
       const { run, task, agent, state, look } = item;
       return {
         id: run.id, role: run.role, status: run.status, chief: chiefOf(item), lead: leadOf(item)?.id ?? null, model: run.model || null, candidate: run.candidate || null,
-        task: { key: task.key, id: task.id, title: task.title }, started: iso(run.started), ended: iso(run.ended), tokens: count(run.tokens), place: run.place ?? null, look, state,
+        task: { key: task.key, id: task.id, title: task.title }, started: iso(run.started), ended: iso(run.ended), ...runMeasure(run), place: run.place ?? null, look, state,
         why: run.status === "failed" ? runFailure(task, run)?.text ?? null : agent?.why || (run.clock.stale ? run.clock.text : null),
         ...(endedOf.has(run.id) && { endedHelpers: endedOf.get(run.id).length }),
       };
@@ -265,7 +265,7 @@ export function taskPanel(model, key) {
     decisions: [...(task.gateRows ?? [])].reverse().map(gate => ({ id: gate.id, question: firstLine(gate.question), answer: gate.answer || null, pending: boardAnswer(gate)?.answer ?? null, recommendation: gate.recommendation || null, waits: waiting.has(gate.id), at: iso(gate.at) })),
     artifacts: task.artifacts.map(record => ({ id: record.id, type: record.data.type, label: record.data.label, run: record.data.run ?? null, at: iso(record.observedAt),
       url: /^https:\/\//.test(record.data.url ?? "") ? record.data.url : null, path: record.data.path ?? null, verified: !!record.content?.verified })),
-    runs: task.runs.map(run => ({ id: run.id, role: run.role, status: run.status, started: iso(run.started), ended: iso(run.ended), tokens: count(run.tokens), place: run.place ?? null })),
+    runs: task.runs.map(run => ({ id: run.id, role: run.role, status: run.status, started: iso(run.started), ended: iso(run.ended), ...runMeasure(run), place: run.place ?? null })),
     ...aboutOf(model, task),
   };
 }
@@ -275,13 +275,12 @@ function aboutOf(model, task) {
   const at = time(model.at), byKey = new Map(model.tasks.map(item => [item.key, item]));
   const milestone = task.milestone && model.milestones.find(item => item.key === task.milestone.key);
   const spent = task.runs.filter(run => time(run.started) !== null).map(run => Math.max(0, (time(run.ended) ?? at) - time(run.started)));
-  const tokens = task.runs.map(run => count(run.tokens)).filter(n => n !== null);
   return {
     request: task.request || null,
     release: task.release ?? null,
     progress: milestone ? { goal: milestone.goal || null, merged: milestone.progress.merged, total: milestone.progress.total, abandoned: milestone.progress.abandoned.length } : null,
     before: task.waits.filter(wait => wait.id).map(wait => byKey.get(`${task.project}/${wait.id}`) ?? { key: null, id: wait.id, title: null, word: null }).map(linked),
     after: model.tasks.filter(other => other.project === task.project && other.waits.some(wait => wait.id === task.id)).map(linked),
-    cost: { runs: task.runs.length, ms: spent.reduce((a, b) => a + b, 0), timed: spent.length, tokens: tokens.reduce((a, b) => a + b, 0), counted: tokens.length },
+    cost: { runs: task.runs.length, ms: spent.reduce((a, b) => a + b, 0), timed: spent.length, ...measureTotals(task.runs) },
   };
 }

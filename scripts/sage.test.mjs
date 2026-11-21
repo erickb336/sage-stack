@@ -8,7 +8,7 @@ import { hostname, tmpdir, uptime } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { keepReport } from "../plugins/sage/skills/sage/sage.mjs";
+import { keepReport, keepSpend } from "../plugins/sage/skills/sage/sage.mjs";
 import { startsInSageMode } from "../plugins/sage/core/index.mjs";
 import { BACKER, backed, linkFinding, reportFor } from "./verdict-backing.mjs";
 import { TABLES } from "../packages/sage-core/logbook-fields.mjs";
@@ -66,7 +66,7 @@ function store(home = mkdtempSync(join(tmpdir(), "sage-home-")), name = "sage-pr
     assert.equal(r.status, 1, `sage ${args.join(" ")} should be refused, printed: ${r.stdout}`);
     return r.stderr.trim();
   };
-  return { home, project, pids, run, go, ok, no, keep: (fields) => keepReport(project, fields, env()), dir: ok("init").replace(/^\S+ /, "") };
+  return { home, project, pids, run, go, ok, no, keep: (fields) => keepReport(project, fields, env()), spend: (run, weighted) => keepSpend(project, { run, spend: { input: 1, cache_write: 2, cache_read: 3, output: 4, weighted } }, env()), dir: ok("init").replace(/^\S+ /, "") };
 }
 
 const enlist = (home, name) => appendFileSync(join(home, "projects.tsv"), `${name}\t2000-01-01T00:00:00Z\tinit\n`);
@@ -894,7 +894,7 @@ test("T266-LEAD-SHOWN: status counts a lead run like any run, and the board show
   s.ok("task", "add", "--priority", "P2", "--title", "t", "--size", "small");
   s.ok("run", "add", "T1", "--role", "lead");
   s.ok("run", "add", "T1", "--role", "implementer", "--branch", "claude/t1");
-  assert.match(s.ok("status"), /^agents {2}2 runs · 2 running · about 0k tokens · 0 measured, 0 unavailable, 0 legacy-unrecorded$/m);
+  assert.match(s.ok("status"), /^agents {2}2 runs · 2 running · about 0k weighted tokens · 0 measured, 0 unavailable, 0 legacy-unrecorded$/m);
   const board = s.ok("board", "this");
   assert.match(board, /· 2 agents at work ·/, board);
   assert.match(board, /^.* · lead at work\\$/m, board);
@@ -3341,6 +3341,7 @@ test("T346: sage stats gives each task's review runs, tokens, tokens after round
   byHand(s.dir, "tasks", 0, "T3", (c) => Object.assign(c, { 8: "x" }));
   s.ok("run", "add", "T1", "--role", "qa");
   s.ok("run", "done", "R6", "--status", "done", "--tokens", "1500000");
+  for (const [run, weighted] of [["R1", 1000], ["R2", 500], ["R6", 1500000]]) s.spend(run, weighted);
   s.ok("run", "add", "T2", "--role", "qa");
   s.ok("run", "done", "R7", "--status", "blocked", "--tokens", "7000");
   s.ok("finding", "add", "T1", "--source", "code-reviewer", "--severity", "medium", "--summary", "a", "--run", "R1", "--class", "state-edge");
@@ -3353,17 +3354,17 @@ test("T346: sage stats gives each task's review runs, tokens, tokens after round
   const files = () => readdirSync(s.dir).filter((f) => f.endsWith(".tsv") || f.endsWith(".md")).map((f) => [f, readFileSync(join(s.dir, f), "utf8")]);
   const before = files();
   assert.equal(s.ok("stats"), [
-    "Tokens in thousands (k), of done runs only. A round is one repair of findings; after round 0 counts the runs of round 1 and later. A cycle is one set of reviews and QA on one head commit.",
-    "total · 3 tasks · 6 review runs (1 done without tokens) · 1502k tokens · 1500k after round 0 · 1 rounds · 6 findings",
+    "Tokens in thousands (k), of done runs only. Weighted is the run's summed usage over all its API calls, weighted by price, from its transcript; a run without one has no weighted count. Peak context is the largest context of one API call, the count that run done --tokens records. A provider's own count is its own measure, never added to weighted. A round is one repair of findings; after round 0 counts the runs of round 1 and later. A cycle is one set of reviews and QA on one head commit.",
+    "total · 3 tasks · 6 review runs (2 done without a weighted count) · 1502k weighted · 1500k after round 0 · peak context 1500k · 1 rounds · 6 findings",
     "",
-    "| Task | Review runs | Review tokens | After round 0 | Rounds | Findings by role | Findings by cycle | Usage |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- |",
-    "| T1 | 3 | 1502k | 1500k | 1 | code-reviewer: 1 · qa: 2 | cycle 1: 1 · cycle 2: 1 · none: 1 | 3 measured, 0 unavailable, 0 legacy-unrecorded |",
-    "| T2 | 3 | 0k | 0k | 0 | __proto__: 1 · a\\|b: 1 · constructor: 1 | none: 3 | partial measured total; 1 measured, 0 unavailable, 1 legacy-unrecorded |",
-    "| T3 | 0 | 0k | 0k | invalid | none | none | 0 measured, 0 unavailable, 0 legacy-unrecorded |",
+    "| Task | Review runs | Weighted | After round 0 | Peak context | Rounds | Findings by role | Findings by cycle | Usage |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| T1 | 3 | 1502k | 1500k | 1500k | 1 | code-reviewer: 1 · qa: 2 | cycle 1: 1 · cycle 2: 1 · none: 1 | 3 measured, 0 unavailable, 0 legacy-unrecorded |",
+    "| T2 | 3 | 0k | 0k | 0k | 0 | __proto__: 1 · a\\|b: 1 · constructor: 1 | none: 3 | partial measured total; 1 measured, 0 unavailable, 1 legacy-unrecorded |",
+    "| T3 | 0 | 0k | 0k | none | invalid | none | none | 0 measured, 0 unavailable, 0 legacy-unrecorded |",
     "", "usage total · partial measured total; 4 measured, 0 unavailable, 1 legacy-unrecorded", "Partial totals do not establish which task cost less.",
   ].join("\n"));
-  assert.equal(s.ok("stats", "--task", "T1").split("\n").slice(1).join("\n"), "total · 1 tasks · 3 review runs (0 done without tokens) · 1502k tokens · 1500k after round 0 · 1 rounds · 3 findings\n\n| Task | Review runs | Review tokens | After round 0 | Rounds | Findings by role | Findings by cycle | Usage |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| T1 | 3 | 1502k | 1500k | 1 | code-reviewer: 1 · qa: 2 | cycle 1: 1 · cycle 2: 1 · none: 1 | 3 measured, 0 unavailable, 0 legacy-unrecorded |\n\nusage total · 3 measured, 0 unavailable, 0 legacy-unrecorded");
+  assert.equal(s.ok("stats", "--task", "T1").split("\n").slice(1).join("\n"), "total · 1 tasks · 3 review runs (0 done without a weighted count) · 1502k weighted · 1500k after round 0 · peak context 1500k · 1 rounds · 3 findings\n\n| Task | Review runs | Weighted | After round 0 | Peak context | Rounds | Findings by role | Findings by cycle | Usage |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| T1 | 3 | 1502k | 1500k | 1500k | 1 | code-reviewer: 1 · qa: 2 | cycle 1: 1 · cycle 2: 1 · none: 1 | 3 measured, 0 unavailable, 0 legacy-unrecorded |\n\nusage total · 3 measured, 0 unavailable, 0 legacy-unrecorded");
   assert.deepEqual(files(), before, "stats writes no table and no status.md");
   assert.equal(s.no("stats", "--task", "T9"), "sage: no task T9. The latest: T1, T2, T3.");
   assert.match(s.no("stats", "--since", "2026-10-01"), /^sage: stats takes no --since\./);
@@ -3376,35 +3377,49 @@ test("T346: sage stats on a logbook with no review runs says so, and how its dat
   assert.equal(s.ok("stats"), "No review runs yet.\nData starts when a review or QA run ends with run done <R> --status done --tokens <n>, and its findings name it with finding add --run <R>.");
 });
 
+test("T1193: status sums each run's weighted spend, never its peak context, and counts the runs without one", () => {
+  const s = store();
+  s.ok("task", "add", "--priority", "P2", "--title", "a", "--size", "small");
+  for (const [tokens, weighted] of [["900000", 3000], ["800000", 4500], ["700000", undefined]]) {
+    const run = s.ok("run", "add", "T1", "--role", "qa").split(" ")[0];
+    s.ok("run", "done", run, "--status", "done", "--tokens", tokens);
+    if (weighted) s.spend(run, weighted);
+  }
+  const out = s.ok("status");
+  assert.match(out, /^agents {2}3 runs · 0 running · about 8k weighted tokens \(1 done without a weighted count\) · 3 measured/m);
+  assert.match(out, /^usage T1 · 7500 weighted tokens \(1 done without a weighted count\) · 3 measured/m);
+});
+
 test("T346: sage stats shows findings with no review runs, and review runs with no findings", () => {
   const s = store();
   s.ok("task", "add", "--priority", "P2", "--title", "a", "--size", "small");
   s.ok("finding", "add", "T1", "--source", "checks", "--severity", "medium", "--summary", "the checks fail");
-  assert.equal(s.ok("stats").split("\n").slice(1).join("\n"), "total · 1 tasks · 0 review runs (0 done without tokens) · 0k tokens · 0k after round 0 · 0 rounds · 1 findings\n\n| Task | Review runs | Review tokens | After round 0 | Rounds | Findings by role | Findings by cycle | Usage |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| T1 | 0 | 0k | 0k | 0 | checks: 1 | none: 1 | 0 measured, 0 unavailable, 0 legacy-unrecorded |\n\nusage total · 0 measured, 0 unavailable, 0 legacy-unrecorded");
+  assert.equal(s.ok("stats").split("\n").slice(1).join("\n"), "total · 1 tasks · 0 review runs (0 done without a weighted count) · 0k weighted · 0k after round 0 · peak context none · 0 rounds · 1 findings\n\n| Task | Review runs | Weighted | After round 0 | Peak context | Rounds | Findings by role | Findings by cycle | Usage |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| T1 | 0 | 0k | 0k | none | 0 | checks: 1 | none: 1 | 0 measured, 0 unavailable, 0 legacy-unrecorded |\n\nusage total · 0 measured, 0 unavailable, 0 legacy-unrecorded");
   const r = store();
   r.ok("task", "add", "--priority", "P2", "--title", "a", "--size", "small");
   r.ok("run", "add", "T1", "--role", "qa");
-  assert.equal(r.ok("stats").split("\n")[1], "total · 1 tasks · 1 review runs (0 done without tokens) · 0k tokens · 0k after round 0 · 0 rounds · 0 findings");
+  assert.equal(r.ok("stats").split("\n")[1], "total · 1 tasks · 1 review runs (0 done without a weighted count) · 0k weighted · 0k after round 0 · peak context none · 0 rounds · 0 findings");
 });
 
-test("T346: sage stats sorts by review tokens, counts a tokens cell of 1 to 12 digits only, and shows the top 50 tasks with a line for the rest", () => {
+test("T346: sage stats sorts by weighted review tokens, counts a tokens cell of 1 to 12 digits only as peak context, and shows the top 50 tasks with a line for the rest", () => {
   const s = store();
   for (const [task, tokens] of [["T1", "2000"], ["T2", "9000"], ["T3", "5000"]]) {
     s.ok("task", "add", "--priority", "P2", "--title", task, "--size", "small");
     const run = s.ok("run", "add", task, "--role", "qa").split(" ")[0];
-    s.ok("run", "done", run, "--status", "done", "--tokens", tokens);
+    s.ok("run", "done", run, "--status", "done", "--tokens", "1");
+    s.spend(run, Number(tokens));
   }
   s.ok("run", "add", "T1", "--role", "qa");
   byHand(s.dir, "runs", 0, "R4", (c) => Object.assign(c, { 6: "done", 7: "9".repeat(400) }));
   const table = (out) => out.split("\n").filter((l) => /^\| T\d/.test(l)).map((l) => l.split(" | ").slice(0, 3).join(" | "));
   assert.deepEqual(table(s.ok("stats")), ["| T2 | 1 | 9k", "| T3 | 1 | 5k", "| T1 | 2 | 2k"], "largest review tokens first, not the logbook's order");
-  assert.equal(s.ok("stats").split("\n")[1], "total · 3 tasks · 4 review runs (1 done without tokens) · 16k tokens · 0k after round 0 · 0 rounds · 0 findings");
+  assert.equal(s.ok("stats").split("\n")[1], "total · 3 tasks · 4 review runs (1 done without a weighted count) · 16k weighted · 0k after round 0 · peak context 0k · 0 rounds · 0 findings");
   const add = (table, from, rowsOf) => appendFileSync(join(s.dir, `${table}.tsv`), "\n" + rowsOf(readFileSync(join(s.dir, `${table}.tsv`), "utf8").split("\n").find((l) => l.startsWith(`${from}\t`))).join("\n"));
   const ids = Array.from({ length: 49 }, (_, i) => i + 4);
   add("tasks", "T3", (line) => ids.map((n) => line.replace(/^T3\t/, `T${n}\t`)));
-  add("runs", "R3", (line) => ids.map((n) => line.replace(/^R3\tT3\t/, `R${n + 1}\tT${n}\t`).replace(/\t5000\t/, `\t${n * 1000}\t`)));
+  add("runs", "R3", (line) => ids.map((n) => line.replace(/^R3\tT3\t/, `R${n + 1}\tT${n}\t`).replace(/\t5000$/, `\t${n * 1000}`)));
   const out = s.ok("stats").split("\n");
-  assert.equal(out[1], `total · 52 tasks · 53 review runs (1 done without tokens) · ${16 + (4 + 52) * 49 / 2}k tokens · 0k after round 0 · 0 rounds · 0 findings`, "the total counts every task, also those not shown");
+  assert.equal(out[1], `total · 52 tasks · 53 review runs (1 done without a weighted count) · ${16 + (4 + 52) * 49 / 2}k weighted · 0k after round 0 · peak context 0k · 0 rounds · 0 findings`, "the total counts every task, also those not shown");
   assert.deepEqual(table(out.join("\n")).slice(0, 2), ["| T52 | 1 | 52k", "| T51 | 1 | 51k"]);
   assert.equal(table(out.join("\n")).length, 50);
   assert.deepEqual(out.slice(-3), [out.at(-3), "", "2 more tasks not shown; use --task <T>"], "a blank line ends the table before the line after it");
@@ -4721,7 +4736,7 @@ test("T40: each agent role gets its model by task size; run add prints it and re
   o.ok("task", "add", "--priority", "P2", "--title", "t", "--size", "small");
   const file = join(o.dir, "runs.tsv");
   writeFileSync(file, "id\ttask\trole\tround\tcandidate\tbranch\tstatus\ttokens\treport\tstarted\tended\nR1\tT1\timplementer\t0\t\tb/1\tdone\t900\t\t2026-10-01T00:00:00Z\t2026-10-01T01:00:00Z\n");
-  assert.match(o.ok("status"), /agents  1 runs · 0 running · about 1k tokens/);
+  assert.match(o.ok("status"), /agents  1 runs · 0 running · about 0k weighted tokens \(1 done without a weighted count\)/);
   assert.equal(o.ok("run", "add", "T1", "--role", "qa"), "R2 running · qa on T1 · model sonnet");
   const [head, ...lines] = readFileSync(file, "utf8").trim().split("\n");
   assert.equal(head, "id\ttask\trole\tround\tcandidate\tbranch\tstatus\ttokens\treport\tstarted\tended\tmodel\tusage_provider\tusage_interface\tusage_capability\tusage_binding\tusage_reason\tusage_basis\tusage_status\tusage_source\tusage_evidence");

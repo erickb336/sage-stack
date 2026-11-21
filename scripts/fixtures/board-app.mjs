@@ -95,7 +95,7 @@ function addAgentRuns(tables, now, { atLimit, hostile, ended, edges }) {
   const run = (id, task, role, chief, status, started, extra = {}) => ({ id, task, role, round: "0", candidate: "", branch: "", status, tokens: "", report: "", started: at(started), ended: "", chief, model: "", ...extra });
   tables.runs.push(
     run("R20", "T2", "lead", "C1", "running", 73, { model: "opus" }),
-    run("R21", "T2", "implementer", "C1", "done", 70, { ended: at(32), tokens: "210000", model: "sonnet" }),
+    run("R21", "T2", "implementer", "C1", "done", 70, { ended: at(32), tokens: "210000", spend_weighted: "2400000", model: "sonnet" }),
     run("R22", "T2", "code-reviewer", "C1", "running", 12, { model: "opus" }),
     run("R23", "T2", "security-reviewer", "C1", "running", 9, { model: "opus" }),
     run("R24", "T2", "qa", "C1", "queued", 4),
@@ -187,7 +187,7 @@ export function writeTasksLogbook(root, worktrees, now, { unicode = false, hosti
   tables.decisions.unshift(...tables.tasks.map(task => ({ at: at(100), task: task.id, decision: TASK_ADDED, why: "framed" })));
   mkdirSync(dir, { recursive: true });
   for (const [name, rows] of Object.entries(tables)) {
-    const columns = [...TABLES[name], ...(["tasks", "runs"].includes(name) ? ["chief"] : []), ...(name === "runs" && agents ? ["admitted"] : []), ...(name === "tasks" && about ? ["request"] : [])];
+    const columns = [...TABLES[name], ...(["tasks", "runs"].includes(name) ? ["chief"] : []), ...(name === "runs" && agents ? ["admitted"] : []), ...(name === "runs" ? ["spend_weighted"] : []), ...(name === "tasks" && about ? ["request"] : [])];
     writeFileSync(join(dir, `${name}.tsv`), [columns.join("\t"), ...rows.map(row => columns.map(column => row[column] ?? "").join("\t"))].join("\n") + "\n");
   }
   if (prs) writeFileSync(join(root, "projects.tsv"), `logbook\tat\thow\nsample-app-abc123\t${at(100)}\tinit\n`);
@@ -224,7 +224,7 @@ function addAboutRows(tables, now) {
   const at = minutes => new Date(Date.parse(now) - minutes * MIN).toISOString();
   tables.tasks = tables.tasks.map(task => task.id === "T2" ? { ...task, request: ABOUT.request, waits: "T1" } : task);
   const run = (id, task, role, status, started, extra = {}) => ({ id, task, role, round: "0", candidate: "", branch: "", status, tokens: "", report: "", started: at(started), ended: "", chief: "C2", model: "", ...extra });
-  tables.runs.push(run("R45", "T2", "qa", "done", 70, { ended: at(60), chief: "C1", tokens: "30000" }),
+  tables.runs.push(run("R45", "T2", "qa", "done", 70, { ended: at(60), chief: "C1", tokens: "30000", spend_weighted: "350000" }),
     run("R50", "T11", "designer", "done", 40, { candidate: "A", ended: at(10), tokens: "96000", model: "opus" }),
     run("R51", "T11", "designer", "running", 38, { candidate: "B", tokens: "71000", model: "sonnet" }));
 }
