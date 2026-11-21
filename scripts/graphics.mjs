@@ -587,19 +587,19 @@ function arena(t, id) {
 
 function shared(t, id) {
   const W = 1100, H = 640, size = SMALL, aw = 480, ay = 96, ah = 112, cy = 280, ch = 150, ly = 500, lh = 100;
-  const adapters = [["Claude Code", ["plugin sage: hooks,", "agents, launcher"], 36], ["Codex", ["plugin sage: hooks,", "MCP tools, launcher"], W - 36 - aw]];
+  const adapters = [["Claude Code", ["plugin sage: hooks (with some", "Claude-only rules), agents, launcher"], 36], ["Codex", ["plugin sage: hooks,", "MCP tools, launcher"], W - 36 - aw]];
   const body = [
     backdrop(t, id, W, H, { moon: [W / 2, 360, 130], seeds: [37, 61, 8], far: [H - 100, 60, 190, 70, 140], near: [H + 40, 90, 230, 80, 170], mist: [140, 280, H - 150], mistK: 0.6 }),
     heading(t, 36, 62, "ONE SHARED CORE, TWO THIN ADAPTERS"),
     ...adapters.map(([name, sub, x]) => tile(t, id, x, ay, aw, ah, name, sub, false, { titleY: 38, gap: 32 }) + flow(id, `M${x + aw / 2} ${ay + ah + 4} L ${x + aw / 2} ${cy - 18}`, t.edge, "hot", { sw: 2.5 })),
     rect(36, cy - 10, W - 72, ch + 20, { rx: 12, fill: t.panel, stroke: t.edge, sw: 1.5, dash: "8 6" }),
     text(W / 2, cy + 22, "shared code, the same in both plugins", { size, weight: 700, fill: t.loop, anchor: "middle" }),
-    tile(t, id, 60, cy + 40, 600, 92, "sage-core", "routes, rules, logbook, merge check", true, { titleY: 36, gap: 32 }),
+    tile(t, id, 60, cy + 40, 600, 92, "sage-core", "routes, shared rules, logbook, merge check", true, { titleY: 36, gap: 32 }),
     tile(t, id, 690, cy + 40, 350, 92, "the board", "one view for both", true, { titleY: 36, gap: 32 }),
     flow(id, `M${W / 2} ${cy + ch + 14} L ${W / 2} ${ly - 8}`, t.edge, "hot", { sw: 2.5 }),
-    tile(t, id, 220, ly, W - 440, lh, "One logbook for each project", "tasks, runs, verdicts and gates", true, { titleY: 40, gap: 34, ...chiefTile(id) }),
+    tile(t, id, 220, ly, W - 440, lh, "One shared logbook for each project", "after link or move: tasks, runs, verdicts, gates", true, { titleY: 40, gap: 34, ...chiefTile(id) }),
   ].join("\n");
-  return panel(t, id, W, H, body, "One shared core, two thin adapters: the Claude Code plugin and the Codex plugin each add only their own hooks, agents or tools and a launcher. Both use the same shared code, sage-core (routes, rules, the logbook and the merge check) and the board. Both write one logbook for each project, so either chief and the board see the same tasks, runs, verdicts and gates.");
+  return panel(t, id, W, H, body, "One shared core, two thin adapters: the Claude Code plugin and the Codex plugin each add their own hooks, agents or tools and a launcher; the Claude hook also holds some rules that only Claude has. Both use the same shared code, sage-core (routes, the shared rules, the logbook and the merge check) and the board. After a link or a move, both write one shared logbook for each project, so either chief and the board see the same tasks, runs, verdicts and gates.");
 }
 
 const tip = (lines, label) => (t, id) => {

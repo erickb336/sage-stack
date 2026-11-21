@@ -14,8 +14,9 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 export const OUT = { dark: "docs/assets/board-walkthrough-dark.gif", light: "docs/assets/board-walkthrough-light.gif" };
 export const TOUR = "docs/assets/board-tour.mp4";
 export const VIEW = { width: 1320, height: 800 };
-const FPS = 20, MARGIN = 28, BAR = 36, BAND = 52;
-const CANVAS = { width: VIEW.width + 2 * MARGIN, height: VIEW.height + BAR + BAND + 2 * MARGIN };
+const FPS = 20, MARGIN = 28, BAR = 36;
+const CAPTION_PX = { gif: 44, tour: 16 };
+const sizesOf = tour => { const px = CAPTION_PX[tour ? "tour" : "gif"], band = Math.round(px * 3.25); return { px, band, canvas: { width: VIEW.width + 2 * MARGIN, height: VIEW.height + BAR + band + 2 * MARGIN } }; };
 const FFMPEG_HELP = "The walkthrough needs ffmpeg 6 or later to write the GIF and the video. Install it (macOS: brew install ffmpeg; Debian or Ubuntu: sudo apt-get install ffmpeg), or give its path in FFMPEG.";
 const CAPTIONS = {
   1: ["1", "Overview", "where every task and milestone stands"],
@@ -81,8 +82,8 @@ const DRAW = st => {
 
 const FONT = "ui-sans-serif,-apple-system,system-ui,sans-serif";
 const SAMPLE = dark => `padding:5px 10px;border-radius:999px;font:600 12px/1.2 ${FONT};letter-spacing:.02em;background:${dark ? "#3a1f0a" : "#fdf3e1"};color:${dark ? "#fbbf24" : "#8f5106"};border:1px solid ${dark ? "#6b4210" : "#f0d29a"}`;
-const WINDOW = ({ c, dark }) => `<body style="margin:0;background:transparent">
-  <div style="position:absolute;left:${MARGIN - 1}px;top:${MARGIN - 1}px;width:${VIEW.width}px;height:${VIEW.height + BAR + BAND}px;border:1px solid ${c.line};border-radius:12px;box-shadow:${c.shadow}0 0 0 3000px ${c.bg};overflow:hidden">
+const WINDOW = ({ c, dark, band }) => `<body style="margin:0;background:transparent">
+  <div style="position:absolute;left:${MARGIN - 1}px;top:${MARGIN - 1}px;width:${VIEW.width}px;height:${VIEW.height + BAR + band}px;border:1px solid ${c.line};border-radius:12px;box-shadow:${c.shadow}0 0 0 3000px ${c.bg};overflow:hidden">
     <div style="height:${BAR}px;background:${c.bar};border-bottom:1px solid ${c.line};box-sizing:border-box;display:flex;align-items:center;padding:0 14px;gap:8px;position:relative">
       <i style="width:12px;height:12px;border-radius:50%;background:#ff5f57"></i><i style="width:12px;height:12px;border-radius:50%;background:#febc2e"></i><i style="width:12px;height:12px;border-radius:50%;background:#28c840"></i>
       <span style="position:absolute;left:0;right:0;text-align:center;font:500 13px/1 ${FONT};color:${c.text}">sage board</span>
@@ -90,15 +91,23 @@ const WINDOW = ({ c, dark }) => `<body style="margin:0;background:transparent">
     </div>
   </div></body>`;
 
-const BAND_PAGE = ({ c }) => `<body style="margin:0;height:${BAND}px;box-sizing:border-box;background:${c.bar};border-top:1px solid ${c.line};display:flex;align-items:center;justify-content:center;overflow:hidden"><div id="cap"></div></body>`;
-const CAPTION = ({ cap, dark }) => {
+const BAND_PAGE = ({ c, band }) => `<body style="margin:0;height:${band}px;box-sizing:border-box;background:${c.bar};border-top:1px solid ${c.line};display:flex;align-items:center;justify-content:center;overflow:hidden"><div id="cap"></div></body>`;
+const CAPTION = ({ cap, dark, px }) => {
   const el = document.getElementById("cap"), font = "ui-sans-serif,-apple-system,system-ui,sans-serif";
-  el.style.cssText = `display:flex;align-items:center;gap:10px;white-space:nowrap;font:500 16px/1.2 ${font};color:${dark ? "#ededf0" : "#18181b"};opacity:${cap.a};transform:translateY(${(1 - cap.a) * 6}px)`;
+  el.style.cssText = `display:flex;align-items:center;gap:${px * 0.625}px;white-space:nowrap;font:500 ${px}px/1.2 ${font};color:${dark ? "#ededf0" : "#18181b"};opacity:${cap.a};transform:translateY(${(1 - cap.a) * px * 0.375}px)`;
   const [n, label, text] = cap.parts, part = (tag, value, css) => Object.assign(document.createElement(tag), { textContent: value, style: css });
   el.replaceChildren(
-    part("span", n, `display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;font-weight:650;font-size:13px;background:${dark ? "#9aa2ff" : "#4f46e5"};color:${dark ? "#0b0b10" : "#fff"}`),
+    part("span", n, `display:inline-grid;place-items:center;width:${px * 1.5}px;height:${px * 1.5}px;border-radius:50%;font-weight:650;font-size:${px * 0.8125}px;background:${dark ? "#9aa2ff" : "#4f46e5"};color:${dark ? "#0b0b10" : "#fff"}`),
     part("b", label, "font-weight:650"), part("span", text, `color:${dark ? "#a3a3ad" : "#52525b"}`));
 };
+
+function writePickupSample(logbooks, now) {
+  const file = join(logbooks, "sample-app-abc123", "decisions.tsv"), at = new Date(Date.parse(now) - 3 * 3_600_000).toISOString();
+  const [head, ...rows] = readFileSync(file, "utf8").trimEnd().split("\n"), columns = [...head.split("\t"), "handover"];
+  const handover = { from: "C3", to: "C1", fromProvider: "claude", toProvider: "claude", reason: "no heartbeat", since: at, tasks: ["T4", "T21"], lost: ["R12"], queued: [], gates: [] };
+  const pickup = { at, task: "", decision: "pick-up from C3 (claude) to C1: tasks T4, T21; lost runs R12; its session stopped (no heartbeat)", why: "pick-up", handover: JSON.stringify(handover) };
+  writeFileSync(file, [columns.join("\t"), ...rows.map(row => `${row}\t`), columns.map(column => pickup[column] ?? "").join("\t")].join("\n") + "\n");
+}
 
 const ARCHIVED = { folder: "sample-notes-d4e5f6", name: "Sample notes" };
 function writeArchivedSample(logbooks, now) {
@@ -117,7 +126,7 @@ function writeArchivedSample(logbooks, now) {
 
 function director(page, shot, st) {
   const play = async (seconds, step = () => {}) => {
-    const count = Math.max(1, Math.round(seconds * FPS));
+    const count = Math.max(1, Math.round(seconds * st.fps));
     for (let i = 1; i <= count; i++) { step(i / count); await shot(); }
   };
   const box = async locator => { const r = await locator.boundingBox(); return { x: r.x, y: r.y, w: r.width, h: r.height }; };
@@ -256,8 +265,20 @@ async function tourFilm(page, base, shot, st) {
   await play(3.5);
 }
 
-export async function record({ theme = "dark", tour = false, browserPath = process.env.BOARD_BROWSER_PATH, framesDir = null, out = tour ? TOUR : OUT[theme] } = {}) {
+export function encode({ ffmpeg, fps = FPS, tour, frames, window, captions, out }) {
+  const { canvas } = sizesOf(tour);
+  const frame = `[0]pad=${canvas.width}:${canvas.height}:${MARGIN}:${MARGIN + BAR}[page];[page][2]overlay=${MARGIN}:${MARGIN + BAR + VIEW.height}[band];[band][1]overlay=shortest=1`;
+  const encoding = tour
+    ? ["-filter_complex", `${frame},format=yuv420p`, "-c:v", "libx264", "-preset", "veryslow", "-crf", "30", "-tune", "stillimage", "-movflags", "+faststart", "-an", out]
+    : ["-filter_complex", `${frame},split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];[b][p]paletteuse=dither=none:diff_mode=rectangle`, "-loop", "0", out];
+  const noRestartOnRgbaFrame = folder => ["-reinit_filter", "0", "-framerate", String(fps), "-i", join(folder, "%04d.png")];
+  const done = spawnSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", ...noRestartOnRgbaFrame(frames), "-loop", "1", "-framerate", String(fps), "-i", window, ...noRestartOnRgbaFrame(captions), ...encoding], { encoding: "utf8" });
+  if (done.status !== 0) throw new Error(`ffmpeg could not write ${out}: ${done.stderr || done.error}`);
+}
+
+export async function record({ theme = "dark", tour = false, fps = FPS, browserPath = process.env.BOARD_BROWSER_PATH, framesDir = null, out = tour ? TOUR : OUT[theme] } = {}) {
   if (!OUT[theme]) throw new TypeError(`--theme is dark or light, not ${theme}`);
+  if (tour && theme !== "dark") throw new TypeError(`the tour is dark only, so it records no ${theme} video: leave out --theme with --tour, or record the ${theme} GIF without --tour`);
   const { ffmpeg, version } = ffmpegCommand();
   const { chromium } = createRequire(import.meta.url)("playwright");
   if (framesDir) {
@@ -271,17 +292,18 @@ export async function record({ theme = "dark", tour = false, browserPath = proce
   const browser = await chromium.launch({ headless: true, ...(browserPath ? { executablePath: browserPath } : {}) });
   let server;
   try {
-    const windowPage = await browser.newPage({ viewport: CANVAS, deviceScaleFactor: 1 });
-    await windowPage.setContent(WINDOW({ c: THEMES[theme], dark: theme === "dark" }));
+    const { px, band: BAND, canvas } = sizesOf(tour);
+    const windowPage = await browser.newPage({ viewport: canvas, deviceScaleFactor: 1 });
+    await windowPage.setContent(WINDOW({ c: THEMES[theme], dark: theme === "dark", band: BAND }));
     await windowPage.screenshot({ path: join(dir, "window.png"), omitBackground: true });
     await windowPage.close();
     const band = await browser.newPage({ viewport: { width: VIEW.width, height: BAND }, deviceScaleFactor: 1 }), caps = join(dir, "captions");
-    await band.setContent(BAND_PAGE({ c: THEMES[theme] }));
+    await band.setContent(BAND_PAGE({ c: THEMES[theme], band: BAND }));
     mkdirSync(caps);
 
     const now = new Date().toISOString();
     writeTasksLogbook(join(dir, "logbooks"), process.env.SAGE_WORKTREES, now, { agents: true, about: true, prs: true, documents: true });
-    if (tour) writeArchivedSample(join(dir, "logbooks"), now);
+    if (tour) { writeArchivedSample(join(dir, "logbooks"), now); writePickupSample(join(dir, "logbooks"), now); }
     const stateDir = join(dir, "board-state");
     mkdirSync(stateDir, { mode: 0o700 });
     server = createBoardServer({
@@ -298,7 +320,7 @@ export async function record({ theme = "dark", tour = false, browserPath = proce
     await page.goto(`${base}/app/#pair=${startLink(stateDir)}`);
     await page.getByText(/^This browser is paired\./).waitFor();
     const local = [dir, homedir(), ...[process.env.USER, process.env.LOGNAME].filter(name => name && name.length > 2)];
-    const st = { theme, colors: THEMES[theme], cam: { s: 1, tx: 0, ty: 0 }, cursor: { x: 1180, y: 560, press: false }, ring: null, cap: { parts: CAPTIONS[1], a: 1 }, fade: null };
+    const st = { theme, fps, colors: THEMES[theme], cam: { s: 1, tx: 0, ty: 0 }, cursor: { x: 1180, y: 560, press: false }, ring: null, cap: { parts: CAPTIONS[1], a: 1 }, fade: null };
     let count = 0, lastCap = null;
     const scenes = [];
     const shot = async () => {
@@ -310,19 +332,14 @@ export async function record({ theme = "dark", tour = false, browserPath = proce
       const name = `${String(count++).padStart(4, "0")}.png`, file = join(frames, name), cap = JSON.stringify(st.cap);
       await page.screenshot({ path: file });
       if (cap === lastCap?.cap) copyFileSync(lastCap.file, join(caps, name));
-      else { await band.evaluate(CAPTION, { cap: st.cap, dark: theme === "dark" }); await band.screenshot({ path: join(caps, name) }); lastCap = { cap, file: join(caps, name) }; }
+      else { await band.evaluate(CAPTION, { cap: st.cap, dark: theme === "dark", px }); await band.screenshot({ path: join(caps, name) }); lastCap = { cap, file: join(caps, name) }; }
       return file;
     };
     await (tour ? tourFilm : film)(page, base, shot, st);
     if (problems.length) throw new Error(`the board page failed: ${problems.join("; ")}`);
-    const target = resolve(ROOT, out), frame = `[0]pad=${CANVAS.width}:${CANVAS.height}:${MARGIN}:${MARGIN + BAR}[page];[page][2]overlay=${MARGIN}:${MARGIN + BAR + VIEW.height}[band];[band][1]overlay=shortest=1`;
-    const encoding = tour
-      ? ["-filter_complex", `${frame},format=yuv420p`, "-c:v", "libx264", "-preset", "veryslow", "-crf", "30", "-tune", "stillimage", "-movflags", "+faststart", "-an", target]
-      : ["-filter_complex", `${frame},split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];[b][p]paletteuse=dither=none:diff_mode=rectangle`, "-loop", "0", target];
-    const encode = spawnSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-framerate", String(FPS), "-i", join(frames, "%04d.png"), "-loop", "1", "-framerate", String(FPS), "-i", join(dir, "window.png"),
-      "-framerate", String(FPS), "-i", join(caps, "%04d.png"), ...encoding], { encoding: "utf8" });
-    if (encode.status !== 0) throw new Error(`ffmpeg could not write ${out}: ${encode.stderr || encode.error}`);
-    return { out, bytes: statSync(target).size, frames: count, seconds: count / FPS, ffmpeg: version, scenes };
+    const target = resolve(ROOT, out);
+    encode({ ffmpeg, fps, tour, frames, window: join(dir, "window.png"), captions: caps, out: target });
+    return { out, bytes: statSync(target).size, frames: count, seconds: count / fps, ffmpeg: version, scenes };
   } finally {
     await browser.close();
     await server?.close();
@@ -333,7 +350,7 @@ export async function record({ theme = "dark", tour = false, browserPath = proce
 
 if (isMain(import.meta.url)) {
   const args = process.argv.slice(2), option = name => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
-  const tour = args.includes("--tour"), themes = tour ? ["dark"] : option("--theme") ? [option("--theme")] : Object.keys(OUT);
+  const tour = args.includes("--tour"), themes = tour ? [option("--theme") ?? "dark"] : option("--theme") ? [option("--theme")] : Object.keys(OUT);
   try {
     for (const theme of themes) {
       const framesDir = option("--frames") && join(option("--frames"), tour ? "tour" : theme);
