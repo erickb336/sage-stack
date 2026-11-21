@@ -569,7 +569,7 @@ export async function gate(input, { mode = readMode, check = checkMerge, env = p
     if (stateToolWrites(f.command, f.cwd, env) && !(knownThread && scopedStateRead(f.command, f.cwd, env))) return refuse(thread, recordsAsLead(thread) ? LEAD_SHELL : CHILD_LOGBOOK);
     const change = childChange(thread, mode(f, env).sage, READ_ONLY_SHELL_WAY), role = thread.parts && !thread.codex ? taskRole(thread.parts.findLast(sageName) ?? "") : null;
     const roots = role && change === READ_ONLY(role, READ_ONLY_SHELL_WAY) ? logbookRoots(env) : undefined;
-    const place = roots ? readOnlyPlace(roots, env) : { readOnly: true };
+    const place = roots ? readOnlyPlace([...roots, ...[env.CLAUDE_CONFIG_DIR, env.CODEX_HOME].filter(Boolean)], env) : { readOnly: true };
     const part = change ? commandWritePart(f.command, f.cwd, TEMP, place) ?? (runsPatch(f.command, f.cwd, env) ? f.command : undefined) : undefined;
     const why = part === undefined ? undefined : roots ? `sage: ${readOnlyShell(role, part)}` : change;
     if (why) return refuse(thread, why);

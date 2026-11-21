@@ -982,7 +982,7 @@ export function readOnlyWrite(agentType, commands, cwd) {
   const { role, denied, known } = readOnlyRole(agentType);
   if (!denied) return undefined;
   let place = { readOnly: true };
-  try { if (known && role !== "lead") place = core.readOnlyPlace(rootsOf(true), process.env); } catch {}
+  try { if (known && role !== "lead") place = core.readOnlyPlace([...rootsOf(true), ...[process.env.CLAUDE_CONFIG_DIR, process.env.CODEX_HOME].filter(Boolean)], process.env); } catch {}
   const scratch = scratchOf(role, cwd);
   for (const command of commands) {
     let part;

@@ -23,7 +23,16 @@ copy), and the folders in `protect` (each hook passes its logbook roots).
 `protect` implies `placed: true`. Core's `readOnlyPlace(roots, env)` gives
 both hooks the same options: the logbook roots and the sage worktrees folder
 (`SAGE_WORKTREES`, default `~/sage-worktrees`), so a task worktree or a clone
-there that git does not list is protected too. A scratch folder inside a
+there that git does not list is protected too. It also adds the home places
+(`HOME_PLACES`, T1199): the agent config folders `~/.claude` and `~/.codex`,
+`~/.ssh`, and the shell start files (`~/.zshenv`, `~/.zprofile`, `~/.zshrc`,
+`~/.zlogin`, `~/.zlogout`, `~/.bashrc`, `~/.bash_profile`, `~/.bash_login`,
+`~/.bash_logout` and `~/.profile`). Core names no provider setting, so each
+hook adds the config folders that its provider settings name, when they are
+set, to its roots. A target that is a link to one of these places, or that
+reaches one through `..`, is protected too, because each target counts
+through its real path. In Codex, a write under any `.codex` folder meets the
+earlier `.codex` rule first, with its own text. A scratch folder inside a
 protected folder stays open (the nearer folder wins): the Claude hook gives the
 investigate agent its pages folder as scratch, so its pages pass. A target
 that the reader cannot tell (a pattern, a command substitution, or a `cd` into

@@ -231,7 +231,7 @@ test("T936: a read-only role's git that changes the checkout is refused in both 
     for (const command of [...RO_REFUSED, ...RO_RUNS]) {
       const refused = role !== "implementer" && RO_REFUSED.includes(command);
       const c = claude(command, `sage:${role}`), x = denied(await g.run(pre("Bash", command, who)));
-      assert.deepEqual({ claude: c === undefined ? "runs" : c.includes(`the ${role} agent changes no file in the project or the logbook, also not from the shell`) ? "refused" : c, codex: x === undefined ? "runs" : x === RO_SHELL(role) ? "refused" : x },
+      assert.deepEqual({ claude: c === undefined ? "runs" : c.includes(`the ${role} agent changes no file in the project, the logbook or the agent's settings, also not from the shell`) ? "refused" : c, codex: x === undefined ? "runs" : x === RO_SHELL(role) ? "refused" : x },
         refused ? { claude: "refused", codex: "refused" } : { claude: "runs", codex: "runs" }, `${role}: ${command}`);
     }
   }
@@ -303,8 +303,52 @@ test("T1153: a read-only role writes anywhere but the project's checkouts and th
     ["mkdir -p /tmp/x/notes && cp README.md /tmp/x/notes/a.md && rm -rf src", "rm -rf src"], [`sed -e s/a/b/ -i ${project}/.env`, `sed -e s/a/b/ -i ${project}/.env`.slice(0, 60)]]) {
     const got = await text(command);
     assert.equal(got.codex, got.claude.replace(/\.$/, ""), `one refusal text in both providers: ${command}`);
-    assert.ok(got.claude.includes(`the qa agent changes no file in the project or the logbook, also not from the shell, so "${part}" is refused`), got.claude);
-    assert.ok(got.claude.includes("into the project's checkout, the sage worktrees folder or the logbook"), "the text names the protected places");
+    assert.ok(got.claude.includes(`the qa agent changes no file in the project, the logbook or the agent's settings, also not from the shell, so "${part}" is refused`), got.claude);
+    assert.ok(got.claude.includes("into the project's checkout, the sage worktrees folder, the logbook, an agent config folder"), "the text names the protected places");
+  }
+});
+
+const START_FILES = [".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout", ".bashrc", ".bash_profile", ".bash_login", ".bash_logout", ".profile"];
+const intoPlace = (target) => [`echo x > ${target}`, `printf x | tee -a ${target}`, `cp /tmp/x/a ${target}`, `mv /tmp/x/a ${target}`, `rm -rf ${target}`, `touch ${target}`, `git -C /tmp/x/r worktree add ${target}`];
+test("T1199: a read-only role's shell write into an agent config folder, ~/.ssh or a shell start file is refused in both providers, also by a link or ..; other home folders still pass", async (t) => {
+  const { handle } = await import(new URL("../plugins/sage/hooks/sage-hook.mjs", import.meta.url));
+  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {} };
+  const project = realpathSync(mkdtempSync(join(tmpdir(), "sage-t1199-project-"))), other = realpathSync(mkdtempSync(join(tmpdir(), "sage-t1199-other-")));
+  t.after(() => { rmSync(project, { recursive: true, force: true }); rmSync(other, { recursive: true, force: true }); });
+  mkdirSync(join(project, ".git"));
+  const home = process.env.HOME, saved = { CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR, CODEX_HOME: process.env.CODEX_HOME };
+  t.after(() => { for (const [key, value] of Object.entries(saved)) if (value === undefined) delete process.env[key]; else process.env[key] = value; });
+  for (const folder of [".claude", ".codex", ".ssh", "notes"]) mkdirSync(join(home, folder), { recursive: true });
+  for (const file of START_FILES) writeFileSync(join(home, file), "");
+  symlinkSync(join(home, ".ssh"), join(other, "ssh"));
+  symlinkSync(join(home, ".zshrc"), join(other, "zshrc"));
+  const g = fixed({ sage: true });
+  const child = { ...CHILD, cwd: project, transcript_path: record(t, { id: "child", session_id: base.session_id, agent_path: "/root/sage_qa_t1_r4", source: { subagent: { thread_spawn: { depth: 1 } } } }) };
+  const both = async (command) => ({
+    claude: deniedRaw(handle({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, cwd: project, session_id: "s1", agent_id: "a1", agent_type: "sage:qa" }, { sage: true, autopilot: false, start: false }, slots)),
+    codex: deniedRaw(await g.run(pre("Bash", command, child))),
+  });
+  const verdict = async (command) => Object.fromEntries(Object.entries(await both(command)).map(([k, why]) => [k, why === undefined ? "runs" : "refused"]));
+  const REFUSED = { claude: "refused", codex: "refused" }, RUNS = { claude: "runs", codex: "runs" };
+  const places = (config) => [...config.flatMap((folder) => [`${folder}/settings.json`, folder]), `${home}/.ssh/config`, `${home}/.ssh`, ...START_FILES.map((file) => `${home}/${file}`)];
+  const DEFAULT = [`${home}/.claude`, `${home}/.codex`];
+  for (const target of places(DEFAULT)) for (const command of intoPlace(target)) assert.deepEqual(await verdict(command), REFUSED, `default: ${command}`);
+  for (const command of ["echo x > ~/.claude/settings.json", "touch ~/.codex/config.toml", "echo x >> ~/.zshrc", "cp /tmp/x/a ~/.ssh/authorized_keys", `git -C ${home}/.claude commit -m x`,
+    `echo x > ${other}/ssh/config`, `cp /tmp/x/a ${other}/zshrc`, `echo x > /tmp/x/../..${home}/.ssh/config`, `echo x > ${home}/notes/../.bashrc`, `cd ${home}/notes && echo x > ../.profile`,
+    `cd ${other}/ssh && touch known_hosts`, `rm -rf ${home}`]) assert.deepEqual(await verdict(command), REFUSED, `a link, .., ~ or a folder above: ${command}`);
+  const ELSEWHERE = [`echo x > ${home}/notes/out.txt`, `cp /tmp/x/a ${home}/.claude-notes/a`, `touch ${home}/.sshx`, `echo x > ${home}/.zshrc.bak`, `mv /tmp/x/a ${home}/.config/a`, "echo x > ~/notes/b.txt",
+    `rm -rf ${home}/notes`, `git -C ${home}/notes commit -m x`, `cat ${home}/.ssh/config > /tmp/x/a`, `ls ${home}/.claude > /tmp/x/b`];
+  for (const command of ELSEWHERE) assert.deepEqual(await verdict(command), RUNS, `another home folder: ${command}`);
+  const config = [join(other, "claude-config"), join(other, "codex-home")];
+  Object.assign(process.env, { CLAUDE_CONFIG_DIR: config[0], CODEX_HOME: config[1] });
+  for (const target of places([...config, ...DEFAULT])) for (const command of intoPlace(target)) assert.deepEqual(await verdict(command), REFUSED, `the settings: ${command}`);
+  for (const command of ELSEWHERE) assert.deepEqual(await verdict(command), RUNS, `the settings, another home folder: ${command}`);
+  for (const [command, place] of [["echo x > ~/.claude/settings.json", "~/.claude"], ["touch ~/.codex/config.toml", "~/.codex"], ["cp /tmp/x/a ~/.ssh/config", "~/.ssh"], ["echo x >> ~/.zprofile", "~/.zprofile"]]) {
+    const got = await both(command);
+    if (place === "~/.codex") assert.match(got.codex, /files under a \.codex folder/, command);
+    else assert.equal(got.codex, got.claude.replace(/\.$/, ""), `one refusal text in both providers: ${command}`);
+    assert.ok(got.claude.includes(`"${command.split(" ").slice(command.startsWith("echo") ? 2 : 0).join(" ")}" is refused`), got.claude);
+    assert.ok(got.claude.includes(place), `the refusal names ${place}: ${got.claude}`);
   }
 });
 

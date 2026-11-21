@@ -2073,7 +2073,7 @@ test("T933: in sage mode a reviewer, QA, the PE and the lead change no files fro
   for (const role of READ_ONLY_ROLES) {
     const who = { agent_id: `ro-${role}`, agent_type: `sage:${role}` };
     for (const command of SHELL_WRITES) {
-      assert.match(denied(s.send(bash(command, FEATURE, who))) ?? "", new RegExp(`the ${role} agent changes no file in the project or the logbook, also not from the shell.*write form.*Report the finding instead.*scratch folder`), `${role}: ${command}`);
+      assert.match(denied(s.send(bash(command, FEATURE, who))) ?? "", new RegExp(`the ${role} agent changes no file in the project, the logbook or the agent's settings, also not from the shell.*write form.*Report the finding instead.*scratch folder`), `${role}: ${command}`);
     }
     for (const command of SHELL_READS) assert.equal(s.send(bash(command, FEATURE, who)), undefined, `${role}: ${command}`);
     for (const command of SCRATCH_WRITES) {
@@ -2084,9 +2084,9 @@ test("T933: in sage mode a reviewer, QA, the PE and the lead change no files fro
   }
   const qa = { agent_id: "ro-qa", agent_type: "Sage:QA" };
   for (const name of ["Monitor", "PowerShell", "mcp__terminal__run_in_terminal"]) {
-    assert.match(denied(s.send(tool(name, { command: "rm -rf src", description: "d" }, { cwd: FEATURE, ...qa }))) ?? "", /the qa agent changes no file in the project or the logbook, also not from the shell/, name);
+    assert.match(denied(s.send(tool(name, { command: "rm -rf src", description: "d" }, { cwd: FEATURE, ...qa }))) ?? "", /the qa agent changes no file in the project, the logbook or the agent's settings, also not from the shell/, name);
   }
-  assert.match(denied(s.send(bash("rm -rf src", FEATURE, { agent_id: "x1", agent_type: "sage:researcher" }))) ?? "", /the researcher agent changes no file in the project or the logbook, also not from the shell/);
+  assert.match(denied(s.send(bash("rm -rf src", FEATURE, { agent_id: "x1", agent_type: "sage:researcher" }))) ?? "", /the researcher agent changes no file in the project, the logbook or the agent's settings, also not from the shell/);
 });
 
 const WORKTREE_ROOT = "/sage-t932-not-created/worktrees";
@@ -2108,7 +2108,7 @@ test("T932: in sage mode the investigate and evidence-review agents change no pr
   const investigate = { agent_id: "inv-1", agent_type: "sage:investigate" }, evidence = { agent_id: "ev-1", agent_type: "sage:evidence-review" };
   for (const [role, who] of [["investigate", investigate], ["evidence-review", evidence]]) {
     for (const command of SHELL_WRITES) {
-      assert.match(denied(s.send(bash(command, FEATURE, who))) ?? "", new RegExp(`the ${role} agent changes no file in the project or the logbook, also not from the shell.*write form`), `${role}: ${command}`);
+      assert.match(denied(s.send(bash(command, FEATURE, who))) ?? "", new RegExp(`the ${role} agent changes no file in the project, the logbook or the agent's settings, also not from the shell.*write form`), `${role}: ${command}`);
     }
     for (const command of [...SHELL_READS, ...SCRATCH_WRITES]) assert.equal(s.send(bash(command, FEATURE, who)), undefined, `${role}: ${command}`);
     for (const event of fileWrites(join(FEATURE, "README.md"), who)) {
@@ -2124,12 +2124,12 @@ test("T932: in sage mode the investigate and evidence-review agents change no pr
   const beside = join(dirname(dirname(pages)), "R1-t1", "src", "a.js");
   for (const event of fileWrites(beside, investigate)) assert.match(denied(s.send(event)) ?? "", /the investigate agent changes no project files.*writes only its pages, in the task's pages folder/, `investigate: ${event.tool_name} beside the pages folder`);
   for (const command of [`echo x > ${beside}`, `echo x > ${pages}/../../R1-t1/a.js`, `rm -rf ${dirname(pages)}`, `cp README.md ${dirname(dirname(pages))}/copy.md`]) {
-    assert.match(denied(s.send(bash(command, FEATURE, investigate))) ?? "", /the investigate agent changes no file in the project or the logbook.*the sage worktrees folder.*writes only its pages/, `investigate: ${command}`);
+    assert.match(denied(s.send(bash(command, FEATURE, investigate))) ?? "", /the investigate agent changes no file in the project, the logbook or the agent's settings.*the sage worktrees folder.*writes only its pages/, `investigate: ${command}`);
   }
   assert.equal(denied(s.send(bash(`cp README.md ${pages}/copy.md`, FEATURE, investigate))), undefined, "investigate: a copy into its pages folder (T1153)");
   assert.match(denied(s.send(tool("NotebookEdit", { file_path: join(pages, "a.ipynb"), notebook_path: join(FEATURE, "a.ipynb"), new_source: "x" }, { cwd: FEATURE, ...investigate }))) ?? "", /the investigate agent changes no project files, so its NotebookEdit of "[^"]+" is refused/);
   assert.match(denied(s.send(tool("Write", { content: "x" }, { cwd: FEATURE, ...investigate }))) ?? "", /the investigate agent changes no project files, so its Write of "" is refused/, "no path");
-  assert.match(denied(s.send(bash(`echo x > ${pages}/review.md`, FEATURE, evidence))) ?? "", /the evidence-review agent changes no file in the project or the logbook, also not from the shell.*Report the finding instead/, "the pages folder is no open folder for the evidence review");
+  assert.match(denied(s.send(bash(`echo x > ${pages}/review.md`, FEATURE, evidence))) ?? "", /the evidence-review agent changes no file in the project, the logbook or the agent's settings, also not from the shell.*Report the finding instead/, "the pages folder is no open folder for the evidence review");
   assert.match(denied(s.send(fileWrites(join(pages, "review.md"), evidence)[0])) ?? "", /the evidence-review agent changes no project files.*Report the finding instead/);
   assert.equal(denied(s.send(fileWrites(join(FEATURE, "README.md"), { agent_id: "imp-1", agent_type: "sage:implementer" })[0])), undefined, "the implementer");
   const off = session();
@@ -2260,7 +2260,7 @@ test("T936: in sage mode a reviewer's git that changes the checkout is refused a
   s.send(prompt("sage mode"));
   const reviewer = { agent_id: "t936-cr", agent_type: "sage:code-reviewer" }, implementer = { agent_id: "t936-imp", agent_type: "sage:implementer" };
   for (const command of ["git reset --hard", "git checkout -- .", "git commit -am 'a fix'", "git add -A", "git clean -fd", "git restore .", "git branch -D claude/t1", "git config user.email a@b.example", "git apply fix.patch", "git worktree add .claude/worktrees/x claude/t1", `awk '{print > "out.txt"}' a.txt`]) {
-    assert.match(denied(s.send(bash(command, FEATURE, reviewer))) ?? "", /the code-reviewer agent changes no file in the project or the logbook, also not from the shell.*a git command that changes the checkout.*git worktree add --detach \/tmp\/<run>\/head <sha>/, command);
+    assert.match(denied(s.send(bash(command, FEATURE, reviewer))) ?? "", /the code-reviewer agent changes no file in the project, the logbook or the agent's settings, also not from the shell.*a git command that changes the checkout.*git worktree add --detach \/tmp\/<run>\/head <sha>/, command);
     assert.equal(s.send(bash(command, FEATURE, implementer)), undefined, `the implementer: ${command}`);
   }
   for (const command of ["git worktree add /sage-t936-not-created/wt claude/t1", `git worktree add --detach ${SCRATCH}/head HEAD`, `git -C ${SCRATCH}/head reset --hard HEAD~1`, `cd ${SCRATCH} && git -C head checkout main`, "git fetch origin", "git apply --check fix.patch", `chmod +x ${SCRATCH}/ps`]) {
@@ -2322,7 +2322,7 @@ test("T968: in sage mode the chief's git that throws away uncommitted work is re
   const reviewer = { agent_id: "t968-cr", agent_type: "sage:code-reviewer" };
   for (const command of ["git checkout main", "git checkout -- .", "git reset --hard HEAD"]) {
     assert.equal(denied(s.send(bash(command, wt, reviewer))), undefined, `the reviewer in its worktree: ${command}`);
-    assert.match(denied(s.send(bash(command, FEATURE, reviewer))) ?? "", /the code-reviewer agent changes no file in the project or the logbook, also not from the shell/, `the reviewer in the project: ${command}`);
+    assert.match(denied(s.send(bash(command, FEATURE, reviewer))) ?? "", /the code-reviewer agent changes no file in the project, the logbook or the agent's settings, also not from the shell/, `the reviewer in the project: ${command}`);
   }
 });
 
@@ -2332,7 +2332,7 @@ test("T931: in sage mode a lead's state-tool command and a reviewer's reads pass
   const lead = { agent_id: "t931-lead", agent_type: "sage:lead" }, reviewer = { agent_id: "t931-cr", agent_type: "sage:code-reviewer" };
   assert.equal(s.send(bash(`node ${TOOL} standing --project ${FEATURE}`, FEATURE, lead)), undefined, "the lead's state-tool command");
   for (const command of ["git log --oneline -5", `npm test > ${SCRATCH}/out.txt 2>&1`]) assert.equal(s.send(bash(command, FEATURE, reviewer)), undefined, command);
-  assert.match(denied(s.send(bash("echo x > README.md", FEATURE, reviewer))) ?? "", /the code-reviewer agent changes no file in the project or the logbook, also not from the shell/);
+  assert.match(denied(s.send(bash("echo x > README.md", FEATURE, reviewer))) ?? "", /the code-reviewer agent changes no file in the project, the logbook or the agent's settings, also not from the shell/);
 });
 
 const SYSTEM_PATH = { PATH: `${dirname(process.execPath)}:/usr/bin:/bin` };
@@ -3612,7 +3612,7 @@ test("T529: a reviewer writes a fake with \"$*\", a heredoc with braces, and run
     `printf '%s\\n' 'kill -9 1' 'sage.mjs verdict T1' > ${own}/more.txt`,
   ];
   for (const command of allowed) assert.equal(denied(s.send(bash(command, FEATURE, reviewer))), undefined, command);
-  assert.match(denied(s.send(bash(`node -e 'const {spawnSync}=require("node:child_process"); console.log(spawnSync("${own}/bin/gh", ["x"]).status)'`, FEATURE, reviewer))) ?? "", /the code-reviewer agent changes no file in the project or the logbook, also not from the shell/);
+  assert.match(denied(s.send(bash(`node -e 'const {spawnSync}=require("node:child_process"); console.log(spawnSync("${own}/bin/gh", ["x"]).status)'`, FEATURE, reviewer))) ?? "", /the code-reviewer agent changes no file in the project, the logbook or the agent's settings, also not from the shell/);
   for (const role of ["sage:security-reviewer", "sage:ux-reviewer", "sage:qa"]) {
     const n = role.length;
     const other = scratchSession(), who = other.agent(`a${n}`, role, `Run R${n} · task T521`);
