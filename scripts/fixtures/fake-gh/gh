@@ -1,15 +1,20 @@
 #!/usr/bin/env node
 import fs from "node:fs";
-const args = process.argv.slice(2), call = args.slice(0, 2).join(" ");
+const args = process.argv.slice(2), path = String(args[1] ?? "").replace(/^repos\/\{owner\}\/\{repo\}\//, "");
 const answers = process.env.SAGE_TEST_GH ? JSON.parse(fs.readFileSync(process.env.SAGE_TEST_GH, "utf8")) : {};
 const say = (value) => process.stdout.write(JSON.stringify(value));
-const paths = (list) => (list ?? []).map((path) => ({ path }));
-if (answers.fail === call) {
-  process.stderr.write(`fake gh: ${call} failed\n`);
+const files = (n) => (answers.merged ?? []).find((pr) => pr.number === n)?.files ?? answers.files ?? ["a.txt"];
+let m;
+if (args[0] !== "api" || path === args[1]) {
+  process.stderr.write(`fake gh: no answer for gh ${args.join(" ")}\n`);
   process.exit(1);
-} else if (call === "pr view" && args.includes("files,baseRefName")) say({ files: paths(answers.files ?? ["a.txt"]), baseRefName: answers.base ?? "main" });
-else if (args[0] === "api" && /^repos\/\{owner\}\/\{repo\}\/commits\/[0-9a-f]{40}$/.test(args[1] ?? "")) say({ date: answers.dates?.[args[1].slice(-40)] ?? "2000-01-01T00:00:00Z" });
-else if (call === "pr list" && args.includes("number,mergedAt,files")) say((answers.merged ?? []).map((m) => ({ ...m, files: paths(m.files) })));
+} else if (answers.fail && path.startsWith(answers.fail)) {
+  process.stderr.write(`fake gh: ${answers.fail} failed\n`);
+  process.exit(1);
+} else if ((m = /^pulls\/(\d+)$/.exec(path))) say({ base: answers.base ?? "main", changed: files(+m[1]).length });
+else if ((m = /^pulls\/(\d+)\/files\?per_page=100$/.exec(path)) && args.includes("--paginate")) process.stdout.write(files(+m[1]).map((f) => `${JSON.stringify(f)}\n`).join(""));
+else if (/^commits\/[0-9a-f]{40}$/.test(path)) say({ date: answers.dates?.[path.slice(-40)] ?? "2000-01-01T00:00:00Z" });
+else if (path.startsWith("pulls?state=closed&")) say((answers.merged ?? []).map((pr) => ({ number: pr.number, merged: pr.merged, updated: pr.merged })));
 else {
   process.stderr.write(`fake gh: no answer for gh ${args.join(" ")}\n`);
   process.exit(1);

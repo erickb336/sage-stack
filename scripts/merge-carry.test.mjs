@@ -295,11 +295,11 @@ test("T1197: a merge into main after the head's last CI that changed the same fi
   w.main({ "a.txt": "1\n2\n3\n4\n5\n6\n7\n8\n9m\n" });
   const h2 = w.merge();
   const answers = join(w.project, "..", "github.json");
-  writeFileSync(answers, JSON.stringify({ files: ["src.js", "a.txt"], dates: { [h1]: "2026-11-21T02:00:00Z", [h2]: "2026-11-21T03:00:00Z" }, merged: [{ number: 50, mergedAt: "2026-11-21T02:30:00Z", files: ["a.txt", "b.txt"] }] }));
+  writeFileSync(answers, JSON.stringify({ files: ["src.js", "a.txt"], dates: { [h1]: "2026-11-21T02:00:00Z", [h2]: "2026-11-21T03:00:00Z" }, merged: [{ number: 50, merged: "2026-11-21T02:30:00Z", files: ["a.txt", "b.txt"] }] }));
   w.env.SAGE_TEST_GH = answers;
   assert.match(w.refused(h1), /^sage: PR 41 changes files that a merge into main after its last CI also changed: PR 50 \(a\.txt\)\. .*Merge main into the branch, wait for CI to pass on the new head/);
   w.verdicts(h2, "checks-pass");
   assert.equal(w.check(h2), carried(h1, h2));
-  writeFileSync(answers, JSON.stringify({ fail: "pr list" }));
-  assert.match(w.refused(h2), /^sage: the merge check cannot read from GitHub .*fake gh: pr list failed.*so it refuses the merge/);
+  writeFileSync(answers, JSON.stringify({ fail: "pulls?state=closed" }));
+  assert.match(w.refused(h2), /^sage: the merge check cannot read from GitHub .*fake gh: pulls\?state=closed failed.*so it refuses the merge/);
 });

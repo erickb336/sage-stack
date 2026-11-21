@@ -714,7 +714,7 @@ const FAKE_GH = (() => {
     `#!/usr/bin/env node
 const fs = require("fs");
 const args = process.argv.slice(2);
-if (args.includes("files,baseRefName") || args.includes("number,mergedAt,files") || String(args[1]).startsWith("repos/{owner}/{repo}/commits/")) process.exit(require("child_process").spawnSync(${JSON.stringify(fileURLToPath(new URL("fixtures/fake-gh/gh", import.meta.url)))}, args, { stdio: "inherit" }).status);
+if (args[0] === "api" && String(args[1]).startsWith("repos/{owner}/{repo}/")) process.exit(require("child_process").spawnSync(${JSON.stringify(fileURLToPath(new URL("fixtures/fake-gh/gh", import.meta.url)))}, args, { stdio: "inherit" }).status);
 if (args[0] === "pr" && args[1] === "view") {
   const head = process.env.FAKE_PR_HEAD ?? "claude/t1";
   if (head === "fail") process.exit(1);
