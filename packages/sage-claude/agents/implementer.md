@@ -1,6 +1,7 @@
 ---
 name: implementer
 description: "Builds one task from the chief of staff in its own git worktree, runs the checks, and opens a pull request. Also repairs the findings of reviews and QA on the same branch. Use for each change to a project in sage mode."
+disallowedTools: Agent, SendMessage, mcp__*
 skills:
   - sage:report
   - sage:principle-laziness-protocol
