@@ -84,7 +84,7 @@ Send `show board` to see the board in the chat: what needs you, the sessions and
 *The board on a laptop screen, with sample data. Watch the full tour below, or read the [board guide](docs/guide/board.md).*\
 *Below: a full tour of the board in 9 parts, with sample data (53 seconds). If no player shows, open the [MP4 file](docs/assets/board-tour.mp4).*
 
-https://github.com/user-attachments/assets/f9d9da6e-ae5a-40d3-80b7-2c588b4f9565
+https://github.com/user-attachments/assets/4982effe-e8e0-4c0d-9717-0b1ee652aa97
 
 ## What to say
 
