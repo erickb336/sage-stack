@@ -982,13 +982,13 @@ export function readOnlyWrite(agentType, commands, cwd) {
   const { role, denied, known } = readOnlyRole(agentType);
   if (!denied) return undefined;
   let place = { readOnly: true };
-  try { if (known && role !== "lead") place = core.readOnlyPlace([...rootsOf(true), ...[process.env.CLAUDE_CONFIG_DIR, process.env.CODEX_HOME].filter(Boolean)], process.env); } catch {}
+  try { if (known && role !== "lead") place = core.readOnlyPlace(rootsOf(true), process.env, { "the Claude config folder": process.env.CLAUDE_CONFIG_DIR, "the Codex config folder": process.env.CODEX_HOME }); } catch {}
   const scratch = scratchOf(role, cwd);
   for (const command of commands) {
-    let part;
-    try { part = core.commandWritePart(command, cwd, scratch, place); } catch { part = command; }
-    if (part === undefined) continue;
-    try { return core.readOnlyShell(role, part); } catch { return `in sage mode, the ${role} agent changes no files, also not from the shell, and the sage core cannot load, so the hook refuses this command. Reinstall or update the sage plugin.`; }
+    let write;
+    try { write = core.commandWritePart(command, cwd, scratch, place); } catch { write = { part: command }; }
+    if (write === undefined) continue;
+    try { return core.readOnlyShell(role, write); } catch { return `in sage mode, the ${role} agent changes no files, also not from the shell, and the sage core cannot load, so the hook refuses this command. Reinstall or update the sage plugin.`; }
   }
   return undefined;
 }

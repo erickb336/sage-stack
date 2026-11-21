@@ -20,16 +20,20 @@ folders are the project's main checkout (found from `cwd`), each worktree of
 its repository that is not in a scratch folder (read from
 `.git/worktrees/*/gitdir`; a worktree in a scratch folder is an agent's own
 copy), and the folders in `protect` (each hook passes its logbook roots).
-`protect` implies `placed: true`. Core's `readOnlyPlace(roots, env)` gives
+`protect` implies `placed: true`. Each entry of `protect` is a named place,
+`{ path, name, prefix }`. Core's `readOnlyPlace(roots, env, settings)` gives
 both hooks the same options: the logbook roots and the sage worktrees folder
 (`SAGE_WORKTREES`, default `~/sage-worktrees`), so a task worktree or a clone
 there that git does not list is protected too. It also adds the home places
 (`HOME_PLACES`, T1199): the agent config folders `~/.claude` and `~/.codex`,
-`~/.ssh`, and the shell start files (`~/.zshenv`, `~/.zprofile`, `~/.zshrc`,
+Claude's user config file `~/.claude.json` with its backups beside it (a
+prefix place: every name that starts with `.claude.json`, because it holds the
+MCP servers, F-T1199-8), `~/.ssh`, and the shell start files (`~/.zshenv`, `~/.zprofile`, `~/.zshrc`,
 `~/.zlogin`, `~/.zlogout`, `~/.bashrc`, `~/.bash_profile`, `~/.bash_login`,
 `~/.bash_logout` and `~/.profile`). Core names no provider setting, so each
-hook adds the config folders that its provider settings name, when they are
-set, to its roots. A target that is a link to one of these places, or that
+hook passes the config folders that its provider settings name, when they are
+set, in `settings` (a place name for each folder, such as "the Claude config
+folder"). A target that is a link to one of these places, or that
 reaches one through `..`, is protected too, because each target counts
 through its real path. In Codex, a write under any `.codex` folder meets the
 earlier `.codex` rule first, with its own text. A scratch folder inside a
@@ -76,11 +80,15 @@ interpreter after its own name (`uv run python -c`, `bundle exec ruby -e`,
 `arch -arm64 node -e`, F-T1153-8). An option before the interpreter word does
 not count, so the folder name in `mkdir -p /tmp/x/sh` is no shell.
 
-`commandWritePart` takes the same arguments and gives the part that writes: a
-simple command, a redirection (`> src/a.js`) or a program run, or the whole
-text when the reader cannot tell. `commandWrites` is true when it gives a
-part. Core's `readOnlyShell(role, part)` is the one refusal text for a
-read-only role's shell write: it quotes the part and names the protected
+`commandWritePart` takes the same arguments and gives `{ part, place }`, or
+nothing when the text does not write. `part` is the part that writes: a simple
+command, a redirection (`> src/a.js`) or a program run, or the whole text when
+the reader cannot tell. `place` is the name of the protected place that the
+part's target hit (for example `~/.ssh`, "the project's checkout" or "the
+Claude config folder"), or nothing when the target is not known.
+`commandWrites` is true when it gives a part. Core's `readOnlyShell(role,
+write)` is the one refusal text for a read-only role's shell write: it quotes
+the part, names the place that it hit (F-T1199-7), and lists the protected
 places. Both hooks give it (F-T1153-13, F-T1153-15).
 
 `placed: true` (the chief's rule, T807) lets the placed write programs `rm`,
@@ -118,7 +126,13 @@ commands that change the checkout (`gitTargets`): `checkout`, `switch`,
 or the command's folder), except a dry run, `git apply --check` and `--stat`;
 `branch` with a delete, move, copy, force or upstream option and `config` with a
 change at the work tree (`--global` or `--system` in every folder); and
-`worktree add`, `move` and `remove` at their paths. In a scratch folder, outside
+`worktree add`, `move` and `remove` at their paths. The git forms that make
+files also count at their targets (F-T1199-3, F-T1199-9): `clone` at its
+directory (the last operand, or the repository's name in the work tree when
+there is none) and its `--separate-git-dir`, `init` at its directory (or the
+work tree), `archive` at `-o` or `--output`, `bundle create` at its file, and
+`format-patch` at `-o`, `--output-directory` or `--output` (the work tree
+without them, unless `--stdout`). In a scratch folder, outside
 `cwd`, they do not count, so `git worktree add --detach /tmp/r/head <sha>` and
 git inside that worktree run. `--git-dir` and `--work-tree` count in every
 folder. The chief's rule leaves `readOnly` out, so the chief's git runs (T960).
