@@ -24,7 +24,7 @@ const UNREADABLE = "sage: the hook could not read this tool call, so it refuses 
 const { stateKey } = await import(new URL("../plugins/sage-codex/hooks/hook-state.mjs", import.meta.url));
 const { recordBrief } = await import(new URL("../plugins/sage-codex/hooks/brief-hook.mjs", import.meta.url));
 const { ROUTES } = await import(new URL("../plugins/sage-codex/hooks/dispatch.mjs", import.meta.url));
-const { BRIEF_FIELDS, CHIEF_GIT: CHIEF_GIT_TEXT, CHIEF_SHELL: CHIEF_SHELL_TEXT, CHIEF_WORKTREE: CHIEF_WORKTREE_TEXT = "", READ_ONLY_SHELL_WAY } = await import(new URL("../plugins/sage-codex/core/index.mjs", import.meta.url));
+const { BRIEF_FIELDS, CHIEF_GIT: CHIEF_GIT_TEXT, CHIEF_SHELL: CHIEF_SHELL_TEXT, CHIEF_WORKTREE: CHIEF_WORKTREE_TEXT = "", READ_ONLY_SHELL_WAY, readOnlyShell } = await import(new URL("../plugins/sage-codex/core/index.mjs", import.meta.url));
 
 const SHA = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
 const MERGE = `gh pr merge 41 --squash --delete-branch --match-head-commit ${SHA}`;
@@ -34,11 +34,12 @@ const pre = (tool_name, command, extra = {}) => ({ ...base, hook_event_name: "Pr
 const ask = (command, extra = {}) => ({ ...base, hook_event_name: "PermissionRequest", tool_name: "Bash", tool_input: { command, description: "needs network" }, ...extra });
 const patch = (...lines) => `*** Begin Patch\n${lines.join("\n")}\n*** End Patch`;
 const CHILD = { agent_id: "agent-1", agent_type: "worker" };
-const denied = (out) => (out?.hookSpecificOutput?.permissionDecision === "deny" ? out.hookSpecificOutput.permissionDecisionReason : undefined);
+const deniedRaw = (out) => (out?.hookSpecificOutput?.permissionDecision === "deny" ? out.hookSpecificOutput.permissionDecisionReason : undefined);
+const denied = (out) => deniedRaw(out)?.replace(/(also not from the shell, so )"[^"]*"( is refused)/, '$1"<part>"$2');
 const OWNER_MERGE = "sage: in Codex, only sage's merge command merges, on autopilot, as the chief's instructions say. Without autopilot, the owner merges the pull request in GitHub";
 const BAD_NAME = (name) => `sage: "${name}" starts with sage_ but is not a sage task name (sage_<role>_t<n>_r<k>), so this agent counts as a read-only role: it changes no files. Report instead`;
 const RO = (role) => `sage: in sage mode, the ${role} agent changes no files. Report the finding instead`;
-const RO_SHELL = (role) => `${RO(role)}. ${READ_ONLY_SHELL_WAY}`.replace(/\.$/, "");
+const RO_SHELL = (role) => `sage: ${readOnlyShell(role, "<part>")}`.replace(/\.$/, "");
 const LOGBOOK = "sage: role agents report; only the chief records the logbook. Put this in your report";
 const LEAD_EDIT = "sage: a lead changes no files. Start an implementer of your task to make this change";
 const OFF_LIST = (name) => `sage: "${name.replaceAll("_", " ")}" is not on a lead's list. A lead records only its own task, with run add, run done, finding add, finding close, finding triage, verdict, lint, round, pages, and task set of state, branch, pr. Put what else the logbook needs in your report`;
@@ -187,6 +188,9 @@ const CHIEF_RUNS = ["git status", "git add -A && git commit -m 'a change'", "git
   "gh repo fork acme/site", "gh repo fork acme/site --clone=false", "gh -R acme/site release download v1 -D /tmp/notes/rel", `awk '$3 > 100 { print "a|b" }' a.txt`,
   "chmod +x /tmp/notes/fake/ps", "chmod -R u+w ~", "git checkout main", "git worktree add .claude/worktrees/t1 -b claude/t1",
   `awk '{ print ($1 > 3) }' a.txt`, `awk '{ print "bad row" > "/dev/stderr" }' a.txt`, `awk '{ printf("%d", ($2 > $3)) }' a.txt`];
+const LAUNCHED_CODE = [`uv run python -c "open('src/a.js','w')"`, "poetry run python -c x", "bundle exec ruby -e x", "pnpm exec node -e x", "arch -arm64 node -e x", "xcrun python3 -c x"];
+CHIEF_WRITES.push(...LAUNCHED_CODE);
+CHIEF_RUNS.push("mkdir -p /tmp/x/sh");
 test("T960: the Claude hook and the Codex gate give the chief the same answer to each command, in sage mode and out of it", async () => {
   const { handle } = await import(new URL("../plugins/sage/hooks/sage-hook.mjs", import.meta.url));
   const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {} };
@@ -205,9 +209,11 @@ test("T960: the Claude hook and the Codex gate give the chief the same answer to
 const RO_REFUSED = ["git reset --hard", "git reset --hard HEAD~1", "git checkout -- .", "git checkout claude/t1", "git switch main", "git restore .", "git restore --staged src/a.js",
   "git clean -fd", "git apply fix.patch", "git am fix.mbox", "git merge main", "git pull", "git rebase main", "git cherry-pick abc1234", "git revert HEAD", "git commit -am 'a fix'",
   "git add -A", "git branch -D claude/t1", "git branch -m old new", "git branch --set-upstream-to=origin/main", "git config user.email a@b.example", "git config --unset core.hooksPath",
-  "git config --global user.name x", "git -C /work/project reset --hard", "cd /tmp && git checkout main", "git worktree add ../wt claude/t1", "git worktree add .claude/worktrees/x",
+  "git config --global user.name x", "git -C /work/project reset --hard", "git worktree add .claude/worktrees/x",
   "git worktree remove .claude/worktrees/x", "git -C $WT reset --hard", "git --work-tree=/tmp/notes/head checkout .", `awk '{print > "out.txt"}' a.txt`, "chmod +x src/a.sh"];
-const RO_RUNS = [`git worktree add --detach /tmp/notes/head ${SHA}`, `git -C /work/project worktree add --detach /tmp/notes/head ${SHA}`, "git -C /tmp/notes/head checkout main",
+const RO_SCRATCH = realpathSync(mkdtempSync(join(tmpdir(), "sage-t936-ro-")));
+process.on("exit", () => rmSync(RO_SCRATCH, { recursive: true, force: true }));
+const RO_RUNS = [`cd ${RO_SCRATCH} && git checkout main`, "git worktree add ../wt claude/t1", `git worktree add --detach /tmp/notes/head ${SHA}`, `git -C /work/project worktree add --detach /tmp/notes/head ${SHA}`, "git -C /tmp/notes/head checkout main",
   "git -C /tmp/notes/head reset --hard HEAD~1", "git -C /tmp/notes/head apply /tmp/notes/fix.patch", "git worktree remove /tmp/notes/head", "git worktree list", "git worktree prune",
   "git fetch origin", "git log --oneline -5", "git diff main...HEAD", "git show HEAD:src/a.js", "git status", "git branch -a", "git branch --sort -committerdate", "git branch --show-current",
   "git config --get user.email", "git config user.email", "git config --list", "git apply --check fix.patch", "git apply --stat fix.patch", "git clean -n", "git add -n .", "git commit --dry-run",
@@ -225,7 +231,7 @@ test("T936: a read-only role's git that changes the checkout is refused in both 
     for (const command of [...RO_REFUSED, ...RO_RUNS]) {
       const refused = role !== "implementer" && RO_REFUSED.includes(command);
       const c = claude(command, `sage:${role}`), x = denied(await g.run(pre("Bash", command, who)));
-      assert.deepEqual({ claude: c === undefined ? "runs" : c.includes(`the ${role} agent changes no files, also not from the shell`) ? "refused" : c, codex: x === undefined ? "runs" : x === RO_SHELL(role) ? "refused" : x },
+      assert.deepEqual({ claude: c === undefined ? "runs" : c.includes(`the ${role} agent changes no file in the project or the logbook, also not from the shell`) ? "refused" : c, codex: x === undefined ? "runs" : x === RO_SHELL(role) ? "refused" : x },
         refused ? { claude: "refused", codex: "refused" } : { claude: "runs", codex: "runs" }, `${role}: ${command}`);
     }
   }
@@ -237,6 +243,68 @@ test("T936: a read-only role's git that changes the checkout is refused in both 
   for (const command of ["git checkout main", "git checkout -- .", "git reset --hard HEAD~1", "echo x > out.txt"]) {
     const c = denied(handle({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, cwd: wt, session_id: "s1", agent_id: "a1", agent_type: "sage:code-reviewer" }, { sage: true, autopilot: false, start: false }, slots));
     assert.deepEqual({ claude: c, codex: denied(await g.run(pre("Bash", command, { ...child("sage_code_reviewer_t1_r2"), cwd: wt }))) }, { claude: undefined, codex: undefined }, `in a scratch worktree: ${command}`);
+  }
+});
+
+test("T1153: a read-only role writes anywhere but the project's checkouts and the logbook, in both providers; an unknown target and the lead keep the old rule", async (t) => {
+  const { handle } = await import(new URL("../plugins/sage/hooks/sage-hook.mjs", import.meta.url));
+  const { sharedRoot } = await import(new URL("../plugins/sage-codex/core/index.mjs", import.meta.url));
+  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {} };
+  const project = realpathSync(mkdtempSync(join(tmpdir(), "sage-t1153-project-")));
+  t.after(() => rmSync(project, { recursive: true, force: true }));
+  mkdirSync(join(project, ".git", "worktrees", "far"), { recursive: true });
+  mkdirSync(join(project, ".git", "worktrees", "own"), { recursive: true });
+  mkdirSync(join(project, "src"));
+  mkdirSync(`${project}-scratch`);
+  t.after(() => rmSync(`${project}-scratch`, { recursive: true, force: true }));
+  writeFileSync(join(project, ".git", "worktrees", "far", "gitdir"), "/work/sage-worktrees/t1/.git\n");
+  writeFileSync(join(project, ".git", "worktrees", "own", "gitdir"), "/tmp/R1/head/.git\n");
+  const logbook = process.env.SAGE_HOME, shared = sharedRoot(process.env), home = process.env.HOME, worktrees = join(home, "sage-worktrees");
+  const link = join(`${project}-scratch`, "link");
+  symlinkSync(project, link);
+  const g = fixed({ sage: true });
+  const child = (name) => ({ ...CHILD, cwd: project, transcript_path: record(t, { id: "child", session_id: base.session_id, agent_path: `/root/${name}`, source: { subagent: { thread_spawn: { depth: 1 } } } }) });
+  const both = async (command, role, name) => ({
+    claude: denied(handle({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, cwd: project, session_id: "s1", agent_id: "a1", agent_type: `sage:${role}` }, { sage: true, autopilot: false, start: false }, slots)) === undefined ? "runs" : "refused",
+    codex: denied(await g.run(pre("Bash", command, child(name)))) === undefined ? "runs" : "refused",
+  });
+  const RUNS = ["mkdir -p /tmp/x/sh", "mkdir -p /tmp/R1/node", "cp a /tmp/x/b", "node script.mjs > /tmp/x/out", `echo x > ${home}/notes/out.txt`, `cp README.md ${home}/copy.md`,
+    "printf x | tee /tmp/x/log", "mv /tmp/x/a /tmp/x/b", "rm -rf /tmp/x", "touch /tmp/x/t", "echo x > /work/other/out.txt", "echo x > /tmp/R1/head/out.txt", `cd ${project}-scratch && echo x > out.txt`,
+    "git -C /tmp/R1/head checkout main", "echo x > ~/notes/out.txt",
+    "S=/tmp/x; echo x > $S/out", `export S=/tmp/x && cp a "\${S}/b"`, "S=/tmp/x\ncd /tmp && echo x > $S/out", `D=${home}/notes; mkdir -p $D && echo x > $D/a`,
+    "sed -i '' s/a/b/ /tmp/x/a", "sed -i.bak s/a/b/ /tmp/x/a", "sed -i s/a/b/ /tmp/x/a", "sed --in-place -e s/a/b/ -e s/c/d/ /tmp/x/a /tmp/x/b", "S=/tmp/x; sed -i '' s/a/b/ $S/a",
+    "sed -n p src/a.js", `HOME=${home}/h node /tmp/x/probe.mjs > /tmp/x/out`, `echo x > ${worktrees}-other/a`];
+  const REFUSED = ["echo x > out.txt", "echo x >> src/a.js", "printf x | tee notes.txt", "cp /tmp/x/a src/a.js", "mv src/a.js /tmp/x/a", "rm -rf src", "rmdir src", "touch new.txt",
+    "git checkout main", "chmod +x src/a.sh", `echo x > ${project}/a.txt`, "cd src && echo x > ../a.txt", "cd /tmp && echo x > " + project + "/a.txt", `echo x > /tmp/../${project}/a.txt`,
+    `cd /tmp/x && cp a ${project}/src/b`, "echo x > /work/sage-worktrees/t1/a.txt", `echo x > ${logbook}/p-abc/tasks.tsv`, `cd ${logbook} && rm -f p-abc/runs.tsv`, `cp /tmp/x/a ${shared}/bindings.tsv`,
+    `rm -rf ${home}`, "rm -rf /", "echo x > $OUT", "echo x > /tmp/*/out.txt", "echo x > $(mktemp)", "cp a $DEST", "cd $DIR && echo x > out.txt", `node -e "require('fs').writeFileSync('/tmp/x/a', 'x')"`];
+  REFUSED.push(
+    `echo x > ${worktrees}/sage-abc/R1-t1/a.js`, `echo x > ${worktrees}/sage-abc/pages/T1/a.md`, `rm -rf ${worktrees}`, `echo x > ${link}/a.txt`,
+    `S=${project}; echo x > $S/a.txt`, `S=${logbook}; echo x > $S/p-abc/tasks.tsv`, `S=/tmp/x; S=${project}; echo x > $S/a.txt`, `S=/tmp/x; echo x > $S/a; S=${project}`,
+    "(S=/tmp/x); echo x > $S/a", "true && S=/tmp/x; echo x > $S/a", "echo a | S=/tmp/x; echo x > $S/a", "S=/tmp/x & echo x > $S/a", "echo x > $S/a; S=/tmp/x",
+    "S=/tmp/x; bash -c 'echo x > $S/a'", "S=/tmp/x; echo x > \\$S", "S=$(mktemp -d); echo x > $S/a", "S=~/x; echo x > $S/a", "S=/tmp/*; echo x > $S/a", "S=/tmp/x; T=$S/y; echo x > $T",
+    "S=/tmp/x; echo x > ${S:-.}/a", "S=/tmp/x; echo x > $S:h/a", "S=out; echo x > $S", `S=/tmp/x; git -C $S/../..${project} checkout main`, `HOME=${project}; cd ~ && echo x > a.txt`, `HOME=${project} sh -c "cd ~ && echo x > a.txt"`, "S=/tmp/x; cat > $S/a <<EOF\nx\nEOF",
+    "sed -i '' s/a/b/ src/a.js", "sed -i '' s/a/b/ /tmp/x/a src/a.js", "cd src && sed -i '' s/a/b/ a.js", "sed -i '' s/a/b/ $F", "sed -i '' s/a/b/ /tmp/*/a", "ls | xargs sed -i '' s/a/b/",
+    `sed -i '' s/a/b/ /tmp/x/../..${project}/a`, `sed -i '' s/a/b/ ${link}/a.txt`, "sed -i -Q s/a/b/ /tmp/x/a", `sed --in-place=.bak s/a/b/ ${logbook}/p-abc/tasks.tsv`, "S=src; sed -i '' s/a/b/ $S/a.js",
+    "perl -i -pe s/a/b/ /tmp/x/a", ...LAUNCHED_CODE, "gsed -e s/a/b/ -i .env", "sed -e s/a/b/ -i .env", "gsed -i '' s/a/b/ /tmp/x/a", `sed -e s/a/b/ -i ${project}/.env`,
+    "IFS=:; S=/tmp/x:src; rm -rf $S", "IFS=: S=/tmp/x:src; rm -rf $S", "export IFS=:; S=/tmp/x:src; rm -rf $S");
+  for (const [role, name] of [["code-reviewer", "sage_code_reviewer_t1_r2"], ["security-reviewer", "sage_security_reviewer_t1_r3"], ["qa", "sage_qa_t1_r4"], ["evidence-review", "sage_evidence_review_t1_r5"]]) {
+    for (const command of RUNS) assert.deepEqual(await both(command, role, name), { claude: "runs", codex: "runs" }, `${role}: ${command}`);
+    for (const command of REFUSED) assert.deepEqual(await both(command, role, name), { claude: "refused", codex: "refused" }, `${role}: ${command}`);
+  }
+  assert.deepEqual(await both("cp a /tmp/x/b", "implementer", "sage_implementer_t1_r1"), { claude: "runs", codex: "runs" }, "the implementer");
+  assert.deepEqual(await both("echo x > /work/other/out.txt", "lead", "sage_lead_t1"), { claude: "refused", codex: "refused" }, "the lead keeps the temp-only rule");
+  for (const command of LAUNCHED_CODE) assert.deepEqual(await both(command, "lead", "sage_lead_t1"), { claude: "refused", codex: "refused" }, `the lead: ${command}`);
+  const text = async (command) => ({
+    claude: deniedRaw(handle({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, cwd: project, session_id: "s1", agent_id: "a1", agent_type: "sage:qa" }, { sage: true, autopilot: false, start: false }, slots)),
+    codex: deniedRaw(await g.run(pre("Bash", command, child("sage_qa_t1_r4")))),
+  });
+  for (const [command, part] of [["ls /tmp/x && cat README.md > /tmp/x/a.txt && cp README.md /tmp/x/b.txt && echo x > src/a.js", "> src/a.js"],
+    ["mkdir -p /tmp/x/notes && cp README.md /tmp/x/notes/a.md && rm -rf src", "rm -rf src"], [`sed -e s/a/b/ -i ${project}/.env`, `sed -e s/a/b/ -i ${project}/.env`.slice(0, 60)]]) {
+    const got = await text(command);
+    assert.equal(got.codex, got.claude.replace(/\.$/, ""), `one refusal text in both providers: ${command}`);
+    assert.ok(got.claude.includes(`the qa agent changes no file in the project or the logbook, also not from the shell, so "${part}" is refused`), got.claude);
+    assert.ok(got.claude.includes("into the project's checkout, the sage worktrees folder or the logbook"), "the text names the protected places");
   }
 });
 

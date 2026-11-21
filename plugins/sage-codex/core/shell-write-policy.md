@@ -1,6 +1,6 @@
 # Shared shell-write classification
 
-`commandWrites(text, cwd, scratch, { readOnly, placed, home, guard })` identifies known shell write forms and reader options
+`commandWrites(text, cwd, scratch, { readOnly, placed, home, guard, protect })` identifies known shell write forms and reader options
 that can run another program. It parses text without executing it. Non-text or
 unreadable input counts as a write form.
 
@@ -13,6 +13,66 @@ read-only role (T933, T936). For the chief in sage mode (T948, T960, T807),
 core's `chiefShellProblem` passes the chief's places (`chiefPlaces`: the temp
 folders and the sage worktrees folder, which holds the pages roots), with
 core's `CHIEF_SHELL` text.
+
+`protect` (the read-only roles' rule, T1153) turns the scratch list around: a
+target passes unless it is in, or holds, a protected folder. The protected
+folders are the project's main checkout (found from `cwd`), each worktree of
+its repository that is not in a scratch folder (read from
+`.git/worktrees/*/gitdir`; a worktree in a scratch folder is an agent's own
+copy), and the folders in `protect` (each hook passes its logbook roots).
+`protect` implies `placed: true`. Core's `readOnlyPlace(roots, env)` gives
+both hooks the same options: the logbook roots and the sage worktrees folder
+(`SAGE_WORKTREES`, default `~/sage-worktrees`), so a task worktree or a clone
+there that git does not list is protected too. A scratch folder inside a
+protected folder stays open (the nearer folder wins): the Claude hook gives the
+investigate agent its pages folder as scratch, so its pages pass. A target
+that the reader cannot tell (a pattern, a command substitution, or a `cd` into
+a folder that it cannot follow) still counts, and so do the write forms with
+no target that the reader knows (code in `node -e`, `tar`, `ln`, `curl` and
+the others).
+
+With `protect`, two more forms are read (T1153):
+
+- **Literal names.** A variable set once, earlier in the same command, by a
+  plain top-level assignment (`S=/tmp/x;` or `export S=/tmp/x &&`) to a value
+  of path characters only, reads as that value in `$S` and `${S}`. A value
+  with a variable, a substitution, a pattern, `~` or a space; a name that the
+  command names again anywhere (a second assignment, `read S`, `${S:-x}`, the
+  name in a path); an assignment in a subshell, a group, a pipe, after `&&` or
+  `||`, or in the background; a use before the assignment or in single quotes;
+  `$S:h` and `$S[1]` (zsh); and a command with a heredoc, `$'...'` or a
+  substitution in double quotes keep the variable as one that the reader
+  cannot tell. `HOME`, `CDPATH`, `PATH`, `IFS`, `PWD` and `OLDPWD` are never
+  read, and a command that sets `HOME` or `CDPATH` counts as a write. A
+  command that names `IFS` outside single quotes (`IFS=:`, `export IFS`) reads
+  no variable at all, because a changed `IFS` splits a value into other words
+  (`IFS=:; S=/tmp/x:src; rm -rf $S` removes `src`, F-T1153-10).
+- **sed -i.** `sed -i`, `-i ''`, `-i.bak`, `-I` and `--in-place` count only
+  for their file operands: every operand after the script, or every operand
+  with `-e` or `-f`. Each one must pass as a target. For `sed`, an empty or
+  suffix word (`.bak`) after a separate `-i` is BSD sed's suffix, and a word
+  that is not empty must pass as a target too, because GNU sed reads it as a
+  file (`sed -e s/a/b/ -i .env`, F-T1153-9). `gsed` is GNU sed: a separate
+  `-i` takes no suffix. An option that the
+  reader does not know, or a wrapper before sed (`xargs sed -i`), counts.
+  `perl -i` and `ruby -i` still count. A limit: the reader does not read the
+  sed script, so a `w` command in it writes where it names. Each
+hook keeps the old temp-only rule for the lead, and when it cannot read the
+logbook roots.
+
+Inline code (`runsCode`, also `inlineCode` for the proof check) counts when a
+word of a command names an interpreter and a later word is a code option
+(`-c`, `-e`, `-p`, `--eval`). Every word counts, because a launcher puts the
+interpreter after its own name (`uv run python -c`, `bundle exec ruby -e`,
+`arch -arm64 node -e`, F-T1153-8). An option before the interpreter word does
+not count, so the folder name in `mkdir -p /tmp/x/sh` is no shell.
+
+`commandWritePart` takes the same arguments and gives the part that writes: a
+simple command, a redirection (`> src/a.js`) or a program run, or the whole
+text when the reader cannot tell. `commandWrites` is true when it gives a
+part. Core's `readOnlyShell(role, part)` is the one refusal text for a
+read-only role's shell write: it quotes the part and names the protected
+places. Both hooks give it (F-T1153-13, F-T1153-15).
 
 `placed: true` (the chief's rule, T807) lets the placed write programs `rm`,
 `rmdir`, `touch`, `tee`, `cp` and `mv` count like a redirection: only when one
