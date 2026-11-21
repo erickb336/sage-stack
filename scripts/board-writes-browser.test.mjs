@@ -501,8 +501,10 @@ test("F-T1059-36: the Read the full question link follows a theme switch on an o
   await link.waitFor();
   assert.doesNotMatch(await link.getAttribute("href"), /theme=/);
   await page.getByRole("button", { name: "Switch to the light theme" }).click();
+  await page.locator('.facts-line a[href$="?theme=light"]').waitFor();
   assert.match(await link.getAttribute("href"), /\?theme=light$/);
   await page.getByRole("button", { name: "Switch to the dark theme" }).click();
+  await page.locator('.facts-line a:not([href*="theme="])').waitFor();
   assert.doesNotMatch(await link.getAttribute("href"), /theme=/);
 });
 
