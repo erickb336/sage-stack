@@ -78,10 +78,10 @@ export function uniqWrites(words, base) {
   return operands > 1;
 }
 const INTERPRETER = /^(?:node|deno|bun|python[\d.]*|perl|ruby|php|osascript|sh|bash|zsh|dash|ksh|fish|pwsh|powershell)$/;
-const runsCode = (run) => INTERPRETER.test(programName(run.word)) && run.args.some((arg) => CODE.test(arg.toLowerCase()));
+const runsCode = (words) => words.some((word, i) => INTERPRETER.test(programName(word)) && words.slice(i + 1).some((arg) => CODE.test(arg.toLowerCase())));
 export function inlineCode(text) {
   try {
-    return programsRun(text, process.cwd()).some(runsCode);
+    return shellCommands(text).some(({ words }) => runsCode(words));
   } catch {
     return false;
   }
@@ -106,6 +106,7 @@ function writesIn({ words }, runs, placed, protect) {
     (has(/^[gmn]?awk$/) && (low.includes("inplace") || words.some(awkWrites))) ||
     (has(/^g?sort$/) && low.some((w) => /^-[a-z]*o|^--o/.test(w))) ||
     (has(/^find$/) && low.some((w) => /^-(?:delete|exec|execdir|ok|okdir|fprint|fprintf|fls)$/.test(w))) ||
+    runsCode(words) ||
     /^(?:eval|source|\.|exec)$/.test(base[low.findIndex((w) => !/^\w+=/.test(w))] ?? "")
   );
 }
@@ -267,35 +268,40 @@ function inProject({ target, dir, uncertainDirectory }, cwd) {
   const path = realPath(resolve(dir ?? cwd, literal || ".")), project = realPath(resolve(cwd));
   return path === project || path.startsWith(project.endsWith(sep) ? project : project + sep);
 }
-export function commandWrites(text, cwd, scratch = [], { readOnly = false, placed = false, home, guard, protect } = {}) {
-  const place = { home, guard, protect };
+export const commandWrites = (...args) => commandWritePart(...args) !== undefined;
+export function commandWritePart(text, cwd, scratch = [], { readOnly = false, placed = false, home, guard, protect } = {}) {
+  const place = { home, guard, protect }, whole = String(text);
   placed ||= Boolean(protect);
-  if (typeof text !== "string") return true;
+  if (typeof text !== "string") return whole;
   try {
     if (protect) {
-      if (SHELL_PLACES.test(text) && /~|\b(?:cd|pushd|popd)\b/.test(text)) return true;
+      if (SHELL_PLACES.test(text) && /~|\b(?:cd|pushd|popd)\b/.test(text)) return whole;
       text = literalNames(text);
     }
     const commands = shellCommands(text);
     const evidence = programsRun(text, cwd, undefined, { contextEvidence: true, redirectParts: true, ...(home ? { home } : {}) });
     const runs = new Set(evidence.programs.map(({ run }) => programName(run.word)));
-    if (commands.some((command) => writesIn(command, runs, placed, Boolean(protect)))) return true;
+    const command = commands.find((command) => writesIn(command, runs, placed, Boolean(protect)));
+    if (command) return command.words.join(" ");
     const placeWrites = (entry, i) => {
       const name = programName(entry.run.word), wrapped = Boolean(evidence.programs[i - 1]?.wrapper);
       if (placed && PLACED.has(name)) return wrapped || outsideScratch(placedTargets(name, entry.run.args), entry, cwd, scratch, place);
-      if (protect && /^g?sed$/.test(name)) { const files = sedTargets(entry.run.args); return (wrapped && files !== EMPTY) || outsideScratch(files, entry, cwd, scratch, place); }
+      if (protect && /^g?sed$/.test(name)) { const files = sedTargets(entry.run.args, name === "sed"); return (wrapped && files !== EMPTY) || outsideScratch(files, entry, cwd, scratch, place); }
       if (/^(?:chmod|chown|chgrp|chflags)$/.test(name)) return modeTargets(name, entry.run.args).some((target) => inProject(at(entry, target), cwd));
       return outsideScratch(name === "gh" ? ghTargets(entry.run.args) : readOnly && name === "git" ? gitTargets(entry.run.args) : [], entry, cwd, scratch, place);
     };
-    return evidence.redirects.some(r => toFile(r) && !intoScratch(r, cwd, scratch, place)) || evidence.programs.some((entry, i) => readerDispatch(entry) || runsCode(entry.run) || outputDispatchWrites(entry) || placeWrites(entry, i));
+    const redirect = evidence.redirects.find(r => toFile(r) && !intoScratch(r, cwd, scratch, place));
+    if (redirect) return `${redirect.operator} ${redirect.target}`;
+    const entry = evidence.programs.find((entry, i) => readerDispatch(entry) || runsCode([entry.run.word, ...entry.run.args]) || outputDispatchWrites(entry) || placeWrites(entry, i));
+    return entry && [entry.run.word, ...entry.run.args].join(" ");
   } catch {
-    return true;
+    return whole;
   }
 }
 const EMPTY = [], SED_FLAGS = new Set(["--quiet", "--silent", "--regexp-extended", "--separate", "--unbuffered", "--null-data", "--posix", "--debug", "--sandbox", "--follow-symlinks", "--binary"]);
-function sedTargets(args) {
+function sedTargets(args, bsd) {
   let inPlace = false, script = false;
-  const operands = [];
+  const operands = [], suffixes = [];
   for (let k = 0; k < args.length; k++) {
     const arg = args[k];
     if (arg === "--") { operands.push(...args.slice(k + 1)); break; }
@@ -307,13 +313,13 @@ function sedTargets(args) {
     } else if (arg.length > 1 && arg.startsWith("-")) {
       for (let j = 1; j < arg.length; j++) {
         const option = arg[j], last = j === arg.length - 1;
-        if (option === "i" || option === "I") { inPlace = true; if (last && /^(?:|\.[\w.~-]*)$/.test(args[k + 1] ?? "-")) k++; break; }
+        if (option === "i" || option === "I") { inPlace = true; if (bsd && last && /^(?:|\.[\w.~-]*)$/.test(args[k + 1] ?? "-")) { k++; if (args[k]) suffixes.push(args[k]); } break; }
         if ("efl".includes(option)) { script ||= option !== "l"; if (last) k++; break; }
         if (!"nErsuz".includes(option)) return true;
       }
     } else operands.push(arg);
   }
-  return !inPlace ? EMPTY : script ? operands : operands.slice(1);
+  return !inPlace ? EMPTY : [...suffixes, ...(script ? operands : operands.slice(1))];
 }
 
 const SAFE_VALUE = /^[\w./@%+,:=-]+$/, KEPT_NAMES = /^(?:HOME|CDPATH|PWD|OLDPWD|IFS|PATH|ENV|BASH_ENV|ZDOTDIR)$/;
@@ -352,7 +358,7 @@ function scanNames(text) {
 export function literalNames(text) {
   if (!text.includes("$")) return text;
   const scan = scanNames(text);
-  if (!scan) return text;
+  if (!scan || scan.bare.has("IFS")) return text;
   const commands = shellCommands(text), nodes = flowOf(commands)?.nodes ?? [], values = new Map();
   nodes.forEach((node, k) => {
     const c = node.cmd, before = nodes[k - 1]?.after;

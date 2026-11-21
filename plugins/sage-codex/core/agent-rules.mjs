@@ -35,6 +35,9 @@ export function chiefShellProblem(command, cwd, env = process.env) {
   return commandWrites(command, cwd, places, options) ? CHIEF_SHELL : CHIEF_WORKTREE;
 }
 export const READ_ONLY_SHELL_WAY = "To keep output or a probe, redirect it into your scratch folder in the temp folder, with a literal path (for example > /tmp/<run>/out.txt). To try a changed copy, write the copy the same way: git show <sha>:<path> | sed 's/a/b/' > /tmp/<run>/copy.mjs. To check out a head, make a worktree in your scratch folder: git worktree add --detach /tmp/<run>/head <sha>; git commands run there.";
+export const READ_ONLY_PAGE_NOTE = "The investigate agent writes only its pages, in the task's pages folder that its brief names, and files in its scratch folder.";
+const quotedPart = (text) => `"${[...String(text).replace(/\\\n/g, "").replace(/(?! )[\p{Cc}\p{Cf}\p{Z}"'`\u2018-\u201f\uff02\\]/gu, "")].slice(0, 60).join("")}"`;
+export const readOnlyShell = (role, part) => `in sage mode, the ${role} agent changes no file in the project or the logbook, also not from the shell, so ${quotedPart(part)} is refused: it has a write form into the project's checkout, the sage worktrees folder or the logbook, or a write form whose target the hook cannot tell (for example code in node -e, tar, a pattern, a variable that the command does not set to a literal path before, or a git command that changes the checkout, such as git checkout, reset, commit or branch -D). A write into another folder passes, with a literal path or a variable set to one earlier in the command; sed -i too. ${role === "investigate" ? `${READ_ONLY_PAGE_NOTE} Redirect a page into its pages folder, with a literal path.` : "Report the finding instead."} ${READ_ONLY_SHELL_WAY}`;
 const inTemp = (file) => !!file && TEMP.some((t) => file.startsWith(`${t}/`));
 const PROCESS_TEXT = new RegExp(`(?:^|[\\s;&|(\`'"/<>])(?:${UNIX_PROCESS}|${POWERSHELL_PROCESS})(?:\\.exe)?(?=$|[\\s;&|)\`'"<>])`, "im");
 

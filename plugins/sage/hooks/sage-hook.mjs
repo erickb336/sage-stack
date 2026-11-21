@@ -969,14 +969,19 @@ function scratchOf(role, cwd) {
   if (role !== "investigate") return core.TEMP;
   try { return [...core.TEMP, stateTool.pagesRoot(realpathSync.native(cwd), process.env)]; } catch { return core.TEMP; }
 }
-const PAGE_NOTE = "The investigate agent writes only its pages, in the task's pages folder that its brief names, and files in its scratch folder.";
 export function readOnlyWrite(agentType, commands, cwd) {
   const { role, denied, known } = readOnlyRole(agentType);
+  if (!denied) return undefined;
   let place = { readOnly: true };
-  try { if (denied && known && role !== "lead") place = core.readOnlyPlace(rootsOf(true), process.env); } catch {}
-  const scratch = denied ? scratchOf(role, cwd) : [];
-  const write = denied ? commands.find((command) => { try { return core.commandWrites(command, cwd, scratch, place); } catch { return true; } }) : undefined;
-  return write === undefined ? undefined : `in sage mode, the ${role} agent changes no file in the project or the logbook, also not from the shell, so ${quoted(bare(write))} is refused: it has a write form into the project's checkout, the sage worktrees folder or the logbook, or a write form whose target the hook cannot tell (for example code in node -e, tar, a pattern, a variable that the command does not set to a literal path before, or a git command that changes the checkout, such as git checkout, reset, commit or branch -D). A write into another folder passes, with a literal path or a variable set to one earlier in the command; sed -i too. ${role === "investigate" ? `${PAGE_NOTE} Redirect a page into its pages folder, with a literal path.` : "Report the finding instead."} ${core.READ_ONLY_SHELL_WAY ?? ""}`;
+  try { if (known && role !== "lead") place = core.readOnlyPlace(rootsOf(true), process.env); } catch {}
+  const scratch = scratchOf(role, cwd);
+  for (const command of commands) {
+    let part;
+    try { part = core.commandWritePart(command, cwd, scratch, place); } catch { part = command; }
+    if (part === undefined) continue;
+    try { return core.readOnlyShell(role, part); } catch { return `in sage mode, the ${role} agent changes no files, also not from the shell, and the sage core cannot load, so the hook refuses this command. Reinstall or update the sage plugin.`; }
+  }
+  return undefined;
 }
 export function readOnlyFile(input) {
   const { role, denied } = readOnlyRole(input.agent_type);
@@ -995,7 +1000,7 @@ export function readOnlyFile(input) {
     outside ??= paths[0];
   }
   if (outside === undefined) return undefined;
-  return `in sage mode, the ${role} agent changes no project files, so its ${input.tool_name} of ${quoted(outside)} is refused. ${role === "investigate" ? PAGE_NOTE : "Report the finding instead."} A file in your scratch folder in the temp folder passes, with a literal path (for example /tmp/<run>/notes.md).`;
+  return `in sage mode, the ${role} agent changes no project files, so its ${input.tool_name} of ${quoted(outside)} is refused. ${role === "investigate" ? core.READ_ONLY_PAGE_NOTE : "Report the finding instead."} A file in your scratch folder in the temp folder passes, with a literal path (for example /tmp/<run>/notes.md).`;
 }
 
 export function programsRun(command, cwd, path = process.env.PATH ?? "", options) {

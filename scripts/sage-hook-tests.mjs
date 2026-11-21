@@ -2175,6 +2175,8 @@ test("T947: a review's or QA's medium or high finding carries a proof that the p
       [`- K1 medium a.js:1 a bad value\n  proof: ${proof}\n  saw: not ok 1`, /^sage: K1's proof ".*" is refused: a proof runs git only to read its own working copy: git status, log, show, diff, rev-parse, ls-files, grep, cat-file, blame, with no -C, -c, --git-dir, --work-tree or --output\./]),
     ["- K1 medium a.js:1 a bad value\n  proof: node -e \"console.log(1)\"\n  saw: 1", /^sage: K1's proof "node -e \\"console\.log\(1\)\\"" is refused: it runs inline code \(such as node -e or sh -c\), which the gate cannot check: put the script in a file in your scratch folder, and run that file\./],
     ["- K1 medium a.js:1 a bad file\n  proof: `npm test > out.txt`\n  saw: not ok 1", /^sage: K1's proof "npm test > out\.txt" is refused: it writes outside the scratch folder\./],
+    ...["uv run python -c x", "poetry run python -c x", "bundle exec ruby -e x", "pnpm exec node -e x", "arch -arm64 node -e x", "xcrun python3 -c x"].map((proof) =>
+      [`- K1 medium a.js:1 a bad value\n  proof: ${proof}\n  saw: 1`, /^sage: K1's proof ".*" is refused: it runs inline code \(such as node -e or sh -c\)/]),
   ]) {
     for (const type of ["sage:code-reviewer", "sage:security-reviewer", "sage:ux-reviewer", "sage:qa"]) {
       const first = stop(type, report("FINDINGS", `\n${finding}`));
