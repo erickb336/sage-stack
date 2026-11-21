@@ -400,9 +400,9 @@ test("F-T1186-8: a stopped chief's two groups, the tasks it held and the tasks i
 });
 
 test("F-T1186-9: a chief that came back after its work passed on, and stopped again, shows no old passed-on note", () => {
-  const rows = [handover("C1", "C3", { tasks: ["T1"] })], beat = (at) => ({ C1: { checkout: null, sageMode: true, autopilot: false, at: Date.parse(at) } }), now = "2026-11-20T20:00:00.000Z";
-  assert.deepEqual(notesOf(rows, now, beat("2026-11-20T09:00:00.000Z")).C1, ["passed on to C3 at 09:25"], "its last event was before the pick-up");
-  assert.deepEqual(notesOf(rows, now, beat("2026-11-20T10:00:00.000Z")).C1, [], "its last event was after the pick-up");
+  const rows = [handover("C1", "C3", { tasks: ["T1"] })], beat = (at) => ({ C1: { checkout: null, sageMode: true, autopilot: false, at: Date.parse(at), onAt: Date.parse(at) } }), now = "2026-11-20T20:00:00.000Z";
+  assert.deepEqual(notesOf(rows, now, beat("2026-11-20T09:00:00.000Z")).C1, ["passed on to C3 at 09:25"], "it was last in sage mode before the pick-up");
+  assert.deepEqual(notesOf(rows, now, beat("2026-11-20T10:00:00.000Z")).C1, [], "it was last in sage mode after the pick-up");
 });
 
 test("F-T1186-7: a pick-up from a chief to itself shows one note: the one for the chief that took the work", () => {

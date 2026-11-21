@@ -89,7 +89,7 @@ for (const [name, provider, say, tool, session] of providers) {
     assert.equal(head, "id\tprovider\tnative\tat", "chiefs.tsv keeps its four columns");
     assert.deepEqual(rows.map((row) => row.split("\t").slice(0, 3)), [["C1", provider, session]]);
     const live = json(w.live("C1"));
-    assert.deepEqual({ ...live, at: undefined }, { provider, checkout: realpathSync(w.project), sageMode: true, autopilot: false, at: undefined });
+    assert.deepEqual({ ...live, at: undefined }, { provider, checkout: realpathSync(w.project), sageMode: true, autopilot: false, at: undefined, onAt: live.at });
     assert.ok(Math.abs(Date.parse(live.at) - Date.now()) < MINUTE, live.at);
   });
 
@@ -796,4 +796,32 @@ for (const [name, say] of [["Claude", claudeSay], ["Codex", codexSay]]) test(`T1
 test("T1173: the sage mode on line names 2 other live sessions, and not an ended one", (t) => {
   const w = modeOnWith(t, [{ provider: "claude", ago: MINUTE, tasks: 14, agents: 3 }, { provider: "codex", ago: 2 * MINUTE, tasks: 2, agents: 1 }, { provider: "claude", ago: 9 * HOUR, tasks: 1 }]);
   assert.equal(modeOnLine(claudeSay(w, "sage mode")), "sage: 2 other sessions also work on this project: Claude session C1 (14 tasks, 3 agents) and Codex session C2 (2 tasks, 1 agent). Each session keeps its own tasks. You share 10 agents; 6 are free. Tell the user this in one line.");
+});
+
+function beatsDue(w) {
+  for (const dir of [join(w.env.SAGE_HOOKS_STATE, "live"), join(w.env.CODEX_HOME, "sage", ".hooks", "codex", "live")]) {
+    for (const name of existsSync(dir) ? readdirSync(dir) : []) writeFileSync(join(dir, name), JSON.stringify({ ...json(join(dir, name)), at: 0 }));
+  }
+}
+const passOn = (w, at) => writeFileSync(join(w.dir, "decisions.tsv"), ["at\ttask\tdecision\twhy\tchief\thandover",
+  [new Date(at).toISOString(), "", "pick-up from C1 to C9", "pick-up", "C9", JSON.stringify({ from: "C1", to: "C9", fromProvider: "claude", toProvider: "claude", reason: "ended", since: "", tasks: ["T1"], lost: [], queued: [], gates: [] })].join("\t")].join("\n") + "\n");
+const passedOnOf = (w) => boardOf(w, Date.now()).project.chiefs.find((c) => c.id === "C1").passedOn;
+
+for (const [name, say, tool] of [["Claude", claudeSay, claudeTool], ["Codex", codexSay, codexTool]]) test(`F-T1186-10: ${name}: a stopped chief's passed-on note stays while its session keeps beating with sage mode off, and goes when sage mode comes back`, (t) => {
+  const w = linkedAt(t);
+  say(w, "sage mode");
+  say(w, "sage mode off");
+  const back = (ms) => new Date(Date.now() - ms).toISOString(), file = w.live("C1");
+  writeFileSync(file, JSON.stringify({ ...json(file), at: back(20 * MINUTE), ended: { reason: "off", at: back(20 * MINUTE) }, onAt: back(20 * MINUTE) }));
+  passOn(w, Date.now() - 10 * MINUTE);
+  beatsDue(w);
+  tool(w);
+  const record = recordOf(w, "C1");
+  assert.deepEqual([record.ended, record.at > Date.now() - MINUTE], ["off", true], "a new heartbeat, the ended mark kept");
+  assert.equal(passedOnOf(w)?.to, "C9", "the chief is still stopped, so the note stays");
+  say(w, "sage mode");
+  say(w, "sage mode off");
+  beatsDue(w);
+  tool(w);
+  assert.equal(passedOnOf(w), null, "F-T1186-9: the chief came back with sage mode on after the pass-on, so the old note goes");
 });

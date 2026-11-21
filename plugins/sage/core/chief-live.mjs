@@ -60,7 +60,8 @@ export function chiefBeat({ last, mode, now, project, native, provider, tool, en
       if (file) {
         const prior = readLive(file), off = last?.sageMode === true && mode.sageMode === false;
         const ended = off ? endOf("off", now) : mode.sageMode ? undefined : prior.ended;
-        writeLive(file, { provider, checkout: row.root, ...mode, at: new Date(now).toISOString(), ...programOf(pid, tool.sessionProbe?.(dir), prior, now), ...(ended ? { ended } : {}) });
+        const at = new Date(now).toISOString(), onAt = mode.sageMode ? at : prior.onAt;
+        writeLive(file, { provider, checkout: row.root, ...mode, at, ...(onAt ? { onAt } : {}), ...programOf(pid, tool.sessionProbe?.(dir), prior, now), ...(ended ? { ended } : {}) });
       }
     }
   } catch {}
@@ -86,7 +87,8 @@ export function chiefResume({ project, native, pid, now, tool, env }) {
     const prior = file ? readLive(file) : {};
     if (prior.sageMode !== true) return false;
     const { ended, pid: _pid, pidStart, machine, boot, seen, confirmed, ...rest } = prior;
-    writeLive(file, { ...rest, at: new Date(now).toISOString(), ...programOf(pid, tool.sessionProbe?.(dir), {}, now) });
+    const at = new Date(now).toISOString();
+    writeLive(file, { ...rest, at, onAt: at, ...programOf(pid, tool.sessionProbe?.(dir), {}, now) });
     return true;
   } catch { return false; }
 }
@@ -140,7 +142,8 @@ export function liveRecord(data) {
   const checkout = typeof data.checkout === "string" && data.checkout.length <= 4096 && isAbsolute(data.checkout) && !/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(data.checkout) ? data.checkout : null;
   const number = (value) => (Number.isFinite(value) ? value : null), ended = data.ended && typeof data.ended === "object" && END_REASONS.includes(data.ended.reason) ? data.ended.reason : null;
   const endedAt = ended && typeof data.ended.at === "string" && Number.isFinite(Date.parse(data.ended.at)) ? Date.parse(data.ended.at) : null;
-  return { checkout, sageMode: flag(data.sageMode), autopilot: flag(data.autopilot), at: Number.isFinite(at) ? at : null,
+  const onAt = typeof data.onAt === "string" ? Date.parse(data.onAt) : NaN;
+  return { checkout, sageMode: flag(data.sageMode), autopilot: flag(data.autopilot), at: Number.isFinite(at) ? at : null, onAt: Number.isFinite(onAt) ? onAt : null,
     pid: Number.isSafeInteger(data.pid) ? data.pid : null, pidStart: number(data.pidStart), machine: typeof data.machine === "string" ? data.machine : null, boot: number(data.boot), confirmed: data.confirmed === true, ended, endedAt };
 }
 export function readLiveRecord(dir, chief) {
@@ -184,7 +187,7 @@ export function boardChiefs({ rows, live = {}, names = {}, runs = [], waits = []
       session: state, reason, endedAt: iso(record?.endedAt ?? null), confirmed: !!record?.confirmed, lost: stopped ? running : 0,
       passOnAt: state === "quiet" && !gates && heartbeat !== null ? iso(heartbeat + PASS_ON_MS) : null, quietAt: state === "live" && !running && heartbeat !== null ? iso(heartbeat + STOPPED_MS + 1) : null,
       waitsForOwner: state === "quiet" && gates > 0, stopped,
-      pickedUp: picked && { at: picked.at, tasks: picked.tasks, gates: picked.gates, queued: picked.queued, lost: picked.lost.length }, passedOn: passed && !(Date.parse(passed.at) < heartbeat) ? { at: passed.at, to: passed.to } : null,
+      pickedUp: picked && { at: picked.at, tasks: picked.tasks, gates: picked.gates, queued: picked.queued, lost: picked.lost.length }, passedOn: passed && !(Date.parse(passed.at) < beat?.onAt) ? { at: passed.at, to: passed.to } : null,
     };
   });
   const fold = (name) => name.normalize("NFKC").toLowerCase();
