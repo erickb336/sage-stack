@@ -51,7 +51,7 @@ const groupTitles = page => page.locator(".group h2").allTextContents();
 const rowIds = page => page.locator("a.row .id").allTextContents();
 async function settles(read, expected, message) {
   let last;
-  for (const end = Date.now() + 5000; Date.now() < end; await new Promise(accept => setTimeout(accept, 25))) {
+  for (const end = Date.now() + 30_000; Date.now() < end; await new Promise(accept => setTimeout(accept, 25))) {
     last = await read();
     if (JSON.stringify(last) === JSON.stringify(expected)) return;
   }

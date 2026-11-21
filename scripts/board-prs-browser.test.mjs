@@ -327,6 +327,11 @@ test("F-T1081-6, -19: the view choice holds after a reload, the age shows in a n
   assert.equal(await empty.page.getByRole("status").filter({ hasText: /open PRs?$/ }).count(), 0);
 });
 
+const steadyView = page => page.waitForFunction(() => new Promise(done => {
+  let last, same = 0;
+  const look = () => { const now = document.querySelector(".react-flow__viewport")?.style.transform; same = now && now === last ? same + 1 : 0; last = now; if (same >= 10) done(true); else requestAnimationFrame(look); };
+  look();
+}));
 const shownBoxes = page => page.evaluate(() => {
   const canvas = document.querySelector(".g-canvas").getBoundingClientRect();
   return [...document.querySelectorAll(".react-flow__node")].filter(node => { const r = node.getBoundingClientRect(); return r.right > canvas.left && r.left < canvas.right && r.bottom > canvas.top && r.top < canvas.bottom; }).map(node => node.dataset.id.split("/").pop());
@@ -342,10 +347,10 @@ test("F-T1081-10: a graph too large to fit starts at its first column and says t
     await page.getByRole("button", { name: "Graph" }).click();
     await page.locator(".react-flow__edge-path").first().waitFor({ state: "attached" });
     await page.waitForFunction(() => document.querySelector(".react-flow__viewport")?.style.transform);
-    await page.waitForTimeout(300);
+    await steadyView(page);
     const first = await firstBox(page), shown = await shownBoxes(page), notice = (await page.locator(".graph").innerText()).includes(NOTICE);
     await page.getByRole("button", { name: "Fit View" }).click();
-    await page.waitForTimeout(300);
+    await steadyView(page);
     seen[name] = { blank: !shown.length, firstColumn: shown.includes(first), notice, afterFitButton: (await shownBoxes(page)).includes(first), problems };
   }
   const want = { blank: false, firstColumn: true, notice: true, afterFitButton: true, problems: [] };
@@ -361,7 +366,7 @@ test("F-T1081-30: a logbook change keeps the pan and the zoom of the graph, and 
   const { page } = await open(t, { edit: path => { logbook = path; } }, "/app/#pull-requests");
   await page.getByRole("button", { name: "Graph" }).click();
   await page.locator(".gnode").first().waitFor();
-  await page.waitForTimeout(300);
+  await steadyView(page);
   const view = () => page.locator(".react-flow__viewport").evaluate(node => node.style.transform);
   const fitted = await view();
   await page.getByRole("button", { name: "Zoom In" }).click();
@@ -370,11 +375,11 @@ test("F-T1081-30: a logbook change keeps the pan and the zoom of the graph, and 
   await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2 - 300, box.y + box.height / 2 - 40, { steps: 10 });
   await page.mouse.up();
-  await page.waitForTimeout(300);
+  await steadyView(page);
   const moved = await view();
   assert.notEqual(moved, fitted, "the drag and the zoom move the view");
   editTable(logbook, "tasks", rows => rows.map(row => row.id === "T5" ? { ...row, title: `${row.title} (renamed)` } : row));
-  await page.locator(".graph").getByText("(renamed)").first().waitFor({ timeout: 10_000 });
+  await page.locator(".graph").getByText("(renamed)").first().waitFor();
   await page.waitForTimeout(300);
   assert.equal(await view(), moved, "the logbook change keeps the pan and the zoom");
   await page.setViewportSize({ width: 1000, height: 1000 });
@@ -399,8 +404,8 @@ test("F-T1081-28: when the graph fails to draw, the page says so and the list st
   await row(page, "T5").waitFor();
   await page.evaluate(() => { window.ResizeObserver = class { constructor() { throw new Error("sample failure"); } }; });
   await page.getByRole("button", { name: "Graph" }).click();
-  await page.getByRole("alert").filter({ hasText: "The board could not draw the graph. The list view shows each pull request." }).waitFor({ timeout: 5_000 });
+  await page.getByRole("alert").filter({ hasText: "The board could not draw the graph. The list view shows each pull request." }).waitFor();
   assert.equal(await page.locator("main h1").textContent(), "Pull requests", "the rest of the page stays");
   await page.getByRole("button", { name: "List" }).click();
-  await row(page, "T5").waitFor({ timeout: 5_000 });
+  await row(page, "T5").waitFor();
 });

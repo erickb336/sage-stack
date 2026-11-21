@@ -95,7 +95,7 @@ function Confirm({ project, tasks }) {
 
 function Note({ note, shown }) {
   const { project } = note, button = useRef(null);
-  useEffect(() => { button.current?.focus(); }, [note]);
+  useEffect(() => { if (!document.activeElement?.matches(".answer input")) button.current?.focus(); }, [note]);
   if (note.kind === "restored") return <div className="banner" role="status" tabIndex={-1} ref={button}><div><b>{project.name} is restored.</b> The chief can start work in it again, and you can answer its questions here.</div></div>;
   if (note.kind === "archived") return (
     <div className="banner" role="status"><div><b>{project.name} is archived.</b> It is in the Archived list. <button type="button" className="btn" ref={button} onClick={() => send("restore", project, { undo: true })}>Undo</button></div></div>
