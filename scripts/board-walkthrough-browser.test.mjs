@@ -360,7 +360,7 @@ test("F-T1084-1: the walkthrough recorder stops at a frame with local text and w
   assert.equal(readFileSync(calls, "utf8").trim().split("\n").length, 1, "one encode");
 });
 
-test("T1185: the tour shows every board page under its own caption, with sample data, and writes the video where it is told", async t => {
+test("T1185: the tour shows every board page under its own caption, with sample data, and writes the video where it is told (at 2 fps, so CI stays fast)", async t => {
   const dir = mkdtempSync(join(tmpdir(), "sage-walk-tour-")), fake = join(dir, "ffmpeg"), calls = join(dir, "ffmpeg.log");
   writeFileSync(fake, `#!/usr/bin/env node\nconst fs = require("fs"), a = process.argv.slice(2);\nif (a.includes("-version")) { console.log("ffmpeg version 7.1 sample"); process.exit(0); }\nfs.appendFileSync(${JSON.stringify(calls)}, a.join(" ") + "\\n");\nfs.writeFileSync(a[a.length - 1], "sample video");\n`, { mode: 0o755 });
   const saved = Object.fromEntries(["FFMPEG", "HOME", "USER", "LOGNAME"].map(name => [name, process.env[name]]));
@@ -368,7 +368,7 @@ test("T1185: the tour shows every board page under its own caption, with sample 
   Object.assign(process.env, { FFMPEG: fake, HOME: join(dir, "home"), USER: "nobody-on-the-board", LOGNAME: "zz" });
   const { record } = await import("./board-walkthrough.mjs");
 
-  const out = join(dir, "tour.mp4"), done = await record({ tour: true, out, framesDir: join(dir, "frames") });
+  const out = join(dir, "tour.mp4"), done = await record({ tour: true, fps: 2, out, framesDir: join(dir, "frames") });
   assert.equal(readFileSync(out, "utf8"), "sample video", "the video is at the out path");
   assert.equal(readFileSync(calls, "utf8").trim().split("\n").length, 1, "one encode");
   const pages = { Overview: "Overview", "Needs you": "Overview", Sessions: "Overview", Tasks: "Tasks", "A task": "Sample sync design", Agents: "Agents", "Pull requests": "Pull requests", Stats: "Stats", Archive: "Overview" };

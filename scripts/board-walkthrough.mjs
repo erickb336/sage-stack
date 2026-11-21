@@ -100,6 +100,14 @@ const CAPTION = ({ cap, dark }) => {
     part("b", label, "font-weight:650"), part("span", text, `color:${dark ? "#a3a3ad" : "#52525b"}`));
 };
 
+function writePickupSample(logbooks, now) {
+  const file = join(logbooks, "sample-app-abc123", "decisions.tsv"), at = new Date(Date.parse(now) - 3 * 3_600_000).toISOString();
+  const [head, ...rows] = readFileSync(file, "utf8").trimEnd().split("\n"), columns = [...head.split("\t"), "handover"];
+  const handover = { from: "C3", to: "C1", fromProvider: "claude", toProvider: "claude", reason: "no heartbeat", since: at, tasks: ["T4", "T21"], lost: ["R12"], queued: [], gates: [] };
+  const pickup = { at, task: "", decision: "pick-up from C3 (claude) to C1: tasks T4, T21; lost runs R12; its session stopped (no heartbeat)", why: "pick-up", handover: JSON.stringify(handover) };
+  writeFileSync(file, [columns.join("\t"), ...rows.map(row => `${row}\t`), columns.map(column => pickup[column] ?? "").join("\t")].join("\n") + "\n");
+}
+
 const ARCHIVED = { folder: "sample-notes-d4e5f6", name: "Sample notes" };
 function writeArchivedSample(logbooks, now) {
   const dir = join(logbooks, ARCHIVED.folder), from = join(logbooks, "sample-app-abc123"), daysAgo = days => new Date(Date.parse(now) - days * 86_400_000).toISOString();
@@ -117,7 +125,7 @@ function writeArchivedSample(logbooks, now) {
 
 function director(page, shot, st) {
   const play = async (seconds, step = () => {}) => {
-    const count = Math.max(1, Math.round(seconds * FPS));
+    const count = Math.max(1, Math.round(seconds * st.fps));
     for (let i = 1; i <= count; i++) { step(i / count); await shot(); }
   };
   const box = async locator => { const r = await locator.boundingBox(); return { x: r.x, y: r.y, w: r.width, h: r.height }; };
@@ -256,8 +264,19 @@ async function tourFilm(page, base, shot, st) {
   await play(3.5);
 }
 
-export async function record({ theme = "dark", tour = false, browserPath = process.env.BOARD_BROWSER_PATH, framesDir = null, out = tour ? TOUR : OUT[theme] } = {}) {
+export function encode({ ffmpeg, fps = FPS, tour, frames, window, captions, out }) {
+  const frame = `[0]pad=${CANVAS.width}:${CANVAS.height}:${MARGIN}:${MARGIN + BAR}[page];[page][2]overlay=${MARGIN}:${MARGIN + BAR + VIEW.height}[band];[band][1]overlay=shortest=1`;
+  const encoding = tour
+    ? ["-filter_complex", `${frame},format=yuv420p`, "-c:v", "libx264", "-preset", "veryslow", "-crf", "30", "-tune", "stillimage", "-movflags", "+faststart", "-an", out]
+    : ["-filter_complex", `${frame},split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];[b][p]paletteuse=dither=none:diff_mode=rectangle`, "-loop", "0", out];
+  const noRestartOnRgbaFrame = folder => ["-reinit_filter", "0", "-framerate", String(fps), "-i", join(folder, "%04d.png")];
+  const done = spawnSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", ...noRestartOnRgbaFrame(frames), "-loop", "1", "-framerate", String(fps), "-i", window, ...noRestartOnRgbaFrame(captions), ...encoding], { encoding: "utf8" });
+  if (done.status !== 0) throw new Error(`ffmpeg could not write ${out}: ${done.stderr || done.error}`);
+}
+
+export async function record({ theme = "dark", tour = false, fps = FPS, browserPath = process.env.BOARD_BROWSER_PATH, framesDir = null, out = tour ? TOUR : OUT[theme] } = {}) {
   if (!OUT[theme]) throw new TypeError(`--theme is dark or light, not ${theme}`);
+  if (tour && theme !== "dark") throw new TypeError(`the tour is dark only, so it records no ${theme} video: leave out --theme with --tour, or record the ${theme} GIF without --tour`);
   const { ffmpeg, version } = ffmpegCommand();
   const { chromium } = createRequire(import.meta.url)("playwright");
   if (framesDir) {
@@ -281,7 +300,7 @@ export async function record({ theme = "dark", tour = false, browserPath = proce
 
     const now = new Date().toISOString();
     writeTasksLogbook(join(dir, "logbooks"), process.env.SAGE_WORKTREES, now, { agents: true, about: true, prs: true, documents: true });
-    if (tour) writeArchivedSample(join(dir, "logbooks"), now);
+    if (tour) { writeArchivedSample(join(dir, "logbooks"), now); writePickupSample(join(dir, "logbooks"), now); }
     const stateDir = join(dir, "board-state");
     mkdirSync(stateDir, { mode: 0o700 });
     server = createBoardServer({
@@ -298,7 +317,7 @@ export async function record({ theme = "dark", tour = false, browserPath = proce
     await page.goto(`${base}/app/#pair=${startLink(stateDir)}`);
     await page.getByText(/^This browser is paired\./).waitFor();
     const local = [dir, homedir(), ...[process.env.USER, process.env.LOGNAME].filter(name => name && name.length > 2)];
-    const st = { theme, colors: THEMES[theme], cam: { s: 1, tx: 0, ty: 0 }, cursor: { x: 1180, y: 560, press: false }, ring: null, cap: { parts: CAPTIONS[1], a: 1 }, fade: null };
+    const st = { theme, fps, colors: THEMES[theme], cam: { s: 1, tx: 0, ty: 0 }, cursor: { x: 1180, y: 560, press: false }, ring: null, cap: { parts: CAPTIONS[1], a: 1 }, fade: null };
     let count = 0, lastCap = null;
     const scenes = [];
     const shot = async () => {
@@ -315,14 +334,9 @@ export async function record({ theme = "dark", tour = false, browserPath = proce
     };
     await (tour ? tourFilm : film)(page, base, shot, st);
     if (problems.length) throw new Error(`the board page failed: ${problems.join("; ")}`);
-    const target = resolve(ROOT, out), frame = `[0]pad=${CANVAS.width}:${CANVAS.height}:${MARGIN}:${MARGIN + BAR}[page];[page][2]overlay=${MARGIN}:${MARGIN + BAR + VIEW.height}[band];[band][1]overlay=shortest=1`;
-    const encoding = tour
-      ? ["-filter_complex", `${frame},format=yuv420p`, "-c:v", "libx264", "-preset", "veryslow", "-crf", "30", "-tune", "stillimage", "-movflags", "+faststart", "-an", target]
-      : ["-filter_complex", `${frame},split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];[b][p]paletteuse=dither=none:diff_mode=rectangle`, "-loop", "0", target];
-    const encode = spawnSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-framerate", String(FPS), "-i", join(frames, "%04d.png"), "-loop", "1", "-framerate", String(FPS), "-i", join(dir, "window.png"),
-      "-framerate", String(FPS), "-i", join(caps, "%04d.png"), ...encoding], { encoding: "utf8" });
-    if (encode.status !== 0) throw new Error(`ffmpeg could not write ${out}: ${encode.stderr || encode.error}`);
-    return { out, bytes: statSync(target).size, frames: count, seconds: count / FPS, ffmpeg: version, scenes };
+    const target = resolve(ROOT, out);
+    encode({ ffmpeg, fps, tour, frames, window: join(dir, "window.png"), captions: caps, out: target });
+    return { out, bytes: statSync(target).size, frames: count, seconds: count / fps, ffmpeg: version, scenes };
   } finally {
     await browser.close();
     await server?.close();
@@ -333,7 +347,7 @@ export async function record({ theme = "dark", tour = false, browserPath = proce
 
 if (isMain(import.meta.url)) {
   const args = process.argv.slice(2), option = name => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
-  const tour = args.includes("--tour"), themes = tour ? ["dark"] : option("--theme") ? [option("--theme")] : Object.keys(OUT);
+  const tour = args.includes("--tour"), themes = tour ? [option("--theme") ?? "dark"] : option("--theme") ? [option("--theme")] : Object.keys(OUT);
   try {
     for (const theme of themes) {
       const framesDir = option("--frames") && join(option("--frames"), tour ? "tour" : theme);
