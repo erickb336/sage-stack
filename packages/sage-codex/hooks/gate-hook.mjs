@@ -216,6 +216,7 @@ function wordsOf(command, cwd, env) {
 
 const codexHome = (env) => resolve(env.CODEX_HOME ?? join(homedir(), ".codex"));
 const sageRoot = (env) => dirname(dirname(modeDirectory(env)));
+const logbookRoots = (env) => { try { return [sageRoot(env), sharedRoot(env)]; } catch { return undefined; } };
 const logbookWord = (command, env, cwd) => {
   try { return logbookWrite(command, cwd, [sageRoot(env), sharedRoot(env)], env.HOME || homedir()); } catch { return undefined; }
 };
@@ -566,7 +567,10 @@ export async function gate(input, { mode = readMode, check = checkMerge, env = p
   if (thread.child) {
     const knownThread = thread.codex || thread.parts?.length;
     if (stateToolWrites(f.command, f.cwd, env) && !(knownThread && scopedStateRead(f.command, f.cwd, env))) return refuse(thread, recordsAsLead(thread) ? LEAD_SHELL : CHILD_LOGBOOK);
-    const why = commandWrites(f.command, f.cwd, TEMP, { readOnly: true }) || runsPatch(f.command, f.cwd, env) ? childChange(thread, mode(f, env).sage, READ_ONLY_SHELL_WAY) : undefined;
+    const change = childChange(thread, mode(f, env).sage, READ_ONLY_SHELL_WAY), role = thread.parts && !thread.codex ? taskRole(thread.parts.findLast(sageName) ?? "") : null;
+    const protect = role && change === READ_ONLY(role, READ_ONLY_SHELL_WAY) ? logbookRoots(env) : undefined;
+    const place = protect ? { readOnly: true, protect, home: env.HOME || homedir() } : { readOnly: true };
+    const why = change && (commandWrites(f.command, f.cwd, TEMP, place) || runsPatch(f.command, f.cwd, env)) ? change : undefined;
     if (why) return refuse(thread, why);
     const identity = () => { try { return commitIdentity(tool.storeDir(f.cwd, env)); } catch { return undefined; } };
     const agent = underSage(thread) !== false || mode(f, env).sage ? agentCommandProblem(f.command, f.cwd, env.PATH ?? "", { identity }) : undefined;

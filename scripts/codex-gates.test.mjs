@@ -205,9 +205,9 @@ test("T960: the Claude hook and the Codex gate give the chief the same answer to
 const RO_REFUSED = ["git reset --hard", "git reset --hard HEAD~1", "git checkout -- .", "git checkout claude/t1", "git switch main", "git restore .", "git restore --staged src/a.js",
   "git clean -fd", "git apply fix.patch", "git am fix.mbox", "git merge main", "git pull", "git rebase main", "git cherry-pick abc1234", "git revert HEAD", "git commit -am 'a fix'",
   "git add -A", "git branch -D claude/t1", "git branch -m old new", "git branch --set-upstream-to=origin/main", "git config user.email a@b.example", "git config --unset core.hooksPath",
-  "git config --global user.name x", "git -C /work/project reset --hard", "cd /tmp && git checkout main", "git worktree add ../wt claude/t1", "git worktree add .claude/worktrees/x",
+  "git config --global user.name x", "git -C /work/project reset --hard", "git worktree add .claude/worktrees/x",
   "git worktree remove .claude/worktrees/x", "git -C $WT reset --hard", "git --work-tree=/tmp/notes/head checkout .", `awk '{print > "out.txt"}' a.txt`, "chmod +x src/a.sh"];
-const RO_RUNS = [`git worktree add --detach /tmp/notes/head ${SHA}`, `git -C /work/project worktree add --detach /tmp/notes/head ${SHA}`, "git -C /tmp/notes/head checkout main",
+const RO_RUNS = ["cd /tmp && git checkout main", "git worktree add ../wt claude/t1", `git worktree add --detach /tmp/notes/head ${SHA}`, `git -C /work/project worktree add --detach /tmp/notes/head ${SHA}`, "git -C /tmp/notes/head checkout main",
   "git -C /tmp/notes/head reset --hard HEAD~1", "git -C /tmp/notes/head apply /tmp/notes/fix.patch", "git worktree remove /tmp/notes/head", "git worktree list", "git worktree prune",
   "git fetch origin", "git log --oneline -5", "git diff main...HEAD", "git show HEAD:src/a.js", "git status", "git branch -a", "git branch --sort -committerdate", "git branch --show-current",
   "git config --get user.email", "git config user.email", "git config --list", "git apply --check fix.patch", "git apply --stat fix.patch", "git clean -n", "git add -n .", "git commit --dry-run",
@@ -225,7 +225,7 @@ test("T936: a read-only role's git that changes the checkout is refused in both 
     for (const command of [...RO_REFUSED, ...RO_RUNS]) {
       const refused = role !== "implementer" && RO_REFUSED.includes(command);
       const c = claude(command, `sage:${role}`), x = denied(await g.run(pre("Bash", command, who)));
-      assert.deepEqual({ claude: c === undefined ? "runs" : c.includes(`the ${role} agent changes no files, also not from the shell`) ? "refused" : c, codex: x === undefined ? "runs" : x === RO_SHELL(role) ? "refused" : x },
+      assert.deepEqual({ claude: c === undefined ? "runs" : c.includes(`the ${role} agent changes no file in the project or the logbook, also not from the shell`) ? "refused" : c, codex: x === undefined ? "runs" : x === RO_SHELL(role) ? "refused" : x },
         refused ? { claude: "refused", codex: "refused" } : { claude: "runs", codex: "runs" }, `${role}: ${command}`);
     }
   }
@@ -238,6 +238,41 @@ test("T936: a read-only role's git that changes the checkout is refused in both 
     const c = denied(handle({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, cwd: wt, session_id: "s1", agent_id: "a1", agent_type: "sage:code-reviewer" }, { sage: true, autopilot: false, start: false }, slots));
     assert.deepEqual({ claude: c, codex: denied(await g.run(pre("Bash", command, { ...child("sage_code_reviewer_t1_r2"), cwd: wt }))) }, { claude: undefined, codex: undefined }, `in a scratch worktree: ${command}`);
   }
+});
+
+test("T1153: a read-only role writes anywhere but the project's checkouts and the logbook, in both providers; an unknown target and the lead keep the old rule", async (t) => {
+  const { handle } = await import(new URL("../plugins/sage/hooks/sage-hook.mjs", import.meta.url));
+  const { sharedRoot } = await import(new URL("../plugins/sage-codex/core/index.mjs", import.meta.url));
+  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {} };
+  const project = realpathSync(mkdtempSync(join(tmpdir(), "sage-t1153-project-")));
+  t.after(() => rmSync(project, { recursive: true, force: true }));
+  mkdirSync(join(project, ".git", "worktrees", "far"), { recursive: true });
+  mkdirSync(join(project, ".git", "worktrees", "own"), { recursive: true });
+  mkdirSync(join(project, "src"));
+  mkdirSync(`${project}-scratch`);
+  t.after(() => rmSync(`${project}-scratch`, { recursive: true, force: true }));
+  writeFileSync(join(project, ".git", "worktrees", "far", "gitdir"), "/work/sage-worktrees/t1/.git\n");
+  writeFileSync(join(project, ".git", "worktrees", "own", "gitdir"), "/tmp/R1/head/.git\n");
+  const logbook = process.env.SAGE_HOME, shared = sharedRoot(process.env), home = process.env.HOME;
+  const g = fixed({ sage: true });
+  const child = (name) => ({ ...CHILD, cwd: project, transcript_path: record(t, { id: "child", session_id: base.session_id, agent_path: `/root/${name}`, source: { subagent: { thread_spawn: { depth: 1 } } } }) });
+  const both = async (command, role, name) => ({
+    claude: denied(handle({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, cwd: project, session_id: "s1", agent_id: "a1", agent_type: `sage:${role}` }, { sage: true, autopilot: false, start: false }, slots)) === undefined ? "runs" : "refused",
+    codex: denied(await g.run(pre("Bash", command, child(name)))) === undefined ? "runs" : "refused",
+  });
+  const RUNS = ["mkdir -p /tmp/x/sh", "mkdir -p /tmp/R1/node", "cp a /tmp/x/b", "node script.mjs > /tmp/x/out", `echo x > ${home}/notes/out.txt`, `cp README.md ${home}/copy.md`,
+    "printf x | tee /tmp/x/log", "mv /tmp/x/a /tmp/x/b", "rm -rf /tmp/x", "touch /tmp/x/t", "echo x > /work/other/out.txt", "echo x > /tmp/R1/head/out.txt", `cd ${project}-scratch && echo x > out.txt`,
+    "git -C /tmp/R1/head checkout main", "echo x > ~/notes/out.txt"];
+  const REFUSED = ["echo x > out.txt", "echo x >> src/a.js", "printf x | tee notes.txt", "cp /tmp/x/a src/a.js", "mv src/a.js /tmp/x/a", "rm -rf src", "rmdir src", "touch new.txt",
+    "git checkout main", "chmod +x src/a.sh", `echo x > ${project}/a.txt`, "cd src && echo x > ../a.txt", "cd /tmp && echo x > " + project + "/a.txt", `echo x > /tmp/../${project}/a.txt`,
+    `cd /tmp/x && cp a ${project}/src/b`, "echo x > /work/sage-worktrees/t1/a.txt", `echo x > ${logbook}/p-abc/tasks.tsv`, `cd ${logbook} && rm -f p-abc/runs.tsv`, `cp /tmp/x/a ${shared}/bindings.tsv`,
+    `rm -rf ${home}`, "rm -rf /", "echo x > $OUT", "echo x > /tmp/*/out.txt", "echo x > $(mktemp)", "cp a $DEST", "cd $DIR && echo x > out.txt", "sed -i s/a/b/ /tmp/x/a", `node -e "require('fs').writeFileSync('/tmp/x/a', 'x')"`];
+  for (const [role, name] of [["code-reviewer", "sage_code_reviewer_t1_r2"], ["security-reviewer", "sage_security_reviewer_t1_r3"], ["qa", "sage_qa_t1_r4"], ["evidence-review", "sage_evidence_review_t1_r5"]]) {
+    for (const command of RUNS) assert.deepEqual(await both(command, role, name), { claude: "runs", codex: "runs" }, `${role}: ${command}`);
+    for (const command of REFUSED) assert.deepEqual(await both(command, role, name), { claude: "refused", codex: "refused" }, `${role}: ${command}`);
+  }
+  assert.deepEqual(await both("cp a /tmp/x/b", "implementer", "sage_implementer_t1_r1"), { claude: "runs", codex: "runs" }, "the implementer");
+  assert.deepEqual(await both("echo x > /work/other/out.txt", "lead", "sage_lead_t1"), { claude: "refused", codex: "refused" }, "the lead keeps the temp-only rule");
 });
 
 function scratchWorktree(t) {

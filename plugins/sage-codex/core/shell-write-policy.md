@@ -14,6 +14,20 @@ core's `chiefShellProblem` passes the chief's places (`chiefPlaces`: the temp
 folders and the sage worktrees folder, which holds the pages roots), with
 core's `CHIEF_SHELL` text.
 
+`protect` (the read-only roles' rule, T1153) turns the scratch list around: a
+target passes unless it is in, or holds, a protected folder. The protected
+folders are the project's main checkout (found from `cwd`), each worktree of
+its repository that is not in a scratch folder (read from
+`.git/worktrees/*/gitdir`; a worktree in a scratch folder is an agent's own
+copy), and the folders in `protect` (each hook passes its logbook roots).
+`protect` implies `placed: true`. A target that the reader cannot tell (a
+variable, a pattern, a command substitution, or a `cd` into a folder that it
+cannot follow) still counts, and so do the write forms with no target that
+the reader knows (`sed -i`, code in `node -e`, `tar` and the others). Each
+hook keeps the old temp-only rule for the lead, and when it cannot read the
+logbook roots. Inline code counts only when the interpreter is a program that
+runs (`programsRun`), so the folder name in `mkdir -p /tmp/x/sh` is no shell.
+
 `placed: true` (the chief's rule, T807) lets the placed write programs `rm`,
 `rmdir`, `touch`, `tee`, `cp` and `mv` count like a redirection: only when one
 of their targets is outside the scratch folders. The targets are every
