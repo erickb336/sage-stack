@@ -15,8 +15,8 @@ export const OUT = { dark: "docs/assets/board-walkthrough-dark.gif", light: "doc
 export const TOUR = "docs/assets/board-tour.mp4";
 export const VIEW = { width: 1320, height: 800 };
 const FPS = 20, MARGIN = 28, BAR = 36;
-const CAPTION_PX = { gif: 44, tour: 16 }, bandOf = px => Math.round(px * 3.25);
-const canvasOf = band => ({ width: VIEW.width + 2 * MARGIN, height: VIEW.height + BAR + band + 2 * MARGIN });
+const CAPTION_PX = { gif: 44, tour: 16 };
+const sizesOf = tour => { const px = CAPTION_PX[tour ? "tour" : "gif"], band = Math.round(px * 3.25); return { px, band, canvas: { width: VIEW.width + 2 * MARGIN, height: VIEW.height + BAR + band + 2 * MARGIN } }; };
 const FFMPEG_HELP = "The walkthrough needs ffmpeg 6 or later to write the GIF and the video. Install it (macOS: brew install ffmpeg; Debian or Ubuntu: sudo apt-get install ffmpeg), or give its path in FFMPEG.";
 const CAPTIONS = {
   1: ["1", "Overview", "where every task and milestone stands"],
@@ -266,7 +266,8 @@ async function tourFilm(page, base, shot, st) {
 }
 
 export function encode({ ffmpeg, fps = FPS, tour, frames, window, captions, out }) {
-  const frame = `[0]pad=${CANVAS.width}:${CANVAS.height}:${MARGIN}:${MARGIN + BAR}[page];[page][2]overlay=${MARGIN}:${MARGIN + BAR + VIEW.height}[band];[band][1]overlay=shortest=1`;
+  const { canvas } = sizesOf(tour);
+  const frame = `[0]pad=${canvas.width}:${canvas.height}:${MARGIN}:${MARGIN + BAR}[page];[page][2]overlay=${MARGIN}:${MARGIN + BAR + VIEW.height}[band];[band][1]overlay=shortest=1`;
   const encoding = tour
     ? ["-filter_complex", `${frame},format=yuv420p`, "-c:v", "libx264", "-preset", "veryslow", "-crf", "30", "-tune", "stillimage", "-movflags", "+faststart", "-an", out]
     : ["-filter_complex", `${frame},split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];[b][p]paletteuse=dither=none:diff_mode=rectangle`, "-loop", "0", out];
@@ -291,8 +292,8 @@ export async function record({ theme = "dark", tour = false, fps = FPS, browserP
   const browser = await chromium.launch({ headless: true, ...(browserPath ? { executablePath: browserPath } : {}) });
   let server;
   try {
-    const px = CAPTION_PX[tour ? "tour" : "gif"], BAND = bandOf(px), CANVAS = canvasOf(BAND);
-    const windowPage = await browser.newPage({ viewport: CANVAS, deviceScaleFactor: 1 });
+    const { px, band: BAND, canvas } = sizesOf(tour);
+    const windowPage = await browser.newPage({ viewport: canvas, deviceScaleFactor: 1 });
     await windowPage.setContent(WINDOW({ c: THEMES[theme], dark: theme === "dark", band: BAND }));
     await windowPage.screenshot({ path: join(dir, "window.png"), omitBackground: true });
     await windowPage.close();
