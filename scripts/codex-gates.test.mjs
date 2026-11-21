@@ -207,7 +207,9 @@ const RO_REFUSED = ["git reset --hard", "git reset --hard HEAD~1", "git checkout
   "git add -A", "git branch -D claude/t1", "git branch -m old new", "git branch --set-upstream-to=origin/main", "git config user.email a@b.example", "git config --unset core.hooksPath",
   "git config --global user.name x", "git -C /work/project reset --hard", "git worktree add .claude/worktrees/x",
   "git worktree remove .claude/worktrees/x", "git -C $WT reset --hard", "git --work-tree=/tmp/notes/head checkout .", `awk '{print > "out.txt"}' a.txt`, "chmod +x src/a.sh"];
-const RO_RUNS = ["cd /tmp && git checkout main", "git worktree add ../wt claude/t1", `git worktree add --detach /tmp/notes/head ${SHA}`, `git -C /work/project worktree add --detach /tmp/notes/head ${SHA}`, "git -C /tmp/notes/head checkout main",
+const RO_SCRATCH = realpathSync(mkdtempSync(join(tmpdir(), "sage-t936-ro-")));
+process.on("exit", () => rmSync(RO_SCRATCH, { recursive: true, force: true }));
+const RO_RUNS = [`cd ${RO_SCRATCH} && git checkout main`, "git worktree add ../wt claude/t1", `git worktree add --detach /tmp/notes/head ${SHA}`, `git -C /work/project worktree add --detach /tmp/notes/head ${SHA}`, "git -C /tmp/notes/head checkout main",
   "git -C /tmp/notes/head reset --hard HEAD~1", "git -C /tmp/notes/head apply /tmp/notes/fix.patch", "git worktree remove /tmp/notes/head", "git worktree list", "git worktree prune",
   "git fetch origin", "git log --oneline -5", "git diff main...HEAD", "git show HEAD:src/a.js", "git status", "git branch -a", "git branch --sort -committerdate", "git branch --show-current",
   "git config --get user.email", "git config user.email", "git config --list", "git apply --check fix.patch", "git apply --stat fix.patch", "git clean -n", "git add -n .", "git commit --dry-run",
