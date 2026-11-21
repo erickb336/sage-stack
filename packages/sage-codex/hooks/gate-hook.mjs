@@ -5,7 +5,7 @@ import { accessSync, constants, existsSync, linkSync, mkdirSync, readdirSync, re
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AGENT_GH, agentCommandProblem, agentGh, commitIdentity, boardCommandProblem, boardPathProblem, chiefEditDenied, commandWrites, createCommandPolicy, createPushPolicy, ghRuns, leadStopped as coreLeadStopped, logbookWrite, PR, programName, programsRun, pullRequestHead, readModeFile, roleEditDenied, sharedRoot, shellCommands, shellWriteEvidence, TEAM } from "sage-core";
+import { AGENT_GH, agentCommandProblem, agentGh, commitIdentity, boardCommandProblem, boardPathProblem, chiefEditDenied, commandWrites, createCommandPolicy, createPushPolicy, ghRuns, leadStopped as coreLeadStopped, logbookWrite, PR, programName, programsRun, pullRequestHead, readModeFile, readOnlyPlace, roleEditDenied, sharedRoot, shellCommands, shellWriteEvidence, TEAM } from "sage-core";
 import { modeFile, readMode, tool } from "../skills/sage/sage.mjs";
 import { verificationOptions } from "../skills/sage/verify-install.mjs";
 import { privateDirectory, readState } from "./hook-state.mjs";
@@ -568,8 +568,8 @@ export async function gate(input, { mode = readMode, check = checkMerge, env = p
     const knownThread = thread.codex || thread.parts?.length;
     if (stateToolWrites(f.command, f.cwd, env) && !(knownThread && scopedStateRead(f.command, f.cwd, env))) return refuse(thread, recordsAsLead(thread) ? LEAD_SHELL : CHILD_LOGBOOK);
     const change = childChange(thread, mode(f, env).sage, READ_ONLY_SHELL_WAY), role = thread.parts && !thread.codex ? taskRole(thread.parts.findLast(sageName) ?? "") : null;
-    const protect = role && change === READ_ONLY(role, READ_ONLY_SHELL_WAY) ? logbookRoots(env) : undefined;
-    const place = protect ? { readOnly: true, protect, home: env.HOME || homedir() } : { readOnly: true };
+    const roots = role && change === READ_ONLY(role, READ_ONLY_SHELL_WAY) ? logbookRoots(env) : undefined;
+    const place = roots ? readOnlyPlace(roots, env) : { readOnly: true };
     const why = change && (commandWrites(f.command, f.cwd, TEMP, place) || runsPatch(f.command, f.cwd, env)) ? change : undefined;
     if (why) return refuse(thread, why);
     const identity = () => { try { return commitIdentity(tool.storeDir(f.cwd, env)); } catch { return undefined; } };

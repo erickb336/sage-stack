@@ -20,10 +20,37 @@ folders are the project's main checkout (found from `cwd`), each worktree of
 its repository that is not in a scratch folder (read from
 `.git/worktrees/*/gitdir`; a worktree in a scratch folder is an agent's own
 copy), and the folders in `protect` (each hook passes its logbook roots).
-`protect` implies `placed: true`. A target that the reader cannot tell (a
-variable, a pattern, a command substitution, or a `cd` into a folder that it
-cannot follow) still counts, and so do the write forms with no target that
-the reader knows (`sed -i`, code in `node -e`, `tar` and the others). Each
+`protect` implies `placed: true`. Core's `readOnlyPlace(roots, env)` gives
+both hooks the same options: the logbook roots and the sage worktrees folder
+(`SAGE_WORKTREES`, default `~/sage-worktrees`), so a task worktree or a clone
+there that git does not list is protected too. A scratch folder inside a
+protected folder stays open (the nearer folder wins): the Claude hook gives the
+investigate agent its pages folder as scratch, so its pages pass. A target
+that the reader cannot tell (a pattern, a command substitution, or a `cd` into
+a folder that it cannot follow) still counts, and so do the write forms with
+no target that the reader knows (code in `node -e`, `tar`, `ln`, `curl` and
+the others).
+
+With `protect`, two more forms are read (T1153):
+
+- **Literal names.** A variable set once, earlier in the same command, by a
+  plain top-level assignment (`S=/tmp/x;` or `export S=/tmp/x &&`) to a value
+  of path characters only, reads as that value in `$S` and `${S}`. A value
+  with a variable, a substitution, a pattern, `~` or a space; a name that the
+  command names again anywhere (a second assignment, `read S`, `${S:-x}`, the
+  name in a path); an assignment in a subshell, a group, a pipe, after `&&` or
+  `||`, or in the background; a use before the assignment or in single quotes;
+  `$S:h` and `$S[1]` (zsh); and a command with a heredoc, `$'...'` or a
+  substitution in double quotes keep the variable as one that the reader
+  cannot tell. `HOME`, `CDPATH`, `PATH`, `IFS`, `PWD` and `OLDPWD` are never
+  read, and a command that sets `HOME` or `CDPATH` counts as a write.
+- **sed -i.** `sed -i`, `-i ''`, `-i.bak`, `-I` and `--in-place` count only
+  for their file operands: every operand after the script, or every operand
+  with `-e` or `-f`. Each one must pass as a target. An empty or suffix word
+  (`.bak`) after a separate `-i` is BSD sed's suffix. An option that the
+  reader does not know, or a wrapper before sed (`xargs sed -i`), counts.
+  `perl -i` and `ruby -i` still count. A limit: the reader does not read the
+  sed script, so a `w` command in it writes where it names. Each
 hook keeps the old temp-only rule for the lead, and when it cannot read the
 logbook roots. Inline code counts only when the interpreter is a program that
 runs (`programsRun`), so the folder name in `mkdir -p /tmp/x/sh` is no shell.

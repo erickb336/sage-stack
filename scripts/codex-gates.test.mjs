@@ -253,7 +253,9 @@ test("T1153: a read-only role writes anywhere but the project's checkouts and th
   t.after(() => rmSync(`${project}-scratch`, { recursive: true, force: true }));
   writeFileSync(join(project, ".git", "worktrees", "far", "gitdir"), "/work/sage-worktrees/t1/.git\n");
   writeFileSync(join(project, ".git", "worktrees", "own", "gitdir"), "/tmp/R1/head/.git\n");
-  const logbook = process.env.SAGE_HOME, shared = sharedRoot(process.env), home = process.env.HOME;
+  const logbook = process.env.SAGE_HOME, shared = sharedRoot(process.env), home = process.env.HOME, worktrees = join(home, "sage-worktrees");
+  const link = join(`${project}-scratch`, "link");
+  symlinkSync(project, link);
   const g = fixed({ sage: true });
   const child = (name) => ({ ...CHILD, cwd: project, transcript_path: record(t, { id: "child", session_id: base.session_id, agent_path: `/root/${name}`, source: { subagent: { thread_spawn: { depth: 1 } } } }) });
   const both = async (command, role, name) => ({
@@ -262,11 +264,23 @@ test("T1153: a read-only role writes anywhere but the project's checkouts and th
   });
   const RUNS = ["mkdir -p /tmp/x/sh", "mkdir -p /tmp/R1/node", "cp a /tmp/x/b", "node script.mjs > /tmp/x/out", `echo x > ${home}/notes/out.txt`, `cp README.md ${home}/copy.md`,
     "printf x | tee /tmp/x/log", "mv /tmp/x/a /tmp/x/b", "rm -rf /tmp/x", "touch /tmp/x/t", "echo x > /work/other/out.txt", "echo x > /tmp/R1/head/out.txt", `cd ${project}-scratch && echo x > out.txt`,
-    "git -C /tmp/R1/head checkout main", "echo x > ~/notes/out.txt"];
+    "git -C /tmp/R1/head checkout main", "echo x > ~/notes/out.txt",
+    "S=/tmp/x; echo x > $S/out", `export S=/tmp/x && cp a "\${S}/b"`, "S=/tmp/x\ncd /tmp && echo x > $S/out", `D=${home}/notes; mkdir -p $D && echo x > $D/a`,
+    "sed -i '' s/a/b/ /tmp/x/a", "sed -i.bak s/a/b/ /tmp/x/a", "sed -i s/a/b/ /tmp/x/a", "sed --in-place -e s/a/b/ -e s/c/d/ /tmp/x/a /tmp/x/b", "S=/tmp/x; sed -i '' s/a/b/ $S/a",
+    "sed -n p src/a.js", `HOME=${home}/h node /tmp/x/probe.mjs > /tmp/x/out`, `echo x > ${worktrees}-other/a`];
   const REFUSED = ["echo x > out.txt", "echo x >> src/a.js", "printf x | tee notes.txt", "cp /tmp/x/a src/a.js", "mv src/a.js /tmp/x/a", "rm -rf src", "rmdir src", "touch new.txt",
     "git checkout main", "chmod +x src/a.sh", `echo x > ${project}/a.txt`, "cd src && echo x > ../a.txt", "cd /tmp && echo x > " + project + "/a.txt", `echo x > /tmp/../${project}/a.txt`,
     `cd /tmp/x && cp a ${project}/src/b`, "echo x > /work/sage-worktrees/t1/a.txt", `echo x > ${logbook}/p-abc/tasks.tsv`, `cd ${logbook} && rm -f p-abc/runs.tsv`, `cp /tmp/x/a ${shared}/bindings.tsv`,
-    `rm -rf ${home}`, "rm -rf /", "echo x > $OUT", "echo x > /tmp/*/out.txt", "echo x > $(mktemp)", "cp a $DEST", "cd $DIR && echo x > out.txt", "sed -i s/a/b/ /tmp/x/a", `node -e "require('fs').writeFileSync('/tmp/x/a', 'x')"`];
+    `rm -rf ${home}`, "rm -rf /", "echo x > $OUT", "echo x > /tmp/*/out.txt", "echo x > $(mktemp)", "cp a $DEST", "cd $DIR && echo x > out.txt", `node -e "require('fs').writeFileSync('/tmp/x/a', 'x')"`];
+  REFUSED.push(
+    `echo x > ${worktrees}/sage-abc/R1-t1/a.js`, `echo x > ${worktrees}/sage-abc/pages/T1/a.md`, `rm -rf ${worktrees}`, `echo x > ${link}/a.txt`,
+    `S=${project}; echo x > $S/a.txt`, `S=${logbook}; echo x > $S/p-abc/tasks.tsv`, `S=/tmp/x; S=${project}; echo x > $S/a.txt`, `S=/tmp/x; echo x > $S/a; S=${project}`,
+    "(S=/tmp/x); echo x > $S/a", "true && S=/tmp/x; echo x > $S/a", "echo a | S=/tmp/x; echo x > $S/a", "S=/tmp/x & echo x > $S/a", "echo x > $S/a; S=/tmp/x",
+    "S=/tmp/x; bash -c 'echo x > $S/a'", "S=/tmp/x; echo x > \\$S", "S=$(mktemp -d); echo x > $S/a", "S=~/x; echo x > $S/a", "S=/tmp/*; echo x > $S/a", "S=/tmp/x; T=$S/y; echo x > $T",
+    "S=/tmp/x; echo x > ${S:-.}/a", "S=/tmp/x; echo x > $S:h/a", "S=out; echo x > $S", `S=/tmp/x; git -C $S/../..${project} checkout main`, `HOME=${project}; cd ~ && echo x > a.txt`, `HOME=${project} sh -c "cd ~ && echo x > a.txt"`, "S=/tmp/x; cat > $S/a <<EOF\nx\nEOF",
+    "sed -i '' s/a/b/ src/a.js", "sed -i '' s/a/b/ /tmp/x/a src/a.js", "cd src && sed -i '' s/a/b/ a.js", "sed -i '' s/a/b/ $F", "sed -i '' s/a/b/ /tmp/*/a", "ls | xargs sed -i '' s/a/b/",
+    `sed -i '' s/a/b/ /tmp/x/../..${project}/a`, `sed -i '' s/a/b/ ${link}/a.txt`, "sed -i -Q s/a/b/ /tmp/x/a", `sed --in-place=.bak s/a/b/ ${logbook}/p-abc/tasks.tsv`, "S=src; sed -i '' s/a/b/ $S/a.js",
+    "perl -i -pe s/a/b/ /tmp/x/a");
   for (const [role, name] of [["code-reviewer", "sage_code_reviewer_t1_r2"], ["security-reviewer", "sage_security_reviewer_t1_r3"], ["qa", "sage_qa_t1_r4"], ["evidence-review", "sage_evidence_review_t1_r5"]]) {
     for (const command of RUNS) assert.deepEqual(await both(command, role, name), { claude: "runs", codex: "runs" }, `${role}: ${command}`);
     for (const command of REFUSED) assert.deepEqual(await both(command, role, name), { claude: "refused", codex: "refused" }, `${role}: ${command}`);

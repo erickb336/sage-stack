@@ -434,6 +434,7 @@ function program(word, dir, path, uncertain = false) {
 }
 
 const FLOWS = new WeakMap();
+export const flowOf = (commands) => FLOWS.get(commands);
 const COMMAND_CONTEXT = new WeakMap();
 const REDIRECT_PARTS = new WeakMap();
 
