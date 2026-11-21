@@ -37,6 +37,7 @@ if (a.length === 5 && a[0] === "pr" && a[1] === "view" && /^[1-9][0-9]*$/.test(a
   console.log(JSON.stringify({ headRefOid: sha }));
   process.exit(0);
 }
+if (a[0] === "api" || a.includes("files,baseRefName") || a.includes("number,mergedAt,files")) process.exit(require("child_process").spawnSync(${JSON.stringify(at("fixtures/fake-gh/gh"))}, a, { stdio: "inherit" }).status);
 if (!(a.length === 3 && a[0] === "pr" && a[1] === "checks" && /^[1-9][0-9]*$/.test(a[2]))) { console.error("the fake gh knows only gh pr checks <n> and gh pr view <n> --json headRefOid: " + a.join(" ")); process.exit(1); }
 const [state, ...rest] = fs.existsSync(path) ? fs.readFileSync(path, "utf8").split("\\n").filter(Boolean) : [];
 if (state) fs.writeFileSync(path, rest.join("\\n"));

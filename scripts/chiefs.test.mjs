@@ -860,7 +860,7 @@ function hookWorld(t) {
   const w = scratch(t);
   const bin = join(w.base, "bin");
   mkdirSync(bin);
-  writeFileSync(join(bin, "gh"), `#!/bin/sh\nprintf '{"headRefName":"sage/t1-a","isCrossRepository":false}'\n`, { mode: 0o755 });
+  writeFileSync(join(bin, "gh"), `#!/bin/sh\ncase "$*" in *headRefName*) printf '{"headRefName":"sage/t1-a","isCrossRepository":false}';; *) exec '${fileURLToPath(new URL("fixtures/fake-gh/gh", import.meta.url))}' "$@";; esac\n`, { mode: 0o755 });
   const env = { ...w.env, PATH: `${bin}:${w.env.PATH}`, SAGE_HOOKS_STATE: join(w.base, "hooks") };
   const send = (event, session = "s1") => {
     const r = spawnSync("node", LAUNCHER, { input: JSON.stringify({ session_id: session, cwd: w.project, ...event }), env, encoding: "utf8", timeout: 60_000 });

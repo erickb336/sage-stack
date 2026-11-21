@@ -20,7 +20,7 @@ function fixture(t, sourceTask = 'T536', branch = BRANCH) {
   const project = join(root, 'project'); mkdirSync(project);
   const bin = join(root, 'bin'); mkdirSync(bin);
   const fake = join(bin, 'gh');
-  writeFileSync(fake, `#!${process.execPath}\nif (process.argv[2] === '--fake-proof') { console.log('FAKE_adoption_gh'); } else if (process.argv.slice(2).join(' ') === 'pr view 362 --json headRefName,isCrossRepository') { console.log(JSON.stringify({headRefName:'${branch}',isCrossRepository:false})); } else { process.exit(1); }\n`);
+  writeFileSync(fake, `#!${process.execPath}\nif (process.argv[2] === '--fake-proof') { console.log('FAKE_adoption_gh'); } else if (process.argv.slice(2).join(' ') === 'pr view 362 --json headRefName,isCrossRepository') { console.log(JSON.stringify({headRefName:'${branch}',isCrossRepository:false})); } else { process.exit(require('child_process').spawnSync(${JSON.stringify(join(import.meta.dirname, 'fixtures', 'fake-gh', 'gh'))}, process.argv.slice(2), { stdio: 'inherit' }).status); }\n`);
   chmodSync(fake, 0o755);
   assert.equal(spawnSync(fake, ['--fake-proof'], { encoding: 'utf8' }).stdout.trim(), 'FAKE_adoption_gh');
   const sourceEnv = { ...process.env, SAGE_HOME: join(root, 'claude', 'sage') };
