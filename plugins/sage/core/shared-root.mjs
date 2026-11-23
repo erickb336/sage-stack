@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { lstatSync, mkdirSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { ghGet } from "./branch-protection.mjs";
 import { readLocalGit } from "./local-git.mjs";
 import { stoppedText } from "./move-text.mjs";
 
@@ -16,6 +17,17 @@ const LASTS = "Note: no sage command can change this answer later.";
 export const githubRemote = (url) => {
   const match = /^(?:https:\/\/(?:[^\s/@]+@)?|ssh:\/\/git@|git@)github\.com[:/]([A-Za-z0-9][A-Za-z0-9-]*)\/([\w-][\w.-]*?)(?:\.git)?\/?$/.exec(url ?? "");
   return match ? `${match[1]}/${match[2]}` : null;
+};
+const renamedOnGitHub = (names, env) => {
+  const deadline = Date.now() + 3000, found = [];
+  for (const name of names) {
+    const { ok, body } = ghGet(`repos/${name}`, undefined, env, deadline);
+    if (!ok || !Number.isSafeInteger(body?.id) || !/^[\w-]+\/[\w.-]+$/.test(body.full_name ?? "")) return null;
+    found.push(body);
+  }
+  if (found[1].id !== found[0].id) return false;
+  const now = found[0].full_name;
+  return `${names.find((name) => name.toLowerCase() !== now.toLowerCase()) ?? names[0]} is now ${now}`;
 };
 const TABLE_MAX = 1024 * 1024;
 export const MOVES = "moves";
@@ -337,11 +349,17 @@ export function createSharedRoot({ Refusal, refuse, listed, legacyRoots, makeLog
     if (logbooks.length === 1) {
       const [{ folder, name, used, remote }] = logbooks, linkTo = `sage link --to ${folder}`;
       const facts = `It has the same first commit as the project ${name} (logbook ${folder}, used by ${used}).`;
-      if (mine && remote && !same(remote)) refuse(prompt(checkout, head, `${facts} But its GitHub remote is ${mine}, not ${remote}. So it is most likely a fork. ${done}`, [LASTS], [
+      const other = mine && remote && !same(remote), renamed = other ? renamedOnGitHub([remote, mine], env) : false;
+      const linkedInOrder = rows.filter((r) => r.folder === folder).sort((a, b) => a.at.localeCompare(b.at));
+      const goneSinceLastLive = linkedInOrder.slice(linkedInOrder.findLastIndex((r) => !gone(r)) + 1);
+      const moved = renamed === null && goneSinceLastLive.findLast((r) => twins.includes(r));
+      if (other && !moved && !renamed) refuse(prompt(checkout, head, `${facts} But its GitHub remote is ${mine}, not ${remote}. So it is most likely a fork. ${done}`, [LASTS], [
         { ...separate, text: separate.text.replace(".**", "** (recommended).") },
         { text: `**Link to ${name}.** This folder uses the ${name} logbook, and its tasks show in the ${name} project. Choose this only if the fork and ${name} are one project to you.`, run: linkTo },
       ]));
-      const why = mine && remote ? `Its GitHub remote is also ${remote}. So it is most likely a second clone of ${name}.` : `sage cannot compare GitHub remotes: ${mine ? used : "this folder"} has none that sage can read. So it is most likely a second clone of ${name}, or this folder moved.`;
+      const why = moved ? `Its GitHub remote is ${mine}, not ${remote}. But ${visible(moved.root)} is gone, so this looks like that folder, moved here.`
+        : renamed ? `Its GitHub remote is ${mine}, not ${remote}, but GitHub says ${renamed}. So it is most likely a second clone of ${name}.`
+        : mine && remote ? `Its GitHub remote is also ${remote}. So it is most likely a second clone of ${name}.` : `sage cannot compare GitHub remotes: ${mine ? used : "this folder"} has none that sage can read. So it is most likely a second clone of ${name}, or this folder moved.`;
       refuse(prompt(checkout, head, `${facts} ${why} ${done}`, [LASTS], [
         { text: `**Link to ${name}** (recommended). This folder uses the ${name} logbook. Its tasks show in the one ${name} project on the board, and its runs show "checkout ${here(folder)}". No record is copied.`, run: linkTo },
         { ...separate, text: `${separate.text} Choose this for a fork that is now its own project.` },
