@@ -2,7 +2,9 @@ import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { execFileSync as rawExecFileSync, spawn, spawnSync as rawSpawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { test as nodeTest } from "node:test";
@@ -4070,6 +4072,98 @@ test("T181: partial higher slots and a held mutation lock cannot admit excess ch
   assert.match(denied(s.send(nested("sage:qa", "locked"))) ?? "", /agent-slot lock is busy/);
   assert.deepEqual(readdirSync(dir).sort(), before);
   rmSync(join(s.vars.SAGE_HOOKS_STATE, "slots.lock"), { recursive: true });
+});
+
+const LOCK_AGE_MS = 30_000;
+const leftLock = (s, ageMs) => {
+  const lock = join(s.vars.SAGE_HOOKS_STATE, "slots.lock"), at = new Date(Date.now() - ageMs);
+  mkdirSync(lock, { recursive: true });
+  utimesSync(lock, at, at);
+  return lock;
+};
+const lockFolders = (s) => readdirSync(s.vars.SAGE_HOOKS_STATE).filter((name) => name.startsWith("slots.lock")).sort();
+
+test("T1211 (1): hooks that find the same stale lock take it over, and only one of them holds it at a time", async () => {
+  const s = nestedSession();
+  leftLock(s, LOCK_AGE_MS + 30_000);
+  const outs = await Promise.all(Array.from({ length: 4 }, (_, k) => s.sendAsync(leadSpawn(`stale-${k}`, 7))));
+  const refusals = outs.map(denied).filter(Boolean);
+  assert.equal(outs.length - refusals.length, 1, "exactly one lead of T7 starts: each hook checked the held leads under the lock");
+  for (const why of refusals) assert.match(why, /already holds a slot/, "the other hooks wait for the lock and then see the first lead");
+  assert.deepEqual(lockFolders(s), [], "no lock and no moved lock folder stays behind");
+});
+
+test("T1211 (1): a hook that saw the stale lock after another hook took it over leaves that hook's fresh lock in place", () => {
+  const dir = mkdtempSync(join(tmpdir(), "sage-lock-")), lock = join(dir, "slots.lock"), old = new Date(Date.now() - LOCK_AGE_MS - 30_000);
+  mkdirSync(lock);
+  utimesSync(lock, old, old);
+  const slots = slotsFor(join(dir, "slots"), "s", Date.now(), "s"), statSync = fs.statSync;
+  let raced = false;
+  fs.statSync = (path, ...rest) => {
+    const seen = statSync(path, ...rest);
+    if (path === lock && !raced) {
+      raced = true;
+      renameSync(lock, `${lock}.first`);
+      rmSync(`${lock}.first`, { recursive: true });
+      mkdirSync(lock);
+    }
+    return seen;
+  };
+  syncBuiltinESMExports();
+  try {
+    assert.throws(() => slots.take("p", 5, "tu-race", { input: {} }), /agent-slot lock is busy/, "this hook does not win while the first hook holds the lock");
+  } finally {
+    fs.statSync = statSync;
+    syncBuiltinESMExports();
+  }
+  assert.ok(raced, "the race ran");
+  assert.deepEqual(readdirSync(dir).filter((name) => name.startsWith("slots.lock")), ["slots.lock"], "the first hook's lock stays at its place");
+  assert.ok(Date.now() - fs.statSync(lock).mtimeMs < LOCK_AGE_MS, "and it is the fresh lock");
+  rmSync(dir, { recursive: true });
+});
+
+test("T1211 (2): calls that start or end no agent run while the agent-slot lock is busy", () => {
+  const s = nestedSession();
+  const child = { agent_id: "busy-child", agent_type: "sage:implementer", cwd: FEATURE };
+  assert.equal(s.send(nested("sage:implementer", "busy-call")), undefined);
+  s.send(resultOf("busy-call", "busy-child", LEAD));
+  const lock = leftLock(s, 0);
+  const calls = {
+    "a read": bash("cat README.md", FEATURE, child),
+    "git": bash("git status", FEATURE, child),
+    "a state tool read": bash(`node ${TOOL} status`, FEATURE, child),
+    "a file write": tool("Write", { file_path: join(FEATURE, "a.js"), content: "x" }, child),
+    "a file edit": tool("Edit", { file_path: join(FEATURE, "a.js"), old_string: "x", new_string: "y" }, child),
+    "a message to main": tool("SendMessage", { to: "main", message: "done" }, child),
+  };
+  for (const [what, call] of Object.entries(calls)) assert.equal(denied(s.send(call)), undefined, `${what} runs while the lock is busy`);
+  assert.match(denied(s.send(nested("sage:qa", "busy-start"))) ?? "", /agent-slot lock/, "an agent start still needs the lock");
+  rmSync(lock, { recursive: true });
+});
+
+test("T1211 (3): a refusal for a busy lock names the lock folder, the age after which the hook frees it, and rmdir", () => {
+  const s = nestedSession();
+  assert.equal(s.send(nested("sage:qa", "named-first")), undefined, "the lead holds its slot before the lock is busy");
+  const lock = leftLock(s, 0);
+  const why = denied(s.send(nested("sage:qa", "named-start"))) ?? "";
+  assert.ok(why.includes(lock), `the refusal names ${lock}: ${why}`);
+  assert.match(why, /\brmdir\b/);
+  assert.match(why, new RegExp(`\\b${LOCK_AGE_MS / 1000} s\\b`));
+  rmSync(lock, { recursive: true });
+});
+
+test("T1211 (4): a lock left by a stopped hook frees on the next call after the age limit; a fresh lock is not taken over", () => {
+  const limits = [...readFileSync(fileURLToPath(new URL("../packages/sage-claude/hooks/claude.json", import.meta.url)), "utf8").matchAll(/"timeout": (\d+)/g)].map(([, n]) => Number(n) * 1000);
+  assert.ok(limits.length && Math.max(...limits) < LOCK_AGE_MS, "Claude Code stops each hook before its lock reaches the age limit, so an older lock has no live holder");
+  const s = nestedSession();
+  assert.equal(s.send(nested("sage:qa", "aged-first")), undefined, "the lead holds its slot before the lock is left");
+  const lock = leftLock(s, LOCK_AGE_MS - 10_000);
+  assert.ok(denied(s.send(nested("sage:qa", "young"))), "a lock younger than the limit may still have a live holder");
+  assert.deepEqual(lockFolders(s), ["slots.lock"], "the hook leaves a young lock in place");
+  const at = new Date(Date.now() - LOCK_AGE_MS - 1_000);
+  utimesSync(lock, at, at);
+  assert.equal(s.send(nested("sage:qa", "old")), undefined, "the next call after the limit takes the lock over and starts the agent");
+  assert.deepEqual(lockFolders(s), [], "the transaction ends and frees the lock");
 });
 
 test("T181: unbound child reservations keep a one-hour lease and duplicate Pre does not add capacity", async () => {
