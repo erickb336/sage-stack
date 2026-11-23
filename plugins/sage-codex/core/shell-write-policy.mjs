@@ -1,6 +1,7 @@
 import { flowOf, shellCommands, programsRun } from "./command-reader.mjs";
-import { ghTargets, outputDispatchWrites } from "./output-writes.mjs";
+import { curlTargets, ghTargets, outputDispatchWrites } from "./output-writes.mjs";
 import { GIT_VALUE, gitSubcommand, programName } from "./command-policy.mjs";
+import { pythonRead } from "./python-read.mjs";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 
@@ -79,6 +80,7 @@ export function uniqWrites(words, base) {
 }
 const INTERPRETER = /^(?:node|deno|bun|python[\d.]*|perl|ruby|php|osascript|sh|bash|zsh|dash|ksh|fish|pwsh|powershell)$/;
 const runsCode = (words) => words.some((word, i) => INTERPRETER.test(programName(word)) && words.slice(i + 1).some((arg) => CODE.test(arg.toLowerCase())));
+const writesCode = (words) => words.some((word, i) => INTERPRETER.test(programName(word)) && words.slice(i + 1).some((arg) => CODE.test(arg.toLowerCase())) && !pythonRead(programName(word), words.slice(i + 1)));
 export function inlineCode(text) {
   try {
     return shellCommands(text).some(({ words }) => runsCode(words));
@@ -105,11 +107,12 @@ function writesIn({ words }, runs, placed, protect) {
     (has(protect ? /^perl$|^ruby$/ : /^g?sed$|^perl$|^ruby$/) && low.some((w) => /^-[a-z]*i|^--in-place/.test(w))) ||
     (has(/^[gmn]?awk$/) && (low.includes("inplace") || words.some(awkWrites))) ||
     (has(/^g?sort$/) && low.some((w) => /^-[a-z]*o|^--o/.test(w))) ||
-    (has(/^find$/) && low.some((w) => /^-(?:delete|exec|execdir|ok|okdir|fprint|fprintf|fls)$/.test(w))) ||
-    runsCode(words) ||
+    (has(/^find$/) && low.some((w, k) => /^-(?:delete|fprint|fprint0|fprintf|fls)$/.test(w) || (/^-(?:exec|execdir|ok|okdir)$/.test(w) && !FIND_READS.test(programName(low[k + 1] ?? ""))))) ||
+    writesCode(words) ||
     /^(?:eval|source|\.|exec)$/.test(base[low.findIndex((w) => !/^\w+=/.test(w))] ?? "")
   );
 }
+const FIND_READS = /^(?:ls|cat|head|tail|wc|stat|grep|egrep|fgrep|echo|printf|jq|cut)$/;
 const AWK_RUNS = /\|&?\s*getline\b|\bsystem\s*\(/;
 const AWK_PRINTS = /\bprintf?\b[^;{}\n]*[>|]/;
 const awkWrites = (word) => {
@@ -300,21 +303,20 @@ function inProject({ target, dir, uncertainDirectory }, cwd) {
   return path === project || path.startsWith(project.endsWith(sep) ? project : project + sep);
 }
 export const commandWrites = (...args) => commandWritePart(...args) !== undefined;
-export function commandWritePart(text, cwd, scratch = [], { readOnly = false, placed = false, home, guard, protect } = {}) {
-  const place = { home, guard, protect }, part = writePart(text, cwd, scratch, { readOnly, placed, home, protect }, place);
-  return part === undefined ? undefined : { part, place: place.hit };
+export function commandWritePart(text, cwd, scratch = [], { readOnly = false, placed = false, home, guard, protect, known } = {}) {
+  if (typeof text === "string" && HOME_SET.test(text)) home = null;
+  const place = { home, guard, protect }, part = writePart(text, cwd, scratch, { readOnly, placed, home, protect, known }, place);
+  return part === undefined ? undefined : { part, place: place.hit, ...(place.error ? { error: place.error } : {}) };
 }
-function writePart(text, cwd, scratch, { readOnly, placed, home, protect }, place) {
+function writePart(text, cwd, scratch, { readOnly, placed, home, protect, known }, place) {
   const whole = String(text);
   placed ||= Boolean(protect);
   if (typeof text !== "string") return whole;
   try {
-    if (protect) {
-      if (SHELL_PLACES.test(text) && /~|\b(?:cd|pushd|popd)\b/.test(text)) return whole;
-      text = literalNames(text);
-    }
+    if (protect && CDPATH_SET.test(text) && /\b(?:cd|pushd|popd)\b/.test(text)) return whole;
+    if (known) text = literalNames(text, known);
     const commands = shellCommands(text);
-    const evidence = programsRun(text, cwd, undefined, { contextEvidence: true, redirectParts: true, ...(home ? { home } : {}) });
+    const evidence = programsRun(text, cwd, undefined, { contextEvidence: true, redirectParts: true, ...(home !== undefined ? { home } : {}) });
     const runs = new Set(evidence.programs.map(({ run }) => programName(run.word)));
     const command = commands.find((command) => writesIn(command, runs, placed, Boolean(protect)));
     if (command) return command.words.join(" ");
@@ -323,13 +325,14 @@ function writePart(text, cwd, scratch, { readOnly, placed, home, protect }, plac
       if (placed && PLACED.has(name)) return wrapped || outsideScratch(placedTargets(name, entry.run.args), entry, cwd, scratch, place);
       if (protect && /^g?sed$/.test(name)) { const files = sedTargets(entry.run.args, name === "sed"); return (wrapped && files !== EMPTY) || outsideScratch(files, entry, cwd, scratch, place); }
       if (/^(?:chmod|chown|chgrp|chflags)$/.test(name)) return modeTargets(name, entry.run.args).some((target) => inProject(at(entry, target), cwd));
-      return outsideScratch(name === "gh" ? ghTargets(entry.run.args) : readOnly && name === "git" ? gitTargets(entry.run.args) : [], entry, cwd, scratch, place);
+      return outsideScratch(name === "gh" ? ghTargets(entry.run.args) : name === "curl" ? curlTargets(entry.run.args) : readOnly && name === "git" ? gitTargets(entry.run.args) : [], entry, cwd, scratch, place);
     };
     const redirect = evidence.redirects.find(r => toFile(r) && !intoScratch(r, cwd, scratch, place));
     if (redirect) return `${redirect.operator} ${redirect.target}`;
-    const entry = evidence.programs.find((entry, i) => readerDispatch(entry) || runsCode([entry.run.word, ...entry.run.args]) || outputDispatchWrites(entry) || placeWrites(entry, i));
+    const entry = evidence.programs.find((entry, i) => readerDispatch(entry) || writesCode([entry.run.word, ...entry.run.args]) || outputDispatchWrites(entry) || placeWrites(entry, i));
     return entry && [entry.run.word, ...entry.run.args].join(" ");
-  } catch {
+  } catch (error) {
+    place.error = error;
     return whole;
   }
 }
@@ -358,7 +361,8 @@ function sedTargets(args, bsd) {
 }
 
 const SAFE_VALUE = /^[\w./@%+,:=-]+$/, KEPT_NAMES = /^(?:HOME|CDPATH|PWD|OLDPWD|IFS|PATH|ENV|BASH_ENV|ZDOTDIR)$/;
-const SHELL_PLACES = /(?<![\w$])(?:HOME|CDPATH)\+?=|\$\{(?:HOME|CDPATH):?[=?]|\b(?:export|declare|typeset|local|readonly|read|unset|for|select|getopts|mapfile|readarray|printf|vared|zparseopts)\b[^;&|\n]*(?<![\w$])(?<!\$\{)(?:HOME|CDPATH)(?!\w)/;
+const setsName = (name) => new RegExp(String.raw`(?<![\w$])${name}\+?=|\$\{${name}:?[=?]|\b(?:export|declare|typeset|local|readonly|read|unset|for|select|getopts|mapfile|readarray|printf|vared|zparseopts)\b[^;&|\n]*(?<![\w$])(?<!\$\{)${name}(?!\w)`);
+const HOME_SET = setsName("HOME"), CDPATH_SET = setsName("CDPATH");
 function scanNames(text) {
   const bare = new Map(), uses = [], bad = new Set(), add = (name, at) => bare.set(name, [...(bare.get(name) ?? []), at]);
   let state = "plain";
@@ -390,7 +394,7 @@ function scanNames(text) {
   }
   return state === "plain" ? { bare, uses, bad } : undefined;
 }
-export function literalNames(text) {
+export function literalNames(text, known = {}) {
   if (!text.includes("$")) return text;
   const scan = scanNames(text);
   if (!scan || scan.bare.has("IFS")) return text;
@@ -405,6 +409,9 @@ export function literalNames(text) {
       values.set(name, at?.length === 1 && text[at[0] + name.length] === "=" && SAFE_VALUE.test(value) && !KEPT_NAMES.test(name) && !values.has(name) && !scan.bad.has(name) ? { value, at: at[0] } : null);
     }
   });
+  for (const [name, value] of Object.entries(known)) {
+    if (!values.has(name) && !scan.bare.has(name) && !scan.bad.has(name) && typeof value === "string" && isAbsolute(value) && SAFE_VALUE.test(value)) values.set(name, { value, at: -1 });
+  }
   let out = text;
   for (const use of [...scan.uses].sort((a, b) => b.at - a.at)) {
     const known = values.get(use.name);

@@ -124,7 +124,7 @@ function proofProblem(text, cwd, scratch = TEMP) {
     if (!proof) return `${key} is ${severity} and has no proof line`;
     const shot = /^screenshot[ \t]+\S/i.test(proof);
     if (shot ? !steps : !saw) return `${key}'s proof has no ${shot ? "steps" : "saw"} line`;
-    const refused = !shot && (agentCommandProblem(proof, cwd) ?? gitProblem(proof, cwd) ??
+    const refused = !shot && (agentCommandProblem(proof, cwd, undefined, { looks: false }) ?? gitProblem(proof, cwd) ??
       (inlineCode(proof) ? "it runs inline code (such as node -e or sh -c), which the gate cannot check: put the script in a file in your scratch folder, and run that file" :
         commandWrites(proof, cwd, scratch) ? "it writes outside the scratch folder" : undefined));
     if (refused) return `${key}'s proof ${JSON.stringify(proof.slice(0, 80))} is refused: ${refused}`;
