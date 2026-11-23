@@ -25,7 +25,7 @@ const renamedOnGitHub = (names, env) => {
     if (!ok || !Number.isSafeInteger(body?.id) || !/^[\w-]+\/[\w.-]+$/.test(body.full_name ?? "")) return null;
     found.push(body);
   }
-  if (found[1].id !== found[0].id) return null;
+  if (found[1].id !== found[0].id) return false;
   const now = found[0].full_name;
   return `${names.find((name) => name.toLowerCase() !== now.toLowerCase()) ?? names[0]} is now ${now}`;
 };
@@ -349,7 +349,10 @@ export function createSharedRoot({ Refusal, refuse, listed, legacyRoots, makeLog
     if (logbooks.length === 1) {
       const [{ folder, name, used, remote }] = logbooks, linkTo = `sage link --to ${folder}`;
       const facts = `It has the same first commit as the project ${name} (logbook ${folder}, used by ${used}).`;
-      const other = mine && remote && !same(remote), moved = other && twins.find(gone), renamed = other && !moved && renamedOnGitHub([remote, mine], env);
+      const other = mine && remote && !same(remote), renamed = other ? renamedOnGitHub([remote, mine], env) : false;
+      const linkedInOrder = rows.filter((r) => r.folder === folder).sort((a, b) => a.at.localeCompare(b.at));
+      const goneSinceLastLive = linkedInOrder.slice(linkedInOrder.findLastIndex((r) => !gone(r)) + 1);
+      const moved = renamed === null && goneSinceLastLive.findLast((r) => twins.includes(r));
       if (other && !moved && !renamed) refuse(prompt(checkout, head, `${facts} But its GitHub remote is ${mine}, not ${remote}. So it is most likely a fork. ${done}`, [LASTS], [
         { ...separate, text: separate.text.replace(".**", "** (recommended).") },
         { text: `**Link to ${name}.** This folder uses the ${name} logbook, and its tasks show in the ${name} project. Choose this only if the fork and ${name} are one project to you.`, run: linkTo },

@@ -354,7 +354,7 @@ else process.exit(1);
   return { env: { ...w.env, PATH: bin }, calls: () => (existsSync(log) ? readFileSync(log, "utf8") : ""), slept: () => existsSync(`${log}.slept`) };
 }
 
-test("T1207: a clone whose GitHub remote differs is told to link when its old folder is gone or GitHub says the repository was renamed; any doubt keeps the fork question", (t) => {
+test("T1207: a clone whose GitHub remote differs is told to link when GitHub says the repository was renamed, or, with no GitHub answer, when the newest checkout of the logbook is gone; else the fork question", (t) => {
   const { w, lantern, clone, folder } = lanternWorld(t);
   git(clone, "remote", "set-url", "origin", "https://github.com/sample-owner/lantern-stack");
   const ask = (env, runs = [claudeSage, codexSage]) => runs.map((run) => refusalOf(() => run(["status", "--project", clone], env)));
@@ -387,10 +387,34 @@ test("T1207: a clone whose GitHub remote differs is told to link when its old fo
   claudeSage(["link", "--to", folder, "--project", old], w.env);
   rmSync(old, { recursive: true });
   const moved = w.table("bindings.tsv"), gone = link(`. But ${old} is gone, so this looks like that folder, moved here.`);
-  assert.deepEqual(ask(w.env), [gone, gone], "a row of the first commit whose folder is gone: a move, so link, with no GitHub answer");
-  assert.deepEqual(ask(two.env), [gone, gone], "the gone folder decides before GitHub's answer");
+  const noGh = { ...w.env, PATH: join(w.base, "no-gh") };
+  assert.deepEqual(ask(error.env), [gone, gone], "the newest row of the logbook names a gone folder, and gh gives an error: a move, so link");
+  assert.deepEqual(ask(noGh), [gone, gone], "the same with no gh");
+  assert.deepEqual(ask(slow.env, [claudeSage]), [gone], "the same when gh does not answer in time");
+  assert.deepEqual(ask(two.env), [fork, fork], "GitHub's answer decides before the gone folder: two repository ids give the fork question");
+  assert.deepEqual(ask(renamed.env), [told, told], "GitHub's answer decides before the gone folder: one repository id gives the rename");
   assert.equal(w.table("bindings.tsv"), moved, "no row before the owner's answer");
+
+  const live = join(w.base, "lantern-new");
+  git(w.base, "clone", "-q", lantern, live);
+  claudeSage(["link", "--to", folder, "--project", live], w.env);
+  assert.deepEqual(ask(noGh), [fork, fork], "a live checkout linked after the gone one: the gone row does not count, so the fork question");
   assert.match(claudeSage(["link", "--to", folder, "--project", clone], w.env), /now uses the shared logbook/, "choice 1's command works");
+});
+
+test("T1207: a gone checkout of the logbook does not make a fork look like a move when GitHub gives the two remotes two repository ids", (t) => {
+  const { w, lantern, clone, folder } = lanternWorld(t);
+  const old = join(w.base, "lantern-old");
+  git(w.base, "clone", "-q", lantern, old);
+  claudeSage(["link", "--to", folder, "--project", old], w.env);
+  rmSync(old, { recursive: true });
+  git(clone, "remote", "set-url", "origin", "https://github.com/evil-owner/lantern-fork");
+  const gh = fakeGh(w, { "sample-owner/lantern": { id: 7, full_name: "sample-owner/lantern" }, "evil-owner/lantern-fork": { id: 9, full_name: "evil-owner/lantern-fork" } });
+  const rows = w.table("bindings.tsv");
+  const fork = `**This folder has no logbook yet:** ${clone}\n\nIt has the same first commit as the project lantern (logbook ${folder}, used by ${lantern}). But its GitHub remote is evil-owner/lantern-fork, not sample-owner/lantern. So it is most likely a fork. sage does not guess, and nothing has changed.\n\n${NOTE}\n\nChoose one:\n1. **Start separate** (recommended). This folder gets a new, empty logbook, and the board shows it as another project.\n2. **Link to lantern.** This folder uses the lantern logbook, and its tasks show in the lantern project. Choose this only if the fork and lantern are one project to you.\n\nReply 1 or 2.\n\nFor the chief: after the reply, run one command in ${clone}: for 1, sage link --separate; for 2, sage link --to ${folder}.`;
+  assert.deepEqual([claudeSage, codexSage].map((run) => refusalOf(() => run(["status", "--project", clone], gh.env))), [fork, fork], "the fork question, with start separate recommended (both providers)");
+  assert.match(gh.calls(), /repos\/evil-owner\/lantern-fork/, "the fake gh was asked");
+  assert.equal(w.table("bindings.tsv"), rows, "no row before the owner's answer");
 });
 
 test("a row whose logbook is missing: the prompt offers the restore first, then separate or another project", (t) => {
