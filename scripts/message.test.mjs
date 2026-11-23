@@ -12,6 +12,7 @@ import { KINDS, frameLines, messageText, partsOf, prepareMessage } from "../pack
 import { PAGE_POLICY, SWITCH_SCRIPT, messagePage } from "../packages/sage-core/message-page.mjs";
 import { kindOf, messageMiss, pageProblems, renderMessage, textProblems } from "../packages/sage-core/message-checks.mjs";
 import { columns, openBoxes, pictureSvg } from "../packages/sage-core/picture.mjs";
+import { boardCommandPort } from "./fixtures/board-port.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = join(HERE, "fixtures", "messages");
@@ -22,6 +23,7 @@ const resolved = (msg) => ({ ...msg, blocks: msg.blocks.map((b) => (b.t === "pag
 const render = (msg) => renderMessage(resolved(msg), { pagePath: (name) => `/pages/T1/${name}` });
 const unescape = (s) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
 const pageText = (html) => unescape(/<pre>([\s\S]*?)<\/pre><\/details>/.exec(html)[1]);
+const NO_BOARD = await boardCommandPort();
 const pictures = (text) => [...text.matchAll(/^```\n([\s\S]*?)\n```$/gm)].map((m) => m[1].split("\n")).filter((l) => l.some((x) => /[\u2500-\u257f]/u.test(x)));
 
 test("each of the 15 example messages renders through the model: text at 46 columns (66 on a long page), no tree marks, and its checks pass", () => {
@@ -587,6 +589,8 @@ function sandbox() {
   const env = { ...process.env, HOME: join(base, "home"), SAGE_HOME: join(base, "sage"), SAGE_TEST_PIDS: "{}", SAGE_TEST_KILLS: join(base, "kills"),
     NODE_OPTIONS: `--import=${JSON.stringify(join(HERE, "kill-spy.mjs"))}` };
   delete env.SAGE_WORKTREES;
+  mkdirSync(join(base, "home", ".config", "sage-board"), { recursive: true });
+  writeFileSync(join(base, "home", ".config", "sage-board", "board.port"), `${NO_BOARD}\n`);
   const project = join(base, "project");
   execFileSync("git", ["init", "-q", "-b", "main", project]);
   execFileSync("git", ["-C", project, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "start"]);
@@ -627,7 +631,7 @@ test("the message command prints the text, writes the page of a pictured message
   assert.equal(readFileSync(path, "utf8"), html);
 });
 
-test("the message command resolves a Page block in a task's pages folder, and refuses a page that is not there, a path, and a wrong shape", () => {
+test("the message command resolves a Page block in a task's pages folder, and refuses a page that is not there, a path, and a wrong shape", async () => {
   const { base, sage, file } = sandbox();
   const question = fixture("02-question.json");
   assert.match(sage("message", "T1", "--file", file("q.json", question)).out, /the page block "Showing visuals in every app" names .*\/pages\/T1000\/research\.html, and it does not exist\. Save the page there first\. Nothing written\./);
@@ -639,14 +643,13 @@ test("the message command resolves a Page block in a task's pages folder, and re
   assert.match(through.out, /^sage: the page block "Showing visuals in every app" names .*\/research\.html\/x\.html, and it does not exist\. Save the page there first\. Nothing written\./);
   const ok = sage("message", "T1", "--file", file("q.json", local));
   assert.equal(ok.status, 0, ok.out);
-  const logbook = basename(dirname(dirname(folder)));
-  assert.ok(ok.out.endsWith(`Page · Showing visuals in every app\n  http://127.0.0.1:43123/pages/${logbook}/T1/research.html\n  ${join(folder, "research.html")}`), ok.out);
-  assert.deepEqual(textProblems(ok.out), [], "the link line is part of the Page block, not the message's own words");
-  const boardFolder = join(base, "home", ".config", "sage-board");
-  mkdirSync(boardFolder, { recursive: true });
-  writeFileSync(join(boardFolder, "board.port"), "43999\n");
+  const logbook = basename(dirname(dirname(folder))), ensure = `node ${join(HERE, "..", "plugins", "sage", "board", "cli.mjs")} board --ensure`;
+  assert.ok(ok.out.endsWith(`Page · Showing visuals in every app\n  ${join(folder, "research.html")}\n  The board does not answer now; open the file, or start the board with \`${ensure}\`.\n  http://127.0.0.1:${NO_BOARD}/pages/${logbook}/T1/research.html`), `T1208: no board answers, so the path comes first: ${ok.out}`);
+  assert.deepEqual(textProblems(ok.out), [], "the link line and the board line are part of the Page block, not the message's own words");
+  const boardFolder = join(base, "home", ".config", "sage-board"), other = await boardCommandPort();
+  writeFileSync(join(boardFolder, "board.port"), `${other}\n`);
   const moved = sage("message", "T1", "--file", file("q.json", local));
-  assert.ok(moved.out.endsWith(`\n  http://127.0.0.1:43999/pages/${logbook}/T1/research.html\n  ${join(folder, "research.html")}`), `T1079: the link names the port of the board that started last: ${moved.out}`);
+  assert.ok(moved.out.endsWith(`\n  http://127.0.0.1:${other}/pages/${logbook}/T1/research.html`), `T1079: the link names the port of the board that started last: ${moved.out}`);
   writeFileSync(join(boardFolder, "board.port"), "80\n");
   assert.ok(sage("message", "T1", "--file", file("q.json", local)).out.includes("\n  http://127.0.0.1:43123/pages/"), "T1079: a port out of 1024 to 65535 gives the default port");
   for (const page of [{ task: "T1", file: "../T2/x.html" }, { task: "T1", file: "/etc/passwd" }, { task: "../T1", file: "x.html" }, { path: "/etc/passwd" },
