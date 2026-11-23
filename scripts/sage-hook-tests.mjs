@@ -4440,7 +4440,7 @@ test("F-T255-13: a child whose type comes in another letter case keeps its slot 
   assert.match(denied(s.send(nested("sage:qa", "case-10"))) ?? "", /this lead already has 9 children/);
 });
 
-function leadSession(env = {}, size = "small") {
+function leadSession(env = {}, size = "small", named = true) {
   const s = linkedSession(env);
   s.sage("config", "max_agents=20", "cap_total=30");
   s.send(prompt("sage mode"));
@@ -4457,7 +4457,7 @@ function leadSession(env = {}, size = "small") {
   spawnSync("git", ["-C", s.dir, "branch", "claude/t1"]);
   s.sage("task", "T1", "set", "branch=claude/t1");
   const head = () => spawnSync("git", ["-C", s.dir, "rev-parse", "claude/t1"], { encoding: "utf8" }).stdout.trim();
-  assert.equal(s.send(leadSpawn("lead-call", 1, { cwd: s.dir })), undefined);
+  assert.equal(s.send(named ? leadSpawn("lead-call", 1, { cwd: s.dir }) : desktopLead("lead-call", "lead-T1 the task", { cwd: s.dir })), undefined);
   s.send(resultOf("lead-call", "lead-a"));
   leadAdd(s, "qa");
   s.sage("run", "add", "T2", "--role", "qa");
@@ -6469,8 +6469,8 @@ test("T482 R1762-2: within the lease, the sage's end of the old lead run and a n
   assert.match(denied(s.send(tool("Agent", { subagent_type: "sage:qa", prompt: BRIEF, name: "R4" }, { tool_use_id: "late-child", ...LEAD }))) ?? "", /^sage: this lead holds no bound lead slot, so it starts no agent\./, "the old lead starts no helper");
 });
 
-for (const where of ["the same session (a restart)", "another session"]) test(`T1202: once the logbook ends a lead run, a fresh lead of its task starts at once in ${where}, and the old lead's slot and its helpers' slots are free`, () => {
-  const s = leadSession(), other = where === "another session" ? { session_id: "s2" } : {};
+for (const where of ["the same session (a restart)", "another session"]) for (const named of [true, false]) test(`T1202 T1145: once the logbook ends a lead run, a fresh lead of its task starts at once in ${where}, and the old lead's slot and its helpers' slots are free, for a lead started ${named ? "with a name" : "with no name field"}`, () => {
+  const s = leadSession({}, "small", named), other = where === "another session" ? { session_id: "s2" } : {};
   if (other.session_id) s.send({ ...prompt("sage mode"), ...other });
   const dir = join(s.vars.SAGE_HOOKS_STATE, "slots"), h = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
   const team = () => readdirSync(dir).filter((slot) => readdirSync(join(dir, slot)).some((m) => m === `bound-${h("lead-a")}` || m === `parent-${h("lead-a")}`));
