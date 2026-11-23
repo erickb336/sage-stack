@@ -8,6 +8,7 @@ import { measureTotals, runMeasure } from "./usage.mjs";
 const DAY = 86_400_000, DONE_DAYS = 7;
 const ENDED = ["merged", "concluded", "abandoned"];
 const MOVING = ["design", "building", "review", "ready"];
+export const isMoving = task => MOVING.includes(task.column) || task.column === "backlog" && task.agents.some(agent => !agent.stale);
 const time = value => {
   const at = typeof value === "number" ? value : Date.parse(value);
   return Number.isFinite(at) ? at : null;
@@ -187,7 +188,7 @@ export function boardOverview(model) {
       merged: milestone.progress.merged,
       total: milestone.progress.total,
       abandoned: milestone.progress.abandoned,
-      moving: open.filter(task => MOVING.includes(task.column)).length,
+      moving: open.filter(isMoving).length,
       waiting: milestone.waiting,
       needsYou: open.filter(task => task.reasons.length).length + (milestone.need ? 1 : 0),
       pilot: milestone.pilot,

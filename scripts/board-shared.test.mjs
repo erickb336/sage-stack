@@ -126,7 +126,7 @@ test("each shared card names its owning chief or Unclaimed; the Who filter goes 
   assert.deepEqual(["T321", "T322", "T323", "T324"].map(id => card(model, id).holder), ["Claude · C1", "Unclaimed", "Codex · C2", "C9"]);
   assert.equal(card(model, "T324").owner.unlisted, true, "an unknown chief id shows on its task's page");
   assert.ok(!model.needsOwner.some(item => item.id === "T324"), "an unknown chief id is a warning, not a need");
-  assert.match(renderBoardText(model), /\*\*Show the board in both providers\*\* T321 · in progress · Claude · C1 · lantern · PR 88/);
+  assert.match(renderBoardText(model), /\n- Show the board in both providers\. /);
 });
 
 test("F-T1182-3: a left-over offer of an older sage shows no offer cell and no accept text: accept is gone, and the next pick-up ends the offer", t => {
@@ -147,8 +147,9 @@ test("Needs you: an open takeover gate asks its question in one line, and a stal
   assert.deepEqual(model.needsOwner.filter(item => item.group === lantern.key).map(item => item.id).sort(), ["T319", "T320"]);
   assert.equal(lantern.needsOwner, 2);
   const text = renderBoardText(model);
-  assert.match(text, /> shared\/lantern-4be1a2\/G7 · Hand T320 from Claude · C1 to Codex · C2\? R410 and R411 end as failed\\\./);
-  assert.match(text, /> The owning chief, Codex · C2, may have stopped\\: R412 shows no change for over 24 h\\\./);
+  assert.match(text, /\. Hand this task from Claude · C1 to Codex · C2\? 2 of its runs end as failed\.\n/, "T1217: the task and run ids go to the Ref line");
+  assert.match(text, /\. The owning chief, Codex · C2, may have stopped: its run shows no change for over 24 h\.\n/);
+  assert.match(text.split("\n").at(-1), /^Ref: .*\bshared\/lantern-4be1a2\/G7\b/);
 });
 
 test("old logbooks: finished tasks show in Done with their old label, a moved row is hidden, and a path that is not an old logbook folder is never read", t => {
@@ -200,11 +201,12 @@ test("a lead slot's logbook mark, as the hook writes it for a linked project, eq
   assert.equal(read.projects[0].logbook, mark);
   assert.equal(read.projects[0].checkout, realpathSync(project), "the checkout comes from the bindings.tsv row");
   const files = () => readdirSync(sharedRoot(env), { recursive: true, withFileTypes: true }).filter(entry => entry.isFile()).map(entry => [join(entry.parentPath, entry.name), readFileSync(join(entry.parentPath, entry.name), "hex")]).sort();
+  claude.sage(["task", "T1", "set", "state=briefed", "--project", project, "--chief", chief], env);
   const before = files();
   const chat = claude.sage(["board", "this", "--view", "chat", "--project", project], env);
-  assert.match(chat, /\*\*Sample shared task\*\* T1 · not started · Claude · C1 · lantern/);
+  assert.match(chat, /\n- Sample shared task\. Briefed\.\n/);
   mkdirSync(join(project, "sub"));
-  assert.match(claude.sage(["board", "this", "--view", "chat", "--project", join(project, "sub")], env), /Sample shared task\*\* T1/);
+  assert.match(claude.sage(["board", "this", "--view", "chat", "--project", join(project, "sub")], env), /\n- Sample shared task\. Briefed\.\n/);
   assert.match(claude.sage(["board", "T1", "--view", "task", "--project", project], env), /^\*\*Sample shared task\*\* T1\nClaude · C1 · lantern/);
   assert.deepEqual(files(), before, "the board writes nothing");
 });
@@ -256,7 +258,7 @@ test("a table that changes during a read gives a retry; after two more differenc
   const model = buildBoardModel(readBoardSources(sources, { now: NOW, duringRead: (key, attempt) => key.endsWith(HARBOR) && rewrite(dir, `Again ${attempt}`) }), { now: iso() });
   assert.deepEqual(model.changing, [{ project: "harbor", at: iso() }]);
   assert.deepEqual(model.diagnostics, []);
-  assert.match(renderBoardText(model), /The logbook is changing: harbor · read at \d\d\\:\d\d UTC\. The board shows that read; ask for the board again for a read with no change\./);
+  assert.match(renderBoardText(model), /\nThe logbook of harbor is changing: the board shows its read at \d\d:\d\d\. Ask for the board again for a newer read\.\n/);
 });
 
 test("the server keeps its last good read, not stale, while the logbook changes, and the next read with no change shows it", async t => {
@@ -326,7 +328,7 @@ test("F-T624-2: when the third read lost its data, the changing note says what d
   assert.deepEqual([harbor.tables, harbor.diagnostics, harbor.changing], [{}, [], { at: iso(), dropped: ["the whole logbook"] }]);
   const model = buildBoardModel(read, { now: iso() });
   assert.deepEqual(model.changing, [{ project: "harbor", at: iso(), dropped: ["the whole logbook"] }]);
-  assert.match(renderBoardText(model), /The logbook is changing: harbor · read at \d\d\\:\d\d UTC, without what changed during it \(the whole logbook\)\. The board shows that read;/);
+  assert.match(renderBoardText(model), /\nThe logbook of harbor is changing: the board shows its read at \d\d:\d\d, without what changed during it \(the whole logbook\)\. Ask for the board again/);
   const calm = buildBoardModel(readBoardSources(sources, { now: NOW, duringRead: key => key.endsWith(HARBOR) && rewrite(dir, "Busy") }), { now: iso() });
   assert.deepEqual(calm.changing, [{ project: "harbor", at: iso() }]);
   assert.doesNotMatch(renderBoardText(calm), /without what changed/);
@@ -515,8 +517,8 @@ test("T633 (Q3): the in-session board of an unlinked clone does not show a share
   mkdirSync(clone, { recursive: true });
   const board = (project, here = null) => view.boardView({ sources: w.sources, scope: "this", project, here, format: "chat", now: iso() });
   assert.throws(() => board(clone), /No recorded project matches this board scope/);
-  assert.match(board(clone, `shared/${FOLDER}`), /Show the board in both providers\*\* T321/, "a linked clone finds it by its logbook");
-  assert.match(board(join(w.base, "harbor")), /Legacy task at work\*\* T41/, "a legacy logbook still matches by folder name");
+  assert.match(board(clone, `shared/${FOLDER}`), /\n- Show the board in both providers\. /, "a linked clone finds it by its logbook");
+  assert.match(board(join(w.base, "harbor")), /\n- Legacy task at work\. /, "a legacy logbook still matches by folder name");
 });
 
 test("T633: one project with two linked clones: the board of this project from either clone, the owner when one is gone, one Agents group", t => {
@@ -533,8 +535,10 @@ test("T633: one project with two linked clones: the board of this project from e
   claude.sage(["link", "--to", basename(claude.logbookView(a, env).dir), "--project", b], env);
   claude.sage(["task", "add", "--title", "Task from clone A", "--size", "small", "--priority", "P2", "--project", a, "--chief", claude.chiefFor(a, "session-a", env)], env);
   claude.sage(["task", "add", "--title", "Task from clone B", "--size", "small", "--priority", "P2", "--project", b, "--chief", claude.chiefFor(b, "session-b", env)], env);
+  claude.sage(["task", "T1", "set", "state=briefed", "--project", a, "--chief", claude.chiefFor(a, "session-a", env)], env);
+  claude.sage(["task", "T2", "set", "state=briefed", "--project", b, "--chief", claude.chiefFor(b, "session-b", env)], env);
   const chat = project => claude.sage(["board", "this", "--view", "chat", "--project", project], env);
-  for (const project of [a, b]) for (const title of ["Task from clone A** T1", "Task from clone B** T2"]) assert.ok(chat(project).includes(title), `${title} from ${basename(project)}`);
+  for (const project of [a, b]) for (const title of ["- Task from clone A. Briefed.", "- Task from clone B. Briefed."]) assert.ok(chat(project).includes(title), `${title} from ${basename(project)}`);
   const sources = [{ id: "shared", label: "Shared", path: sharedRoot(env) }];
   assert.deepEqual(modelOf(sources).projects.map(project => [project.name, project.sub]), [["lantern", "no GitHub remote · 2 checkouts: lantern, lantern-b"]]);
   const mark = createHash("sha256").update(claude.logbookView(b, env).dir).digest("hex"), slots = join(env.CLAUDE_CONFIG_DIR, "sage", ".hooks", "slots");
@@ -547,11 +551,11 @@ test("T633: one project with two linked clones: the board of this project from e
   assert.deepEqual(agents.map(group => group.name), ["lantern"]);
   assert.deepEqual(agents[0].agents.map(agent => [agent.runId, agent.state]).sort(), [["R1", "work"], ["R2", "work"]], "each slot holds its run");
   renameSync(a, `${a}.away`);
-  assert.ok(chat(b).includes("Task from clone A** T1"));
+  assert.ok(chat(b).includes("- Task from clone A. Briefed"));
   assert.equal(readBoardSources(sources, { now: NOW })[0].projects[0].checkout, b);
   assert.equal(modelOf(sources).projects[0].sub, "no GitHub remote · folder lantern-b");
   renameSync(`${a}.away`, a); renameSync(b, `${b}.away`);
-  assert.ok(chat(a).includes("Task from clone B** T2"));
+  assert.ok(chat(a).includes("- Task from clone B. "));
   assert.equal(modelOf(sources).projects[0].sub, "no GitHub remote · folder lantern");
 });
 
@@ -677,7 +681,7 @@ test("T656: the takeover gate's recommendation says that the owning chief offere
   assert.deepEqual([first("T322").text, first("T322").recommendation], ["Hand T322 to Claude · C1? It has no owning chief. No run ends as failed. Claude · C1 runs one fresh cycle before it merges.", "approve, because T322 has no owning chief"]);
   assert.deepEqual([first("T324").text, first("T324").recommendation], ["Hand T324 from C9 to Claude · C1? No run ends as failed.", "replace, because no run of T324 ends as failed"]);
   assert.equal(card(model, "T320").reasons[0].recommendation, "approve, when you know that Claude · C1 stopped", "a gate with no offer keeps the T631 text");
-  assert.match(renderBoardText(model), /Recommended: approve, because Claude · C1 offered T321 to Codex · C2/);
+  assert.match(renderBoardText(model), /\n  Recommended: approve, because Claude · C1 offered this task to Codex · C2\.\n/);
 });
 
 test("T656: inferred work on an open PR reads the owning chief's provider, not the codex/ prefix of the branch, which a takeover keeps", () => {
