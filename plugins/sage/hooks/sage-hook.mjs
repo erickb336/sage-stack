@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { appendFileSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, utimesSync, watch, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, utimesSync, watch, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1215,9 +1215,10 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
   const transaction = (fn, whenBusy = busy) => (...args) => {
     const parent = dirname(lock), token = randomUUID(), file = `${token}.json`, temporary = `${lock}.${token}`;
     mkdirSync(parent, { recursive: true });
-    mkdirSync(temporary, { mode: 0o700 });
+    mkdirSync(temporary);
     let held = false, holder;
     try {
+      chmodSync(temporary, 0o700);
       writeFileSync(join(temporary, file), JSON.stringify({ pid: process.pid, host: hostname(), at: Date.now() }));
       for (let attempt = 0; attempt < 400 && !held; attempt++) {
         holder = lockHolder(lock);
