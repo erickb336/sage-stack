@@ -32,7 +32,9 @@ else process.exit(1);
 `, { mode: 0o755 });
 const SYSTEM = String(process.env.PATH).split(":").filter(Boolean);
 symlinkSync(SYSTEM.map((dir) => join(dir, "git")).find((file) => existsSync(file)), join(FAKES, "git"));
-const PATH = [FAKES, ...SYSTEM.filter((dir) => !existsSync(join(dir, "gh")) && !existsSync(join(dir, "gh.exe")) && !dir.startsWith("/opt/homebrew"))].join(":");
+const TEMP_FOLDERS = [tmpdir(), "/tmp"].map((dir) => realpathSync(dir));
+const tempFakeFolder = (dir) => { try { const real = realpathSync(dir); return TEMP_FOLDERS.some((temp) => real === temp || real.startsWith(`${temp}/`)); } catch { return false; } };
+const PATH = [FAKES, ...SYSTEM.filter((dir) => !existsSync(join(dir, "gh")) && !existsSync(join(dir, "gh.exe")) && !dir.startsWith("/opt/homebrew") && !tempFakeFolder(dir))].join(":");
 const env = { ...process.env, PATH, HOME: join(BASE, "home"), CLAUDE_CONFIG_DIR: join(BASE, "claude"), CODEX_HOME: join(BASE, "codex"),
   SAGE_SHARED_HOME: join(BASE, "shared"), SAGE_WORKTREES: join(BASE, "worktrees"), SAGE_HOOKS_STATE: join(BASE, "hooks"), SAGE_TEST_PIDS: "{}" };
 delete env.SAGE_HOME;

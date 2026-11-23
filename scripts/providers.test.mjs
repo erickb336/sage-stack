@@ -215,7 +215,7 @@ test("T51: built hook normalizes agent stash, process, reader and writer executa
   }
   for (const name of ["PKILL", "KILL.exe", "KiLlAll.EXE", "/tools/GET-PROCESS.exe"])
     assert.match(decide(`${name} sample`)?.hookSpecificOutput?.permissionDecisionReason ?? "", /never signals or controls a real process/, name);
-  for (const name of ["PS", "PGREP.exe", "/usr/sbin/LSOF"]) assert.notEqual(decide(`${name} sample`)?.hookSpecificOutput?.permissionDecision, "deny", `a look (G233): ${name}`);
+  for (const name of ["PS", "PGREP.exe", "/usr/sbin/LSOF"]) assert.notEqual(decide(`${name} -ax`)?.hookSpecificOutput?.permissionDecision, "deny", `a look (G233): ${name}`);
   const fake = join(f.dir, "PS.EXE"); writeFileSync(fake, "#!/bin/sh\nexit 0\n"); chmodSync(fake, 0o755);
   assert.notEqual(decide(`'${fake}' sample`)?.hookSpecificOutput?.permissionDecision, "deny", "a real temporary fake remains allowed");
   for (const command of [`CP.exe source '${logbook}/tasks.tsv'`, `RG.exe --pre cat '${logbook}/tasks.tsv'`, `FILE.exe -C '${logbook}/tasks.tsv'`])
