@@ -33,7 +33,8 @@ export function ghApiMethod(args) {
   return String(method ?? (payload ? "POST" : "GET")).toUpperCase();
 }
 const WAYS = [
-  [/nested more than/, "Run the inner command as a command of its own."],
+  [/levels deep/, "Run the inner command as a command of its own."],
+  [/heredoc with no delimiter/, "Give each heredoc a delimiter word, for example cat <<'EOF', and end its body with a line of that word alone."],
   [/command directories/, "Change the folder once, with one cd to a literal path, or give each command its folder (git -C <path>, or absolute paths)."],
   [/wrapper option|sudo option|runner option|option has no value/, "Run the program without the wrapper, or give the wrapper only options that the hook knows, each with its value."],
   [/redirection with no target/, "Give each redirection a target."],

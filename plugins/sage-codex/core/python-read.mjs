@@ -20,6 +20,7 @@ const BUILTINS = words(`abs aiter all anext any ascii bin bool breakpoint bytear
   round sentinel set setattr slice sorted staticmethod str sum super tuple type vars zip`);
 const SAFE = words(`abs all any ascii bin bool bytearray bytes callable chr complex dict divmod enumerate filter float frozendict frozenset hash hex id int
   isinstance iter len list map max min next oct open ord pow print range repr reversed round set slice sorted str sum tuple zip`);
+const STRING_CALLS = words("read read_text readline decode strip lstrip rstrip lower upper casefold title capitalize replace join format dumps");
 const OPEN_KEYS = words("file mode encoding errors newline buffering closefd");
 const PY_FLAGS = /^-[BEIOqsSu]+$/, PY_CODE = /^-[BEIOqsSu]*c$/;
 const OP = /^(?:\*\*=?|\/\/=?|<<=?|>>=?|->|:=|\.\.\.|[-+*/%&|^@<>=!]=|[()[\]{},:;.@=+\-*/%&|^~<>!])/;
@@ -56,7 +57,7 @@ function tokens(code) {
         for (const field of fields) {
           const inner = tokens(field);
           if (!inner) return undefined;
-          out.push({ op: "(" }, ...inner.filter((t) => t.op !== ";"), { op: ")" });
+          out.push({ op: "(" }, ...inner.filter((t) => t.op !== ";"), { op: ")", field: true });
         }
       }
       i = j + end.length;
@@ -108,10 +109,26 @@ function reads(list) {
     const attribute = prev?.op === ".", args = list[i + 1]?.op === "(" ? argsOf(list, i + 1) : undefined;
     if (name === "open") { if (!args || !openReads(args, attribute)) return false; continue; }
     if (attribute && name === "write") { if (!/^std(?:out|err)$/.test((list[i - 2]?.name === "buffer" ? list[i - 4] : list[i - 2])?.name ?? "")) return false; continue; }
-    if (attribute && name === "replace") { if (!args || args.filter((arg) => arg.length).length < 2) return false; continue; }
+    if (attribute && name === "replace") { if (!args || !stringBefore(list, i - 2)) return false; continue; }
     if (attribute ? !ATTRS.has(name) : BUILTINS.has(name) && !SAFE.has(name)) return false;
   }
   return true;
+}
+
+function stringBefore(list, k) {
+  while (list[k]?.field) k = opening(list, k) - 1;
+  if (list[k]?.string !== undefined) return true;
+  const call = list[k]?.op === ")" ? opening(list, k) - 1 : -1, name = list[call]?.name ?? "";
+  return list[call - 1]?.op === "." ? STRING_CALLS.has(name) : name === "str";
+}
+
+function opening(list, k) {
+  for (let depth = 0; k >= 0; k--) {
+    const op = list[k].op ?? "";
+    if (op && ")]}".includes(op)) depth++;
+    else if (op && "([{".includes(op) && --depth === 0) return k;
+  }
+  return -1;
 }
 
 function importEnd(list, i) {

@@ -24,6 +24,7 @@ const isProcess = (name = "", looks = true) => {
 const NO_LOOK = (word) => `a proof never reads the real process list, so ${quoted(word)} is refused: the proof check reruns the proof, and the list is not the same on another run.`;
 const NO_PROCESS = (word) => `an agent never signals or controls a real process, so ${quoted(word)} is refused: an agent only looks at the processes, with lsof, pgrep or ps. Code that you test never reads or signals the real process list (standing order 14): put a fake ps or kill in a folder under the temp folder (/tmp, or the folder that TMPDIR names) and put that folder first on PATH: a fake in any other folder is refused. The fake ps prints a start time in the past (for example "Sat Jan  1 00:00:00 2000"). Run a fake kill by its path: a bare kill is the shell's builtin. Use literal paths: the hook does not expand variables. To stop your own server or background job, run it as a background task and stop that task.`;
 const NO_ENVIRONMENT = (word) => `an agent prints no process environment, so ${quoted(word)} with this option is refused: the environment of a process can hold a token (standing order 40). Run ps without E in an option and without e in an option word with no dash, for example ps aux, ps -ef, ps -p <pid> or ps -o pid,command.`;
+const PS_LONG_VALUE = /^--(?:cols|columns|format|group|Group|lines|pid|ppid|quick-pid|rows|sid|sort|tty|user|User|width)$/;
 function psEnvironment(args) {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -31,9 +32,13 @@ function psEnvironment(args) {
     if (/^-[^-]/.test(arg)) {
       for (let k = 1; k < arg.length; k++) {
         if (arg[k] === "E") return true;
-        if ("GMNOoptUu".includes(arg[k])) { if (k === arg.length - 1) i++; break; }
+        if ("CGgMNOopqstUu".includes(arg[k])) { if (k === arg.length - 1) i++; break; }
       }
-    } else if (/^[A-Za-z]+$/.test(arg) && arg.includes("e")) return true;
+    } else if (PS_LONG_VALUE.test(arg)) i++;
+    else if (/^[A-Za-z]+$/.test(arg)) {
+      if (arg.includes("e")) return true;
+      if ("kOopqtU".includes(arg.at(-1))) i++;
+    }
   }
   return false;
 }

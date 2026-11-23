@@ -2558,7 +2558,7 @@ test("R466-FAILCLOSED: a line the reader cannot read, or text nested past 3 leve
     assert.match((await refusal(command.replace("%", "git stash"))) ?? "", new RegExp(`${lead.source}git stash\\. An agent never runs git stash`), command);
     assert.equal(await refusal(command.replace("%", "ls")), undefined, `names nothing that a rule guards: ${command}`);
   }
-  assert.match((await refusal("bash -c \"bash -c \\\"bash -c 'bash -c kill'\\\"\"")) ?? "", /^the hook cannot read this command \(commands nested more than 3 levels deep\), so it refuses it\. Run the inner command as a command of its own\. Its text names a process program \("kill"\)\. An agent never signals or controls a real process/);
+  assert.match((await refusal("bash -c \"bash -c \\\"bash -c 'bash -c kill'\\\"\"")) ?? "", /^the hook cannot read this command \(commands nested 4 levels deep; the hook reads 3 levels, such as bash -c in bash -c in bash -c\), so it refuses it\. Run the inner command as a command of its own\. Its text names a process program \("kill"\)\. An agent never signals or controls a real process/);
   assert.doesNotMatch((await refusal("bash -c \"bash -c \\\"bash -c 'kill'\\\"\"")) ?? "", /cannot (?:be )?read/, "3 levels are read");
   assert.match((await refusal("bash -c \"bash -c \\\"bash -c 'kill'\\\"\"")) ?? "", /standing order 14/, "3 levels are read");
   assert.equal(await refusal("bash -c \"bash -c \\\"bash -c 'bash -c ls'\\\"\""), undefined);

@@ -486,17 +486,20 @@ const PY_LIBRARY_WRITES_OF_OUT = ["import pandas as pd; pd.read_csv('data.csv').
   "from PIL import Image; Image.new('RGB', (1, 1)).save('OUT')", "import runpy; runpy.run_path('OUT')", "import logging; logging.FileHandler('OUT')", "open('OUT', chr(97)).write('x')",
   "import posix; posix.system('rm OUT')", "import sys; sys.modules['os'].remove('OUT')", "import os; o = os; o.remove('OUT')", "from pathlib import Path; Path('OUT').open('w')",
   "from pathlib import Path; Path('/tmp/x/a').replace('OUT')", "list(map(open, ['OUT'], ['w']))", `print(f'{open(\\"OUT\\", chr(119))}')`];
+const PY_MOVES_OF_OUT = ["import os; os.rename('OUT', '/tmp/x/b')", "import os; os.replace('OUT', '/tmp/x/b')", "import os; os.replace('/tmp/x/a', 'OUT')",
+  "import os; os.renames('OUT', '/tmp/x/b/c')", "from os import replace; replace('OUT', '/tmp/x/b')", "from pathlib import Path; Path('OUT').replace('/tmp/x/b', *())"];
 test("T1210 F-T1210-15: for a read-only role, python3 -c code with only read names passes, also with a one-letter string, in both providers", async (t) => {
   const { verdict, RUNS } = await scratchPlaces(t);
   for (const code of ["print('a')", "print('+'.join(['1','2']))", "print('abc'.split('x'))", "import json; print(json.dumps(json.load(open('package.json')), indent=2)[:80])",
-    "import csv, sys; [sys.stdout.write(row[0]) for row in csv.reader(open('a.csv', 'r'))]", "from pathlib import Path; print(Path('README.md').read_text().replace('a', 'b')[:9])"]) {
+    "import csv, sys; [sys.stdout.write(row[0]) for row in csv.reader(open('a.csv', 'r'))]", "from pathlib import Path; print(Path('README.md').read_text().replace('a', 'b')[:9])",
+    "print('a-b'.replace('-', '+'))", "print(open('a.txt').read().strip().replace('a', 'b'))", "print(f'{1}'.replace('1', '2'))"]) {
     assert.deepEqual(await verdict(`python3 -c "${code}"`), RUNS, `a read: ${code}`);
   }
 });
 
 test("T1210 F-T1210-10: for a read-only role, a python3 -c library write into the project is refused, in both providers", async (t) => {
   const { verdict, REFUSED } = await scratchPlaces(t);
-  for (const code of PY_LIBRARY_WRITES_OF_OUT) assert.deepEqual(await verdict(`python3 -c "${code.replaceAll("OUT", "out.csv")}"`), REFUSED, `a write into the project: ${code}`);
+  for (const code of [...PY_LIBRARY_WRITES_OF_OUT, ...PY_MOVES_OF_OUT]) assert.deepEqual(await verdict(`python3 -c "${code.replaceAll("OUT", "out.csv")}"`), REFUSED, `a write into the project: ${code}`);
 });
 
 test("T1210 F-T1210-10: a python3 -c read of a logbook file passes for the chief and an agent, and a python3 -c write is refused, also a library write into the logbook, in both providers", async (t) => {
@@ -516,7 +519,7 @@ test("T1210 F-T1210-10: a python3 -c read of a logbook file passes for the chief
       `python3 -I -c "import json,os.path; sys.stdout.write(open('${file}').read())"${root.includes("/.codex/") ? "" : " > /tmp/x/out.txt"}`];
     const writes = [`python3 -c "open('${file}', 'w').write('{}')"`, `python3 -c "import json; json.dump({}, open('${file}', 'a'))"`, `python3 -c "import os; os.remove('${file}')"`,
       `python3 -c "import shutil; shutil.move('/tmp/x/a', '${file}')"`, `python3 -c "from pathlib import Path; Path('${file}').write_text('x')"`, `python3 -c "exec('x')" ${file}`, `python3 ${project}/w.py ${file} > /tmp/x/o`,
-      ...PY_LIBRARY_WRITES_OF_OUT.map((code) => `python3 -c "${code.replaceAll("OUT", file)}"`)];
+      ...[...PY_LIBRARY_WRITES_OF_OUT, ...PY_MOVES_OF_OUT].map((code) => `python3 -c "${code.replaceAll("OUT", file)}"`)];
     for (const agent of [false, true]) {
       const who = agent ? "an agent" : "the chief";
       for (const command of reads) assert.deepEqual({ claude: claude(command, agent), codex: await codex(command, agent) }, { claude: undefined, codex: undefined }, `${who} reads: ${command}`);
@@ -559,7 +562,7 @@ function systemPathNoTempFakes(t) {
 test("T1210 F-T1210-9: an agent may run lsof, pgrep and ps (G233); kill and pkill stay refused also with a fake kill first on PATH, with one text in both providers", async (t) => {
   systemPathNoTempFakes(t);
   const { claude, codex } = await toolChecks(t);
-  for (const command of ["lsof -i :3000", "pgrep -fl node", "ps aux", "ps -ef", "ps -o pid,lstart -p 123", "ps -o user,comm -U root", "ps -axo pid,command", "lsof -nP -iTCP:5173 -sTCP:LISTEN | tail -1", "/usr/sbin/lsof -i :8080"]) {
+  for (const command of ["lsof -i :3000", "pgrep -fl node", "ps aux", "ps -ef", "ps -o pid,lstart -p 123", "ps -o user,comm -U root", "ps -axo pid,command", "ps axo user", "ps -C node", "ps -C sleep", "ps --format user", "lsof -nP -iTCP:5173 -sTCP:LISTEN | tail -1", "/usr/sbin/lsof -i :8080"]) {
     assert.deepEqual({ claude: claude(command), codex: await codex(command) }, { claude: undefined, codex: undefined }, `a look at the processes: ${command}`);
   }
   for (const [command, word] of [["kill 1", "kill"], ["pkill node", "pkill"], ["killall node", "killall"], ["lsof -t -i :3000 | xargs kill", "kill"], ["pgrep node && pkill node", "pkill"]]) {
@@ -572,7 +575,8 @@ test("T1210 F-T1210-9: an agent may run lsof, pgrep and ps (G233); kill and pkil
 test("T1210 F-T1210-13: an agent runs no ps option that prints the environment, with one text in both providers", async (t) => {
   systemPathNoTempFakes(t);
   const { claude, codex } = await toolChecks(t);
-  for (const [command, word] of [["ps eww", "ps"], ["ps -E", "ps"], ["ps auxe", "ps"], ["ps -Ef", "ps"], ["/bin/ps -axE -p 1", "/bin/ps"], ["pgrep node | xargs ps e -p", "ps"]]) {
+  for (const [command, word] of [["ps eww", "ps"], ["ps -E", "ps"], ["ps auxe", "ps"], ["ps -Ef", "ps"], ["/bin/ps -axE -p 1", "/bin/ps"], ["pgrep node | xargs ps e -p", "ps"],
+    ["ps axo user e", "ps"], ["ps -C sleep -E", "ps"], ["ps --format user e", "ps"]]) {
     const got = { claude: claude(command), codex: await codex(command) };
     assert.equal(got.codex, got.claude?.replace(/\.$/, ""), `one text in both providers: ${command}`);
     assert.match(got.claude ?? "passed", new RegExp(`^sage: an agent prints no process environment, so "${word.replace(/\//g, "\\/")}" with this option is refused: .* ps aux, ps -ef, ps -p <pid> or ps -o pid,command\\.$`), command);
@@ -583,7 +587,8 @@ test("T1210 F-T1210-8: an unreadable command names its own cause and its way for
   const { project, agentProblem, codex, implementer } = await toolChecks(t);
   const dirs = ["/usr", "/bin", "/etc", "/tmp", "/var", "/sbin", "/private"].map((dir) => `npm test && pushd ${dir}`).join("; ");
   const causes = [["kill 'x", "an open quote", "Close each quote, substitution and heredoc."],
-    [`bash -c "bash -c \\"bash -c 'bash -c kill'\\""`, "commands nested more than 3 levels deep", "Run the inner command as a command of its own."],
+    [`bash -c "bash -c \\"bash -c 'bash -c kill'\\""`, "commands nested 4 levels deep; the hook reads 3 levels, such as bash -c in bash -c in bash -c", "Run the inner command as a command of its own."],
+    ["kill 1; cat <<", "a heredoc with no delimiter", "Give each heredoc a delimiter word, for example cat <<'EOF', and end its body with a line of that word alone."],
     [`${dirs}; kill 1`, "too many possible command directories", "Change the folder once, with one cd to a literal path, or give each command its folder (git -C <path>, or absolute paths)."],
     ["timeout --bogus 5 kill 1", "unknown or ambiguous wrapper option --bogus", "Run the program without the wrapper, or give the wrapper only options that the hook knows, each with its value."],
     ["kill 1; env -u", "env option has no value", "Run the program without the wrapper, or give the wrapper only options that the hook knows, each with its value."],
@@ -603,7 +608,8 @@ test("T1210 F-T1210-14: an unreadable command with no guarded word gets its caus
   const chief = async (command) => ({ claude: deniedRaw(handle({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, cwd: project, session_id: "s1" }, { sage: true, autopilot: false, start: false }, slots)),
     codex: deniedRaw(await g.run(pre("Bash", command, { cwd: project }))) });
   for (const [command, cause, way] of [["echo 'unclosed ; echo hi", "an open quote", "Close each quote, substitution and heredoc."], ["echo $(ls", "an open $(", "Close each quote, substitution and heredoc."],
-    ["echo hi )", 'a ")" with no "("', "Remove each ) that has no (."], ["echo hi >", "a redirection with no target", "Give each redirection a target."]]) {
+    ["echo hi )", 'a ")" with no "("', "Remove each ) that has no (."], ["echo hi >", "a redirection with no target", "Give each redirection a target."],
+    ["cat <<", "a heredoc with no delimiter", "Give each heredoc a delimiter word, for example cat <<'EOF', and end its body with a line of that word alone."]]) {
     const text = `sage: the hook cannot read this command (${cause}), so it refuses it. ${way}`;
     assert.deepEqual({ claude: claude(command), codex: await codex(command) }, { claude: `${text}`, codex: text.replace(/\.$/, "") }, `the qa agent: ${command}`);
     assert.deepEqual(await chief(command), { claude: `${text}`, codex: text.replace(/\.$/, "") }, `the chief: ${command}`);
