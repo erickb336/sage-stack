@@ -356,7 +356,7 @@ With a paired browser, you act from the Overview:
 | Action | Clicks from the Overview | What it writes |
 | --- | --- | --- |
 | Answer a question in Needs you | 1 to open it with its full context (the question message that the chief kept), then pick and Send | `gate answer --via board`. The chief that owns the question applies the answer at its next step. |
-| Approve a design with your words | 1 to open the design question, then pick Approve with your words, type your words in the field under the answers, and Send | `gate answer --via board --option 2 --other-hex <your words>`, at most 1,000 characters ([A design question](using-sage.md#a-design-question)). |
+| Approve a design with your words | 1 to open the design question, then pick Approve with your words, type your words in the field under the answers (or in the answer bar, when a file is open in a narrow window), and Send | `gate answer --via board --option 2 --other-hex <your words>`, at most 1,000 characters ([A design question](using-sage.md#a-design-question)). |
 | Undo a board answer | 1: Undo, under "Answered · waits for the chief" | `gate undo`, until the chief picks the answer up. |
 | Rename a chief | 2: the chief's menu (▾), then Rename | `chief name`. An empty name clears your name. |
 | Show only one chief's work | 1: the chief's chip. "All chiefs" shows all again | Nothing: the filter holds on each page, in this browser tab. |
