@@ -888,16 +888,14 @@ test("T266-LEAD-RACE: lead runs started at once by separate processes keep the l
   assert.equal(rows(s.dir, "runs").filter((r) => r.task === "T11").length, 1);
 });
 
-test("T266-LEAD-SHOWN: status counts a lead run like any run, and the board shows it with its role", () => {
+test("T266-LEAD-SHOWN: status counts a lead run like any run, and the chat board shows its task as moving (T1217)", () => {
   const s = store();
   s.ok("task", "add", "--priority", "P2", "--title", "t", "--size", "small");
   s.ok("run", "add", "T1", "--role", "lead");
   s.ok("run", "add", "T1", "--role", "implementer", "--branch", "claude/t1");
   assert.match(s.ok("status"), /^agents {2}2 runs · 2 running · about 0k weighted tokens · 0 measured, 0 unavailable, 0 legacy-unrecorded$/m);
   const board = s.ok("board", "this");
-  assert.match(board, /· 2 agents at work ·/, board);
-  assert.match(board, /^.* · lead at work\\$/m, board);
-  assert.match(board, /^.* · implementer at work\\$/m, board);
+  assert.match(board, /\n### Moving now\n- t\. Not briefed yet, an agent at work, \d+ min\.\n/, board);
 });
 
 test("T266-MAX-AGENTS: the default max_agents is 10, one lead and its 9 children, and a value in config.json still wins", async () => {
@@ -5612,7 +5610,7 @@ test("R1258-1: gate add makes each option, the recommendation and the default on
   const core = (file) => import(new URL(`../plugins/sage/core/${file}`, import.meta.url).href);
   const [{ readBoardSources }, { buildBoardModel }, { renderBoardText }] = await Promise.all(["board-reader.mjs", "board-model.mjs", "board-render.mjs"].map(core));
   const model = buildBoardModel(readBoardSources([{ id: "sage", label: "Sage", path: s.home }]));
-  assert.ok(renderBoardText(model).includes("> Options: 1: ship now · 2: wait for Bob\\\n> Recommended: ship now"), renderBoardText(model));
+  assert.ok(renderBoardText(model).includes("\n  Options: 1 ship now · 2 wait for Bob.\n  Recommended: ship now.\n"), renderBoardText(model));
 });
 
 test("R1259-1: in a breakdown question, a wait on an abandoned or lost task says that it is never met", () => {

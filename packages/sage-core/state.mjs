@@ -2566,7 +2566,7 @@ function sageCommand(argv, env) {
       const folder = opt.project ?? env.PWD;
       const located = () => { try { return storeDir(folder, env); } catch (e) { if (readOnly) throw e; return null; } };
       const dir = !env.SAGE_BOARD_ROOTS && folder ? located() : null, key = dir && `${isShared(dir, env) ? "shared" : "current"}/${basename(dir)}`;
-      return boardView({ sources, scope, project: folder, logbookKey: readOnly ? key : null, here: key?.startsWith("shared/") ? key : null, providerRoots: sessionRoots(root, legacyRoots(env), provider), taskId: /^T[1-9]\d*$/.test(pos[0] ?? "") ? pos[0] : null, format: opt.view ?? "chat" });
+      return boardView({ sources, scope, project: folder, logbookKey: readOnly ? key : null, here: key?.startsWith("shared/") ? key : null, providerRoots: sessionRoots(root, legacyRoots(env), provider), taskId: /^T[1-9]\d*$/.test(pos[0] ?? "") ? pos[0] : null, format: opt.view ?? "chat", port: boardPort(env) });
     } catch (error) { refuse(error.message); }
   }
   if (!readOnly && statSync(root, { throwIfNoEntry: false })?.isDirectory() && ["projects.tsv", "projects.made"].every((f) => !lstatSync(join(root, f), { throwIfNoEntry: false }))) known(root);

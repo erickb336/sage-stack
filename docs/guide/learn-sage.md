@@ -43,11 +43,16 @@ What the app shows for an empty search is a product choice, so the chief asks yo
 
 T1's task page on the board shows where T1 is: Plan, then the steps of its route, then Merge. In Plan, the chief frames the task and writes the brief for the agents. T1 needs you, because gate G1 is open, and the Overview lists G1 under "Needs you".
 
-`show board` prints the question in the chat too:
+`show board` prints the question in the chat too, in its Needs you part. The ids, such as the question's key, go on the last line, Ref, for the chief (SAMPLE DATA):
 
-> claude/ramen-finder-a1b2c3/G1 · An empty search: what does Ramen Finder show?\
-> Options: 1: a hint to type a name · 2: all ramen shops\
-> Recommended: a hint to type a name
+```text
+### 🔴 Needs you
+- Fix the crash on an empty search. An empty search: what does Ramen Finder show?
+  Options: 1 a hint to type a name · 2 all ramen shops.
+  Recommended: a hint to type a name.
+
+Ref: T1 claude/ramen-finder-a1b2c3/G1
+```
 
 You pick option 1. Engineering choices, such as the name of the helper function, are the chief's: it decides and logs them.
 
