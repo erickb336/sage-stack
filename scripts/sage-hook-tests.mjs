@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { execFileSync as rawExecFileSync, spawn, spawnSync as rawSpawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { test as nodeTest } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -4070,6 +4070,96 @@ test("T181: partial higher slots and a held mutation lock cannot admit excess ch
   assert.match(denied(s.send(nested("sage:qa", "locked"))) ?? "", /agent-slot lock is busy/);
   assert.deepEqual(readdirSync(dir).sort(), before);
   rmSync(join(s.vars.SAGE_HOOKS_STATE, "slots.lock"), { recursive: true });
+});
+
+const childRunsSlotTransactions = (slots, inside, count = 1) => `
+  import { writeFileSync, unlinkSync, appendFileSync } from "node:fs";
+  const { slotsFor } = await import(${JSON.stringify(pathToFileURL(HOOK).href)});
+  const slots = slotsFor(${JSON.stringify(slots)}, "lock-child");
+  const marker = ${JSON.stringify(join(slots, "..", "inside"))};
+  const inside = ${inside};
+  for (let n = 0; n < ${count}; n++) {
+    try { slots.reconcile({ filter: () => { inside(marker, n); return []; } }); appendFileSync(marker + ".done", "x"); }
+    catch (error) { appendFileSync(marker + ".refused", String(error.message) + "\\n"); }
+  }
+`;
+const runChild = (code) => spawnSync(process.execPath, ["--input-type=module", "-e", code], { encoding: "utf8" });
+const lockFolder = (state) => join(state, "slots.lock");
+const leftovers = (state) => readdirSync(state).filter(name => name.startsWith("slots.lock"));
+
+test("Stale slot lock: a hook that a kill stops inside a slot transaction leaves no lock that blocks the next agent", () => {
+  const s = nestedSession(), state = s.vars.SAGE_HOOKS_STATE, slots = join(state, "slots");
+  const killed = runChild(childRunsSlotTransactions(slots, `() => process.kill(process.pid, "SIGKILL")`));
+  assert.equal(killed.signal, "SIGKILL", "the child stops inside the transaction, as a hook timeout stops a hook");
+  assert.ok(existsSync(lockFolder(state)), "the killed holder leaves its lock folder behind");
+  assert.equal(s.send(nested("sage:qa", "after-kill")), undefined, "the next agent starts: the lock of a holder that is gone is taken over");
+  assert.deepEqual(leftovers(state), [], "the take-over and the transaction leave no lock folder");
+});
+
+test("Stale slot lock: an empty lock folder of an earlier sage version is taken over when it is older than any hook can run", () => {
+  const s = nestedSession(), state = s.vars.SAGE_HOOKS_STATE;
+  mkdirSync(lockFolder(state));
+  const old = new Date(Date.now() - 60_000);
+  utimesSync(lockFolder(state), old, old);
+  assert.equal(s.send(nested("sage:qa", "after-old-empty")), undefined, "an old empty lock folder no longer blocks every agent");
+  assert.deepEqual(leftovers(state), []);
+  mkdirSync(lockFolder(state));
+  assert.match(denied(s.send(nested("sage:qa", "fresh-empty"))) ?? "", /agent-slot lock is busy/, "a fresh empty lock folder still refuses");
+  rmSync(lockFolder(state), { recursive: true });
+});
+
+test("Stale slot lock: a live holder keeps the lock, and a holder that outlives any hook is taken over", async () => {
+  const s = nestedSession(), state = s.vars.SAGE_HOOKS_STATE, slots = join(state, "slots");
+  assert.equal(s.send(nested("sage:qa", "before-hold")), undefined, "the test's lead is in place before the holder starts");
+  const holder = spawn(process.execPath, ["--input-type=module", "-e", childRunsSlotTransactions(slots, `() => { writeFileSync(${JSON.stringify(join(state, "holding"))}, ""); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 6000); }`)], { stdio: "ignore" });
+  const exited = new Promise(done => holder.on("exit", done));
+  while (!existsSync(join(state, "holding"))) await new Promise(tick => setTimeout(tick, 20));
+  const refusal = denied(s.send(nested("sage:qa", "while-held"))) ?? "";
+  assert.match(refusal, /agent-slot lock is busy/, "a live holder's lock is never taken over");
+  assert.match(refusal, new RegExp(`pid ${holder.pid} has held`), "the refusal names the holder");
+  assert.ok(existsSync(lockFolder(state)), "the live holder still holds its lock");
+  await exited;
+  assert.equal(readFileSync(join(state, "inside.done"), "utf8"), "x", "the live holder finished its transaction");
+  assert.equal(s.send(nested("sage:qa", "after-release")), undefined);
+  mkdirSync(lockFolder(state));
+  const ownerFileOfALivePidOlderThanAnyHook = join(lockFolder(state), "00000000-0000-4000-8000-000000000000.json");
+  writeFileSync(ownerFileOfALivePidOlderThanAnyHook, JSON.stringify({ pid: process.pid, host: hostname(), at: Date.now() - 120_000 }));
+  assert.equal(s.send(nested("sage:qa", "after-old-live")), undefined, "a lock held longer than any hook can run is taken over");
+  assert.deepEqual(leftovers(state), []);
+});
+
+test("Stale slot lock: an agent that ends while a live holder keeps the lock frees its slot at the next transaction", () => {
+  const dir = join(mkdtempSync(join(tmpdir(), "sage-busy-end-")), "slots"), lock = join(dir, "..", "slots.lock");
+  const slots = slotsFor(dir, "s", Date.now(), "s", () => true);
+  const lead = (run) => ({ role: "sage:lead", input: {}, lead: { task: "T86", logbook: sha256("logbook"), run, folder: dir } });
+  assert.deepEqual(slots.take("p", 5, "first-lead", lead("R1")), { ok: true });
+  slots.result("first-lead", undefined, { status: "async_launched", agentId: "first-lead-agent" });
+  assert.equal(slots.take("p", 5, "second-lead", lead("R2")).refused, "task", "a lead of the task holds its slot while it runs");
+  mkdirSync(lock);
+  writeFileSync(join(lock, "00000000-0000-4000-8000-000000000001.json"), JSON.stringify({ pid: process.pid, host: hostname(), at: Date.now() }));
+  assert.doesNotThrow(() => slots.release("first-lead-agent"), "the end of an agent is kept when the lock stays busy");
+  rmSync(lock, { recursive: true });
+  assert.deepEqual(slots.take("p", 5, "second-lead", lead("R2")), { ok: true }, "the next transaction frees the ended lead's slot, so a fresh lead of the task starts at once");
+  assert.equal(slots.take("p", 5, "third-lead", lead("R3")).refused, "task", "the fresh lead holds the task's slot");
+});
+
+test("Stale slot lock: processes that take over stale locks at the same time never hold the lock together", async () => {
+  const s = nestedSession(), state = s.vars.SAGE_HOOKS_STATE, slots = join(state, "slots");
+  const oneHolderAtATimeAndEveryFifthKilled = `(marker, n) => {
+    try { writeFileSync(marker, "", { flag: "wx" }); } catch (error) { appendFileSync(marker + ".overlap", "x"); throw error; }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1);
+    unlinkSync(marker);
+    if ((process.pid + n) % 5 === 0) process.kill(process.pid, "SIGKILL");
+  }`;
+  const children = Array.from({ length: 10 }, () => new Promise(done => spawn(process.execPath, ["--input-type=module", "-e", childRunsSlotTransactions(slots, oneHolderAtATimeAndEveryFifthKilled, 15)], { stdio: "ignore" }).on("exit", (code, signal) => done({ code, signal }))));
+  const ends = await Promise.all(children);
+  const read = (name) => existsSync(join(state, name)) ? readFileSync(join(state, name), "utf8") : "";
+  assert.equal(read("inside.overlap"), "", "no two processes held the lock at the same time");
+  assert.equal(read("inside.refused"), "", "no transaction was refused: each stale lock was taken over");
+  assert.ok(ends.some(end => end.signal === "SIGKILL"), "some holders were killed while they held the lock");
+  assert.ok(read("inside.done").length > 0, "transactions ran");
+  assert.equal(s.send(nested("sage:qa", "after-storm")), undefined, "the next agent starts after the kills");
+  assert.deepEqual(leftovers(state), [], "no lock folder and no folder of a killed waiter stays");
 });
 
 test("T181: unbound child reservations keep a one-hour lease and duplicate Pre does not add capacity", async () => {

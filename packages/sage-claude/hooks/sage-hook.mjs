@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { appendFileSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, utimesSync, watch, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { appendFileSync, chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, utimesSync, watch, writeFileSync } from "node:fs";
+import { homedir, hostname } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -1123,6 +1123,74 @@ function noteStart(input) {
   } catch {}
 }
 
+class SlotLockBusy extends Error {}
+
+const SLOT_LOCK = { tries: 400, waitMs: 5, olderThanAnyHookMs: 30_000 };
+const LOCK_OWNER = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/;
+
+function lockHolder(folder) {
+  let info, names;
+  try { info = lstatSync(folder); names = info.isDirectory() ? readdirSync(folder) : undefined; }
+  catch (error) { if (error.code === "ENOENT") return { free: true }; throw error; }
+  const age = Date.now() - info.mtimeMs;
+  if (names?.length === 0) return { empty: true, age };
+  if (names?.length !== 1 || !LOCK_OWNER.test(names[0])) return { age };
+  let owner;
+  try { owner = JSON.parse(readFileSync(join(folder, names[0]), "utf8")); } catch {}
+  const at = Number.isFinite(owner?.at) ? owner.at : info.mtimeMs;
+  return { file: names[0], pid: owner?.pid, host: owner?.host, age: Date.now() - at };
+}
+
+function holderGone(holder) {
+  if (holder.age >= SLOT_LOCK.olderThanAnyHookMs) return true;
+  if (holder.host !== hostname() || !Number.isInteger(holder.pid) || holder.pid <= 0) return false;
+  try { process.kill(holder.pid, 0); return false; }
+  catch (error) { return error.code === "ESRCH"; }
+}
+
+function clearLock(folder, file) {
+  try { unlinkSync(join(folder, file)); }
+  catch { return false; }
+  try { rmdirSync(folder); } catch {}
+  return true;
+}
+
+export function withSlotLock(lock, fn) {
+  const parent = dirname(lock), token = randomUUID(), file = `${token}.json`, temporary = `${lock}.${token}`;
+  mkdirSync(parent, { recursive: true });
+  mkdirSync(temporary);
+  let held = false, holder;
+  try {
+    chmodSync(temporary, 0o700);
+    writeFileSync(join(temporary, file), JSON.stringify({ pid: process.pid, host: hostname(), at: Date.now() }));
+    for (let attempt = 0; attempt < SLOT_LOCK.tries && !held; attempt++) {
+      holder = lockHolder(lock);
+      if (holder.free || (holder.empty && holder.age >= SLOT_LOCK.olderThanAnyHookMs)) {
+        try { renameSync(temporary, lock); held = true; continue; }
+        catch (error) { if (!["EEXIST", "ENOTEMPTY", "ENOTDIR"].includes(error.code)) throw error; }
+      } else if (holder.file && holderGone(holder) && clearLock(lock, holder.file)) continue;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, SLOT_LOCK.waitMs);
+    }
+  } finally {
+    if (!held) rmSync(temporary, { recursive: true, force: true });
+  }
+  if (!held) {
+    const who = holder?.file ? `pid ${holder.pid} has held ${lock} for ${(holder.age / 1000).toFixed(1)} s` : holder?.free ? `other hooks took ${lock} first each time` : `${lock} has no owner file`;
+    throw new SlotLockBusy(`the agent-slot lock is busy; no new agent can start until the slot state is available (${who}; if no sage hook runs, remove ${lock})`);
+  }
+  try {
+    for (const name of readdirSync(parent)) {
+      if (!name.startsWith("slots.lock.") || name === basename(temporary)) continue;
+      const waiter = lockHolder(join(parent, name));
+      if (waiter.file && holderGone(waiter)) clearLock(join(parent, name), waiter.file);
+      else if (waiter.empty && waiter.age >= SLOT_LOCK.olderThanAnyHookMs) { try { rmdirSync(join(parent, name)); } catch {} }
+    }
+    return fn();
+  } finally {
+    clearLock(lock, file);
+  }
+}
+
 export function slotsFor(dir, session, now = Date.now(), rawSession = session, leadRuns = liveLeadRun) {
   const STALE = { pending: 10 * 60_000, agent: 60 * 60_000 };
   const id = (raw) => safe(raw) || undefined;
@@ -1168,18 +1236,19 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
     try { rmdirSync(join(dir, slot)); }
     catch { rmSync(join(dir, slot), { recursive: true, force: true }); }
   };
-  const transaction = (fn) => (...args) => {
-    mkdirSync(dirname(lock), { recursive: true });
-    let held = false;
-    for (let attempt = 0; attempt < 400; attempt++) {
-      try { mkdirSync(lock); held = true; break; }
-      catch (error) { if (error.code !== "EEXIST") throw error; }
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+  const endsNotedWhileLockBusy = join(events, "ended-while-lock-busy");
+  const applyEndsNotedWhileLockBusy = () => {
+    let names;
+    try { names = readdirSync(endsNotedWhileLockBusy); }
+    catch (error) { if (error.code === "ENOENT") return; throw error; }
+    for (const name of names) {
+      let value;
+      try { value = JSON.parse(readFileSync(join(endsNotedWhileLockBusy, name), "utf8")); } catch {}
+      if (valid(value?.agent)) release(value.agent, value.report ?? undefined);
+      rmSync(join(endsNotedWhileLockBusy, name), { force: true });
     }
-    if (!held) throw Error("the agent-slot lock is busy; no new agent can start until the slot state is available");
-    try { return fn(...args); }
-    finally { rmdirSync(lock); }
   };
+  const transaction = (fn) => (...args) => withSlotLock(lock, () => { applyEndsNotedWhileLockBusy(); return fn(...args); });
   const expire = () => {
     const age = slot => has(slot, "possible-launch") || mark(slot, "agent-") !== undefined || mark(slot, "bound-") !== undefined ? STALE.agent : STALE.pending;
     const stale = list().filter(slot => now - statSync(join(dir, slot)).mtimeMs > age(slot));
@@ -1339,7 +1408,13 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
       if (stopped(agent)) release(agent);
       else utimesSync(join(dir, slot), new Date(now), new Date(now));
     }),
-    release: transaction(release),
+    release(agent, report) {
+      try { return transaction(release)(agent, report); }
+      catch (error) {
+        if (!(error instanceof SlotLockBusy) || !valid(agent)) throw error;
+        note(hash(agent), JSON.stringify({ agent, report: report ?? null }), endsNotedWhileLockBusy);
+      }
+    },
     bindByBriefRun: transaction((agent, role, { run, task }) => {
       if (!valid(agent) || !run || stopped(agent) || ofSession().some(slot => ownsAgent(slot, agent)) || noted(`binding-${hash(agent)}`)) return;
       const calls = observationOf(agent)?.calls ?? [];
