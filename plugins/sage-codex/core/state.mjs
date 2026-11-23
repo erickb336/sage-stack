@@ -558,6 +558,8 @@ const archivedIn = (dir) => savedIn(dir).archived === true;
 const ARCHIVE_FAILURE = "the project was archived";
 const RESTORE = "If this is new work that the owner asked for in this chat after the archive, restore the project first with sage config archived=no, tell the owner in one line that you restored it";
 const archivedBar = (what, then) => `this project is archived, so it takes no ${what}: an archived project starts no agent and merges nothing. ${RESTORE}, then ${then}. A lead does not restore a project: report blocked to your chief. Nothing changed.`;
+const ARCHIVED_OWNER = "This project is archived, so it takes no answer and no other owner write. Restore it first, on the board or with sage config archived=no in its own chat when the owner asks for it, then try again. Nothing changed.";
+const shutByArchive = (dir, cmd, pos) => writerClass(cmd, pos).kind === "owner" && cmd !== "config" && cmd !== "logbook" && archivedIn(dir);
 function admit(dir, project, env, runs) {
   const stamp = now(), notes = [], lapsed = lapsedOf(dir, runs, Date.parse(stamp));
   for (const r of lapsed) {
@@ -2696,6 +2698,7 @@ function change(cmd, pos, opt, dir, env, skip, project, guarded) {
     const picked = guarded && !changeLoss && !skip.length && opt.lead === undefined && writerClass(cmd, pos).kind !== "read" ? pickup(dir, opt.chief, env) : "";
     try {
       if (guarded) opt.chief = guard(dir, cmd, pos, opt, project, env);
+      if (shutByArchive(dir, cmd, pos)) refuse(ARCHIVED_OWNER);
       if (!changeLoss && !skip.length && isShared(dir, env)) moveLimits(dir, env, cmd === "init");
       const out = picked && cmd === "pickup" ? picked : act(cmd, pos, opt, dir, env, skip, project);
       checkout(dir, project, env);
@@ -3648,7 +3651,6 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         }
         const own = opt["other-hex"], via = opt.via ?? "chat";
         if (!Object.hasOwn(VIA, via)) refuse(`--via is the place of the owner's answer: ${Object.keys(VIA).join(", ")}. Nothing changed.`);
-        if (archivedIn(dir)) refuse(via === "board" ? "This project is archived, so it takes no answer. Restore it, then answer again. Nothing changed." : archivedBar("answer", "give the same command again"));
         const first = firstAnswer(g);
         if (first) refuse(first);
         if (opt.seen !== undefined && opt.seen !== gateDigest(g)) refuse(`${g.id} changed after the owner read it: its question or its options are not the ones that --seen ${visible(String(opt.seen))} names. Read ${g.id} again, and answer what it asks now. Nothing changed.`);
