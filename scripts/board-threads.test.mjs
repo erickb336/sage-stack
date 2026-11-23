@@ -2,8 +2,9 @@ import "./test-env.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import fs, { appendFileSync, lstatSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -244,6 +245,31 @@ test("T1215 (C2): the light thread alone keeps the activity map: light reads go 
   assert.equal(seed.data[run].now.call, "00000003", "a new stream gets the newest action, not one from before the read");
   const calls = nowOf().filter(Boolean);
   assert.deepEqual(calls, [...calls].sort(), `the actions came in order: ${calls.join(", ")}`);
+});
+
+test("T1215 (C6, F-T1215-3, F-T1215-8): a light read runs on its own thread, so a task page answers while one waits; its watch plan, older than the next read's, removes no watcher", async t => {
+  const original = fs.watch, closed = [], watched = [];
+  fs.watch = (path, ...rest) => {
+    const watcher = original(path, ...rest), close = watcher.close.bind(watcher);
+    watched.push(String(path)); watcher.close = () => { closed.push(String(path)); return close(); };
+    return watcher;
+  };
+  syncBuiltinESMExports();
+  t.after(() => { fs.watch = original; syncBuiltinESMExports(); });
+  const holds = new Int32Array(new SharedArrayBuffer(20)), f = await board(t, { holds, lightEvery: 50, logbook: { running: true } }), events = stream(f);
+  t.after(() => { events.close(); Atomics.store(holds, 4, 0); Atomics.notify(holds, 4); });
+  const run = `${LOGBOOK}/R1`, slot = join(f.root, ".hooks", "slots", "slot-1"), reports = join(f.project, "reports");
+  await events.model(model => has(model, "Sample first task"));
+  Atomics.store(holds, 4, 1);
+  const renewed = new Date(); utimesSync(slot, renewed, renewed);
+  await readHeld(holds);
+  const during = await get(f, `/app/task/${KEY}`);
+  assert.deepEqual([during.status, JSON.parse(during.body).title], [200, "Sample first task"], "the light read waits after its folder walk, and the task page does not wait for it");
+  mkdirSync(reports);
+  await until(() => watched.includes(reports), "the next read's plan, which has the new folder, sets its watcher");
+  Atomics.store(holds, 4, 0); Atomics.notify(holds, 4);
+  await events.find(frame => frame.event === "activity" && frame.data[run]?.activity === lstatSync(slot).mtimeMs);
+  assert.deepEqual(closed.filter(path => path === reports), [], "the light read walked the folders first, so its plan is older, and the board keeps the newer one");
 });
 
 test("T1215 (C5): close() stops the threads, so a process whose board closed ends by itself", t => {

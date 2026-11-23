@@ -123,9 +123,9 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = null
   let lightTimer, lightAt = 0, activity = new Map(), archiving = Promise.resolve();
   const dirty = { hooks: new Set(), books: new Set(), folders: false };
   let modelEvent = null, modelSize = 0, modelSent = null, stats = null, facts = null, revision = 0, shownSeq = 0, notice = null, noticeTimer;
-  const boards = [null, null], threadOptions = { configured, providerRoots, reader, holds };
+  const boards = [null, null], threadOptions = { configured, providerRoots, reader, holds, walks: new Int32Array(new SharedArrayBuffer(4)) };
   let light = null, answering = null, answeringGood = false, building = null, again = false, changingShown = false;
-  let plans = 0, planShown = 0, publishes = 0, asks = 0, hooks = {}, lastSeed = null, stops = [];
+  let planShown = 0, publishes = 0, asks = 0, hooks = {}, lastSeed = null, stops = [];
   let readyAccept, readyReject;
   const readyPromise = new Promise((accept, reject) => { readyAccept = accept; readyReject = reject; });
   readyPromise.catch(() => {});
@@ -204,7 +204,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = null
 
   function lightRead() {
     lightTimer = undefined; lightAt = Date.now();
-    const message = { type: "light", hooks: [...dirty.hooks], books: [...dirty.books], folders: dirty.folders, plan: ++plans, at: clock ? Date.parse(clock()) : Date.now() };
+    const message = { type: "light", hooks: [...dirty.hooks], books: [...dirty.books], folders: dirty.folders, at: clock ? Date.parse(clock()) : Date.now() };
     dirty.hooks.clear(); dirty.books.clear(); dirty.folders = false;
     if (!closed) light?.post(message);
   }
@@ -259,7 +259,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = null
     const thread = boards[answering === null ? boards.findIndex(Boolean) : 1 - answering];
     if (building || !thread) { again = true; return; }
     again = false; building = thread;
-    thread.post({ type: "build", plan: ++plans });
+    thread.post({ type: "build" });
   }
 
   function watchThenRead(thread, message) {

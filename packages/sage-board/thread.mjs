@@ -48,30 +48,31 @@ function watchPlan(configured) {
   return [...plans.values()];
 }
 
-export function serve(port, { configured, providerRoots = [], reader = false, duringRead = null, holds = null }) {
+export function serve(port, { configured, providerRoots = [], reader = false, duringRead = null, holds = null, walks }) {
   const landing = landingRule(configured), render = reader ? MARKDOWN : null;
   const post = (message, transfer = []) => port.postMessage(message, transfer);
   const stop = slot => !isMainThread && holds && Atomics.exchange(holds, slot, 0) && process.exit(1);
-  const hold = holds && (() => {
-    if (!Atomics.load(holds, 0)) return;
+  const hold = slot => {
+    if (!holds || slot >= holds.length || !Atomics.load(holds, slot)) return;
     Atomics.add(holds, 1, 1); Atomics.notify(holds, 1);
-    Atomics.wait(holds, 0, 1);
-  });
+    Atomics.wait(holds, slot, 1);
+  };
+  const walkNumber = () => Atomics.add(walks, 0, 1) + 1;
   let read = null, built = null, model = null;
   let rows = null, hooks = {}, activity = new Map();
 
-  function planWatchers({ plan }) {
+  function planWatchers() {
     stop(3);
     read = built = model = null;
     let folders = [];
     try { folders = watchPlan(configured); } catch {}
-    post({ type: "plan", plan, folders, read: true });
+    post({ type: "plan", plan: walkNumber(), folders, read: true });
   }
 
   function readAndBuild({ now }) {
     let next, failed = false;
     try {
-      read = readBoardSources(configured, { duringRead: duringRead ?? hold, providerRoots });
+      read = readBoardSources(configured, { duringRead: duringRead ?? (() => hold(0)), providerRoots });
       for (const [index, source] of read.entries()) if (!lstatSync(configured[index].path, { throwIfNoEntry: false })) source.diagnostics = source.diagnostics.filter(message => message !== "ENOENT");
       next = buildBoardModel(read, { now: now ?? new Date().toISOString(), landing });
     } catch { failed = true; next = { ...buildBoardModel([], { now: now ?? new Date().toISOString() }), diagnostics: UNAVAILABLE }; }
@@ -171,7 +172,7 @@ export function serve(port, { configured, providerRoots = [], reader = false, du
     post({ type: "activity", all: Object.fromEntries(activity), books: [...books] });
   }
 
-  function light({ hooks: ids, books, folders, plan, at }) {
+  function light({ hooks: ids, books, folders, at }) {
     if (!rows) return;
     const changes = {};
     let refresh = false;
@@ -180,7 +181,11 @@ export function serve(port, { configured, providerRoots = [], reader = false, du
       if (JSON.stringify(next) !== JSON.stringify(entry)) { activity.set(key, next); changes[key] = next; }
     };
     try {
-      if (folders || ids.length) post({ type: "plan", plan, light: true, folders: watchPlan(configured) });
+      if (folders || ids.length) {
+        const walked = watchPlan(configured), plan = walkNumber();
+        hold(4);
+        post({ type: "plan", plan, light: true, folders: walked });
+      }
       for (const id of ids) {
         const notes = readHookNotes(configured.find(source => source.id === id).path);
         if (hooks[id] === undefined || hookShape(notes) !== hooks[id]) { refresh = true; continue; }
