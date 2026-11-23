@@ -74,7 +74,7 @@ The same phrases, logbook and board work in Codex. You need Codex 0.164 or later
 
 ## The board
 
-Send `show board` to see the board in the chat: what needs you, the sessions and agents at work, and each task by its state. On a Mac, it also starts the board in the browser and gives you a link ([The board](docs/guide/board.md)).
+Send `show board` to see the board in the chat: a short digest of what needs you, what moves now, what was done since yesterday, and the milestones. On a Mac, it also starts the board in the browser and gives you a link ([The board](docs/guide/board.md)).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/board-walkthrough-dark.gif">

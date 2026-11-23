@@ -1,5 +1,6 @@
 import { LINE } from "./logbook-fields.mjs";
 import { ENDED } from "./milestone-rules.mjs";
+import { isMoving } from "./board-overview.mjs";
 import { BOARD_PORT } from "./message.mjs";
 import { localTime } from "./move-text.mjs";
 import { KINDS as KIND, MARKS, STEPS, UNKNOWN, chiefName, runWord, shown, stoppedAt } from "./state-words.mjs";
@@ -47,9 +48,7 @@ export function renderTaskText(task) {
 const movedText = item => `${item.tasks === 1 ? "1 open task has a new number" : `${item.tasks} open tasks have new numbers`}, and each card shows its old number. Finished tasks stay in Done as Old and read-only${item.finished ? `, except ${item.finished === 1 ? "1 finished task of a milestone, which moved with its milestone and has" : `${item.finished} finished tasks of milestones, which moved with their milestones and have`} a new number too` : ""}. The old-to-new map is move-map.html in the logbook folder ${item.folder}, on this Mac.`;
 const WAIT_MARK = { never: MARKS["cannot start"], wait: MARKS.waiting };
 
-// The chat board is a digest (T1217): what needs you, what moves, what was done since yesterday, the milestones.
-// Plain words with no escapes: agent text loses only what would make a link, an image or HTML in the chat.
-const TITLE_MAX = 60, SHOWN = 6, MOVING = ["design", "building", "review", "ready"];
+const TITLE_MAX = 60, SHOWN = 6;
 const plain = value => String(value ?? "").replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029]/g, " ").replace(/\p{Cf}/gu, "").replace(/\]\(/g, "] (").replace(/</g, "‹").replace(/>/g, "›").replace(/ {2,}/g, " ").trim();
 const cut = value => {
   const chars = [...plain(value)];
@@ -59,17 +58,51 @@ const cut = value => {
 };
 const sentence = (first, rest) => `${first}${/[.?!…]$/.test(first) ? "" : "."}${rest ? ` ${rest}` : ""}`;
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
-function needLines(task, reason) {
-  const name = cut(reason.breakdown?.name || task.title);
-  const question = String(reason.text ?? "").split(LINE).map(plain).filter(Boolean).reduce((text, line) => text ? `${text}${text.endsWith(":") ? " " : " · "}${line}` : line, "");
-  return [`- ${sentence(name, question)}`, ...(reason.options?.length ? [`  Options: ${reason.options.map((option, i) => `${i + 1} ${plain(option)}`).join(" · ")}.`] : []),
-    ...(reason.recommendation ? [`  Recommended: ${sentence(plain(reason.recommendation))}`] : [])];
+function ownText(task, text) {
+  const runs = new Set(task.runs.map(run => run.id));
+  let out = plain(text);
+  if (task.pr) out = out.replaceAll(`${task.id} and PR ${task.pr}`, "this task and its PR").replaceAll(`PR ${task.pr}`, "its PR");
+  if (task.currentHead) out = out.replaceAll(task.currentHead.slice(0, 7), "its last commit");
+  out = out.replace(/\bR[1-9]\d*(?:(?:, | and )R[1-9]\d*)*\b/g, list => { const ids = list.split(/, | and /); return ids.every(id => runs.has(id)) ? ids.length === 1 ? "its run" : `${ids.length} of its runs` : list; });
+  return out.replace(new RegExp(`\\b${task.id}\\b`, "g"), "this task");
+}
+const lostText = milestone => `${!milestone.gate ? "it names no breakdown question" : !milestone.gateFound ? "the breakdown question that it names is not in the logbook"
+  : milestone.named !== undefined ? `its breakdown question names ${milestone.named ? "another milestone" : "no milestone"}` : "the question that it names is not a breakdown question on its pilot task"}. Ask the chief to repair the logbook, or to propose the milestone again.`;
+const joined = lines => lines.reduce((text, line) => text ? `${text}${text.endsWith(":") ? " " : " · "}${line}` : line, "");
+function askText(model, task, reason) {
+  const gate = reason.kind === "gate" && !reason.replace && task.gates.find(row => row.id === reason.gateId);
+  if (!gate) return { text: ownText(task, reason.text), lost: [] };
+  const lost = (model.milestones ?? []).filter(milestone => milestone.state === "lost" && milestone.gate === gate.id && milestone.project === task.project);
+  const question = reason.breakdown ? joined(String(gate.question ?? "").split(LINE).map(plain).filter(Boolean)) : plain(gate.question);
+  return { text: joined([question, ...lost.map(milestone => `${cut(milestone.name || "Its milestone")}: ${lostText(milestone)}`)]), lost };
+}
+function needLines(model, task, reason, ref) {
+  const { text, lost } = askText(model, task, reason);
+  ref([task.key, task.id], ...(reason.breakdown ? [[reason.breakdown.key, reason.breakdown.id]] : []), [reason.key, reason.gateId && reason.key], ...(task.pr ? [[`${task.key}/pr`, `PR ${task.pr}`]] : []), ...lost.map(milestone => [milestone.key, milestone.id]));
+  return [`- ${sentence(cut(reason.breakdown?.name || task.title), text)}`, ...(reason.options?.length ? [`  Options: ${reason.options.map((option, i) => `${i + 1} ${plain(option)}`).join(" · ")}.`] : []),
+    ...(reason.recommendation ? [`  Recommended: ${sentence(ownText(task, reason.recommendation))}`] : [])];
+}
+function problemLine(model, need, ref) {
+  const milestone = (model.milestones ?? []).find(item => item.key === need.key), name = cut(milestone?.name || "A milestone");
+  if (milestone) ref([milestone.key, milestone.id], ...(need.kind === "stuck" ? [[`${milestone.key}/pilot`, milestone.pilot]] : []));
+  if (need.kind === "missing") {
+    const own = model.tasks.filter(task => task.milestone?.key === need.key && !ENDED.includes(task.state));
+    ref([need.key, need.key.split("/").at(-1).replace(/^\?$/, "")], ...own.map(task => [task.key, task.id]));
+    const one = own.length === 1, which = own.length ? `${plural(own.length, "task")} ${one ? "names" : "name"} it, so ${one ? "it cannot" : "they cannot"} go on` : "Tasks name it";
+    return `- ${need.key.endsWith("/?") ? "A milestone cell is not a milestone id" : "A milestone is not in the logbook"}. ${which}. Ask the chief to repair the logbook, or to take ${one ? "the task" : "each task"} out of the milestone.`;
+  }
+  return `- ${{
+    stuck: () => `${name} is stuck. Its pilot task ${milestone.pilotState ? "was abandoned" : "is not in the logbook"}. Choose a new pilot, or drop the milestone.`,
+    lost: () => `${name}: ${lostText(milestone)}`,
+    unread: () => `${name}: its state cannot be read. ${plain(need.text)}`,
+  }[milestone && need.kind]?.() ?? sentence(cut(need.title), plain(need.text))}`;
 }
 function movingText(task) {
   const live = task.agents.find(agent => !agent.stale), stale = task.agents.find(agent => agent.stale);
   const review = task.loop.steps.find(step => step.key.startsWith("review-") && step.status !== "done");
-  const what = task.waitLine ? task.waitLine.never ? "Cannot start" : "Waits for another task" : {
-    designing: "In design", "awaiting-you": "In design", briefed: "Briefed", building: "Building", held: "Held by the chief", replan: "Needs a new plan",
+  const problem = task.problems?.length ? ownText(task, task.problems[0].text).split(/(?<=\.)\s/)[0].replace(/\.$/, "") : null;
+  const what = problem ? /the chief repairs it/.test(problem) ? problem : `${problem}; the chief repairs it` : task.waitLine ? task.waitLine.never ? "Cannot start" : "Waits for another task" : {
+    framed: "Not briefed yet, an agent at work", designing: "In design", "awaiting-you": "In design", briefed: "Briefed", building: "Building", held: "Held by the chief", replan: "Needs a new plan",
     repairing: `In repair, round ${Number(task.round) || 1}`, verifying: "The chief checks the verdicts", verified: "Ready to merge", "pr-ready": "Ready to merge",
     reviewing: review ? review.label.replace(/^Review /, "In review, cycle ").replace(/^Evidence review/, "In evidence review") : "The reviews are clean",
   }[task.state] ?? title(task.word || UNKNOWN);
@@ -88,7 +121,7 @@ function milestoneText(milestone, tasks) {
     changing: () => "the chief revises the breakdown.",
     lost: () => "its breakdown question has a problem. See Needs you.",
     stuck: () => "stuck. See Needs you.",
-    dropped: () => `dropped, with ${plural(milestone.open, "task")} still in it.`,
+    dropped: () => `dropped, with ${plural(milestone.open, "task")} still in it. Ask the chief to take ${milestone.open === 1 ? "the task" : "each task"} out of the milestone.`,
   }[milestone.state]?.() ?? `${milestone.progress.merged} of ${milestone.progress.total} merged.${next ? ` Next, ${cut(next.title)}${/[.?!…]$/.test(cut(next.title)) ? "" : "."}` : " No task can move now."}`}`;
 }
 const part = (label, groups, empty, grouped, extra = "") => {
@@ -110,21 +143,21 @@ export function renderBoardText(model, { port = BOARD_PORT } = {}) {
     const order = [...asks.filter(item => item.reason.breakdown), ...asks.filter(item => !item.reason.breakdown)];
     const stopped = (group.project?.chiefs ?? []).filter(chief => chief.stopped && chief.tasks > 0);
     const needs = [
-      ...order.filter(item => item.reason.breakdown).flatMap(item => (ref([item.task.key, item.task.id], [item.reason.breakdown.key, item.reason.breakdown.id], [item.reason.key, item.reason.key]), needLines(item.task, item.reason))),
-      ...(model.milestoneNeeds ?? []).filter(mine).flatMap(need => (ref([need.key, need.milestone]), [`- ${sentence(cut(need.title), plain(need.text))}`])),
-      ...order.filter(item => !item.reason.breakdown).flatMap(item => (ref([item.task.key, item.task.id], [item.reason.key, item.reason.gateId && item.reason.key]), needLines(item.task, item.reason))),
-      ...stopped.map(chief => (ref([chief.key, chief.id]), `- ${chief.named ? `The chief ${plain(chief.name)}` : `A ${chiefName(null, chief.provider) || "sage"} chief`} stopped at ${localTime(stoppedAt(chief)).time} with ${plural(chief.tasks, "open task")}. The next chief that works in this project picks them up.`)),
+      ...order.filter(item => item.reason.breakdown).flatMap(item => needLines(model, item.task, item.reason, ref)),
+      ...(model.milestoneNeeds ?? []).filter(mine).map(need => problemLine(model, need, ref)),
+      ...order.filter(item => !item.reason.breakdown).flatMap(item => needLines(model, item.task, item.reason, ref)),
+      ...stopped.map(chief => (ref([chief.key, chief.id]), `- ${chief.named ? `The chief ${plain(chief.name)}` : `A ${chiefName(null, chief.provider) || "sage"} chief`} stopped at ${localTime(stoppedAt(chief)).time} with ${plural(chief.tasks, "open task")}. The next chief that works in this project picks ${chief.tasks === 1 ? "it" : "them"} up.`)),
     ];
-    const columns = key => model.columns.find(column => column.key === key)?.tasks.filter(mine) ?? [];
-    const moving = MOVING.flatMap(columns).filter(task => !task.reasons.length).sort((a, b) => b.agents.some(agent => !agent.stale) - a.agents.some(agent => !agent.stale));
-    const done = columns("done").filter(task => task.completedAt && localTime(new Date(task.completedAt).toISOString()).date >= yesterday);
-    const releases = (model.releases ?? []).filter(entry => mine(entry) && !entry.archived).flatMap(entry => entry.releases.filter(release => !["done", "stopped"].includes(release.word)));
+    const shown = model.columns.flatMap(column => column.tasks).filter(mine);
+    const moving = shown.filter(task => isMoving(task) && !task.reasons.length).sort((a, b) => b.agents.some(agent => !agent.stale) - a.agents.some(agent => !agent.stale));
+    const done = shown.filter(task => task.column === "done" && task.completedAt && localTime(new Date(task.completedAt).toISOString()).date >= yesterday).sort((a, b) => b.completedAt - a.completedAt);
+    const releases = (model.releases ?? []).filter(entry => mine(entry) && !entry.archived).flatMap(entry => entry.releases.filter(release => release.missing || !["done", "stopped"].includes(release.word)));
     const milestones = (model.milestones ?? []).filter(milestone => mine(milestone) && !milestone.archived && milestone.state !== "done" && !(milestone.state === "dropped" && !milestone.open));
     const lines = {
       needs,
-      moving: capped(moving, task => (ref([task.key, task.id]), [`- ${sentence(cut(task.title), movingText(task))}`])),
-      done: capped(done, task => (ref([task.key, task.id]), [`- ${sentence(cut(task.title), doneText(task, now.date))}`])),
-      milestones: [...releases.map(release => `- Release ${cut(release.name)}: ${release.done} of ${plural(release.total, "task")} done.${release.missing ? " It is not in the logbook." : ""}`),
+      moving: capped(moving, task => (ref([task.key, task.id], ...(task.pr ? [[`${task.key}/pr`, `PR ${task.pr}`]] : [])), [`- ${sentence(cut(task.title), movingText(task))}`])),
+      done: capped(done, task => (ref([task.key, task.id], ...(task.pr ? [[`${task.key}/pr`, `PR ${task.pr}`]] : [])), [`- ${sentence(cut(task.title), doneText(task, now.date))}`])),
+      milestones: [...releases.map(release => `- Release ${cut(release.name)}: ${release.done} of ${plural(release.total, "task")} done.${release.missing ? " It is not in the logbook. Ask the chief to add it." : ""}`),
         ...milestones.map(milestone => (ref([milestone.key, milestone.id]), milestoneText(milestone, tasks)))],
     };
     return { ...group, lines, refs, any: Object.values(lines).some(list => list.length) };

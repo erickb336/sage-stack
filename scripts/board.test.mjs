@@ -132,7 +132,8 @@ test("G68: the hook's command holds only ASCII, and the CLI decodes the name to 
   assert.match(run, /^It starts the local board server .* Then run: node \S+ board --name-hex e697a5e69cace8aa9e --project '\/work\/sage' --view chat$/);
   assert.match(run.slice(run.indexOf(" board ")), /^[ -~]+$/);
   const out = execFileSync("node", [TOOL, "board", "--name-hex", "e697a5e69cace8aa9e", "--project", w.sage, "--view", "chat"], { encoding: "utf8", env: { ...process.env, ...w.env } });
-  assert.match(out, /^\*\*Sample\\: bot follow-up\*\* T2 · needs you · Current provider · 日本語\\$/m, out);
+  assert.ok(out.includes("\n- Sample: bot follow-up. Sample: which channel first?\n"), out);
+  assert.ok(out.endsWith(`\nRef: T2 current/${basename(storeDir(join(w.dir, "日本語"), w.env))}/G1\n`), "the gate key names the logbook of 日本語");
   assert.doesNotMatch(out, /中文/, out);
   const bad = spawnSync("node", [TOOL, "board", "--name-hex", "e697z", "--project", w.sage], { encoding: "utf8", env: { ...process.env, ...w.env } });
   assert.notEqual(bad.status, 0);

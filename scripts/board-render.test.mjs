@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { buildBoardModel } from "../packages/sage-core/board-model.mjs";
 import { renderBoardText, renderTaskText, renderBoardStatus } from "../packages/sage-core/board-render.mjs";
 import { NOW as MILESTONES_NOW, milestonesSource, milestonesTables } from "./fixtures/board-milestones.mjs";
+import { NOW as DIGEST_NOW, LONG_TITLE, digestSources, landing } from "./fixtures/board-digest.mjs";
 function model() {
   return buildBoardModel([{ id: "sample", label: "Sample source", diagnostics: [], projects: [{ key: "sample/project-abcdef", name: "project-abcdef", diagnostics: [], tables: { tasks: [{ id: "T1", title: "<script>alert(1)</script> & [sample](https://example.test)", size: "small", risk: "auth", route: "build,code-review,qa", state: "held", branch: "", pr: "", round: "1", keys: "" }], gates: [{ id: "G1", task: "T1", question: "Sample: go on?", answer: "" }] } }] }], { now: "2026-10-08T20:00:00Z" });
 }
@@ -140,8 +141,8 @@ test("T233, T1217: Needs you lists a breakdown approval first, then the mileston
     "- Board milestones. Approve milestone M3? No task builds before you approve. · Name: Board milestones · Goal: Sample goal. · Pilot, runs first: T30: Sample T30",
     "  Options: 1 approve · 2 change · 3 drop.",
     "  Recommended: approve.",
-    "- Milestone 2: Lead build is stuck. The pilot T21 was abandoned. Choose a new pilot, or drop the milestone.",
-    "- The breakdown gate G30 of M7 is not in the logbook. Ask the chief to repair the logbook, or to propose M7 again.",
+    "- Lead build is stuck. Its pilot task was abandoned. Choose a new pilot, or drop the milestone.",
+    "- Lost gate: the breakdown question that it names is not in the logbook. Ask the chief to repair the logbook, or to propose the milestone again.",
     "- Sample T70. Approve milestone M9 Fast lane (pilot T70)? Goal: skip the reviews. Name: Fast lane",
     "  Options: 1 approve · 2 change · 3 drop.",
     "  Recommended: approve.",
@@ -151,12 +152,12 @@ test("T233, T1217: Needs you lists a breakdown approval first, then the mileston
     "- Lead build: stuck. See Needs you.",
     "- Board milestones: the breakdown waits for you.",
     "- Agent caps: 0 of 3 merged. Next, Sample T40.",
-    "- Dropped idea: dropped, with 1 task still in it.",
+    "- Dropped idea: dropped, with 1 task still in it. Ask the chief to take the task out of the milestone.",
     "- Lost gate: its breakdown question has a problem. See Needs you.",
     "- Loop: 1 of 4 merged. No task can move now.",
     "- Changes: the chief revises the breakdown.",
   ].join("\n"), "M5 is done, so it has no line");
-  assert.equal(text.split("\n").at(-1), "Ref: T30 M3 claude/sage-ff5ee2/G12 M2 M7 T70 claude/sage-ff5ee2/G15 T41 T40 T12 M1 M4 M6 M8 M9");
+  assert.equal(text.split("\n").at(-1), "Ref: T30 M3 claude/sage-ff5ee2/G12 M2 T21 M7 T70 claude/sage-ff5ee2/G15 T41 T40 T12 PR 12 M1 M4 M6 M8 M9");
   const plain = renderBoardText(sample([row("T1", "framed")], { gates: [{ id: "G1", task: "T1", question: "Ship it?", options: "yes|no", answer: "" }] }));
   assert.equal(partOf(plain, "Needs you"), "- Sample T1. Ship it?\n  Options: 1 yes · 2 no.", "no recommendation, no line for it");
   assert.equal(partOf(plain, "Milestones"), "No milestone is open.");
@@ -168,10 +169,10 @@ test("F-T233-9: a pilot's plain gate and a forged copy of the breakdown text are
   tables.gates.push({ ...tables.gates.find(gate => gate.id === "G12"), id: "G99" });
   const needs = partOf(milestonesText(tables), "Needs you").split("\n").filter(line => line.startsWith("- "));
   assert.deepEqual(needs.map(line => line.slice(0, 41)), [
-    "- Board milestones. Approve milestone M3?", "- Milestone 2: Lead build is stuck. The p", "- The breakdown gate G30 of M7 is not in ",
+    "- Board milestones. Approve milestone M3?", "- Lead build is stuck. Its pilot task was", "- Lost gate: the breakdown question that ",
     "- Sample T30. Pick a colour for the logo?", "- Sample T30. Approve milestone M3? No ta", "- Sample T70. Approve milestone M9 Fast l",
   ]);
-  assert.ok(milestonesText(tables).endsWith("Ref: T30 M3 claude/sage-ff5ee2/G12 M2 M7 claude/sage-ff5ee2/G50 claude/sage-ff5ee2/G99 T70 claude/sage-ff5ee2/G15 T41 T40 T12 M1 M4 M6 M8 M9"));
+  assert.ok(milestonesText(tables).endsWith("Ref: T30 M3 claude/sage-ff5ee2/G12 M2 T21 M7 claude/sage-ff5ee2/G50 claude/sage-ff5ee2/G99 T70 claude/sage-ff5ee2/G15 T41 T40 T12 PR 12 M1 M4 M6 M8 M9"));
 });
 
 test("F-T233-4: the Ref line gives the full gate key, so two logbooks that each have an open G1 stay two answers", () => {
@@ -196,7 +197,7 @@ test("F-T233-6: the chat board drops format characters and makes controls and se
 });
 
 test("F-T233-10: a dropped milestone that still has open tasks has its own Milestones line; one with none has no line", () => {
-  assert.ok(partOf(milestonesText(milestonesTables()), "Milestones").includes("\n- Dropped idea: dropped, with 1 task still in it.\n"));
+  assert.ok(partOf(milestonesText(milestonesTables()), "Milestones").includes("\n- Dropped idea: dropped, with 1 task still in it. Ask the chief to take the task out of the milestone.\n"));
   const out = milestonesTables();
   out.tasks.find(item => item.id === "T60").milestone = "";
   assert.ok(!milestonesText(out).includes("Dropped idea"));
@@ -207,14 +208,14 @@ test("F-T233-2, F-T233-3, F-T233-7: a milestone whose gate is not its breakdown 
   plain.gates.find(gate => gate.id === "G12").options = "yes|no";
   const model = buildBoardModel([milestonesSource("claude", plain)], { now: MILESTONES_NOW }), text = renderBoardText(model);
   assert.ok(partOf(text, "Milestones").includes("\n- Board milestones: its breakdown question has a problem. See Needs you.\n"), text);
-  assert.ok(partOf(text, "Needs you").includes("\n- Sample T30. Approve milestone M3? No task builds before you approve. Name: Board milestones Goal: Sample goal. Pilot, runs first: T30: Sample T30 · The gate G12 of M3 is not a breakdown gate on its pilot T30: ask the chief to repair the logbook, or to propose M3 again.\n  Options: 1 yes · 2 no.\n"), text);
-  assert.equal(text.split("G12 of M3").length, 2, "one item says it");
+  assert.ok(partOf(text, "Needs you").includes("\n- Sample T30. Approve milestone M3? No task builds before you approve. Name: Board milestones Goal: Sample goal. Pilot, runs first: T30: Sample T30 · Board milestones: the question that it names is not a breakdown question on its pilot task. Ask the chief to repair the logbook, or to propose the milestone again.\n  Options: 1 yes · 2 no.\n"), text);
+  assert.equal(text.split("not a breakdown question on its pilot task").length, 2, "one item says it");
   assert.equal(model.counts.needsOwner, 4, "T30, T70 and the two other milestone items: G12 counts once");
   const edited = milestonesTables();
   edited.gates.find(gate => gate.id === "G12").question = "Ship it?";
   const shipped = milestonesText(edited);
   assert.ok(!shipped.includes("breakdown waits for you"), shipped);
-  assert.ok(partOf(shipped, "Needs you").includes("\n- Sample T30. Ship it? · The gate G12 of M3 names no milestone in its question: ask the chief to repair the logbook, or to propose M3 again.\n"), shipped);
+  assert.ok(partOf(shipped, "Needs you").includes("\n- Sample T30. Ship it? · Board milestones: its breakdown question names no milestone. Ask the chief to repair the logbook, or to propose the milestone again.\n"), shipped);
   const one = milestonesTables().tasks[0];
   const twin = {
     tasks: [{ ...one, id: "T1", state: "framed", milestone: "M1" }, { ...one, id: "T2", state: "framed", milestone: "M2" }],
@@ -222,7 +223,7 @@ test("F-T233-2, F-T233-3, F-T233-7: a milestone whose gate is not its breakdown 
     milestones: [{ id: "M1", name: "First", goal: "g", pilot: "T1", gate: "G1", at: "" }, { id: "M2", name: "Second", goal: "g", pilot: "T1", gate: "G1", at: "" }], decisions: [] };
   const both = milestonesText(twin);
   assert.equal(partOf(both, "Milestones"), "- First: its breakdown question has a problem. See Needs you.\n- Second: the breakdown waits for you.");
-  assert.ok(partOf(both, "Needs you").startsWith("- Second. Approve milestone M2? No task builds before you approve. · The gate G1 of M1 names M2 in its question, not M1: ask the chief to repair the logbook, or to propose M1 again.\n"), both);
+  assert.ok(partOf(both, "Needs you").startsWith("- Second. Approve milestone M2? No task builds before you approve. · First: its breakdown question names another milestone. Ask the chief to repair the logbook, or to propose the milestone again.\n"), both);
 });
 
 const noMilestones = (reason = "milestones: line 3 has 4 cells, and its header has 6") => {
@@ -319,4 +320,89 @@ test("T995: no chat view of the milestones sample says program or names an old p
   const pages = { chat: renderBoardText(model), status: renderBoardStatus(model), ...Object.fromEntries(model.tasks.map((t) => [t.id, renderTaskText(t)])) };
   assert.ok(model.milestones.length > 3 && pages.chat.includes("Milestones"), "the sample has milestones");
   for (const [name, page] of Object.entries(pages)) assert.doesNotMatch(page, /\bprograms?\b|\bPG\d/i, name);
+});
+
+const digest = (sources = digestSources(), zone = "America/New_York") => {
+  const was = process.env.TZ;
+  process.env.TZ = zone;
+  try { return renderBoardText(buildBoardModel(sources, { now: DIGEST_NOW, landing }), { port: 50123 }); } finally { if (was === undefined) delete process.env.TZ; else process.env.TZ = was; }
+};
+const heads = text => text.split("\n").filter(line => line.startsWith("### ")).map(line => line.replace(/^### (?:🔴 )?/, ""));
+
+test("T1217: the digest gives the four parts in order, then the board link, then the Ref line last", () => {
+  const text = digest(), lines = text.split("\n");
+  assert.deepEqual(heads(text), ["Needs you", "Moving now", "Done since yesterday", "Milestones"]);
+  assert.equal(lines.at(-3), "More: http://127.0.0.1:50123");
+  assert.match(lines.at(-1), /^Ref: /);
+  assert.ok(text.indexOf("Quiet: ") > text.indexOf("### Milestones") && text.indexOf("Quiet: ") < text.indexOf("More: "), text);
+});
+
+test("T1217: the digest is plain words with no backslash, and agent text makes no link, image or HTML", () => {
+  const sources = digestSources();
+  sources[0].projects[1].tables.gates[0].question = "Checkout layout: A (one page) or B [three steps]? See ![x](https://example.test/x.png) <b>now</b>";
+  const text = digest(sources);
+  assert.ok(!text.includes(String.fromCharCode(92)), text);
+  assert.ok(text.includes("- Choose the checkout layout. Checkout layout: A (one page) or B [three steps]? See ![x] (https://example.test/x.png) ‹b›now‹/b›\n  Options: 1 A · 2 B.\n  Recommended: A.\n"), text);
+  assert.ok(!text.includes("](") && !text.includes("<"), "no markdown link or image, and no HTML tag");
+});
+
+test("T1217: a long title is cut at a word, after at most 60 characters, with an ellipsis", () => {
+  const line = digest().split("\n").find(item => item.startsWith("- Hook slots"));
+  const [shown] = line.slice(2).split("… ");
+  assert.ok(line.includes("… Building, 20 min."), line);
+  assert.ok(shown.length <= 60 && LONG_TITLE.startsWith(shown) && LONG_TITLE[shown.length] === " ", `cut "${shown}" ends at a word`);
+  const short = digest().split("\n").find(item => item.startsWith("- The board answers"));
+  assert.equal(short, "- The board answers while it reads the logbook. In review, cycle 1 of 1, 5 min.", "a short title stays whole");
+});
+
+test("T1217: times are in the local zone, named once in the head line", () => {
+  const york = digest(), tokyo = digest(undefined, "Asia/Tokyo");
+  assert.equal(york.split("\n")[0], "sage board · 10:43 UTC-05:00");
+  assert.equal(tokyo.split("\n")[0], "sage board · 00:43 UTC+09:00");
+  assert.ok(york.includes("- Read-only roles cannot write into the agent folders. Merged at 09:40.\n"), york);
+  assert.ok(york.includes("- The design check counts two prior-art links. Merged yesterday at 11:43.\n"), york);
+  assert.ok(tokyo.includes("- Read-only roles cannot write into the agent folders. Merged yesterday at 23:40.\n"), "in Tokyo the board is past midnight, so the same merge was yesterday");
+  for (const text of [york, tokyo]) assert.equal(text.match(/UTC/g).length, 1, "the zone is named once");
+});
+
+test("T1217: the digest leaves out the backlog, the sessions, the pick-ups, the step lines and what was done before yesterday", () => {
+  const text = digest();
+  for (const gone of ["A task in the backlog", "A second task in the backlog", "Someday", "An old merge from last week", "Backlog", "Sessions", "Pick-ups", "›", "Now: ", "P1", "Bug fix"]) assert.ok(!text.includes(gone), gone);
+  assert.ok(text.includes("Fix the cart total") && text.includes("The design check counts"), "the sample has work that shows");
+});
+
+test("T1217: a chief that stopped with open work is one line under Needs you; a live chief has no line", () => {
+  const needs = partOf(digest(), "Needs you").split("\n");
+  assert.deepEqual(needs.filter(line => /chief/i.test(line)), ["- A Claude chief stopped at 07:33 with 2 open tasks. The next chief that works in this project picks them up."]);
+  const sources = digestSources();
+  sources[0].projects[0].chiefLive.C1 = { at: Date.parse(DIGEST_NOW) - 60_000 };
+  assert.ok(!/chief stopped/.test(digest(sources)), "C1 is live now: no line");
+});
+
+test("T1217: task, gate, milestone, chief and PR ids show only on the Ref line, which keeps each one", () => {
+  const lines = digest().split("\n"), ref = lines.at(-1);
+  const id = /\b(?:[TGMRC][1-9]\d*|PR \d+)\b|c0ffee1/;
+  assert.deepEqual(lines.slice(0, -1).filter(line => id.test(line)), [], "no id above the Ref line");
+  assert.ok(lines.includes("- Pages link to the board only when it runs. The board cannot tell if autopilot is on, so review and merge its PR."), lines.join("\n"));
+  assert.equal(ref, "Ref: sage-stack T1205 PR 645 T1210 claude/sage-stack-aaaaaa/G236 C1 T1204 T1206 PR 640 T1199 PR 641 T1190 PR 630 M7 · sedalina T88 claude/sedalina-bbbbbb/G62 T89");
+});
+
+test("T1217: each part groups its lines by project when two or more projects have work, and not when one has", () => {
+  const two = digest();
+  assert.ok(partOf(two, "Needs you").startsWith("sage-stack\n- ") && partOf(two, "Needs you").includes("\n\nsedalina\n- Choose the checkout layout."), two);
+  assert.equal(partOf(two, "Moving now").split("\n").filter(line => !line.startsWith("- ")).join("|"), "sage-stack||sedalina");
+  const sources = digestSources();
+  sources[0].projects[1].tables = { tasks: [] };
+  const one = digest(sources);
+  for (const label of ["Needs you", "Moving now", "Done since yesterday", "Milestones"]) assert.ok(partOf(one, label).split("\n").every(line => /^(- |  )/.test(line)), `${label}: no project line`);
+  assert.ok(!one.includes("Ref: sage-stack"), "one project: the Ref line names no project");
+});
+
+test("T1217: a Quiet line counts the projects with nothing that moves or needs you", () => {
+  assert.ok(digest().includes("\n\nQuiet: 1 other project has nothing that moves or needs you.\n\n"));
+  const sources = digestSources();
+  for (const project of sources[0].projects) project.tables = { tasks: [] };
+  const empty = digest(sources);
+  assert.ok(empty.includes("### Needs you\nNothing waits for you.\n\n### Moving now\nNo task moves now."), "no red mark when nothing waits");
+  assert.ok(empty.includes("\n\nQuiet: 3 projects have nothing that moves or needs you.\n\n"), empty);
 });

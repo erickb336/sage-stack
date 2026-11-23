@@ -762,8 +762,9 @@ test("T1173: the board model marks a running run of a stopped session lost, and 
   assert.deepEqual(agents.sort((a, b) => a.runId.localeCompare(b.runId)).map(({ runId, state }) => [runId, state === "lost"]), [["R1", true], ["R2", false]]);
   const overview = boardOverview(model);
   assert.equal(overview.agents.flatMap((book) => book.runs).find((one) => one.id === "R1").state, "lost", "the Agents page shows the run as lost");
-  const hhmm = (ms) => iso(ms).slice(11, 16).replace(":", "\\:"), sessions = renderBoardText(model).split("### Sessions\n")[1]?.split("\n\n### ")[0];
-  assert.equal(sessions, `#### ${project.name}\n- Claude · C1 · ended ${hhmm(now - 10 * MINUTE)} UTC · **ended**\n  1 task · 1 run lost\n- Claude · C2 · since ${hhmm(Date.parse(project.chiefs[1].startedAt))} UTC · **live**\n  1 task · 1 agent · program not confirmed`, "the chat board shows the same Sessions part");
+  const ended = new Date(now - 10 * MINUTE), hhmm = `${String(ended.getHours()).padStart(2, "0")}:${String(ended.getMinutes()).padStart(2, "0")}`;
+  const chiefLines = renderBoardText(model).split("\n").filter((line) => /chief/i.test(line));
+  assert.deepEqual(chiefLines, [`- A Claude chief stopped at ${hhmm} with 1 open task. The next chief that works in this project picks it up.`], "the chat digest has one Needs you line for the stopped chief, and none for the live one (T1217)");
 });
 
 function modeOnWith(t, others) {
