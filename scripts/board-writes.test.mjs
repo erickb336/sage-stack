@@ -37,7 +37,7 @@ function call(port, path, { method = "POST", headers = {}, body } = {}) {
   });
 }
 
-async function board(t, options = {}) {
+async function board(t, { ready = true, ...options } = {}) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-writes-")));
   const saved = { ...process.env };
   t.after(async () => {
@@ -66,7 +66,7 @@ async function board(t, options = {}) {
   const server = createBoardServer({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port: 0, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair", ...options });
   t.after(() => server.close());
   const { port } = await server.start();
-  await server.ready();
+  if (ready) await server.ready();
   await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify([{ id: "shared", path: env.SAGE_SHARED_HOME }])], { output: () => {}, env });
   const origin = `http://127.0.0.1:${port}`;
   const own = { Origin: origin, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" };
@@ -266,6 +266,50 @@ test("T1219: each owner write that reaches the state tool after an archive, whil
   await open();
   const undo = await send("undo", { logbook: w.logbook, gate: "G1" });
   assert.equal(undo.status, 200, `with no archive, the undo lands: ${undo.text}`);
+});
+
+async function readHeld(holds) {
+  for (let seen; (seen = Atomics.load(holds, 1)) < 1;) {
+    const { async, value } = Atomics.waitAsync(holds, 1, seen, 30_000);
+    if (async && await value === "timed-out") assert.fail("no read reached the hold");
+  }
+}
+const release = holds => { Atomics.store(holds, 0, 0); Atomics.notify(holds, 0); };
+
+test("T1215 (C5): a write before the board's first read ends gets 503 Reading the logbooks and writes nothing; after the read, it lands", async t => {
+  const holds = new Int32Array(new SharedArrayBuffer(16));
+  Atomics.store(holds, 0, 1);
+  t.after(() => release(holds));
+  const w = await board(t, { holds, ready: false }), p = await pair(w);
+  await readHeld(holds);
+  const before = w.gates(), reading = "Reading the logbooks. The board answers when its first read ends.";
+  for (const [job, body] of [["answer", { logbook: w.logbook, gate: "G1", option: 1, digest: "0".repeat(16) }], ["undo", { logbook: w.logbook, gate: "G1" }], ["name", { logbook: w.logbook, chief: "C2", name: "Codex desk" }], ["archive", { project: "project" }]]) {
+    const refused = await call(w.port, `/api/${job}`, { headers: p.headers, body });
+    assert.deepEqual([refused.status, refused.json.problem], [503, reading], job);
+  }
+  assert.equal(w.gates(), before, "nothing reached the logbook");
+  release(holds);
+  await w.server.ready();
+  const need = (await needs(w)).needs.find(item => item.gate === "G1");
+  const answered = await call(w.port, "/api/answer", { headers: p.headers, body: { logbook: w.logbook, gate: "G1", option: 1, digest: need.digest } });
+  assert.equal(answered.status, 200, answered.text);
+});
+
+test("T1215 (C1): a write sent during the read that follows an archive gets the state tool's refusal; after that read ends, the board refuses it itself", async t => {
+  const holds = new Int32Array(new SharedArrayBuffer(16));
+  t.after(() => release(holds));
+  const w = await board(t, { holds }), p = await pair(w), need = (await needs(w)).needs.find(item => item.gate === "G1");
+  const answer = { logbook: w.logbook, gate: "G1", option: 1, digest: need.digest }, before = w.gates();
+  Atomics.store(holds, 0, 1);
+  claude.sage(["config", "archived=yes", "--project", w.project], w.env);
+  await readHeld(holds);
+  const during = await call(w.port, "/api/answer", { headers: p.headers, body: answer });
+  assert.deepEqual([during.status, during.json.text], [409, "This project is archived, so it takes no answer and no other owner write. Restore it first, on the board or with sage config archived=no in its own chat when the owner asks for it, then try again. Nothing changed."], "the board still shows the last read, so the state tool refuses it");
+  release(holds);
+  await waitFor(async () => (await needs(w)).projects[0]?.archived, "the board reads the archive");
+  const after = await call(w.port, "/api/answer", { headers: p.headers, body: answer });
+  assert.deepEqual([after.status, after.json.text], [409, "project is archived, so the board records no answer or other write for it. Restore it first, then try again. Nothing changed."]);
+  assert.equal(w.gates(), before, "no answer reached the logbook");
 });
 
 test("the owner renames a chief and gives a task to another chief", async t => {

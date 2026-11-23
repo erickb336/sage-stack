@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { PROJECT, when } from "./use-model.js";
+import { PROJECT, answerOf, problemOf, when } from "./use-model.js";
 import { SCRIPT_PAGE_NOTE, UNKNOWN, chiefName, runWord } from "../../sage-core/state-words.mjs";
 import { RestoreButton, day } from "./archive.jsx";
 import { chiefState, chiefSub, encodeKey, questionLink, taskLink } from "./task.jsx";
@@ -272,9 +272,9 @@ function useGate(key, at) {
   useEffect(() => {
     const controller = new AbortController();
     fetch(`/app/gate/${encodeKey(key)}`, { signal: controller.signal })
-      .then(response => response.ok ? response.json() : Promise.reject(response.status))
+      .then(answerOf)
       .then(gate => setState({ key, gate, problem: null }))
-      .catch(error => { if (!controller.signal.aborted) setState(previous => ({ key, gate: previous.key === key ? previous.gate : null, problem: error === 404 ? "gone" : "read" })); });
+      .catch(error => { if (!controller.signal.aborted) setState(previous => ({ key, gate: previous.key === key ? previous.gate : null, problem: problemOf(error) })); });
     return () => controller.abort();
   }, [key, at]);
   return state.key === key ? state : { gate: null, problem: null };
@@ -413,7 +413,7 @@ export function QuestionView({ needKey, openId, model, theme, project }) {
     watch.observe(box);
     return () => { watch.disconnect(); page.style.removeProperty("--qbar"); };
   }, [openId, !gate]);
-  if (!gate) return <div className="page-h"><a href="#" className="back">‹ Needs you</a><h1 id="question-h" tabIndex={-1}>{problem === "gone" ? "This question is not on the board" : problem ? "The board cannot read this question now" : "Reading the question"}</h1></div>;
+  if (!gate) return <div className="page-h"><a href="#" className="back">‹ Needs you</a><h1 id="question-h" tabIndex={-1}>{problem === "gone" ? "This question is not on the board" : problem ? "The board cannot read this question now" : "Reading the question"}</h1>{problem && !["gone", "read"].includes(problem) && <p className="none" role="alert">{problem}</p>}</div>;
   const rows = answerRows(gate.message), unanswered = !gate.answer && !gate.answered, chief = chiefOf(model.chiefs, gate.logbook, gate.owner), owner = chief ? chiefName(chief.id, chief.provider) : gate.owner ?? "the chief";
   const item = itemOf(gate, openId), ready = unanswered && writes === "paired" && !archived && !said?.ok;
   const tone = !said ? null : said.ok ? "done" : said.json?.pending ? "note" : "refused";
