@@ -1123,6 +1123,7 @@ function noteStart(input) {
   } catch {}
 }
 
+const HOOK_TIME_LIMIT_MS = 10_000, LOCK_AGE_MS = 3 * HOOK_TIME_LIMIT_MS, skipWhenBusy = () => {};
 export function slotsFor(dir, session, now = Date.now(), rawSession = session, leadRuns = liveLeadRun) {
   const STALE = { pending: 10 * 60_000, agent: 60 * 60_000 };
   const id = (raw) => safe(raw) || undefined;
@@ -1168,15 +1169,25 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
     try { rmdirSync(join(dir, slot)); }
     catch { rmSync(join(dir, slot), { recursive: true, force: true }); }
   };
-  const transaction = (fn) => (...args) => {
+  const stale = (path) => Date.now() - statSync(path).mtimeMs > LOCK_AGE_MS;
+  const takeStale = () => {
+    try { if (!stale(lock)) return; } catch (error) { if (error.code === "ENOENT") return; throw error; }
+    const away = `${lock}.stale-${randomUUID()}`;
+    try { renameSync(lock, away); } catch (error) { if (error.code === "ENOENT") return; throw error; }
+    if (stale(away)) rmdirSync(away);
+    else renameSync(away, lock);
+  };
+  const busy = () => { throw Error(`the agent-slot lock is busy, so no agent can start or end until the slot state is available. The hook frees the lock folder ${lock} by itself when it is older than ${LOCK_AGE_MS / 1000} s; if it stays, the user removes it with: rmdir "${lock}"`); };
+  const transaction = (fn, whenBusy = busy) => (...args) => {
     mkdirSync(dirname(lock), { recursive: true });
     let held = false;
     for (let attempt = 0; attempt < 400; attempt++) {
       try { mkdirSync(lock); held = true; break; }
       catch (error) { if (error.code !== "EEXIST") throw error; }
+      takeStale();
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
     }
-    if (!held) throw Error("the agent-slot lock is busy; no new agent can start until the slot state is available");
+    if (!held) return whenBusy();
     try { return fn(...args); }
     finally { rmdirSync(lock); }
   };
@@ -1372,7 +1383,7 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
         free(slot);
       }
     }),
-    touch: transaction(touch),
+    touch: transaction(touch, skipWhenBusy),
     helper: (key) => ({ owned: helperNote(`owned-${key}`) !== undefined, started: helperNote(`started-${key}`) !== undefined, stopped: parsed(helperNote(`stopped-${key}`)) }),
     told: (key) => helperNote(`told-${key}`) !== undefined,
     tell: (key) => note(`told-${key}`, "", helpers),
