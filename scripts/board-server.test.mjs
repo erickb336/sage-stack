@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
+import { untilTheWatchersReportAWrite } from "./fixtures/board-watch.mjs";
 
 const HEADERS = {
   tasks: "id title size risk route state branch pr round keys",
@@ -450,6 +451,7 @@ async function lightBoard(t, { lightEvery, quiet = false, slotOnly = false, hook
   t.after(async () => { await server.close(); rmSync(dir, { recursive: true, force: true }); });
   const { port } = await server.start();
   await server.ready();
+  await untilTheWatchersReportAWrite(port, project);
   return { dir, root, project, port, file: join(project, "actions", "R1.jsonl"), slot: join(root, ".hooks", "slots", "slot-1"), reads: () => reads };
 }
 
@@ -487,7 +489,7 @@ test("T1100: 100 action appends and 100 slot renewals cause at most 1 full read 
   const every = 400, f = await lightBoard(t, { lightEvery: every }), stream = appFrames(f); t.after(() => stream.close());
   await stream.until(() => stream.frames.some(frame => frame.event === "model"));
   await wait(500);
-  const reads = f.reads();
+  const reads = f.reads(), models = () => stream.frames.filter(frame => frame.event === "model").length, shown = models();
   const start = performance.now();
   for (let i = 1; i <= 100; i++) { appendFileSync(f.file, action(i)); const now = new Date(); utimesSync(f.slot, now, now); await wait(20); }
   await wait(every + 500);
@@ -499,7 +501,7 @@ test("T1100: 100 action appends and 100 slot renewals cause at most 1 full read 
   const sent = stream.frames.filter(frame => frame.event === "activity"), elapsed = performance.now() - start;
   assert.ok(sent.length >= 2 && sent.length <= Math.floor(elapsed / every) + 3, `timing-ok: the light reads are at least ${every} ms apart, so ${elapsed.toFixed(0)} ms hold at most ${Math.floor(elapsed / every) + 3} events, not one for each change; saw ${sent.length}`);
   assert.ok(sent.every(frame => Object.keys(frame.data).every(key => key === R1)), "an activity event names only the runs that changed");
-  assert.equal(stream.frames.filter(frame => frame.event === "model").length, 1, "the light path sends no model");
+  assert.equal(models(), shown, "the light path sends no model");
   const later = appFrames(f); t.after(() => later.close());
   await later.until(() => later.activity[R1]?.now?.call === call(100));
   assert.deepEqual(later.frames.map(frame => frame.event), ["model", "activity"], "a new stream gets the model, then the activity of each running agent");

@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
 import { APP_SOURCE, BUDGET, budgetProblems, licencesOf } from "./board-app.mjs";
 import { writeAppLogbook } from "./fixtures/board-app.mjs";
+import { untilTheWatchersReportAWrite } from "./fixtures/board-watch.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PLUGINS = ["plugins/sage", "plugins/sage-codex"];
@@ -19,6 +20,7 @@ async function board(t, { app = loadBoardApp(join(ROOT, "plugins/sage/board/app"
   t.after(async () => { await server.close(); rmSync(dir, { recursive: true, force: true }); });
   const { port } = await server.start();
   await server.ready();
+  if (app) await untilTheWatchersReportAWrite(port, project);
   return { base: `http://127.0.0.1:${port}`, project };
 }
 

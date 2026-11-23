@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
+import { untilTheWatchersReportAWrite } from "./fixtures/board-watch.mjs";
 
 const HEADERS = {
   tasks: "id title size risk route state branch pr round keys",
@@ -53,6 +54,7 @@ async function board(t, { ready = true, root, logbook, ...options } = {}) {
   t.after(async () => { if (options.holds) { Atomics.store(options.holds, 0, 0); Atomics.notify(options.holds, 0); } await server.close(); rmSync(dir, { recursive: true, force: true }); });
   const { port } = await server.start();
   if (ready) await within(server.ready(), "the first read");
+  if (ready && !options.clock) await untilTheWatchersReportAWrite(port, project);
   return { dir, root, project, port, server };
 }
 
