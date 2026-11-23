@@ -29,6 +29,7 @@ export { boardProjectKey, boardView, landingRule } from "./board-view.mjs";
 export { BOARD_PORT, KINDS, LONG_WIDTH, PAGE_MAX, PAGE_TYPES, WIDTH, frameLines, pageBlock, pageType } from "./message.mjs";
 export { PAGE_POLICY, SWITCH_SCRIPT } from "./message-page.mjs";
 export { boardFolder, boardPort, pageFile, pageTaskFolder, PORT_FILE } from "./page-files.mjs";
+export { boardAnswers, boardDownLine, probeBoard } from "./board-probe.mjs";
 export { kindOf, messageMiss, pageProblems, renderMessage, textProblems } from "./message-checks.mjs";
 export { parseBoardIntent, boardNote, BOARD_PHRASES } from "./board-intent.mjs";
 

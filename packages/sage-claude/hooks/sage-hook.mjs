@@ -217,8 +217,8 @@ function handleEvent(input, state, slots) {
     const gates = pickupNote(input, state) || (!input.stop_hook_active && gatesWaitNote(input, state));
     if (gates) return { decision: "block", reason: gates };
   }
-  if (event === "SubagentStop" && input.agent_type === "sage:lead" && typeof input.last_assistant_message === "string" && core.missingFields(REPORT_FIELDS, input.last_assistant_message).length) return undefined;
   if (event === "SubagentStop" && ours) keepRunText(input.cwd, "reports", () => slots.runOf(input.agent_id)?.run, input.last_assistant_message);
+  if (event === "SubagentStop" && input.agent_type === "sage:lead" && typeof input.last_assistant_message === "string" && core.missingFields(REPORT_FIELDS, input.last_assistant_message).length) return undefined;
   if (event === "SubagentStop") {
     const helper = slots.helperFor(input.agent_id), head = helper && headOf(helper.folder, helper.task);
     if (!helper || REVIEWERS.includes(helper.role)) {
@@ -361,9 +361,10 @@ function handleEvent(input, state, slots) {
       if (r.refused === "ended") return deny(event, "this lead or spawn already ended, so it cannot start another agent. Report to the sage.");
       if (r.refused === "children") return deny(event, `this lead already has ${LEAD_HELPERS} children. ${helperWait}`);
       if (r.refused === "helper") return deny(event, `${helperKey.run} already has its helper: one run is backed by one child (F-T284-9). Report to the sage.`);
+      const fresh = () => `run each of these as a command of its own: ${stateCommand(`run done ${r.run ?? "<its lead run>"} --status failed --why "its session ended"`)}, then ${stateCommand(`run add ${leadMark.task} --role lead`)}, then start the lead again.`;
       const stop = () => slots.unnamedLead(leadMark.task) ? "by its agent id, from its start's result: it started with no name field, so a stop by its name is refused" : `by its agent id or by its name lead-${leadMark.task}`;
-      if (r.refused === "task" && r.elsewhere) return deny(event, `a lead of ${leadMark.task} holds a slot in another session, for the lead run ${r.run ?? "of its start"} (F-T273-5), and a TaskStop in this session cannot stop it. If that session ended (a restart or a crash), the slot frees by itself after an hour with no event of that lead or its helpers: start this lead again then. To start a fresh lead now, run each of these as a command of its own: ${stateCommand(`run done ${r.run ?? "<its lead run>"} --status failed --why "its session ended"`)}, then ${stateCommand(`run add ${leadMark.task} --role lead`)}, then start the lead again.`);
-      if (r.refused === "task") return deny(event, `a lead named lead-${leadMark.task} already holds a slot, in this session or for this logbook (F-T273-5, F-T273-16). Wait for it to end, or stop it with TaskStop (${stop()}), before you start a fresh lead.`);
+      if (r.refused === "task" && r.elsewhere) return deny(event, `a lead of ${leadMark.task} holds a slot in another session, for the lead run ${r.run ?? "of its start"} (F-T273-5), and a TaskStop in this session cannot stop it. If that session ended (a restart or a crash), the slot frees by itself after an hour with no event of that lead or its helpers: start this lead again then. To start a fresh lead now, ${fresh()}`);
+      if (r.refused === "task") return deny(event, `a lead named lead-${leadMark.task} already holds a slot, in this session or for this logbook (F-T273-5, F-T273-16). Wait for it to end, or stop it with TaskStop (${stop()}), before you start a fresh lead.${r.run ? ` If its agent no longer runs (after a restart, TaskStop finds no task), ${fresh()}` : ""}`);
       if (r.refused === "mark") return deny(event, `the agent cap could not mark its slot (${r.error}), so it refuses this spawn. Tell the user.`);
       return deny(event, `${running(r.total)} across all projects, and the total cap is ${caps.cap_total} (${project} has ${r.project}). ${raise("cap_total", caps.cap_total)}`);
     }
@@ -720,10 +721,12 @@ function chiefEnded(input, slots) {
     if (!literal || words[0] !== "run" || !words.every(plain)) return;
     const { pos, opt } = optionsOf(words.slice(1));
     if (pos[0] !== "done" || !/^R[1-9]\d*$/.test(pos[1] ?? "")) return;
-    const view = logbookOf(opt.project ?? env.SAGE_PROJECT ?? input.cwd), run = view.row(pos[1]);
-    if (!run || run.status === "running" || !TEAM.includes(run.role)) return;
+    const view = logbookOf(opt.project ?? env.SAGE_PROJECT ?? input.cwd), run = view.row(pos[1]), logbook = digest(view.dir);
+    if (!run || run.status === "running") return;
+    if (run.role === "lead") return void slots.prune([leadKey({ logbook, run: run.id })], run.task);
+    if (!TEAM.includes(run.role)) return;
     const leads = [view.leadRun(run.task), ...view.endedLeadRuns().filter((r) => r.task === run.task)].filter(Boolean);
-    slots.endHelpers(leads.map((lead) => helperOf({ logbook: digest(view.dir), run: lead.id }, run.id)));
+    slots.endHelpers(leads.map((lead) => helperOf({ logbook, run: lead.id }, run.id)));
   } catch {}
 }
 function reportProblem(input, text) {
@@ -1123,6 +1126,7 @@ function noteStart(input) {
   } catch {}
 }
 
+const HOOK_TIME_LIMIT_MS = 10_000, LOCK_AGE_MS = 3 * HOOK_TIME_LIMIT_MS, skipWhenBusy = () => {};
 export function slotsFor(dir, session, now = Date.now(), rawSession = session, leadRuns = liveLeadRun) {
   const STALE = { pending: 10 * 60_000, agent: 60 * 60_000 };
   const id = (raw) => safe(raw) || undefined;
@@ -1168,15 +1172,25 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
     try { rmdirSync(join(dir, slot)); }
     catch { rmSync(join(dir, slot), { recursive: true, force: true }); }
   };
-  const transaction = (fn) => (...args) => {
+  const stale = (path) => Math.abs(Date.now() - statSync(path).mtimeMs) > LOCK_AGE_MS;
+  const takeStale = () => {
+    try { if (!stale(lock)) return; } catch (error) { if (error.code === "ENOENT") return; throw error; }
+    const away = `${lock}.stale-${randomUUID()}`;
+    try { renameSync(lock, away); } catch (error) { if (error.code === "ENOENT") return; throw error; }
+    if (!stale(away)) return renameSync(away, lock);
+    try { rmSync(away, { recursive: true, force: true }); } catch {}
+  };
+  const busy = () => { throw Error(`the agent-slot lock is busy, so no agent can start or end until the slot state is available. The hook frees the lock folder ${lock} by itself when it is older than ${LOCK_AGE_MS / 1000} s; if it stays, the user removes it with: rmdir "${lock}"`); };
+  const transaction = (fn, whenBusy = busy) => (...args) => {
     mkdirSync(dirname(lock), { recursive: true });
     let held = false;
     for (let attempt = 0; attempt < 400; attempt++) {
       try { mkdirSync(lock); held = true; break; }
       catch (error) { if (error.code !== "EEXIST") throw error; }
+      takeStale();
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
     }
-    if (!held) throw Error("the agent-slot lock is busy; no new agent can start until the slot state is available");
+    if (!held) return whenBusy();
     try { return fn(...args); }
     finally { rmdirSync(lock); }
   };
@@ -1275,7 +1289,7 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
       if (role === "sage:lead" && lead) {
         const mine = new Set(ofSession());
         const held = list().find(slot => sameName(slot) && mark(slot, "logbook-") === lead.logbook) ?? [...mine].find(sameName);
-        if (held) return { refused: "task", elsewhere: !mine.has(held), run: mark(held, "run-"), ...counts(project) };
+        if (held) return { refused: "task", elsewhere: !mine.has(held), run: mark(held, "logbook-") === lead.logbook ? mark(held, "run-") : undefined, ...counts(project) };
       }
       if (helper && helperNote(`started-${helper.key}`) !== undefined) return { refused: "helper", ...counts(project) };
       let mine;
@@ -1372,7 +1386,7 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
         free(slot);
       }
     }),
-    touch: transaction(touch),
+    touch: transaction(touch, skipWhenBusy),
     helper: (key) => ({ owned: helperNote(`owned-${key}`) !== undefined, started: helperNote(`started-${key}`) !== undefined, stopped: parsed(helperNote(`stopped-${key}`)) }),
     told: (key) => helperNote(`told-${key}`) !== undefined,
     tell: (key) => note(`told-${key}`, "", helpers),

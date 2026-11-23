@@ -2,12 +2,11 @@
 import { spawn } from "node:child_process";
 import { accessSync, chmodSync, closeSync, constants, fstatSync, mkdirSync, lstatSync, statSync, openSync, readSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
-import { request } from "node:http";
 import { createServer as createNetServer } from "node:net";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { BOARD_PORT, boardFolder, boardProjectKey, boardView, PORT_FILE, sharedRoot } from "../core/index.mjs";
+import { BOARD_PORT, boardFolder, boardProjectKey, boardView, PORT_FILE, probeBoard as probe, sharedRoot } from "../core/index.mjs";
 import { installBoard, stableNodePath, writeLoginFile } from "./install.mjs";
 import { createBoardServer } from "./server.mjs";
 import { startLink, startPairing, stateFolder } from "./access.mjs";
@@ -94,20 +93,7 @@ function boardCommand(option, configPath, env, explicit = false) {
   return ["node", quote(fileURLToPath(import.meta.url)), "board", option, ...(!explicit && configPath === defaultConfigPath(env) ? [] : ["--config", quote(configPath)])].join(" ");
 }
 
-const probe = ({ port }) => new Promise(done => {
-  const req = request({ host: "127.0.0.1", port, path: "/", method: "HEAD", agent: false, timeout: 2000, headers: { Host: `127.0.0.1:${port}` } }, response => {
-    response.resume();
-    const { "content-type": type = "", "content-security-policy": policy = "", "cross-origin-resource-policy": resource, "x-sage-board": named = "" } = response.headers;
-    const boardHeaders = policy.startsWith("default-src 'none'") && resource === "same-origin";
-    const own = /^id=([a-f0-9]{16,64}); pid=([1-9]\d{0,9}); started=(\d{1,16})$/.exec(named);
-    if (boardHeaders && response.statusCode === 200 && type.startsWith("text/html")) done(own ? { kind: "board", id: own[1], pid: Number(own[2]), started: Number(own[3]) } : { kind: "older" });
-    else done({ kind: "other" });
-  });
-  req.once("timeout", () => req.destroy(Object.assign(new Error("timeout"), { code: "TIMEOUT" })));
-  req.once("error", error => done({ kind: { ECONNREFUSED: "none", TIMEOUT: "timeout", EPERM: "blocked" }[error.code] ?? "other" }));
-  req.end();
-});
-
+const UNREACHABLE_EXIT = 3;
 const ESCALATE = "In Codex, run it escalated (outside the sandbox), or in Terminal on the Mac.";
 const moveHint = (configPath, config, env) => `Stop that program, or move the board to a free port: run ${boardCommand(`--port ${config.port < 65535 ? config.port + 1 : 1024}`, configPath, env)} (any free port from 1024 to 65535 works).`;
 function notOurs(found, configPath, config, env) {
@@ -129,7 +115,9 @@ function linkProject(config, { project, "name-hex": hex }, env) {
 }
 async function ensureBoard(configPath, config, env, link = false, project = null) {
   const url = `http://127.0.0.1:${config.port}/`, opens = project && `project=${project}`;
-  const ready = how => link ? `Sage board ${how}: ${url}app/#pair=${startLink(stateFolder(configPath))}${opens ? `&${opens}` : ""} · only on this Mac. The link pairs the first browser that opens it, once, within 10 minutes.` : `Sage board ${how}: ${url}${opens ? `app/#${opens}` : ""} · only on this Mac.`;
+  const address = () => link ? `${url}app/#pair=${startLink(stateFolder(configPath))}${opens ? `&${opens}` : ""}` : `${url}${opens ? `app/#${opens}` : ""}`;
+  const pairs = link ? " The link pairs the first browser that opens it, once, within 10 minutes." : "";
+  const ready = how => `Sage board ${how}: ${address()} · only on this Mac.${pairs}`;
   const found = await probe(config), refused = notOurs(found, configPath, config, env);
   if (refused) throw new Error(refused);
   if (found.kind === "board") {
@@ -138,19 +126,29 @@ async function ensureBoard(configPath, config, env, link = false, project = null
     return changed ? `Sage board is running: ${url}, but ${changed} after it started. Restart needed: run ${boardCommand("--stop", configPath, env)} then ask for the board again.` : ready("is running");
   }
   const log = join(dirname(configPath), "board.log");
-  const out = openSync(log, constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_APPEND, 0o600);
+  const out = openSync(log, constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_APPEND, 0o600), from = fstatSync(out).size;
+  const served = () => logSince(log, from).includes(`Sage board: ${url} · only on this Mac.\n`);
   let exited = false, child;
   try { child = spawn(process.execPath, [fileURLToPath(import.meta.url), "board", "--serve", "--config", configPath], { cwd: dirname(configPath), detached: true, stdio: ["ignore", out, out] }); }
   finally { closeSync(out); }
   child.once("exit", () => { exited = true; }).once("error", () => { exited = true; }).unref();
   for (const end = Date.now() + 10_000; Date.now() < end;) {
-    const done = exited, now = await probe(config), problem = notOurs(now, configPath, config, env);
+    const done = exited, listening = served(), now = await probe(config), problem = notOurs(now, configPath, config, env);
     if (now.kind === "board" && !problem) return ready("started");
     if (problem && now.kind !== "timeout") throw new Error(problem);
-    if (done) break;
+    if (done || listening && now.kind === "none") break;
     await new Promise(wake => setTimeout(wake, 100));
   }
+  if (!exited && served()) throw Object.assign(new Error(`the board started, but this shell cannot reach 127.0.0.1 (for example a sandbox); open ${address()} in a browser.${pairs}`), { exitCode: UNREACHABLE_EXIT });
   throw new Error(`the board server ${exited ? "did not start" : "did not answer within 10 s"}. See its log: ${log}`);
+}
+function logSince(log, from) {
+  let fd;
+  try {
+    fd = openSync(log, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const buffer = Buffer.alloc(65536);
+    return buffer.subarray(0, readSync(fd, buffer, 0, buffer.length, from)).toString("utf8");
+  } catch { return ""; } finally { if (fd !== undefined) closeSync(fd); }
 }
 
 const pidPath = configPath => join(dirname(configPath), "board.pid");
@@ -323,6 +321,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (server) { const stop = () => { server.close().then(() => { process.exitCode = 0; }).catch(() => { process.exitCode = 1; }); }; process.once("SIGINT", stop); process.once("SIGTERM", stop); }
   } catch (error) {
     const line = error.code === "EPERM" && error.path ? `this command cannot write ${error.path}: a sandbox or the system blocks writes there (EPERM). ${ESCALATE}` : error.message;
-    process.stderr.write(`sage board: ${line}\n`); process.exitCode = 1;
+    process.stderr.write(`sage board: ${line}\n`); process.exitCode = error.exitCode ?? 1;
   }
 }
