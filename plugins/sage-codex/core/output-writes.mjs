@@ -22,13 +22,13 @@ function opensslWrites(args) {
 }
 
 export function curlTargets(args) {
-  const files = [];
-  let dir;
+  const files = [], dirs = [];
+  let part = 0;
   const take = (name, value) => {
     if (CURL_UNKNOWN.has(name) || value === undefined) return true;
-    if (name === "output-dir") dir = value;
+    if (name === "output-dir") dirs[part] = value;
     else if (name === "write-out") return /%output\{/i.test(value);
-    else files.push({ value, output: name === "output" });
+    else files.push({ value, part, output: name === "output" });
     return false;
   };
   for (let i = 0; i < args.length; i++) {
@@ -36,20 +36,26 @@ export function curlTargets(args) {
     if (arg === "--") break;
     if (arg.startsWith("--")) {
       const equals = arg.indexOf("="), name = arg.slice(2, equals < 0 ? undefined : equals);
+      if (name === "next") part++;
       if (CURL_UNKNOWN.has(name) || (CURL_FILE.has(name) && take(name, equals < 0 ? args[++i] : arg.slice(equals + 1)))) return true;
       if (CURL_VALUE.has(name)) { if (equals < 0) i++; }
       else if (!CURL_FILE.has(name) && !CURL_FLAG.has(name)) return true;
     } else if (arg.startsWith("-") && arg !== "-") {
       for (let k = 1; k < arg.length; k++) {
         const flag = arg[k];
+        if (flag === ":") part++;
         if (Object.hasOwn(CURL_SHORT, flag)) { if (take(CURL_SHORT[flag], k < arg.length - 1 ? arg.slice(k + 1) : args[++i])) return true; break; }
         if ("AHdbFueXrTumxUPzCYytEQ".includes(flag)) { if (k === arg.length - 1) i++; break; }
         if (!"sSLfIvkiGgqN#Vh012346BZ:".includes(flag)) return true;
       }
     }
   }
-  return files.filter(({ value }) => value !== "-" && !/^\/dev\/(?:null|stdout|stderr)$/.test(value))
-    .map(({ value, output }) => (output && dir !== undefined && !value.startsWith("/") ? `${dir.replace(/\/+$/, "")}/${value}` : value));
+  return files.flatMap(({ value, part, output }) => {
+    const dir = output ? dirs[part] : undefined;
+    if (value === "-") return [];
+    if (dir !== undefined) return [`${dir.replace(/\/+$/, "")}/${value}`];
+    return /^\/dev\/(?:null|stdout|stderr)$/.test(value) ? [] : [value];
+  });
 }
 
 export function outputDispatchWrites(entry) {

@@ -1,6 +1,7 @@
 import { flowOf, shellCommands, programsRun } from "./command-reader.mjs";
 import { curlTargets, ghTargets, outputDispatchWrites } from "./output-writes.mjs";
 import { GIT_VALUE, gitSubcommand, programName } from "./command-policy.mjs";
+import { pythonRead } from "./python-read.mjs";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 
@@ -80,20 +81,6 @@ export function uniqWrites(words, base) {
 const INTERPRETER = /^(?:node|deno|bun|python[\d.]*|perl|ruby|php|osascript|sh|bash|zsh|dash|ksh|fish|pwsh|powershell)$/;
 const runsCode = (words) => words.some((word, i) => INTERPRETER.test(programName(word)) && words.slice(i + 1).some((arg) => CODE.test(arg.toLowerCase())));
 const writesCode = (words) => words.some((word, i) => INTERPRETER.test(programName(word)) && words.slice(i + 1).some((arg) => CODE.test(arg.toLowerCase())) && !pythonRead(programName(word), words.slice(i + 1)));
-const PY_FLAGS = /^-[BEIOqsSu]+$/, PY_CODE = /^-[BEIOqsSu]*c$/;
-const PY_MODE = /(["'])[rbtU]*[wax+][rwxabtU+]*\1/;
-const PY_MODULES = /\b(?:shutil|subprocess|ctypes|socket|sqlite3|fileinput|importlib|pty|multiprocessing|asyncio|tempfile|signal|zipfile|tarfile|shelve|dbm|webbrowser|urllib|http|ftplib|smtplib)\b/;
-const PY_CALLS = /\b(?:exec|eval|compile|getattr|setattr|delattr|globals|locals|vars|breakpoint)\s*\(|__(?:import|builtins|loader|spec|dict|class|subclasses|globals)__|\bimport\s+os\s+as\b|\bfrom\s+os\s+import\b(?!\s+path\s*(?:$|[;\n]))/;
-const PY_OS = /\bos\s*\.\s*(?!(?:path|environ|getenv|listdir|scandir|walk|stat|lstat|getcwd|sep|linesep|pathsep|cpu_count|getpid)\b)\w/;
-const PY_METHODS = /\.\s*(?:write|writelines|write_text|write_bytes|touch|mkdir|makedirs|unlink|rmdir|rename|symlink_to|hardlink_to|link_to|chmod|lchmod|truncate|extract|extractall)\s*\(/;
-export function pythonRead(name, args) {
-  if (!/^python[\d.]*$/.test(name)) return false;
-  const at = args.findIndex((arg) => !PY_FLAGS.test(arg));
-  const code = args[at + 1];
-  if (at < 0 || !PY_CODE.test(args[at]) || typeof code !== "string") return false;
-  const text = code.replace(/\bsys\s*\.\s*std(?:out|err)\s*\.\s*write\s*\(/g, "print(");
-  return ![PY_MODE, PY_MODULES, PY_CALLS, PY_OS, PY_METHODS].some((form) => form.test(text));
-}
 export function inlineCode(text) {
   try {
     return shellCommands(text).some(({ words }) => runsCode(words));
@@ -317,20 +304,19 @@ function inProject({ target, dir, uncertainDirectory }, cwd) {
 }
 export const commandWrites = (...args) => commandWritePart(...args) !== undefined;
 export function commandWritePart(text, cwd, scratch = [], { readOnly = false, placed = false, home, guard, protect, known } = {}) {
+  if (typeof text === "string" && HOME_SET.test(text)) home = null;
   const place = { home, guard, protect }, part = writePart(text, cwd, scratch, { readOnly, placed, home, protect, known }, place);
-  return part === undefined ? undefined : { part, place: place.hit };
+  return part === undefined ? undefined : { part, place: place.hit, ...(place.error ? { error: place.error } : {}) };
 }
 function writePart(text, cwd, scratch, { readOnly, placed, home, protect, known }, place) {
   const whole = String(text);
   placed ||= Boolean(protect);
   if (typeof text !== "string") return whole;
   try {
-    if (protect) {
-      if ((CDPATH_SET.test(text) && /\b(?:cd|pushd|popd)\b/.test(text)) || (HOME_SET.test(text) && /~|(?<![\w./-])(?:cd|pushd)(?:[ \t]+(?:-[LPe]+|--))*[ \t]*(?=$|[;&|)}\n'"`])/m.test(text))) return whole;
-      text = literalNames(text, known);
-    }
+    if (protect && CDPATH_SET.test(text) && /\b(?:cd|pushd|popd)\b/.test(text)) return whole;
+    if (known) text = literalNames(text, known);
     const commands = shellCommands(text);
-    const evidence = programsRun(text, cwd, undefined, { contextEvidence: true, redirectParts: true, ...(home ? { home } : {}) });
+    const evidence = programsRun(text, cwd, undefined, { contextEvidence: true, redirectParts: true, ...(home !== undefined ? { home } : {}) });
     const runs = new Set(evidence.programs.map(({ run }) => programName(run.word)));
     const command = commands.find((command) => writesIn(command, runs, placed, Boolean(protect)));
     if (command) return command.words.join(" ");
@@ -345,7 +331,8 @@ function writePart(text, cwd, scratch, { readOnly, placed, home, protect, known 
     if (redirect) return `${redirect.operator} ${redirect.target}`;
     const entry = evidence.programs.find((entry, i) => readerDispatch(entry) || writesCode([entry.run.word, ...entry.run.args]) || outputDispatchWrites(entry) || placeWrites(entry, i));
     return entry && [entry.run.word, ...entry.run.args].join(" ");
-  } catch {
+  } catch (error) {
+    place.error = error;
     return whole;
   }
 }

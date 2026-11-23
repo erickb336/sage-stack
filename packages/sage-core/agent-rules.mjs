@@ -4,7 +4,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { programsRun } from "./command-reader.mjs";
 import { GIT_VALUE, gitSubcommand, programName, unreadable } from "./command-policy.mjs";
 import { canonical } from "./protected-paths.mjs";
-import { commandWrites, gitDestroysWork } from "./shell-write-policy.mjs";
+import { commandWritePart, gitDestroysWork } from "./shell-write-policy.mjs";
 import { worktreeRoot } from "./worktrees.mjs";
 
 const fold = (text) => text.normalize("NFKC").toLowerCase();
@@ -23,6 +23,20 @@ const isProcess = (name = "", looks = true) => {
 };
 const NO_LOOK = (word) => `a proof never reads the real process list, so ${quoted(word)} is refused: the proof check reruns the proof, and the list is not the same on another run.`;
 const NO_PROCESS = (word) => `an agent never signals or controls a real process, so ${quoted(word)} is refused: an agent only looks at the processes, with lsof, pgrep or ps. Code that you test never reads or signals the real process list (standing order 14): put a fake ps or kill in a folder under the temp folder (/tmp, or the folder that TMPDIR names) and put that folder first on PATH: a fake in any other folder is refused. The fake ps prints a start time in the past (for example "Sat Jan  1 00:00:00 2000"). Run a fake kill by its path: a bare kill is the shell's builtin. Use literal paths: the hook does not expand variables. To stop your own server or background job, run it as a background task and stop that task.`;
+const NO_ENVIRONMENT = (word) => `an agent prints no process environment, so ${quoted(word)} with this option is refused: the environment of a process can hold a token (standing order 40). Run ps without E in an option and without e in an option word with no dash, for example ps aux, ps -ef, ps -p <pid> or ps -o pid,command.`;
+function psEnvironment(args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--") return false;
+    if (/^-[^-]/.test(arg)) {
+      for (let k = 1; k < arg.length; k++) {
+        if (arg[k] === "E") return true;
+        if ("GMNOoptUu".includes(arg[k])) { if (k === arg.length - 1) i++; break; }
+      }
+    } else if (/^[A-Za-z]+$/.test(arg) && arg.includes("e")) return true;
+  }
+  return false;
+}
 export const TEMP = [...new Set([tmpdir(), "/tmp", process.env.TMPDIR].filter(Boolean).map((d) => { try { return realpathSync.native(d); } catch { return resolve(d); } }))];
 export const CHIEF_SHELL = 'sage mode is on, so the chief does not change files, also not from the shell: this command has a write form (a redirection or a heredoc into a file, tee, cp, mv, rm, sed -i, code in node -e, or gh repo clone, gh run download or gh extension install) outside your scratch places. Brief an implementer to make this change. Your scratch places are the temp folder and the sage worktrees folder (~/sage-worktrees, which holds the pages folder that the pages command of the state tool prints), outside the project. There a redirection, rm, rmdir, touch, tee, cp, mv and a gh clone or download run, with literal paths (for example > /tmp/notes/out.txt, or rm -rf /tmp/notes). sed -i, code in node -e and the other forms are refused also there. gh, the sage tools, reads and git run as before, except git rm, git mv and the git forms that throw away uncommitted work. The user ends sage mode with the message "sage mode off", alone.';
 export const chiefPlaces = (env = process.env) => [...TEMP, worktreeRoot(env)];
@@ -32,21 +46,24 @@ export function readOnlyPlace(roots, env = process.env, settings = {}) {
   const protect = [...roots.map((path) => ({ path, name: "the logbook" })), { path: worktreeRoot(env), name: "the sage worktrees folder" },
     ...Object.entries(settings).filter(([, path]) => path).map(([name, path]) => ({ path, name })),
     ...HOME_PLACES.map((file) => ({ path: join(home, file), name: `~/${file}`, prefix: file === ".claude.json" }))];
-  return { readOnly: true, protect, home, known: { TMPDIR: env.TMPDIR } };
+  return { readOnly: true, protect, home, known: knownNames(env) };
 }
+const knownNames = (env) => ({ TMPDIR: env.TMPDIR });
 export const CHIEF_WORKTREE = 'sage mode is on, so the chief does not change a git work tree in the sage worktrees folder (~/sage-worktrees): a task worktree or a clone there holds repository files, and rm -rf can lose uncommitted work. This command writes into a work tree there, or removes a folder that holds one. To remove a worktree, run git worktree remove <path> (without --force): git refuses a worktree with changes. For a clone or any other change, brief an implementer or ask the owner. Folders there that hold no work tree stay your scratch place.';
 export const CHIEF_GIT = 'sage mode is on, so the chief does not throw away uncommitted work: git reset --hard, git checkout -- <path> (or ., or --force), git clean -f, git restore of the work tree and git worktree remove --force can destroy changes in the owner\'s checkout or a task\'s worktree. Make a scratch worktree in the temp folder and run the command there (for example git worktree add --detach /tmp/<name>/wt <sha>, then git -C /tmp/<name>/wt reset --hard), or ask the owner. git commit, git checkout <branch>, git fetch, git merge-tree, git commit-tree, git worktree add, git worktree remove without --force, and reads run as before.';
 export function chiefShellProblem(command, cwd, env = process.env) {
   const guard = [worktreeRoot(env)];
   if (gitDestroysWork(command, cwd, TEMP, guard)) return CHIEF_GIT;
-  const places = chiefPlaces(env), options = { placed: true, home: env.HOME || homedir() };
-  if (!commandWrites(command, cwd, places, { ...options, guard })) return undefined;
-  return commandWrites(command, cwd, places, options) ? CHIEF_SHELL : CHIEF_WORKTREE;
+  const places = chiefPlaces(env), options = { placed: true, home: env.HOME || homedir(), known: knownNames(env) };
+  const write = commandWritePart(command, cwd, places, { ...options, guard });
+  if (!write) return undefined;
+  if (write.error) return unreadable(write.error);
+  return commandWritePart(command, cwd, places, options) ? CHIEF_SHELL : CHIEF_WORKTREE;
 }
 export const READ_ONLY_SHELL_WAY = "To keep output or a probe, redirect it into your scratch folder in the temp folder, with a literal path (for example > /tmp/<run>/out.txt). To try a changed copy, write the copy the same way: git show <sha>:<path> | sed 's/a/b/' > /tmp/<run>/copy.mjs. To check out a head, make a worktree in your scratch folder: git worktree add --detach /tmp/<run>/head <sha>; git commands run there.";
 export const READ_ONLY_PAGE_NOTE = "The investigate agent writes only its pages, in the task's pages folder that its brief names, and files in its scratch folder.";
 const quotedPart = (text) => `"${[...String(text).replace(/\\\n/g, "").replace(/(?! )[\p{Cc}\p{Cf}\p{Z}"'`\u2018-\u201f\uff02\\]/gu, "")].slice(0, 60).join("")}"`;
-export const readOnlyShell = (role, { part, place } = {}) => `in sage mode, the ${role} agent changes no file in the project, the logbook or the agent's settings, also not from the shell, so ${quotedPart(part)} is refused: ${place ? `it writes into ${place}. The agent has no write form` : "it has a write form"} into the project's checkout, the sage worktrees folder, the logbook, an agent config folder (~/.claude, ~/.claude.json and its backups, ~/.codex, or the folder that the provider's setting names), ~/.ssh or a shell start file (~/.zshenv, ~/.zprofile, ~/.zshrc, ~/.zlogin, ~/.zlogout, ~/.bashrc, ~/.bash_profile, ~/.bash_login, ~/.bash_logout or ~/.profile), or a write form whose target the hook cannot tell (for example code in node -e, tar, a pattern, a variable that the command does not set to a literal path before, or a git command that changes the checkout, such as git checkout, reset, commit or branch -D). A write into another folder passes, with a literal path, $TMPDIR or a variable set to a literal path earlier in the command; sed -i, curl -o and find -exec ls too. ${role === "investigate" ? `${READ_ONLY_PAGE_NOTE} Redirect a page into its pages folder, with a literal path.` : "Report the finding instead."} ${READ_ONLY_SHELL_WAY}`;
+export const readOnlyShell = (role, { part, place, error } = {}) => error ? unreadable(error) : `in sage mode, the ${role} agent changes no file in the project, the logbook or the agent's settings, also not from the shell, so ${quotedPart(part)} is refused: ${place ? `it writes into ${place}. The agent has no write form` : "it has a write form"} into the project's checkout, the sage worktrees folder, the logbook, an agent config folder (~/.claude, ~/.claude.json and its backups, ~/.codex, or the folder that the provider's setting names), ~/.ssh or a shell start file (~/.zshenv, ~/.zprofile, ~/.zshrc, ~/.zlogin, ~/.zlogout, ~/.bashrc, ~/.bash_profile, ~/.bash_login, ~/.bash_logout or ~/.profile), or a write form whose target the hook cannot tell (for example code in node -e, tar, a pattern, a variable that the command does not set to a literal path before, or a git command that changes the checkout, such as git checkout, reset, commit or branch -D). A write into another folder passes, with a literal path, $TMPDIR or a variable set to a literal path earlier in the command; sed -i, curl -o and find -exec ls too. ${role === "investigate" ? `${READ_ONLY_PAGE_NOTE} Redirect a page into its pages folder, with a literal path.` : "Report the finding instead."} ${READ_ONLY_SHELL_WAY}`;
 const inTemp = (file) => !!file && TEMP.some((t) => file.startsWith(`${t}/`));
 const processText = (looks) => new RegExp(`(?:^|[\\s;&|(\`'"/<>])(?:${UNIX_PROCESS}|${POWERSHELL_PROCESS}${looks ? "" : `|${LOOKS}`})(?:\\.exe)?(?=$|[\\s;&|)\`'"<>])`, "im");
 
@@ -105,6 +122,7 @@ export function agentCommandProblem(command, cwd, path = process.env.PATH ?? "",
     const name = programName(word);
     if (name === "git" && /^stash$/i.test(gitSubcommand(args, 0))) return NO_STASH;
     if ((isProcess(name, looks) || isProcess(file ?? "", looks)) && !inTemp(file)) return refuse(word, name, file ?? "");
+    if ([name, programName(file ?? "")].some((n) => /^ps$/i.test(n)) && !inTemp(file) && psEnvironment(args)) return NO_ENVIRONMENT(word);
     const commit = name === "git" ? identityProblem(args, vars, identity) : undefined;
     if (commit) return commit;
   }

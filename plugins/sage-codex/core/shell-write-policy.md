@@ -57,10 +57,12 @@ With `protect`, two more forms are read (T1153):
   substitution in double quotes keep the variable as one that the reader
   cannot tell. `HOME`, `CDPATH`, `PATH`, `IFS`, `PWD` and `OLDPWD` are never
   read. A command that sets `CDPATH` and has a `cd`, `pushd` or `popd`
-  counts as a write. A command that sets `HOME` counts as a write only when
-  it has a `~`, or a `cd` or `pushd` with no folder (T1210): a `cd` into a
-  literal folder does not read `HOME`, so `HOME=/tmp/r1 npm ci; cd /tmp/r1`
-  passes. A
+  counts as a write. In a command that sets `HOME`, the reader does not read
+  a `~`, or a `cd` or `pushd` with no folder (also with a redirection or a
+  comment after it), as the home folder (`commandWritePart` gives it no
+  `home`, T1210): such a folder is not known, so a write after it, or into
+  `~`, counts. A `cd` into a literal folder does not read `HOME`, so
+  `HOME=/tmp/r1 npm ci; cd /tmp/r1` passes. A
   command that names `IFS` outside single quotes (`IFS=:`, `export IFS`) reads
   no variable at all, because a changed `IFS` splits a value into other words
   (`IFS=:; S=/tmp/x:src; rm -rf $S` removes `src`, F-T1153-10).
@@ -85,15 +87,30 @@ interpreter after its own name (`uv run python -c`, `bundle exec ruby -e`,
 not count, so the folder name in `mkdir -p /tmp/x/sh` is no shell.
 
 A write form does not count `python -c` code that only reads (`pythonRead`,
-T1210): the options before `-c` are flags only (`-I`, `-B`, `-E`, `-O`, `-q`,
-`-s`, `-S`, `-u`), and the code has no write mode in a string (`'w'`, `"a+"`),
-no module that writes or runs programs (`shutil`, `subprocess`, `sqlite3`,
-`tempfile` and the like), no `exec`, `eval`, `getattr` or dunder name, no `os.`
-call but a read (`os.path`, `os.environ`, `os.listdir`, `os.walk`, `os.stat`),
-and no call such as `.write(`, `.write_text(`, `.unlink(`, `.mkdir(` or
-`.rename(` (`sys.stdout.write` is a print). A limit: `Path.replace` and code
-that builds a mode or a name at run time are not seen (standing order 70).
-`inlineCode`, the proof check, still counts every `-c`.
+in `python-read.mjs`, T1210). The rule is an allow-list: the code passes only
+when each name in it is on a short read list.
+
+- The options before `-c` are flags only (`-I`, `-B`, `-E`, `-O`, `-q`, `-s`,
+  `-S`, `-u`), and the code has no `$` or backtick (the shell can change it).
+- Each `import` names a module of the read list (`json`, `csv`, `sys`, `re`,
+  `os`, `os.path`, `pathlib`, `glob`, `collections`, `itertools`, `math`,
+  `datetime` and a few more), and each `from` import takes read names.
+- Each attribute (a name after a dot) is a read name, such as `load`,
+  `read_text`, `listdir`, `keys` or `split`. So `to_csv`, `savefig`, `save`,
+  `remove`, `system`, `modules`, `write_text` and the other library calls
+  count as a write.
+- A bare name that is a Python builtin is a safe one (`print`, `len`,
+  `sorted`, `open` and the like): not `exec`, `eval`, `getattr`, `globals` or
+  `vars`. A dunder name, or a character that is not ASCII outside a string,
+  counts as a write.
+- `open` (also `Path.open`) is called at once, with a literal read mode or
+  none (`'r'`, `'rb'`), and no `opener`. So the code has no handle that
+  writes: `.write(` counts unless it is `sys.stdout.write` or
+  `sys.stderr.write`, and `.replace(` counts unless it has two arguments (a
+  string's replace; `Path.replace` moves a file).
+
+A string is only text, so `print('a')` passes. `inlineCode`, the proof check,
+still counts every `-c`.
 
 `find` counts with `-delete`, `-fprint`, `-fprint0`, `-fprintf` or `-fls`, and
 with an `-exec`, `-execdir`, `-ok` or `-okdir` whose program is not a reader
@@ -101,19 +118,23 @@ with an `-exec`, `-execdir`, `-ok` or `-okdir` whose program is not a reader
 `cut`), so `find /tmp/x -exec ls -l {} \;` passes (T1210).
 
 `curlTargets` (in `output-writes.mjs`) gives the files that `curl` writes: the
-target of `-o` (in the folder of `--output-dir`), `-D`, `-c`, `--trace`,
+target of `-o` (in the folder of `--output-dir`, also an absolute one, as curl
+joins them, up to the next `--next` or `-:`, F-T1210-7, F-T1210-11), `-D`, `-c`, `--trace`,
 `--stderr` and the other file options; `-` and `/dev/null` are no file. `-O`,
 `-J`, `-K` and `-w` with `%output{` count as a write that the hook cannot tell
 (T1210). Each target counts like the target of a redirection.
 
-For a read-only role, `literalNames` also reads `$TMPDIR` and `${TMPDIR}` as
-the value of the hook's own `TMPDIR` (`readOnlyPlace` gives it as `known`),
+For a read-only role and the chief, `literalNames` also reads `$TMPDIR` and
+`${TMPDIR}` as the value of the hook's own `TMPDIR` (`readOnlyPlace` and
+`chiefShellProblem` give it as `known`, from one function, F-T1210-17),
 when the command does not name `TMPDIR` as a word (no `TMPDIR=`, `export` or
 `${TMPDIR:-x}`). The target then counts as a literal path: a protected place
 stays refused, also when `TMPDIR` names one (T1210).
 
 `commandWritePart` takes the same arguments and gives `{ part, place }`, or
-nothing when the text does not write. `part` is the part that writes: a simple
+nothing when the text does not write. When the reader cannot read the text,
+it gives `{ part, error }` too, and `readOnlyShell` and `chiefShellProblem`
+give the reader's cause and its way forward (core's `unreadable`, F-T1210-14). `part` is the part that writes: a simple
 command, a redirection (`> src/a.js`) or a program run, or the whole text when
 the reader cannot tell. `place` is the name of the protected place that the
 part's target hit (for example `~/.ssh`, "the project's checkout" or "the

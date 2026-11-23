@@ -1,7 +1,8 @@
 import { realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { programsRun } from "./command-reader.mjs";
-import { commandWrites, pythonRead, readerDispatch, uniqWrites } from "./shell-write-policy.mjs";
+import { commandWrites, readerDispatch, uniqWrites } from "./shell-write-policy.mjs";
+import { pythonRead } from "./python-read.mjs";
 import { outputDispatchWrites } from "./output-writes.mjs";
 import { programName } from "./program-name.mjs";
 import { ghApiMethod, ghWords, gitSubcommand } from "./command-policy.mjs";

@@ -442,6 +442,23 @@ test("T1210: a read-only role's curl -o into its temp folder passes; curl -o int
   }
 });
 
+test("T1210 F-T1210-7: curl joins each -o to --output-dir, also an absolute one, in both providers", async (t) => {
+  const { scratch, places, verdict, REFUSED, RUNS } = await scratchPlaces(t);
+  assert.deepEqual(await verdict(`curl --create-dirs --output-dir ${scratch} -o /out/a.html https://example.invalid/`), RUNS, "an absolute -o lands in the scratch folder");
+  for (const target of places) {
+    assert.deepEqual(await verdict(`curl --output-dir ${target} -o ${scratch}/a https://example.invalid/`), REFUSED, `an absolute -o lands in ${target}`);
+  }
+});
+
+test("T1210 F-T1210-11: --output-dir holds no -o after --next (or -:), in both providers", async (t) => {
+  const { scratch, verdict, REFUSED, RUNS } = await scratchPlaces(t);
+  assert.deepEqual(await verdict(`curl --output-dir ${scratch} -o a https://example.invalid/a --next -o ${scratch}/b https://example.invalid/b`), RUNS, "each part writes into the scratch folder");
+  for (const next of ["--next", "-:"]) {
+    const command = `curl --output-dir ${scratch} -o a https://example.invalid/a ${next} -o src/app.js https://example.invalid/b`;
+    assert.deepEqual(await verdict(command), REFUSED, `--output-dir ends at ${next}: ${command}`);
+  }
+});
+
 test("T1210: a read-only role's find -exec with a reader such as ls passes; find -delete and find -exec with a writer stay refused, in both providers", async (t) => {
   const { scratch, places, verdict, REFUSED, RUNS } = await scratchPlaces(t);
   for (const command of [`find ${scratch} -name '*.json' -exec ls -l {} \\;`, "find . -name '*.md' -exec grep -l sage {} +"]) assert.deepEqual(await verdict(command), RUNS, `a read: ${command}`);
@@ -449,7 +466,7 @@ test("T1210: a read-only role's find -exec with a reader such as ls passes; find
   for (const command of ["find . -delete", `find ${scratch} -exec ls {} \\; -exec rm {} \\;`]) assert.deepEqual(await verdict(command), REFUSED, `a write: ${command}`);
 });
 
-test("T1210: after a HOME change, a cd into a literal folder passes for a read-only role; a cd with no folder or a ~ stays refused, and so does any cd after a CDPATH change, in both providers", async (t) => {
+test("T1210 F-T1210-6: after a HOME change, a cd into a literal folder passes for a read-only role; a cd with no folder (also with a redirection or a comment) or a ~ stays refused, and so does any cd after a CDPATH change, in both providers", async (t) => {
   const { home, verdict, REFUSED, RUNS } = await homePlaces(t);
   const scratch = realpathSync(mkdtempSync(join(tmpdir(), "sage-t1210-home-")));
   t.after(() => rmSync(scratch, { recursive: true, force: true }));
@@ -459,12 +476,30 @@ test("T1210: after a HOME change, a cd into a literal folder passes for a read-o
   }
   for (const command of [`HOME=${home}/.ssh; cd; echo x > config`, `export HOME=${home}/.ssh && cd && touch config`, `HOME=${home}/.ssh; cd -P; echo x > config`,
     `HOME=${home}/.ssh; cd -- ; echo x > config`, `HOME=${home}/.ssh bash -c 'cd; echo x > config'`, `HOME=${home}/.ssh; cd ~ && echo x > config`, `HOME=${scratch}; echo x > ~/a`,
+    `HOME=${home}/.ssh; cd >/dev/null; echo x > config`, `HOME=${home}/.ssh; cd 2>/dev/null && echo x > config`, `HOME=${home}/.ssh; cd # home\necho x > config`, `export HOME=${home}/.ssh; pushd ~ >/dev/null; touch config`,
     `CDPATH=${home}; cd .ssh && echo x > config`]) {
     assert.deepEqual(await verdict(command), REFUSED, `a cd with no folder or a ~ after a HOME change, or a cd after a CDPATH change: ${command}`);
   }
 });
 
-test("T1210: a python3 -c read of a logbook file passes for the chief and an agent, and a python3 -c write is refused, in both providers", async (t) => {
+const PY_LIBRARY_WRITES_OF_OUT = ["import pandas as pd; pd.read_csv('data.csv').to_csv('OUT')", "import matplotlib.pyplot as plt; plt.savefig('OUT')", "import numpy as np; np.save('OUT', [1])",
+  "from PIL import Image; Image.new('RGB', (1, 1)).save('OUT')", "import runpy; runpy.run_path('OUT')", "import logging; logging.FileHandler('OUT')", "open('OUT', chr(97)).write('x')",
+  "import posix; posix.system('rm OUT')", "import sys; sys.modules['os'].remove('OUT')", "import os; o = os; o.remove('OUT')", "from pathlib import Path; Path('OUT').open('w')",
+  "from pathlib import Path; Path('/tmp/x/a').replace('OUT')", "list(map(open, ['OUT'], ['w']))", `print(f'{open(\\"OUT\\", chr(119))}')`];
+test("T1210 F-T1210-15: for a read-only role, python3 -c code with only read names passes, also with a one-letter string, in both providers", async (t) => {
+  const { verdict, RUNS } = await scratchPlaces(t);
+  for (const code of ["print('a')", "print('+'.join(['1','2']))", "print('abc'.split('x'))", "import json; print(json.dumps(json.load(open('package.json')), indent=2)[:80])",
+    "import csv, sys; [sys.stdout.write(row[0]) for row in csv.reader(open('a.csv', 'r'))]", "from pathlib import Path; print(Path('README.md').read_text().replace('a', 'b')[:9])"]) {
+    assert.deepEqual(await verdict(`python3 -c "${code}"`), RUNS, `a read: ${code}`);
+  }
+});
+
+test("T1210 F-T1210-10: for a read-only role, a python3 -c library write into the project is refused, in both providers", async (t) => {
+  const { verdict, REFUSED } = await scratchPlaces(t);
+  for (const code of PY_LIBRARY_WRITES_OF_OUT) assert.deepEqual(await verdict(`python3 -c "${code.replaceAll("OUT", "out.csv")}"`), REFUSED, `a write into the project: ${code}`);
+});
+
+test("T1210 F-T1210-10: a python3 -c read of a logbook file passes for the chief and an agent, and a python3 -c write is refused, also a library write into the logbook, in both providers", async (t) => {
   const { handle } = await import(new URL("../plugins/sage/hooks/sage-hook.mjs", import.meta.url));
   const { sharedRoot } = await import(new URL("../plugins/sage-codex/core/index.mjs", import.meta.url));
   const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {} };
@@ -480,7 +515,8 @@ test("T1210: a python3 -c read of a logbook file passes for the chief and an age
     const reads = [`python3 -I -c "import json,sys;d=json.load(open('${file}'));print(list(d.keys()))"`, `python3 -c "import json; print(json.load(open('${file}', 'r'))['text'][:200])"`,
       `python3 -I -c "import json,os.path; sys.stdout.write(open('${file}').read())"${root.includes("/.codex/") ? "" : " > /tmp/x/out.txt"}`];
     const writes = [`python3 -c "open('${file}', 'w').write('{}')"`, `python3 -c "import json; json.dump({}, open('${file}', 'a'))"`, `python3 -c "import os; os.remove('${file}')"`,
-      `python3 -c "import shutil; shutil.move('/tmp/x/a', '${file}')"`, `python3 -c "from pathlib import Path; Path('${file}').write_text('x')"`, `python3 -c "exec('x')" ${file}`, `python3 ${project}/w.py ${file} > /tmp/x/o`];
+      `python3 -c "import shutil; shutil.move('/tmp/x/a', '${file}')"`, `python3 -c "from pathlib import Path; Path('${file}').write_text('x')"`, `python3 -c "exec('x')" ${file}`, `python3 ${project}/w.py ${file} > /tmp/x/o`,
+      ...PY_LIBRARY_WRITES_OF_OUT.map((code) => `python3 -c "${code.replaceAll("OUT", file)}"`)];
     for (const agent of [false, true]) {
       const who = agent ? "an agent" : "the chief";
       for (const command of reads) assert.deepEqual({ claude: claude(command, agent), codex: await codex(command, agent) }, { claude: undefined, codex: undefined }, `${who} reads: ${command}`);
@@ -514,9 +550,16 @@ test("T1210: an agent may run the state tool's task read in Claude; a task write
   }
 });
 
-test("T1210: an agent may run lsof, pgrep and ps (G233); kill and pkill stay refused, with one text in both providers", async (t) => {
+const SYSTEM_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
+function systemPathNoTempFakes(t) {
+  const saved = process.env.PATH;
+  process.env.PATH = SYSTEM_PATH;
+  t.after(() => { process.env.PATH = saved; });
+}
+test("T1210 F-T1210-9: an agent may run lsof, pgrep and ps (G233); kill and pkill stay refused also with a fake kill first on PATH, with one text in both providers", async (t) => {
+  systemPathNoTempFakes(t);
   const { claude, codex } = await toolChecks(t);
-  for (const command of ["lsof -i :3000", "pgrep -fl node", "ps aux", "ps -o pid,lstart -p 123", "lsof -nP -iTCP:5173 -sTCP:LISTEN | tail -1", "/usr/sbin/lsof -i :8080"]) {
+  for (const command of ["lsof -i :3000", "pgrep -fl node", "ps aux", "ps -ef", "ps -o pid,lstart -p 123", "ps -o user,comm -U root", "ps -axo pid,command", "lsof -nP -iTCP:5173 -sTCP:LISTEN | tail -1", "/usr/sbin/lsof -i :8080"]) {
     assert.deepEqual({ claude: claude(command), codex: await codex(command) }, { claude: undefined, codex: undefined }, `a look at the processes: ${command}`);
   }
   for (const [command, word] of [["kill 1", "kill"], ["pkill node", "pkill"], ["killall node", "killall"], ["lsof -t -i :3000 | xargs kill", "kill"], ["pgrep node && pkill node", "pkill"]]) {
@@ -526,7 +569,17 @@ test("T1210: an agent may run lsof, pgrep and ps (G233); kill and pkill stay ref
   }
 });
 
-test("T1210: an unreadable command names its own cause and its way forward, in both providers", async (t) => {
+test("T1210 F-T1210-13: an agent runs no ps option that prints the environment, with one text in both providers", async (t) => {
+  systemPathNoTempFakes(t);
+  const { claude, codex } = await toolChecks(t);
+  for (const [command, word] of [["ps eww", "ps"], ["ps -E", "ps"], ["ps auxe", "ps"], ["ps -Ef", "ps"], ["/bin/ps -axE -p 1", "/bin/ps"], ["pgrep node | xargs ps e -p", "ps"]]) {
+    const got = { claude: claude(command), codex: await codex(command) };
+    assert.equal(got.codex, got.claude?.replace(/\.$/, ""), `one text in both providers: ${command}`);
+    assert.match(got.claude ?? "passed", new RegExp(`^sage: an agent prints no process environment, so "${word.replace(/\//g, "\\/")}" with this option is refused: .* ps aux, ps -ef, ps -p <pid> or ps -o pid,command\\.$`), command);
+  }
+});
+
+test("T1210 F-T1210-8: an unreadable command names its own cause and its way forward, in both providers", async (t) => {
   const { project, agentProblem, codex, implementer } = await toolChecks(t);
   const dirs = ["/usr", "/bin", "/etc", "/tmp", "/var", "/sbin", "/private"].map((dir) => `npm test && pushd ${dir}`).join("; ");
   const causes = [["kill 'x", "an open quote", "Close each quote, substitution and heredoc."],
@@ -536,11 +589,42 @@ test("T1210: an unreadable command names its own cause and its way forward, in b
     ["kill 1; env -u", "env option has no value", "Run the program without the wrapper, or give the wrapper only options that the hook knows, each with its value."],
     ["kill 1 >", "a redirection with no target", "Give each redirection a target."],
     ["case x in a) kill 1;;", "a case with no esac", "End each case with esac, and give each case pattern one word."],
-    ["(kill 1", 'an open "("', "Close each ( with a )."]];
+    ["(kill 1", 'an open "("', "Close each ( with a )."], ["kill 1 )", 'a ")" with no "("', "Remove each ) that has no (."]];
   for (const [command, cause, way] of causes) {
     assert.equal((agentProblem(command, project, "/usr/bin:/bin") ?? "").split(" Its text names")[0], `the hook cannot read this command (${cause}), so it refuses it. ${way}`, command);
     assert.match(await codex(command, implementer) ?? "", new RegExp(`cannot read this command \\(${cause.replace(/[()"]/g, "\\$&")}\\), so it refuses it\\. ${way.replace(/[().<>]/g, "\\$&")} Its text names`), `codex: ${command}`);
   }
+});
+
+test("T1210 F-T1210-14: an unreadable command with no guarded word gets its cause and its way forward for a read-only role and the chief, in both providers", async (t) => {
+  const { project, claude, codex } = await toolChecks(t);
+  const g = fixed({ sage: true }), { handle } = await import(new URL("../plugins/sage/hooks/sage-hook.mjs", import.meta.url));
+  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {} };
+  const chief = async (command) => ({ claude: deniedRaw(handle({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, cwd: project, session_id: "s1" }, { sage: true, autopilot: false, start: false }, slots)),
+    codex: deniedRaw(await g.run(pre("Bash", command, { cwd: project }))) });
+  for (const [command, cause, way] of [["echo 'unclosed ; echo hi", "an open quote", "Close each quote, substitution and heredoc."], ["echo $(ls", "an open $(", "Close each quote, substitution and heredoc."],
+    ["echo hi )", 'a ")" with no "("', "Remove each ) that has no (."], ["echo hi >", "a redirection with no target", "Give each redirection a target."]]) {
+    const text = `sage: the hook cannot read this command (${cause}), so it refuses it. ${way}`;
+    assert.deepEqual({ claude: claude(command), codex: await codex(command) }, { claude: `${text}`, codex: text.replace(/\.$/, "") }, `the qa agent: ${command}`);
+    assert.deepEqual(await chief(command), { claude: `${text}`, codex: text.replace(/\.$/, "") }, `the chief: ${command}`);
+  }
+});
+
+test("T1210 F-T1210-17: the chief writes into $TMPDIR as an agent does, through one resolver; $TMPDIR that names the project stays refused, in both providers", async (t) => {
+  const { scratch, verdict, RUNS } = await scratchPlaces(t);
+  const g = fixed({ sage: true }), { handle } = await import(new URL("../plugins/sage/hooks/sage-hook.mjs", import.meta.url));
+  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {} };
+  const project = realpathSync(mkdtempSync(join(SCRATCH_HOME, "t1210-chief-")));
+  const chief = async (command) => Object.fromEntries(Object.entries({ claude: deniedRaw(handle({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, cwd: project, session_id: "s1" }, { sage: true, autopilot: false, start: false }, slots)),
+    codex: deniedRaw(await g.run(pre("Bash", command, { cwd: project }))) }).map(([k, why]) => [k, why === undefined ? "runs" : CHIEF_SHELL.test(why) ? "refused" : why]));
+  for (const command of ["echo x > $TMPDIR/out.txt", 'cp README.md "${TMPDIR}/b.md"', "mkdir -p $TMPDIR/R1 && echo x > $TMPDIR/R1/out.txt"]) {
+    assert.deepEqual(await verdict(command), RUNS, `the qa agent: ${command}`);
+    assert.deepEqual(await chief(command), RUNS, `the chief: ${command}`);
+  }
+  process.env.TMPDIR = project;
+  assert.deepEqual(await chief("echo x > $TMPDIR/out.txt"), { claude: "refused", codex: "refused" }, "$TMPDIR names the project");
+  process.env.TMPDIR = `${scratch}/`;
+  assert.deepEqual(await chief("echo x > $UNSET_PLACE/out.txt"), { claude: "refused", codex: "refused" }, "a variable that the command does not set");
 });
 
 function scratchWorktree(t) {
@@ -584,7 +668,7 @@ const CHIEF_PLACES = ["rmdir ~/sage-worktrees/sage-0a1b2c/leftover", `rmdir ${T8
   `node ${TOOL} status --project ${CWD} ; node ${TOOL} board --project ${CWD}`, `node ${TOOL} task T1 set priority=P1 --chief C1 ; node ${TOOL} task T2 set priority=P2 --chief C1`];
 const CHIEF_ELSEWHERE = ["rm src/a.js", `rm -rf ${CWD}/src`, "rmdir src/empty", "touch src/new.js", "cp /tmp/notes/a.js src/a.js", "mv src/a.js /tmp/notes/a.js", "printf x | tee /tmp/notes/a.txt src/a.js",
   "echo x > ~/.claude/settings.json", "rm -rf ~/.claude/projects", "printf x | tee ~/.claude/CLAUDE.md", "touch ~/notes.txt", "rm -rf ~/sage-worktrees",
-  "find /tmp/notes | xargs rm", "env rm /tmp/notes/a.txt", "sed -i '' s/a/b/ /tmp/notes/a.txt", "rm $TMPDIR/notes", "rm /tmp/notes/*", "cp -t /tmp/notes src/a.js", "rm ~other/notes"];
+  "find /tmp/notes | xargs rm", "env rm /tmp/notes/a.txt", "sed -i '' s/a/b/ /tmp/notes/a.txt", "rm $NOTES_PLACE/notes", "rm /tmp/notes/*", "cp -t /tmp/notes src/a.js", "rm ~other/notes"];
 test("T807: in sage mode the chief writes and removes files in the temp folder and the sage worktrees folder, in both providers; the project, ~/.claude and the logbook stay refused", async (t) => {
   const { handle } = await import(new URL("../plugins/sage/hooks/sage-hook.mjs", import.meta.url));
   const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {} };
