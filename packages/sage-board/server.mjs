@@ -204,9 +204,9 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = null
 
   function lightRead() {
     lightTimer = undefined; lightAt = Date.now();
-    const message = { type: "light", hooks: [...dirty.hooks], books: [...dirty.books], folders: dirty.folders, at: clock ? Date.parse(clock()) : Date.now() };
+    if (closed || !light) return;
+    light.post({ type: "light", hooks: [...dirty.hooks], books: [...dirty.books], folders: dirty.folders, at: clock ? Date.parse(clock()) : Date.now() });
     dirty.hooks.clear(); dirty.books.clear(); dirty.folders = false;
-    if (!closed) light?.post(message);
   }
 
   function schedule() {
@@ -361,7 +361,11 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = null
     }
     const restart = setTimeout(() => {
       if (closed) return;
-      if (index === -1) { light = spawn(); if (lastSeed) light.post(lastSeed); }
+      if (index === -1) {
+        light = spawn();
+        if (lastSeed) light.post(lastSeed);
+        if (dirty.hooks.size || dirty.books.size || dirty.folders) lightSchedule({});
+      }
       else boards[index] = spawn();
       if (again) refresh();
     }, slow ? RESTART_WAIT : 0);
