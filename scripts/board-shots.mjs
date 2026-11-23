@@ -51,6 +51,7 @@ async function serve(dir, sources) {
   const { createBoardServer, loadBoardApp } = await import("../packages/sage-board/server.mjs");
   const server = createBoardServer({ sources: [{ id: "shared", path: sources, label: "Shared" }], port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [] });
   const { port } = await server.start();
+  await server.ready();
   return { base: `http://127.0.0.1:${port}`, close: () => server.close() };
 }
 

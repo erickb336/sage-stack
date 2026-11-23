@@ -23,6 +23,7 @@ test("task links reach arena-only, mixed and artifact-free arenas without changi
   try {
     board = createBuiltBoardServer({ sources: fixture.sources, port: 0 });
     ({ port } = await board.start());
+    await board.ready();
     browser = await chromium.launch();
     const page = await browser.newPage();
     const origin = `http://127.0.0.1:${port}`, task = `${origin}/app/#task?key=${encodeURIComponent(ARENA_KEY)}&tab=artifacts`;
@@ -107,6 +108,7 @@ test("fictional arena route preserves failed candidates and unknown evidence on 
   try {
     board = createBoardServer({ sources: fixture.sources, port: 0 });
     ({ port } = await board.start());
+    await board.ready();
     browser = await chromium.launch();
     const page = await browser.newPage();
     const url = `http://127.0.0.1:${port}${readerUrl(ARENA_KEY, "arena")}`;

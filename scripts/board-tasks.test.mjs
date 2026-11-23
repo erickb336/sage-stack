@@ -28,10 +28,12 @@ function world(t, options) {
 }
 const modelOf = sources => buildBoardModel(readBoardSources(sources, { now: Date.parse(NOW) }), { now: NOW });
 
-async function serve(t, sources) {
-  const server = createBoardServer({ sources, port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [] });
+async function serve(t, sources, more = {}) {
+  const server = createBoardServer({ sources, port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [], ...more });
   t.after(() => server.close());
-  return `http://127.0.0.1:${(await server.start()).port}`;
+  const { port } = await server.start();
+  await server.ready();
+  return `http://127.0.0.1:${port}`;
 }
 
 test("T1061: the stream lists every task with its state word, priority, kind, chief tag and may-conflict flag; ended tasks are marked", t => {
@@ -137,8 +139,8 @@ test("T1061 (F-T1061-4, F-T1061-5): the kept-report reader reads no run id that 
   assert.deepEqual(await kept(), [], "a kept/ that is a link is not followed");
 });
 
-test("T1061 (F-T1061-29): a throw while the task route builds its answer is a 503 with the board's headers, and the board answers the next request", async t => {
-  const w = world(t), base = await serve(t, w.sources), url = `${base}/app/task/${b64(KEY("T3"))}`, stringify = JSON.stringify;
+test("T1061 (F-T1061-29): a throw while the task route builds its answer is a 503 with the board's headers, and the board answers the next request (T1215: the threads run in this thread, so the fault reaches them)", async t => {
+  const w = world(t), base = await serve(t, w.sources, { duringRead: () => {} }), url = `${base}/app/task/${b64(KEY("T3"))}`, stringify = JSON.stringify;
   JSON.stringify = (value, ...rest) => { if (value?.files) throw new Error("a fault while the panel is built"); return stringify(value, ...rest); };
   let broken;
   try { broken = await fetch(url); } finally { JSON.stringify = stringify; }

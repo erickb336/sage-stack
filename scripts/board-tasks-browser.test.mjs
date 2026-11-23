@@ -29,6 +29,7 @@ async function openBoard(t, options = {}, path = "/app/") {
   }
   const server = createBoardServer({ sources: [{ ...source, path: join(dir, "logbooks") }], port: 0, app: APP, settleReads: [] });
   const { port } = await server.start();
+  await server.ready();
   const base = `http://127.0.0.1:${port}`;
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, colorScheme: "dark" });
   if (clock) await context.clock.install({ time: Date.now() });

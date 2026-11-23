@@ -21,6 +21,7 @@ async function board(t) {
   const sources = writeSampleLogbooks(join(dir, "sample"), { now }).map(({ id, label, path }) => ({ id, label, path }));
   const server = createBoardServer({ sources, port: 0, app: APP, settleReads: [] });
   const { port } = await server.start();
+  await server.ready();
   t.after(async () => { await server.close(); rmSync(dir, { recursive: true, force: true }); });
   const tasks = boardOverview(buildBoardModel(readBoardSources(sources, { now: Date.parse(now) }), { now })).tasks;
   const key = id => tasks.find(task => task.id === id && task.key.startsWith("claude/sage-")).key;

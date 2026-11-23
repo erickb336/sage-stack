@@ -424,7 +424,7 @@ test("T216, T1054, T1063, T1064: each plugin's board is a cross-provider reader:
     const { dir, plugin } = isolated(t, provider);
     const files = filesUnder(join(plugin, "board")), app = join(plugin, "board/app");
     const manifest = JSON.parse(readFileSync(join(app, "manifest.json"), "utf8")), built = [manifest.script, manifest.style, manifest.vendor, manifest.graph];
-    assert.deepEqual(files.map((file) => relative(join(plugin, "board"), file)).sort(), ["access.mjs", "cli.mjs", "install.mjs", "markdown.mjs", "material.mjs", "pages.mjs", "reader.mjs", "server.mjs", "writes.mjs", ...["manifest.json", ...built].map((name) => `app/${name}`)].sort());
+    assert.deepEqual(files.map((file) => relative(join(plugin, "board"), file)).sort(), ["access.mjs", "cli.mjs", "install.mjs", "markdown.mjs", "material.mjs", "pages.mjs", "reader.mjs", "server.mjs", "thread.mjs", "writes.mjs", ...["manifest.json", ...built].map((name) => `app/${name}`)].sort());
     for (const name of built) assert.match(name, /^(?:app|vendor|graph)-[A-Z0-9]{8}\.(?:js|css)$/);
     const { parse } = await import("es-module-lexer/minimal");
     for (const file of files.filter((path) => path.endsWith(".mjs"))) {

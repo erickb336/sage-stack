@@ -24,6 +24,7 @@ async function open(t, { viewport = { width: 1440, height: 1000 }, clock = false
   edit?.(project, root);
   const server = createBoardServer({ sources: [{ id: "sample", path: root, label: "Sample" }], port: 0, app: APP, settleReads: [] });
   const { port } = await server.start();
+  await server.ready();
   const base = `http://127.0.0.1:${port}`;
   const context = await browser.newContext({ viewport, colorScheme: "dark" });
   t.after(async () => { await context.close(); await server.close(); rmSync(dir, { recursive: true, force: true }); });
@@ -384,6 +385,7 @@ test("F-T1186-3, F-T1186-5, F-T1186-4: the Overview renders its Pick-ups list; t
   writeFileSync(decisions, [`${head}\thandover`, ...lines.map(line => `${line}\t`), [picked, "", "pick-up from C1 to C3", "pick-up", JSON.stringify(handover)].join("\t")].join("\n") + "\n");
   const server = createBoardServer({ sources: [{ id: "shared", path: shared, label: "Shared" }], port: 0, app: APP, settleReads: [] });
   const { port } = await server.start(), context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await server.ready();
   t.after(async () => { await context.close(); await server.close(); });
   const page = await context.newPage();
   await page.goto(`http://127.0.0.1:${port}/app/`);

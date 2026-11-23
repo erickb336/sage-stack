@@ -42,6 +42,7 @@ async function fixture(t, { missing = false, id, clock, before, settleReads } = 
   const server = createBoardServer({ sources, port: 0, id, app: APP, ...(clock ? { clock } : {}), ...(settleReads ? { settleReads } : {}) });
   t.after(async () => { await server.close(); rmSync(dir, { recursive: true, force: true }); });
   const { port } = await server.start();
+  await server.ready();
   return { dir, root, project: join(root, "project-abcdef"), port, sources, server };
 }
 
@@ -438,6 +439,7 @@ async function lightBoard(t, { lightEvery, quiet = false, slotOnly = false, hook
     app: loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", import.meta.url))) });
   t.after(async () => { await server.close(); rmSync(dir, { recursive: true, force: true }); });
   const { port } = await server.start();
+  await server.ready();
   return { dir, root, project, port, file: join(project, "actions", "R1.jsonl"), slot: join(root, ".hooks", "slots", "slot-1"), reads: () => reads };
 }
 

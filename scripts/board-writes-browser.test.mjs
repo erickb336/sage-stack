@@ -67,6 +67,7 @@ async function openBoard(t, { write, copy = false } = {}) {
   } else {
     server = createBoardServer({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port: 0, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair", ...(write && { write }) });
     ({ port } = await server.start());
+    await server.ready();
     await setup(port);
   }
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, colorScheme: "dark", timezoneId: "America/New_York", permissions: ["clipboard-read", "clipboard-write"] });

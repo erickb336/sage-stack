@@ -83,6 +83,7 @@ async function openBoard(t, viewport = { width: 1440, height: 1000 }, { refuse, 
   const server = createBoardServer({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port: 0, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair",
     write: job => { writes.push(job.argv); before?.(job); return refuse ? { code: 1, text: refuse } : writeInWorker(job); } });
   const { port } = await server.start();
+  await server.ready();
   const context = await browser.newContext({ viewport, colorScheme: "dark", timezoneId: "America/New_York" });
   t.after(async () => {
     await context.close(); await server.close();

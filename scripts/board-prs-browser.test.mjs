@@ -27,6 +27,7 @@ async function open(t, { edit, width = 1440, ...options } = {}, path = "/app/") 
   edit?.(join(dir, "logbooks", "sample-app-abc123"), join(dir, "logbooks"));
   const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port: 0, app: APP, settleReads: [] });
   const { port } = await server.start();
+  await server.ready();
   const base = `http://127.0.0.1:${port}`;
   const context = await browser.newContext({ viewport: { width, height: 1000 }, colorScheme: "dark" });
   t.after(async () => { await context.close(); await server.close(); if (saved === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = saved; rmSync(dir, { recursive: true, force: true }); });

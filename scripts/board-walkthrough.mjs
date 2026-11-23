@@ -311,7 +311,9 @@ export async function record({ theme = "dark", tour = false, fps = FPS, browserP
       port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [], stateDir,
       pairCommand: "node <sage>/board/cli.mjs board --pair", write: () => ({ code: 1, text: "The walkthrough sample records no writes." }),
     });
-    const base = `http://127.0.0.1:${(await server.start()).port}`;
+    const { port } = await server.start();
+    await server.ready();
+    const base = `http://127.0.0.1:${port}`;
     const context = await browser.newContext({ viewport: VIEW, deviceScaleFactor: 1, colorScheme: theme, reducedMotion: "reduce", locale: "en-US", timezoneId: "UTC" });
     await context.route("**/*", route => route.request().url().startsWith(`${base}/`) ? route.continue() : route.abort());
     await context.addInitScript(value => localStorage.setItem("board-theme", value), theme);

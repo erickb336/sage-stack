@@ -219,6 +219,7 @@ test("the board server: a config with only the two old sources shows the shared 
   const server = createBoardServer({ sources: readSources(old, env), port: 0, app: APP });
   t.after(() => server.close());
   const { port } = await server.start();
+  await server.ready();
   const model = await boardModel(port), row = id => model.tasks.find(item => item.id === id);
   assert.deepEqual([row("T321").key, row("T321").chief.id, row("T321").chief.provider], [`shared/${FOLDER}/T321`, "C1", "Claude"]);
   assert.ok(row("T96").key.startsWith("codex/"), "the old Codex task shows from the old logbook");
@@ -265,6 +266,7 @@ test("the server keeps its last good read, not stale, while the logbook changes,
   const server = createBoardServer({ sources: [w.sources[0]], port: 0, settleReads: [], app: APP, duringRead: key => { if (churn && key.endsWith(HARBOR)) rewrite(dir, `Busy write ${++n}`); } });
   t.after(() => server.close());
   const { port } = await server.start();
+  await server.ready();
   assert.match(JSON.stringify(await boardModel(port)), /Legacy task at work/);
   churn = true;
   rewrite(dir, "Trigger title");
@@ -392,6 +394,7 @@ test("F-T624-13: the board server reads an old logbook under a provider root tha
   const server = createBoardServer({ sources: [w.sources[0], w.sources[2]], port: 0, settleReads: [], app: APP, providerRoots: [{ path: w.codexRoot, provider: "codex" }] });
   t.after(() => server.close());
   const { port } = await server.start();
+  await server.ready();
   const model = await boardModel(port);
   assert.ok(model.tasks.find(item => item.id === "T96")?.key.startsWith("old-codex/"), JSON.stringify(model.tasks.map(item => item.key)));
   assert.deepEqual(model.problems, []);
@@ -609,6 +612,7 @@ test("F-T624-20: a sources.tsv row that stays refused is a note: the server stay
   const server = createBoardServer({ sources: w.sources, port: 0, settleReads: [], app: APP });
   t.after(() => server.close());
   const { port } = await server.start();
+  await server.ready();
   assert.match(JSON.stringify(await boardModel(port)), /Legacy task at work/);
   rmSync(join(w.codexRoot, FOLDER), { recursive: true, force: true });
   await until(port, (text, model) => !model.tasks.some(item => item.key.startsWith("codex/")));

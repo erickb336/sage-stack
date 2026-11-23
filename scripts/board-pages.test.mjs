@@ -68,6 +68,7 @@ async function fixture(t, more = {}) {
   const server = createBoardServer({ sources: [{ id: "sample", path: source, label: "Sample" }], port: 0, app: loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", import.meta.url))), ...more });
   t.after(async () => { await server.close(); if (before === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = before; rmSync(base, { recursive: true, force: true }); });
   const { port } = await server.start();
+  await server.ready();
   return { base, root, port, t1: join(root, LOGBOOK, "pages", "T1") };
 }
 
@@ -371,7 +372,7 @@ test("T1116: a person's click on a Markdown page's link opens the page in the re
 });
 
 test("T1159 F-T1159-24: a copy of the board without its Markdown renderer opens a Markdown page as its file, and the index links the file", async (t) => {
-  const f = await fixture(t, { markdown: null }), page = `/pages/${LOGBOOK}/T1/notes.md`;
+  const f = await fixture(t, { reader: false }), page = `/pages/${LOGBOOK}/T1/notes.md`;
   writeFileSync(join(f.t1, "notes.md"), "# SAMPLE notes\n");
   const r = await get(f, page, { headers: DOCUMENT });
   assert.deepEqual([r.status, r.headers["content-type"], r.body], [200, "text/plain; charset=utf-8", "# SAMPLE notes\n"], "no 303 to a reader that would answer 503");
@@ -454,6 +455,7 @@ async function messageSandbox(t) {
   const server = createBoardServer({ sources: [{ id: "sample", path: dirname(book) }], port: 0 });
   t.after(async () => { await server.close(); if (before === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = before; });
   const { port } = await server.start();
+  await server.ready();
   mkdirSync(join(env.HOME, ".config", "sage-board"), { recursive: true });
   writeFileSync(join(env.HOME, ".config", "sage-board", "board.port"), `${port}\n`);
   return { base, sage, folder, name, port, server };

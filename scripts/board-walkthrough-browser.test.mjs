@@ -52,6 +52,7 @@ async function board(t, { empty = false, noTasks = false, judge = null } = {}) {
   mkdirSync(stateDir);
   const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port: 0, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair", onStop: () => { stops.push(Date.now()); } });
   const { port } = await server.start();
+  await server.ready();
   t.after(async () => { await server.close(); if (saved === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = saved; rmSync(dir, { recursive: true, force: true }); });
   return { base: `http://127.0.0.1:${port}`, stateDir, stops, logbook };
 }

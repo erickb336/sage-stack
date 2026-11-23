@@ -163,7 +163,9 @@ const get = (base, path, headers = {}) => new Promise((accept, reject) => {
 async function serve(t, w) {
   const server = createBoardServer({ sources: w.sources, port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [], clock: () => NOW });
   t.after(() => server.close());
-  return `http://127.0.0.1:${(await server.start()).port}`;
+  const { port } = await server.start();
+  await server.ready();
+  return `http://127.0.0.1:${port}`;
 }
 
 test("T1121 R5: the app may frame only reader pages and the pages folder; a reader page opens in a frame only with ?in=board, without its top bar, and its links leave the frame; a pages file only in a frame of the board", async t => {

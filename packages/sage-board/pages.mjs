@@ -90,7 +90,7 @@ function frameHtml(logbook, task, file) {
 <body><p role="note"><strong>Warning:</strong> ${SCRIPT_PAGE_NOTE} Only a link to another page of ${task} opens here. <a href="/pages/${logbook}/${task}/">All pages of ${task}</a></p><iframe src="${name}" sandbox="allow-scripts" title="${name}"></iframe></body></html>\n`;
 }
 
-export function servePages(request, response, { onMac, model, reader = true }) {
+export function servePages(request, response, { onMac, facts, reader = true }) {
   const send = (status, type, body, policy = pagePolicy(), alone = false) => {
     response.setHeader("Content-Security-Policy", policy);
     if (alone) response.setHeader("Cross-Origin-Opener-Policy", "same-origin");
@@ -107,12 +107,12 @@ export function servePages(request, response, { onMac, model, reader = true }) {
   if (typeof one(request, "host") !== "string" || !onMac(request)) return missing();
   if (!permitted(request)) return send(403, PLAIN, "This request is not permitted.\n");
   if (!["GET", "HEAD"].includes(request.method)) { response.setHeader("Allow", "GET, HEAD"); return send(405, PLAIN, "This method is not permitted.\n"); }
-  const logbooks = new Set((model?.projects ?? []).flatMap((project) => project.books ?? []).map((key) => key.slice(key.indexOf("/") + 1)));
-  if (!target || !logbooks.has(target.logbook)) return missing();
+  if (!facts) return send(503, PLAIN, "Reading the logbooks. The board answers when its first read ends.\n");
+  if (!target || !facts.books.has(target.logbook)) return missing();
   const folder = pageTaskFolder(target.logbook, target.task);
   if (!folder) return missing();
-  const onBoard = model?.tasks?.find((task) => task.id === target.task && task.project.slice(task.project.indexOf("/") + 1) === target.logbook);
-  const read = (file) => reader && onBoard && file.endsWith(".md") ? readerUrl(onBoard.key, "page", file) : null;
+  const onBoard = facts.tasks.get(`${target.logbook}/${target.task}`);
+  const read = (file) => reader && onBoard && file.endsWith(".md") ? readerUrl(onBoard, "page", file) : null;
   if (!target.file) { try { return send(200, "text/html; charset=utf-8", indexHtml(target.logbook, target.task, folder, read), INDEX_POLICY, true); } catch { return send(503, PLAIN, "This index is unavailable.\n"); } }
   const bytes = pageFile(folder, target.file, true)?.bytes;
   if (!bytes) return missing();

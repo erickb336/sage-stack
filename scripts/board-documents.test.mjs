@@ -362,7 +362,9 @@ test("T1064: the server serves the reader script-free under the sandbox policy, 
   const w = world(t, { hostile: true });
   const server = createBoardServer({ sources: w.sources, port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [] });
   t.after(() => server.close());
-  const base = `http://127.0.0.1:${(await server.start()).port}`;
+  const { port } = await server.start();
+  await server.ready();
+  const base = `http://127.0.0.1:${port}`;
   const page = await get(base, readerUrl(KEY("T3"), "page", "hostile.md"));
   assert.equal(page.status, 200);
   const policy = page.headers["content-security-policy"];
@@ -378,9 +380,10 @@ test("T1064: the server serves the reader script-free under the sandbox policy, 
   assert.deepEqual(panel.files.designs, { versions: 2, arena: true });
   const limits = JSON.parse((await get(base, `/app/task/${Buffer.from(KEY("T3")).toString("base64url")}`)).body);
   assert.deepEqual(limits.files.recorded.map(item => [item.file, item.state]), [["gone-plan.md", "gone"], ["notes.md", "changed"]]);
-  const bare = createBoardServer({ sources: w.sources, port: 0, app: null, markdown: null, settleReads: [] });
+  const bare = createBoardServer({ sources: w.sources, port: 0, app: null, reader: false, settleReads: [] });
   t.after(() => bare.close());
   const { port: barePort } = await bare.start(), missing = await get(`http://127.0.0.1:${barePort}`, readerUrl(KEY("T3"), "brief", "R7"));
+  await bare.ready();
   assert.deepEqual([missing.status, missing.body], [503, "The reader's Markdown renderer is not in this copy of the board. Run the board from the sage plugin, or run npm ci and npm run build.\n"], "a copy of the board without its built renderer still starts, and says why it has no reader");
 });
 
@@ -405,7 +408,9 @@ test("T1126: the task panel says which runs have a brief or a report, the same a
   writeFileSync(join(w.logbook, "reports", "R83.md"), "STATUS done\nRESULT the lead's result, which the PR's text replaces\n");
   const server = createBoardServer({ sources: w.sources, port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [] });
   t.after(() => server.close());
-  const base = `http://127.0.0.1:${(await server.start()).port}`;
+  const { port } = await server.start();
+  await server.ready();
+  const base = `http://127.0.0.1:${port}`;
   const panel = async id => JSON.parse((await get(base, `/app/task/${Buffer.from(KEY(id)).toString("base64url")}`)).body);
   const limits = await panel("T3");
   assert.deepEqual(Object.fromEntries(limits.runs.map(run => [run.id, [run.brief, run.report]])), { R5: [false, true], R6: [true, false], R7: [true, false], R4: [false, false] });

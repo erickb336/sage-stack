@@ -52,6 +52,7 @@ try {
   let reads = 0;
   const server = createBoardServer({ sources, port: 0, settleReads: [], duringRead: () => { reads++; } });
   await server.start();
+  await server.ready();
   try {
     await wait(1500);
     for (const [label, change] of [

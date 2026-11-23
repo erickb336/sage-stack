@@ -74,6 +74,7 @@ async function world(t) {
   const server = createBoardServer({ sources, port: 0, app: APP, settleReads: [], stateDir: join(base, "home", ".config", "sage-board", "state"), pairCommand: "node /sample/board/cli.mjs board --pair" });
   t.after(() => server.close());
   const { port } = await server.start();
+  await server.ready();
   await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify(sources)], { output: () => {}, env });
   const origin = `http://127.0.0.1:${port}`, headers = { Origin: origin, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" };
   return { base, env, own, inClaude, port, config, headers, dirs, sources, checkouts: { lantern, harbor, meadow } };
@@ -308,6 +309,7 @@ test("F-T1159-35: an Archive and a Restore sent at once, as from two tabs, run o
   const second = createBoardServer({ sources: w.sources, port: 0, app: APP, settleReads: [], stateDir: join(w.base, "home", ".config", "sage-board", "state"), pairCommand: "node /sample/board/cli.mjs board --pair", write });
   t.after(() => second.close());
   const { port } = await second.start(), tab = { ...headers, Origin: `http://127.0.0.1:${port}` };
+  await second.ready();
   await until({ port }, all => projectOf(all, "meadow")?.books.length === 2, "the second server shows two logbooks");
   const [archived, restored] = await Promise.all([call(port, "/api/archive", { headers: tab, body: { project: key } }), call(port, "/api/restore", { headers: tab, body: { project: key } })]);
   assert.deepEqual([archived.status, restored.status], [200, 200], `${archived.text} ${restored.text}`);

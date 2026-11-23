@@ -18,6 +18,7 @@ async function board(t, { app = loadBoardApp(join(ROOT, "plugins/sage/board/app"
   const server = createBoardServer({ sources: [{ id: "sample", path: root, label: "Sample" }], port: 0, app, settleReads: [] });
   t.after(async () => { await server.close(); rmSync(dir, { recursive: true, force: true }); });
   const { port } = await server.start();
+  await server.ready();
   return { base: `http://127.0.0.1:${port}`, project };
 }
 
@@ -154,7 +155,7 @@ test("F-T1065-14: the app stream sends a model only when it changed, and refuses
   });
   assert.deepEqual(frames.map(frame => frame.stale), [false, true, false], "a second read of the same damaged table, with the same last good data, sent nothing");
   const { base: fresh } = await board(t), streams = [];
-  t.after(() => Promise.all(streams.map(stream => stream.body.cancel())));
+  t.after(() => Promise.allSettled(streams.map(stream => stream.body.cancel())));
   for (let count = 0; count < 16; count++) {
     streams.push(await fetch(`${fresh}/app/events`));
     assert.equal(streams.at(-1).status, 200);
