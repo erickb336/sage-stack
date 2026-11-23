@@ -582,7 +582,7 @@ When a command stops in a new clone, or in a folder with a wrong link, the chief
 
 | The command stops because | Your options |
 | --- | --- |
-| This folder has no row, but it has the first commit of a shared logbook | Link to that project (for a second clone), or start separate (for a fork that is now its own project). The recommendation follows the GitHub remote: the same remote recommends the link, another remote (a fork) recommends separate, and no remote recommends the link. When two shared logbooks have that first commit, the one with the same remote is recommended. |
+| This folder has no row, but it has the first commit of a shared logbook | Link to that project (for a second clone), or start separate (for a fork that is now its own project). The recommendation follows the GitHub remote: the same remote or no remote recommends the link, and another remote (a fork) recommends separate, unless a checkout of that logbook is gone (this folder looks like it, moved) or GitHub gives one repository id to both remotes (a renamed repository, asked with `gh api` for 3 seconds at most). When two shared logbooks have that first commit, the one with the same remote is recommended. |
 | This folder's row names another project's logbook | Start separate, or link to another project by its name |
 | This folder's row names a logbook that is missing | Restore the folder from a copy, start separate, or link to another project |
 | This folder is a shallow clone, and the shared root has a logbook | Fetch its full history (recommended), or start separate. A shallow clone's first commit is its newest one, so sage cannot tell which project it is a clone of. |

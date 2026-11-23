@@ -339,6 +339,60 @@ test("the link prompt of a new clone recommends by its GitHub remote: the same o
   assert.match(claudeSage(["link", "--to", folder, "--project", clone], w.env), /now uses the shared logbook/, "choice 1's command works");
 });
 
+let fakes = 0;
+function fakeGh(w, answers) {
+  const bin = join(w.base, `fake-gh-${++fakes}`), log = join(bin, "calls.log");
+  mkdirSync(bin);
+  writeFileSync(join(bin, "gh"), `#!${process.execPath}
+const fs = require("node:fs"), args = process.argv.slice(2), answers = ${JSON.stringify(answers)};
+fs.appendFileSync(${JSON.stringify(log)}, args.join(" ") + "\\n");
+const answer = answers[/^repos\\/(.+)$/.exec(args.find((arg) => arg.startsWith("repos/")) ?? "")?.[1]];
+if (answer === "sleep") setTimeout(() => fs.writeFileSync(${JSON.stringify(`${log}.slept`)}, ""), 30000);
+else if (args[0] === "api" && answer) process.stdout.write(JSON.stringify({ ...answer, private: false }));
+else process.exit(1);
+`, { mode: 0o755 });
+  return { env: { ...w.env, PATH: bin }, calls: () => (existsSync(log) ? readFileSync(log, "utf8") : ""), slept: () => existsSync(`${log}.slept`) };
+}
+
+test("T1207: a clone whose GitHub remote differs is told to link when its old folder is gone or GitHub says the repository was renamed; any doubt keeps the fork question", (t) => {
+  const { w, lantern, clone, folder } = lanternWorld(t);
+  git(clone, "remote", "set-url", "origin", "https://github.com/sample-owner/lantern-stack");
+  const ask = (env, runs = [claudeSage, codexSage]) => runs.map((run) => refusalOf(() => run(["status", "--project", clone], env)));
+  const facts = `**This folder has no logbook yet:** ${clone}\n\nIt has the same first commit as the project lantern (logbook ${folder}, used by ${lantern}). Its GitHub remote is sample-owner/lantern-stack, not sample-owner/lantern`;
+  const link = (why) => `${facts}${why} sage does not guess, and nothing has changed.\n\n${NOTE}\n\nChoose one:\n1. **Link to lantern** (recommended). This folder uses the lantern logbook. Its tasks show in the one lantern project on the board, and its runs show "checkout lantern-b". No record is copied.\n2. **Start separate.** This folder gets a new, empty logbook, and the board shows it as another project. Choose this for a fork that is now its own project.\n\nReply 1 or 2.\n\nFor the chief: after the reply, run one command in ${clone}: for 1, sage link --to ${folder}; for 2, sage link --separate.`;
+  const fork = `${facts.replace("Its GitHub", "But its GitHub")}. So it is most likely a fork. sage does not guess, and nothing has changed.\n\n${NOTE}\n\nChoose one:\n1. **Start separate** (recommended). This folder gets a new, empty logbook, and the board shows it as another project.\n2. **Link to lantern.** This folder uses the lantern logbook, and its tasks show in the lantern project. Choose this only if the fork and lantern are one project to you.\n\nReply 1 or 2.\n\nFor the chief: after the reply, run one command in ${clone}: for 1, sage link --separate; for 2, sage link --to ${folder}.`;
+  const rows = w.table("bindings.tsv");
+
+  const renamed = fakeGh(w, { "sample-owner/lantern": { id: 7, full_name: "sample-owner/lantern-stack" }, "sample-owner/lantern-stack": { id: 7, full_name: "sample-owner/lantern-stack" } });
+  const told = link(", but GitHub says sample-owner/lantern is now sample-owner/lantern-stack. So it is most likely a second clone of lantern.");
+  assert.deepEqual(ask(renamed.env), [told, told], "one repository id for both names: a rename, so link (both providers)");
+  assert.match(renamed.calls(), /^api .*repos\/sample-owner\/lantern\n/m, "the fake gh answered, and no real gh ran");
+  assert.match(renamed.calls(), /^api .*repos\/sample-owner\/lantern-stack\n/m);
+
+  const two = fakeGh(w, { "sample-owner/lantern": { id: 7, full_name: "sample-owner/lantern" }, "sample-owner/lantern-stack": { id: 8, full_name: "sample-owner/lantern-stack" } });
+  assert.deepEqual(ask(two.env), [fork, fork], "two repository ids: a fork");
+  assert.match(two.calls(), /repos\/sample-owner\/lantern-stack/, "the fake gh answered");
+  const error = fakeGh(w, { "sample-owner/lantern-stack": { id: 7, full_name: "sample-owner/lantern-stack" } });
+  assert.deepEqual(ask(error.env), [fork, fork], "a gh error: the fork question");
+  assert.match(error.calls(), /repos\/sample-owner\/lantern/, "the fake gh was asked");
+  assert.deepEqual(ask({ ...w.env, PATH: join(w.base, "no-gh") }), [fork, fork], "no gh: the fork question");
+  const slow = fakeGh(w, { "sample-owner/lantern": "sleep", "sample-owner/lantern-stack": "sleep" });
+  assert.deepEqual(ask(slow.env, [claudeSage]), [fork], "a gh that does not answer in time: the fork question");
+  assert.match(slow.calls(), /repos\/sample-owner\/lantern/, "the fake gh was asked");
+  assert.equal(slow.slept(), false, "sage stopped gh before its 30 s of sleep ended");
+  assert.equal(w.table("bindings.tsv"), rows, "no row before the owner's answer");
+
+  const old = join(w.base, "lantern-old");
+  git(w.base, "clone", "-q", lantern, old);
+  claudeSage(["link", "--to", folder, "--project", old], w.env);
+  rmSync(old, { recursive: true });
+  const moved = w.table("bindings.tsv"), gone = link(`. But ${old} is gone, so this looks like that folder, moved here.`);
+  assert.deepEqual(ask(w.env), [gone, gone], "a row of the first commit whose folder is gone: a move, so link, with no GitHub answer");
+  assert.deepEqual(ask(two.env), [gone, gone], "the gone folder decides before GitHub's answer");
+  assert.equal(w.table("bindings.tsv"), moved, "no row before the owner's answer");
+  assert.match(claudeSage(["link", "--to", folder, "--project", clone], w.env), /now uses the shared logbook/, "choice 1's command works");
+});
+
 test("a row whose logbook is missing: the prompt offers the restore first, then separate or another project", (t) => {
   const { w, lantern, folder, prompts } = lanternWorld(t);
   rmSync(join(w.shared, folder), { recursive: true });
