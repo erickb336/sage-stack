@@ -4174,6 +4174,27 @@ test("T1211 (4): a lock left by a stopped hook frees on the next call after the 
   assert.deepEqual(lockFolders(s), [], "the transaction ends and frees the lock");
 });
 
+for (const [n, what, leave] of [
+  [5, "a lock whose time is more than the age limit in the future (clock skew, a restored folder)", (s) => leftLock(s, -(LOCK_AGE_MS + 30_000))],
+  [6, "a stale lock that is a file, not a folder", (s) => {
+    const lock = join(s.vars.SAGE_HOOKS_STATE, "slots.lock");
+    writeFileSync(lock, "");
+    ageLock(lock, LOCK_AGE_MS + 30_000);
+  }],
+  [7, "a stale lock folder that holds a file", (s) => {
+    const lock = join(s.vars.SAGE_HOOKS_STATE, "slots.lock");
+    mkdirSync(lock);
+    writeFileSync(join(lock, "left"), "");
+    ageLock(lock, LOCK_AGE_MS + 30_000);
+  }],
+]) test(`T1211 (${n}): ${what} frees on the next agent start, and nothing of it stays`, () => {
+  const s = nestedSession();
+  assert.equal(s.send(nested("sage:qa", `kind-${n}-first`)), undefined, "the lead holds its slot before the lock is left");
+  leave(s);
+  assert.equal(denied(s.send(nested("sage:qa", `kind-${n}`))), undefined, "the next agent start takes the lock over and starts the agent");
+  assert.deepEqual(lockFolders(s), [], "no lock and no moved lock entry stays behind");
+});
+
 test("T181: unbound child reservations keep a one-hour lease and duplicate Pre does not add capacity", async () => {
   const s = nestedSession();
   for (let n = 1; n <= 3; n++) assert.equal(s.send(nested("sage:qa", `lease-${n}`)), undefined);
