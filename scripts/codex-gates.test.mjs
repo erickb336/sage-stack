@@ -39,7 +39,7 @@ const denied = (out) => deniedRaw(out)?.replace(/(also not from the shell, so )"
 const OWNER_MERGE = "sage: in Codex, only sage's merge command merges, on autopilot, as the chief's instructions say. Without autopilot, the owner merges the pull request in GitHub";
 const BAD_NAME = (name) => `sage: "${name}" starts with sage_ but is not a sage task name (sage_<role>_t<n>_r<k>), so this agent counts as a read-only role: it changes no files. Report instead`;
 const RO = (role) => `sage: in sage mode, the ${role} agent changes no files. Report the finding instead`;
-const RO_SHELL = (role) => `sage: ${readOnlyShell(role, "<part>")}`.replace(/\.$/, "");
+const RO_SHELL = (role, place = "the project's checkout") => `sage: ${readOnlyShell(role, { part: "<part>", place })}`.replace(/\.$/, "");
 const LOGBOOK = "sage: role agents report; only the chief records the logbook. Put this in your report";
 const LEAD_EDIT = "sage: a lead changes no files. Start an implementer of your task to make this change";
 const OFF_LIST = (name) => `sage: "${name.replaceAll("_", " ")}" is not on a lead's list. A lead records only its own task, with run add, run done, finding add, finding close, finding triage, verdict, lint, round, pages, and task set of state, branch, pr. Put what else the logbook needs in your report`;
@@ -231,7 +231,7 @@ test("T936: a read-only role's git that changes the checkout is refused in both 
     for (const command of [...RO_REFUSED, ...RO_RUNS]) {
       const refused = role !== "implementer" && RO_REFUSED.includes(command);
       const c = claude(command, `sage:${role}`), x = denied(await g.run(pre("Bash", command, who)));
-      assert.deepEqual({ claude: c === undefined ? "runs" : c.includes(`the ${role} agent changes no file in the project or the logbook, also not from the shell`) ? "refused" : c, codex: x === undefined ? "runs" : x === RO_SHELL(role) ? "refused" : x },
+      assert.deepEqual({ claude: c === undefined ? "runs" : c.includes(`the ${role} agent changes no file in the project, the logbook or the agent's settings, also not from the shell`) ? "refused" : c, codex: x === undefined ? "runs" : [RO_SHELL(role), RO_SHELL(role, null)].includes(x) ? "refused" : x },
         refused ? { claude: "refused", codex: "refused" } : { claude: "runs", codex: "runs" }, `${role}: ${command}`);
     }
   }
@@ -303,8 +303,96 @@ test("T1153: a read-only role writes anywhere but the project's checkouts and th
     ["mkdir -p /tmp/x/notes && cp README.md /tmp/x/notes/a.md && rm -rf src", "rm -rf src"], [`sed -e s/a/b/ -i ${project}/.env`, `sed -e s/a/b/ -i ${project}/.env`.slice(0, 60)]]) {
     const got = await text(command);
     assert.equal(got.codex, got.claude.replace(/\.$/, ""), `one refusal text in both providers: ${command}`);
-    assert.ok(got.claude.includes(`the qa agent changes no file in the project or the logbook, also not from the shell, so "${part}" is refused`), got.claude);
-    assert.ok(got.claude.includes("into the project's checkout, the sage worktrees folder or the logbook"), "the text names the protected places");
+    assert.ok(got.claude.includes(`the qa agent changes no file in the project, the logbook or the agent's settings, also not from the shell, so "${part}" is refused`), got.claude);
+    assert.ok(got.claude.includes("into the project's checkout, the sage worktrees folder, the logbook, an agent config folder"), "the text names the protected places");
+  }
+});
+
+const START_FILES = [".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout", ".bashrc", ".bash_profile", ".bash_login", ".bash_logout", ".profile"];
+const intoPlace = (target) => [`echo x > ${target}`, `printf x | tee -a ${target}`, `cp /tmp/x/a ${target}`, `mv /tmp/x/a ${target}`, `rm -rf ${target}`, `touch ${target}`, `git -C /tmp/x/r worktree add ${target}`];
+async function homePlaces(t) {
+  const { handle } = await import(new URL("../plugins/sage/hooks/sage-hook.mjs", import.meta.url));
+  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {} };
+  const project = realpathSync(mkdtempSync(join(tmpdir(), "sage-t1199-project-"))), other = realpathSync(mkdtempSync(join(tmpdir(), "sage-t1199-other-")));
+  t.after(() => { rmSync(project, { recursive: true, force: true }); rmSync(other, { recursive: true, force: true }); });
+  mkdirSync(join(project, ".git"));
+  const home = process.env.HOME, saved = { CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR, CODEX_HOME: process.env.CODEX_HOME };
+  t.after(() => { for (const [key, value] of Object.entries(saved)) if (value === undefined) delete process.env[key]; else process.env[key] = value; });
+  for (const folder of [".claude", ".codex", ".ssh", "notes"]) mkdirSync(join(home, folder), { recursive: true });
+  for (const file of START_FILES) writeFileSync(join(home, file), "");
+  symlinkSync(join(home, ".ssh"), join(other, "ssh"));
+  symlinkSync(join(home, ".zshrc"), join(other, "zshrc"));
+  const g = fixed({ sage: true });
+  const child = { ...CHILD, cwd: project, transcript_path: record(t, { id: "child", session_id: base.session_id, agent_path: "/root/sage_qa_t1_r4", source: { subagent: { thread_spawn: { depth: 1 } } } }) };
+  const both = async (command) => ({
+    claude: deniedRaw(handle({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, cwd: project, session_id: "s1", agent_id: "a1", agent_type: "sage:qa" }, { sage: true, autopilot: false, start: false }, slots)),
+    codex: deniedRaw(await g.run(pre("Bash", command, child))),
+  });
+  const verdict = async (command) => Object.fromEntries(Object.entries(await both(command)).map(([k, why]) => [k, why === undefined ? "runs" : "refused"]));
+  const REFUSED = { claude: "refused", codex: "refused" }, RUNS = { claude: "runs", codex: "runs" };
+  const places = (config) => [...config.flatMap((folder) => [`${folder}/settings.json`, folder]), `${home}/.ssh/config`, `${home}/.ssh`, ...START_FILES.map((file) => `${home}/${file}`)];
+  const DEFAULT = [`${home}/.claude`, `${home}/.codex`];
+  const config = [join(other, "claude-config"), join(other, "codex-home")];
+  const settings = () => Object.assign(process.env, { CLAUDE_CONFIG_DIR: config[0], CODEX_HOME: config[1] });
+  return { home, project, other, both, verdict, REFUSED, RUNS, places, DEFAULT, config, settings };
+}
+test("T1199: a read-only role's shell write into an agent config folder, ~/.ssh or a shell start file is refused in both providers, also by a link or ..; other home folders still pass", async (t) => {
+  const { home, other, both, verdict, REFUSED, RUNS, places, DEFAULT, config, settings } = await homePlaces(t);
+  for (const target of places(DEFAULT)) for (const command of intoPlace(target)) assert.deepEqual(await verdict(command), REFUSED, `default: ${command}`);
+  for (const command of ["echo x > ~/.claude/settings.json", "touch ~/.codex/config.toml", "echo x >> ~/.zshrc", "cp /tmp/x/a ~/.ssh/authorized_keys", `git -C ${home}/.claude commit -m x`,
+    `echo x > ${other}/ssh/config`, `cp /tmp/x/a ${other}/zshrc`, `echo x > /tmp/x/../..${home}/.ssh/config`, `echo x > ${home}/notes/../.bashrc`, `cd ${home}/notes && echo x > ../.profile`,
+    `cd ${other}/ssh && touch known_hosts`, `rm -rf ${home}`]) assert.deepEqual(await verdict(command), REFUSED, `a link, .., ~ or a folder above: ${command}`);
+  const ELSEWHERE = [`echo x > ${home}/notes/out.txt`, `cp /tmp/x/a ${home}/.claude-notes/a`, `touch ${home}/.sshx`, `echo x > ${home}/.zshrc.bak`, `mv /tmp/x/a ${home}/.config/a`, "echo x > ~/notes/b.txt",
+    `rm -rf ${home}/notes`, `git -C ${home}/notes commit -m x`, `cat ${home}/.ssh/config > /tmp/x/a`, `ls ${home}/.claude > /tmp/x/b`];
+  for (const command of ELSEWHERE) assert.deepEqual(await verdict(command), RUNS, `another home folder: ${command}`);
+  settings();
+  for (const target of places([...config, ...DEFAULT])) for (const command of intoPlace(target)) assert.deepEqual(await verdict(command), REFUSED, `the settings: ${command}`);
+  for (const command of ELSEWHERE) assert.deepEqual(await verdict(command), RUNS, `the settings, another home folder: ${command}`);
+  for (const [command, place] of [["echo x > ~/.claude/settings.json", "~/.claude"], ["touch ~/.codex/config.toml", "~/.codex"], ["cp /tmp/x/a ~/.ssh/config", "~/.ssh"], ["echo x >> ~/.zprofile", "~/.zprofile"]]) {
+    const got = await both(command);
+    if (place === "~/.codex") assert.match(got.codex, /files under a \.codex folder/, command);
+    else assert.equal(got.codex, got.claude.replace(/\.$/, ""), `one refusal text in both providers: ${command}`);
+    assert.ok(got.claude.includes(`"${command.split(" ").slice(command.startsWith("echo") ? 2 : 0).join(" ")}" is refused`), got.claude);
+    assert.ok(got.claude.includes(place), `the refusal names ${place}: ${got.claude}`);
+  }
+
+});
+
+test("T1199 F-T1199-3, F-T1199-9: git clone, init, archive -o, bundle create and format-patch write their targets, so a read-only role's such git into a protected place is refused in both providers", async (t) => {
+  const { home, project, other, verdict, REFUSED, RUNS } = await homePlaces(t);
+  const gitInto = (target) => [`git clone https://example.invalid/r ${target}`, `git clone --depth 1 -b main --separate-git-dir /tmp/x/g https://example.invalid/r ${target}`, `git init ${target}`, `git init -b main ${target}`,
+    `git -C /tmp/x/r archive -o ${target} HEAD`, `git -C /tmp/x/r archive --output=${target} HEAD`, `git -C /tmp/x/r bundle create ${target} HEAD`, `git -C /tmp/x/r format-patch -o ${target} HEAD~1`, `git -C /tmp/x/r format-patch --output-directory=${target} HEAD~1`];
+  for (const target of [`${home}/.claude/skills/x`, `${home}/.codex/skills/x`, `${home}/.ssh/authorized_keys`, `${home}/.zshrc`, "~/.claude/skills/x", `${project}/x`]) {
+    for (const command of gitInto(target)) assert.deepEqual(await verdict(command), REFUSED, `a git write (F-T1199-3, F-T1199-9): ${command}`);
+  }
+  for (const command of [`cd ${home}/.claude/skills && git clone https://example.invalid/r.git`, `cd ${home}/.ssh && git init`, `cd ${home}/.claude && git clone --origin up https://example.invalid/r/`, "git clone https://example.invalid/r", "git init",
+    `git clone https://example.invalid/r /tmp/x/r --separate-git-dir=${home}/.ssh/g`, `cd ${project} && git format-patch HEAD~1`]) assert.deepEqual(await verdict(command), REFUSED, `a git write into the cwd: ${command}`);
+  for (const command of ["git clone https://example.invalid/r /tmp/x/r", `cd ${other} && git clone https://example.invalid/r`, "git init /tmp/x/r", "git -C /tmp/x/r archive -o /tmp/x/a.tar HEAD", "git -C /tmp/x/r archive HEAD > /tmp/x/b.tar",
+    "git -C /tmp/x/r bundle create /tmp/x/r.bundle HEAD", "git -C /tmp/x/r bundle verify /tmp/x/r.bundle", "git format-patch --stdout HEAD~1 > /tmp/x/p.patch", "git -C /tmp/x/r format-patch -o /tmp/x/p HEAD~1"]) {
+    assert.deepEqual(await verdict(command), RUNS, `a git write into scratch: ${command}`);
+  }
+});
+test("T1199 F-T1199-8: a read-only role's write into ~/.claude.json or a backup beside it is refused in both providers", async (t) => {
+  const { home, other, verdict, REFUSED, RUNS } = await homePlaces(t);
+  for (const target of [`${home}/.claude.json`, `${home}/.claude.json.backup`, `${home}/.claude.json.backup.1763700000000`, "~/.claude.json"]) {
+    for (const command of [`echo x > ${target}`, `cp /tmp/x/a ${target}`, `mv /tmp/x/a ${target}`, `rm -f ${target}`, `printf x | tee ${target}`]) assert.deepEqual(await verdict(command), REFUSED, `Claude's user config (F-T1199-8): ${command}`);
+  }
+  for (const command of [`echo x > ${home}/notes/.claude.json`, `cp /tmp/x/a ${home}/claude.json`]) assert.deepEqual(await verdict(command), RUNS, `not Claude's user config: ${command}`);
+  writeFileSync(join(other, "claude.json"), "{}");
+  symlinkSync(join(other, "claude.json"), join(home, ".claude.json"));
+  t.after(() => rmSync(join(home, ".claude.json"), { force: true }));
+  for (const command of ["echo x > ~/.claude.json", "cp /tmp/x/a ~/.claude.json.backup", `echo x > ${other}/claude.json`]) assert.deepEqual(await verdict(command), REFUSED, `~/.claude.json as a link: ${command}`);
+});
+test("T1199 F-T1199-7: the refusal names the protected place that the command hit, in both providers", async (t) => {
+  const { home, project, both, config, settings } = await homePlaces(t);
+  settings();
+  for (const [command, place] of [["echo x > ~/.claude/settings.json", "~/.claude"], ["cp /tmp/x/a ~/.ssh/config", "~/.ssh"], ["echo x >> ~/.zprofile", "~/.zprofile"], ["echo x > ~/.claude.json.backup", "~/.claude.json"],
+    [`git clone https://example.invalid/r ${home}/.ssh/r`, "~/.ssh"], [`echo x > ${project}/a.txt`, "the project's checkout"], [`echo x > ${config[0]}/settings.json`, "the Claude config folder"], [`echo x > ${config[1]}/config.toml`, "the Codex config folder"]]) {
+    const got = await both(command);
+    if (place !== "the Codex config folder") assert.equal(got.codex, got.claude.replace(/\.$/, ""), `one refusal text in both providers: ${command}`);
+    const hit = (why) => /: it writes into (.+?)\. /.exec(why)?.[1];
+    assert.equal(hit(got.claude), place, `the Claude refusal names the place hit (F-T1199-7): ${got.claude}`);
+    if (place !== "the Codex config folder") assert.equal(hit(got.codex), place, `the Codex refusal names the place hit (F-T1199-7): ${got.codex}`);
   }
 });
 
@@ -894,7 +982,7 @@ test("in sage mode a read-only role writes no file from the shell either; it sti
   const writes = ["echo x > notes.txt", "printf 'a' >> src/a.js", "sed -i '' s/a/b/ src/a.js", "cp a.js b.js", "tee review.md < /dev/null", `node -e "require('fs').writeFileSync('x','y')"`, `bash -c "rm -f src/a.js"`];
   const reads = ["cat src/a.js", "git diff main", "npm test", "grep -rn codex src", "ls -la", "echo done"];
   for (const [name, role] of [["sage_code_reviewer_t3", "code-reviewer"], ["sage_qa_t3", "qa"], ["sage_pe_t3", "pe"]]) {
-    assert.deepEqual(writes.map((c) => denied(w.send(pre("Bash", c, w.child(`/root/${name}`))))), writes.map(() => RO_SHELL(role)), name);
+    assert.deepEqual(writes.map((c) => denied(w.send(pre("Bash", c, w.child(`/root/${name}`))))), writes.map((c) => RO_SHELL(role, /^(?:node|bash) /.test(c) ? null : "the project's checkout")), name);
     assert.deepEqual(reads.map((c) => denied(w.send(pre("Bash", c, w.child(`/root/${name}`))))), reads.map(() => undefined), name);
   }
   for (const name of ["sage_implementer_t3", "worker_1"]) assert.equal(denied(w.send(pre("Bash", writes[0], w.child(`/root/${name}`)))), undefined, name);
@@ -1246,7 +1334,7 @@ test("Codex's own rg in codex-path, first on PATH, is not Codex: a role agent's 
     const r = spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ ...pre("Bash", command, w.child(path)), cwd: w.project }), encoding: "utf8", env, timeout: 60_000 });
     return r.stdout ? denied(JSON.parse(r.stdout)) : undefined;
   };
-  assert.equal(send("apply_patch < change.patch", "/root/sage_code_reviewer_t1"), RO_SHELL("code-reviewer"));
+  assert.equal(send("apply_patch < change.patch", "/root/sage_code_reviewer_t1"), RO_SHELL("code-reviewer", null));
   assert.equal(send("apply_patch < change.patch", "/root/sage_implementer_t1"), undefined);
 });
 
