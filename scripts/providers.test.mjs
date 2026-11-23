@@ -431,7 +431,7 @@ test("T216, T1054, T1063, T1064: each plugin's board is a cross-provider reader:
     for (const file of files.filter((path) => path.endsWith(".mjs"))) {
       const [imports] = parse(readFileSync(file, "utf8"));
       for (const { n: name } of imports.filter((item) => item.d !== -2)) {
-        const allowed = name?.startsWith("node:") || name === "../core/index.mjs" || /^\.\/(?:access|cli|install|markdown|material|pages|reader|server|writes)\.mjs$/.test(name ?? "");
+        const allowed = name?.startsWith("node:") || name === "../core/index.mjs" || /^\.\/(?:access|cli|install|markdown|material|pages|reader|server|thread|writes)\.mjs$/.test(name ?? "");
         assert.ok(allowed, `${provider} ${relative(plugin, file)} imports ${name}`);
       }
     }
