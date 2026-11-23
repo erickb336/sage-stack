@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { lstatSync, readdirSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
-import { AGENT_QUIET_MS, readActions, readHookNotes, readBoardSources, buildBoardModel, boardOverview, boardStats, taskPanel, landingRule, pageTaskFolder } from "../sage-core/index.mjs";
+import { AGENT_QUIET_MS, DESIGNS_FOLDER, readActions, readHookNotes, readBoardSources, buildBoardModel, boardOverview, boardStats, taskPanel, landingRule, pageTaskFolder } from "../sage-core/index.mjs";
 import { readJson } from "./access.mjs";
 import { gateMaterial } from "./material.mjs";
 import { failureOf, taskFiles } from "./pages.mjs";
@@ -35,7 +35,7 @@ function watchPlan(configured) {
   };
   const tree = path => {
     add(path);
-    for (const entry of readdirSync(path, { withFileTypes: true })) if (entry.isDirectory()) try { tree(join(path, entry.name)); } catch {}
+    for (const entry of readdirSync(path, { withFileTypes: true })) if (entry.isDirectory() && entry.name !== DESIGNS_FOLDER) try { tree(join(path, entry.name)); } catch {}
   };
   for (const source of configured) {
     try { tree(source.path); } catch {}

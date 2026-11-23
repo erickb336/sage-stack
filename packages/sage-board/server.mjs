@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { basename, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { MessageChannel, Worker } from "node:worker_threads";
-import { sharedRoot, BOARD_PORT } from "../sage-core/index.mjs";
+import { sharedRoot, BOARD_PORT, WORDS_MAX } from "../sage-core/index.mjs";
 import { COOKIE, boardAccess } from "./access.mjs";
 import { pagesRequest, servePages } from "./pages.mjs";
 import { GATE, LOGBOOK, serve } from "./thread.mjs";
@@ -76,7 +76,8 @@ const PAIR_AGAIN = "To pair it, type show board in a chief's chat, and click the
 const HEADERS_MAX = 64 * 1024;
 const TASK = /^T[1-9]\d*$/, CHIEF = /^C[1-9]\d*$/;
 const JOBS = {
-  answer: body => GATE.test(body.gate) && Number.isInteger(body.option) && body.option >= 1 && body.option <= 99 && /^[0-9a-f]{16}$/.test(body.digest ?? "") && ["gate", "answer", body.gate, "--via", "board", "--option", String(body.option), "--seen", body.digest],
+  answer: body => GATE.test(body.gate) && Number.isInteger(body.option) && body.option >= 1 && body.option <= 99 && /^[0-9a-f]{16}$/.test(body.digest ?? "") && (body.words === undefined || typeof body.words === "string" && [...body.words].length <= WORDS_MAX)
+    && ["gate", "answer", body.gate, "--via", "board", "--option", String(body.option), ...(body.words?.trim() ? ["--other-hex", Buffer.from(body.words, "utf8").toString("hex")] : []), "--seen", body.digest],
   undo: body => GATE.test(body.gate) && ["gate", "undo", body.gate],
   give: body => TASK.test(body.task) && CHIEF.test(body.to) && ["gate", "give", body.task, "--to", body.to],
   name: body => CHIEF.test(body.chief) && typeof body.name === "string" && body.name.length <= 240 && ["chief", "name", body.chief, ...(body.name.trim() ? [body.name.trim()] : [])],

@@ -191,7 +191,7 @@ A candidate's branch never merges. Candidate branches and pages stay until you d
 | How many? | N = 3 by default, at most 5. Each candidate costs a full design or build |
 | How are the candidates different? | The chief gives each one an angle, for example "fewest taps", "most control", "reuse existing screens". N copies of one prompt give N similar answers |
 | What does the judge return? | A score per candidate against each rubric line, the base, each graft with its source, what it rejected, and the check of the final version |
-| For a design, who decides? | The arena judge makes the final version, and the PE checks it. You then keep, change or drop it, as in every design round |
+| For a design, who decides? | The arena judge makes the final version, and the PE checks it. You then answer its design question: Approve, Approve with your words or New version, as in every design round |
 | Why is this safe now? | Orchestrator removed best-of copies (ORC-025) because they caused many edge-case bugs in the app's state. Here a candidate is only a branch and a report, and nothing else depends on it |
 
 <a id="life"></a>
@@ -203,7 +203,8 @@ stateDiagram-v2
   [*] --> framed
   framed --> designing: needs a design
   designing --> awaiting_you: design ready
-  awaiting_you --> briefed: you keep it
+  awaiting_you --> briefed: a design question, answered Approve or Approve with your words
+  awaiting_you --> designing: a design question, answered New version
   framed --> briefed: no design needed
   briefed --> building
   building --> held: product question
@@ -230,6 +231,8 @@ stateDiagram-v2
   pr_ready --> merged: you merge
   merged --> [*]
 ```
+
+A task moves from awaiting_you to briefed only on your approval of its design: the state tool refuses the move when the task's latest design question has no Approve or Approve with your words answer. The chief asks it as a design question (`sage gate add <T> --design <page or folder>`), and your answer moves the task: an approval to briefed, New version back to designing. An approval also copies the design into the logbook ([A design question](../guide/using-sage.md#a-design-question)).
 
 A new commit after "verified" voids the verdicts, and the task goes back to reviewing. A `findings`, `qa-fail` or `checks-fail` verdict also returns a verified task to reviewing, with its reason in the decision trail.
 

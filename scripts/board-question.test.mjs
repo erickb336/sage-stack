@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { buildBoardModel } from "../packages/sage-core/board-model.mjs";
 import { runFailure } from "../packages/sage-core/board-overview.mjs";
 import { headingId } from "../packages/sage-core/state-words.mjs";
+import * as stateWords from "../packages/sage-core/state-words.mjs";
 import { readBoardSources } from "../packages/sage-core/board-reader.mjs";
 import { renderMarkdown } from "../packages/sage-board/markdown.mjs";
 import { MAX, gateMaterial } from "../packages/sage-board/material.mjs";
@@ -255,4 +256,11 @@ test("T1121 S7: the task panel and the Agents rows show a failed run's reason, a
   assert.ok(panel.runs.filter(item => item.status !== "failed").every(item => !("failure" in item)));
   const [other, bare] = failed.find(([, item]) => item.id !== run.id);
   assert.equal(JSON.parse((await get(base, `/app/task/${b64(other.key)}`)).body).runs.find(item => item.id === bare.id).failure, null, `${bare.id} has no reason recorded, so the panel gives none`);
+});
+
+test("T1222 F-T1222-6: the board marks the option that an answer picked: choice 2 of a design question also when the answer holds the owner's words", () => {
+  const design = ["Approve", "Approve with your words", "New version"], picked = answer => stateWords.answerOption?.(design, answer);
+  assert.deepEqual(["Approve", "Approve with your words: Use the shop's logo.", "New version", "other: something else", undefined].map(picked), [0, 1, 2, -1, -1]);
+  assert.equal(stateWords.answerOption(["A: yes", "B: no"], "B: no"), 1, "a plain question marks the option that equals the answer");
+  assert.equal(stateWords.answerOption(["A: yes", "B: no"], "B: no, later"), -1);
 });

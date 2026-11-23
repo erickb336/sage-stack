@@ -606,9 +606,8 @@ test("T584: a large arena is a design arena: candidates, a judge's page, the PE,
   s.ok("run", "add", "T1", "--role", "pe");
   s.ok("run", "done", "R4", "--status", "done", "--tokens", "1");
   s.ok("task", "T1", "set", "state=awaiting-you");
-  s.ok("gate", "add", "--message", pageQuestion("T1", "R3-final.html"), "T1", "--question", "Approve the design at R3-final.html?", "--options", "approve|change", "--recommend", "approve");
-  s.ok("gate", "answer", "G1", "--option", "1");
-  s.ok("task", "T1", "set", "state=briefed");
+  s.ok("gate", "add", "--message", pageQuestion("T1", "R3-final.html"), "T1", "--design", "R3-final.html", "--question", "Approve the design at R3-final.html?", "--recommend", "1");
+  assert.match(s.ok("gate", "answer", "G1", "--option", "1"), / · T1 awaiting-you → briefed · copied 1 page to designs\/T1\/G1$/, "the owner's approval moves the task on");
   s.ok("task", "T1", "set", "branch=sage/t1");
   s.ok("run", "add", "T1", "--role", "lead");
   assert.match(s.ok("run", "add", "T1", "--role", "implementer", "--branch", "sage/t1"), /^R6 running · implementer on T1 · sage\/t1 /);

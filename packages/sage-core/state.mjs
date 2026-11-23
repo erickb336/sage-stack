@@ -32,8 +32,9 @@ import { LEAD_COMMANDS, leadProblem as leadPolicy, leadRequest } from "./lead-po
 import { renderMessage } from "./message-checks.mjs";
 import { KINDS as MESSAGE_KINDS, MAX_SECTIONS, PAGE_DEPTH, PAGE_MAX, PAGE_TYPES, pageType, pageUrl } from "./message.mjs";
 import { boardPort, pageFile, pageTaskFolder } from "./page-files.mjs";
+import { DESIGN_GATE, copyDesign, designFiles, designPathOk } from "./design-copy.mjs";
 import { boardAnswers, boardDownLine } from "./board-probe.mjs";
-import { taskWord } from "./state-words.mjs";
+import { DESIGN_OPTIONS, WORDS_MAX, answerOption, taskWord, withWords } from "./state-words.mjs";
 import { AST_GREP_VERSION, LINT_CONFIG, LINT_KINDS, astGrepBinary, lintBase, lintChange } from "./lint.mjs";
 import { adoptBrief, languageList, placeToolFiles, projectLanguages } from "./lint-offer.mjs";
 
@@ -137,7 +138,7 @@ const OPTIONS = {
   "finding move": ["to", "into", "size"],
   verdict: ["sha", "kind", "cycle", "pr", "run"],
   lint: ["sha"],
-  "gate add": ["question", "options", "recommend", "default", "message", "run"],
+  "gate add": ["question", "options", "recommend", "default", "message", "run", "design"],
   "gate answer": ["option", "other-hex", "via", "seen"],
   log: ["why"],
   "merge-check": ["sha", "pr", "cycles", "head"],
@@ -1837,6 +1838,7 @@ function planTaskChanges(before, id, changes, at, facts) {
       if (v === "repairing") refuse("start a repair with: sage round <task>");
       const was = task.state;
       move(task, v);
+      if (was === "awaiting-you" && v === "briefed" && !designApproved(facts.gates, task.id)) refuse(`${task.id} moves from awaiting-you to briefed only on the owner's approval of its design. Ask it with a design question: sage gate add ${task.id} --design <the design's page or folder in the task's pages folder> --question "<q>" --recommend 1 --message <file>. The owner's Approve, or Approve with your words, moves ${task.id} to briefed; New version moves it to designing. Nothing changed.`);
       if (["building", "merged", "concluded"].includes(v)) waitsMet(task, graph, `move to ${v}`);
       if (was === "held" && task.hold === "round" && v !== "abandoned") {
         task.extra = String(allowance);
@@ -2786,11 +2788,37 @@ function applyAnswer(dir, gates, g, answer, { answered, picked }, opt, project, 
   Object.assign(g, { answer, ...marks });
   const adopted = g.kind === LINT_GATE && answer === OFFER_OPTIONS[0] ? adoptTask(dir, g, opt, project, env) : "";
   if (g.kind === LINT_GATE && answer === OFFER_OPTIONS[2]) logbookConfig(dir, ["lint_offer=never"]);
+  const designed = g.kind === DESIGN_GATE ? designOutcome(dir, g, answer, picked.at, env) : undefined;
   write(dir, "gates", gates);
-  write(dir, "decisions", [...read(dir, "decisions"), { at: picked.at, task: g.task, decision: `${g.question} → ${answer}`, why: answer.startsWith("other: ") ? "the user's own words" : "the user's answer" }]);
+  const own = answer.startsWith("other: ") || answerOption(DESIGN_OPTIONS, answer) === 1;
+  write(dir, "decisions", [...read(dir, "decisions"), { at: picked.at, task: g.task, decision: `${g.question} → ${answer}`, why: own ? "the user's own words" : "the user's answer" }, ...(designed ? [{ at: picked.at, task: g.task, decision: `${g.id} design: ${designed}`, why: "the user's answer to a design question" }] : [])]);
   const kept = g.kind === "replace" && read(dir, "tasks").find((t) => t.id === g.task);
   if (kept) return `${g.id} answered · ${answer} · nothing replaced: ${kept.id} keeps ${kept.chief ? `its chief ${kept.chief}` : "no owning chief"}, and no run ended. ${g.id} is spent: to change the chief, open a new takeover gate.`;
-  return `${g.id} answered · ${answer}${adopted}`;
+  return `${g.id} answered · ${answer}${adopted}${designed ? ` · ${designed}` : ""}`;
+}
+const lastDesignGate = (gates, task) => gates.filter((g) => g.kind === DESIGN_GATE && g.task === task).at(-1);
+const designApproved = (gates, task) => [0, 1].includes(answerOption(DESIGN_OPTIONS, lastDesignGate(gates, task)?.answer));
+function designGate(dir, project, id, opt, env) {
+  if (id === undefined) refuse(`a design question belongs to its task: sage gate add <T> --design <the design's page or folder> --question "<q>" --recommend 1 --message <file>. Nothing changed.`);
+  if (opt.options !== undefined) refuse(`a design question has three fixed choices (${DESIGN_OPTIONS.join(", ")}), so it takes no --options. Nothing changed.`);
+  const task = taskOf(dir, id).task.id, design = String(opt.design);
+  if (!designPathOk(design)) refuse(`--design names the design's page or folder in ${task}'s pages folder, for example designs/final or R12-final.html: 1 to ${PAGE_DEPTH} parts of letters, digits and . _ - (none that starts with a dot or holds ..), a page ending in .${Object.keys(PAGE_TYPES).join(", .")}. Nothing changed.`);
+  const { problem } = designFiles(basename(dir), task, design, env);
+  if (problem) refuse(`--design ${visible(design)} cannot be copied when the owner approves it: ${problem}. Save the design in the pages folder that sage pages ${task} prints, then ask again. Nothing changed.`);
+  return design;
+}
+function designAnswerText(g, option, words) {
+  const n = /^[1-3]$/.test(String(option ?? "")) ? Number(option) : 0;
+  if (!n || (n === 2) !== (words !== undefined)) refuse(`${g.id} is a design question, so its answer is one of its three choices: --option 1 (${DESIGN_OPTIONS[0]}), --option 2 with --other-hex <the owner's words, as the hex of their UTF-8 bytes> (${DESIGN_OPTIONS[1]}), or --option 3 (${DESIGN_OPTIONS[2]}). Words go only with choice 2: after choice 2, ask the owner for the words. Nothing changed.`);
+  return n === 2 ? withWords(need(words, "the owner's words: --other-hex gives only spaces")) : DESIGN_OPTIONS[n - 1];
+}
+function designOutcome(dir, g, answer, at, env) {
+  const choice = answerOption(DESIGN_OPTIONS, answer), tasks = read(dir, "tasks"), task = tasks.find((t) => t.id === g.task), to = choice === 2 ? "designing" : "briefed";
+  const moved = task?.state === "awaiting-you" ? (task.state = to, write(dir, "tasks", tasks), `${task.id} awaiting-you → ${to}`) : `${g.task} stays ${task?.state ?? "unknown"}`;
+  if (choice === 2) return `${moved} · nothing copied: the owner asked for a new version`;
+  let design;
+  try { design = jsonCell(readRegular(gateMessageFile(dir, g.id), { link: false, max: KEPT_FILE_MAX }) ?? "")?.design; } catch {}
+  return `${moved} · ${typeof design === "string" ? copyDesign({ dir, task: g.task, gate: g.id, design, answer, at }, env) : `not copied: sage cannot read the design that ${g.id} names in gates/${g.id}.json`}`;
 }
 function undoAnswer(dir, gates, g) {
   const pending = pendingOf(g), picked = pickedOf(g), answered = answeredOf(g);
@@ -2921,10 +2949,10 @@ function questionMessage(file, project, taskId, env) {
   if (pages.length) refuse(`${taskId}'s pages folder holds ${pages.length === 1 ? "a page" : `${pages.length} pages`} (${pages.slice(0, 5).join(", ")}${pages.length > 5 ? ", …" : ""}), so the question names the main one: add a Page block ${PAGE_FORM.replace("<T>", taskId)} to the message's blocks; it may name another task's page. Nothing written.`);
   return { message: given.input, text: writeMessage(project, taskId, given, "the gate keeps no message in another shape", env) };
 }
-function keepGateMessage(dir, g, { message, text }) {
+function keepGateMessage(dir, g, { message, text, design }) {
   const folder = join(dir, "gates"), file = gateMessageFile(dir, g.id), temp = join(folder, `.${g.id}-${randomUUID()}.tmp`);
   mkdirSync(folder, { recursive: true, mode: 0o700 });
-  writeFileSync(temp, `${JSON.stringify({ gate: g.id, task: g.task, at: g.at, message, text })}\n`, { mode: 0o600, flag: "wx" });
+  writeFileSync(temp, `${JSON.stringify({ gate: g.id, task: g.task, at: g.at, message, text, ...(design ? { design } : {}) })}\n`, { mode: 0o600, flag: "wx" });
   renameSync(temp, file);
 }
 
@@ -3613,7 +3641,8 @@ function act(cmd, pos, opt, dir, env, skip, project) {
     case "gate": {
       const gates = read(dir, "gates");
       if (sub === "add") {
-        const flatOptions = flat(need(opt.options, "--options"));
+        const design = opt.design === undefined ? undefined : designGate(dir, project, id, opt, env);
+        const flatOptions = design ? DESIGN_OPTIONS.join("|") : flat(need(opt.options, "--options"));
         const options = optionsOf({ options: flatOptions });
         const twin = options.find((o, i) => options.findIndex((x) => looks(x) === looks(o)) !== i);
         if (twin !== undefined) refuse(`two options look the same: ${JSON.stringify(twin)} and ${JSON.stringify(options.find((x) => looks(x) === looks(twin)))}. Make them differ in more than case.`);
@@ -3623,7 +3652,7 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         const question = flat(need(opt.question, "--question"));
         if (readsAsBreakdown(question)) refuse(`a question that starts with "Approve milestone" or "Approve program" is a breakdown gate, and only milestone propose opens one. Ask it in other words.`);
         if (looks(question).startsWith("move · plan")) refuse(`a question that starts with "move · plan" is a move gate, and only sage move --plan opens one. Ask it in other words.`);
-        const g = { id: nextId(dir, "G"), task: id === undefined ? "" : taskOf(dir, id).task.id, question: need(question, "--question"), options: flatOptions, recommendation, default: opt.default === undefined ? "" : pick(opt.default, "--default"), at: now(), ...chiefTag(opt) };
+        const g = { id: nextId(dir, "G"), task: id === undefined ? "" : taskOf(dir, id).task.id, question: need(question, "--question"), options: flatOptions, recommendation, default: opt.default === undefined ? "" : pick(opt.default, "--default"), at: now(), ...(design ? { kind: DESIGN_GATE } : {}), ...chiefTag(opt) };
         if (opt.run !== undefined) {
           if (!g.task) refuse("--run names the run that asked this question, and a run belongs to a task: give the gate its task (sage gate add <T> ... --run R<n>). Nothing changed.");
           const runs = read(dir, "runs"), run = runs.find((r) => r.id === opt.run) ?? missing(`run ${opt.run}`, runs.filter((r) => r.task === g.task).map((r) => r.id));
@@ -3631,7 +3660,7 @@ function act(cmd, pos, opt, dir, env, skip, project) {
           g.run = run.id;
         }
         const message = questionMessage(opt.message, project, g.task, env);
-        keepGateMessage(dir, g, message);
+        keepGateMessage(dir, g, { ...message, design });
         write(dir, "gates", [...gates, g]);
         return `${g.id} open · ${g.question}`;
       }
@@ -3656,8 +3685,12 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         if (opt.seen !== undefined && opt.seen !== gateDigest(g)) refuse(`${g.id} changed after the owner read it: its question or its options are not the ones that --seen ${visible(String(opt.seen))} names. Read ${g.id} again, and answer what it asks now. Nothing changed.`);
         const options = optionsOf(g);
         const how = `gate answer ${g.id} takes --option <n>, the number of one of its options (1 to ${options.length}), or --other-hex <hex>, the owner's own words as the hex of their UTF-8 bytes (0-9 and a-f). Nothing changed.`;
-        if (more.length || (opt.option === undefined) === (own === undefined) || (own !== undefined && unhex(own) === undefined)) refuse(how);
-        const answer = own !== undefined ? `other: ${need(cell(unhex(own)), "the owner's own words: --other-hex gives only spaces")}` : (/^[1-9]\d*$/.test(opt.option) && options[Number(opt.option) - 1]) || refuse(how);
+        const words = own === undefined ? undefined : cell(unhex(own) ?? refuse(how));
+        if (more.length) refuse(how);
+        if (words !== undefined && [...words].length > WORDS_MAX) refuse(`the owner's words have ${[...words].length} characters, and an answer keeps at most ${WORDS_MAX}. Ask the owner for shorter words. Nothing changed.`);
+        const answer = g.kind === DESIGN_GATE ? designAnswerText(g, opt.option, words)
+          : (opt.option === undefined) === (own === undefined) ? refuse(how)
+          : own !== undefined ? `other: ${need(words, "the owner's own words: --other-hex gives only spaces")}` : (/^[1-9]\d*$/.test(opt.option) && options[Number(opt.option) - 1]) || refuse(how);
         const at = now();
         if (via === "board") {
           g.answered = JSON.stringify({ at, via, answer });
