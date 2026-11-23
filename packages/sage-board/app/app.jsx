@@ -83,7 +83,7 @@ const dataAt = (model, link, lostAt) => link === "lost" && !model.stale ? lostAt
 const age = (at, now) => `${when(at)}, ${ago(at, now)}`;
 
 function Status({ model, link, lostAt, now }) {
-  if (link === "connecting" && !model) return <span className="live" role="status"><span className="dot" />Connecting</span>;
+  if (link === "connecting" && !model) return <span className="live" role="status"><span className="dot" />Reading the logbooks</span>;
   if (!model) return <span className="live bad" role="status"><span className="dot" />Cannot reach the board</span>;
   if (link === "lost") return <span className="live bad" role="status"><span className="dot" />Not updated since {age(dataAt(model, link, lostAt), now)} · trying again</span>;
   if (model.stale) return <span className="live bad" role="status"><span className="dot" />Not updated since {age(model.at, now)}</span>;

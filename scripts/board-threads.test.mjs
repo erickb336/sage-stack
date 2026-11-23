@@ -272,6 +272,19 @@ test("T1215 (C6, F-T1215-3, F-T1215-8): a light read runs on its own thread, so 
   assert.deepEqual(closed.filter(path => path === reports), [], "the light read walked the folders first, so its plan is older, and the board keeps the newer one");
 });
 
+test("T1215 (F-T1215-12): after 3 stops in 5 minutes the stream gets the banner, and the task page still answers again after the next read", async t => {
+  const holds = newHolds(), f = await board(t, { holds }), events = stream(f); t.after(() => events.close());
+  await events.model(model => has(model, "Sample first task"));
+  for (let stop = 1; stop <= 3; stop++) {
+    Atomics.store(holds, 2, 1);
+    assert.deepEqual((await get(f, `/app/task/${KEY}`)).body, READING_AGAIN, `stop ${stop}`);
+    await until(async () => (await get(f, `/app/task/${KEY}`)).status === 200, `the task page answers again after stop ${stop}`);
+  }
+  const banner = await events.find(frame => frame.event === "notice");
+  assert.equal(typeof banner.data.text, "string");
+  assert.equal(JSON.parse((await get(f, `/app/task/${KEY}`)).body).title, "Sample first task", "the other thread read, and it answers while the stopped one waits 30 s");
+});
+
 test("T1215 (C5): close() stops the threads, so a process whose board closed ends by itself", t => {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-threads-close-")), root = join(dir, "source");
   t.after(() => rmSync(dir, { recursive: true, force: true }));

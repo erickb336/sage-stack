@@ -21,7 +21,7 @@ const BOOK = /^[a-z0-9-]+-[0-9a-f]{6}$/;
 const READING = "Reading the logbooks. The board answers when its first read ends.";
 const READING_AGAIN = "The board is reading again. Try again in a moment.";
 const RESTARTS = 3, RESTART_WINDOW = 5 * 60_000, RESTART_WAIT = 30_000;
-const RESTARTING = "The board's reading threads stopped 3 times in 5 minutes. The board starts them again each 30 seconds; the pages show its last finished read.";
+const RESTARTING = "The board's reading threads stopped 3 times in 5 minutes, so the board waits 30 seconds before it starts a stopped thread again. The lists show the last finished read. Until the next read ends, a task or question page can say that the board is reading again.";
 
 function oneHeader(request, name) {
   const values = [];
