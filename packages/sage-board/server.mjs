@@ -258,7 +258,12 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = null
     const thread = boards[answering === null ? boards.findIndex(Boolean) : 1 - answering];
     if (building || !thread) { again = true; return; }
     again = false; building = thread;
-    thread.post({ type: "build", plan: ++plans, now: clock ? clock() : null });
+    thread.post({ type: "build", plan: ++plans });
+  }
+
+  function watchThenRead(thread, message) {
+    reconcileWatchers(message);
+    if (!closed && building === thread) thread.post({ type: "read", now: clock ? clock() : null });
   }
 
   function built(thread, message) {
@@ -302,7 +307,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = null
 
   function receive(thread, message) {
     if (closed) return;
-    if (message.type === "plan") return reconcileWatchers(message);
+    if (message.type === "plan") return message.read ? watchThenRead(thread, message) : reconcileWatchers(message);
     if (message.type === "built") return built(thread, message);
     if (message.type === "published") return published(message);
     if (message.type === "activity") return lit(message);

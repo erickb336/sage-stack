@@ -60,12 +60,17 @@ export function serve(port, { configured, providerRoots = [], reader = false, du
   let read = null, built = null, model = null;
   let rows = null, hooks = {}, activity = new Map();
 
-  function build({ plan, now }) {
+  function planWatchers({ plan }) {
     stop(3);
     read = built = model = null;
+    let folders = [];
+    try { folders = watchPlan(configured); } catch {}
+    post({ type: "plan", plan, folders, read: true });
+  }
+
+  function readAndBuild({ now }) {
     let next, failed = false;
     try {
-      post({ type: "plan", plan, folders: watchPlan(configured) });
       read = readBoardSources(configured, { duringRead: duringRead ?? hold, providerRoots });
       for (const [index, source] of read.entries()) if (!lstatSync(configured[index].path, { throwIfNoEntry: false })) source.diagnostics = source.diagnostics.filter(message => message !== "ENOENT");
       next = buildBoardModel(read, { now: now ?? new Date().toISOString(), landing });
@@ -198,7 +203,7 @@ export function serve(port, { configured, providerRoots = [], reader = false, du
     post({ type: "activity", changes, refresh });
   }
 
-  const handlers = { build, publish, ask, seed, light, drop: () => { read = built = model = null; } };
+  const handlers = { build: planWatchers, read: readAndBuild, publish, ask, seed, light, drop: () => { read = built = model = null; } };
   port.on("message", message => handlers[message.type](message));
 }
 
