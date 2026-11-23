@@ -4075,11 +4075,15 @@ test("T181: partial higher slots and a held mutation lock cannot admit excess ch
 });
 
 const LOCK_AGE_MS = 30_000;
-const leftLock = (s, ageMs) => {
-  const lock = join(s.vars.SAGE_HOOKS_STATE, "slots.lock"), at = new Date(Date.now() - ageMs);
-  mkdirSync(lock, { recursive: true });
+const ageLock = (lock, ageMs) => {
+  const at = new Date(Date.now() - ageMs);
   utimesSync(lock, at, at);
   return lock;
+};
+const leftLock = (s, ageMs) => {
+  const lock = join(s.vars.SAGE_HOOKS_STATE, "slots.lock");
+  mkdirSync(lock, { recursive: true });
+  return ageLock(lock, ageMs);
 };
 const lockFolders = (s) => readdirSync(s.vars.SAGE_HOOKS_STATE).filter((name) => name.startsWith("slots.lock")).sort();
 
@@ -4127,7 +4131,7 @@ test("T1211 (2): calls that start or end no agent run while the agent-slot lock 
   const child = { agent_id: "busy-child", agent_type: "sage:implementer", cwd: FEATURE };
   assert.equal(s.send(nested("sage:implementer", "busy-call")), undefined);
   s.send(resultOf("busy-call", "busy-child", LEAD));
-  const lock = leftLock(s, 0);
+  const lock = join(s.vars.SAGE_HOOKS_STATE, "slots.lock");
   const calls = {
     "a read": bash("cat README.md", FEATURE, child),
     "git": bash("git status", FEATURE, child),
@@ -4136,7 +4140,12 @@ test("T1211 (2): calls that start or end no agent run while the agent-slot lock 
     "a file edit": tool("Edit", { file_path: join(FEATURE, "a.js"), old_string: "x", new_string: "y" }, child),
     "a message to main": tool("SendMessage", { to: "main", message: "done" }, child),
   };
-  for (const [what, call] of Object.entries(calls)) assert.equal(denied(s.send(call)), undefined, `${what} runs while the lock is busy`);
+  for (const [what, call] of Object.entries(calls)) {
+    leftLock(s, 0);
+    assert.equal(denied(s.send(call)), undefined, `${what} runs while the lock is busy`);
+    assert.deepEqual(lockFolders(s), ["slots.lock"], `${what} leaves the fresh lock in place`);
+  }
+  leftLock(s, 0);
   assert.match(denied(s.send(nested("sage:qa", "busy-start"))) ?? "", /agent-slot lock/, "an agent start still needs the lock");
   rmSync(lock, { recursive: true });
 });
@@ -4157,11 +4166,10 @@ test("T1211 (4): a lock left by a stopped hook frees on the next call after the 
   assert.ok(limits.length && Math.max(...limits) < LOCK_AGE_MS, "Claude Code stops each hook before its lock reaches the age limit, so an older lock has no live holder");
   const s = nestedSession();
   assert.equal(s.send(nested("sage:qa", "aged-first")), undefined, "the lead holds its slot before the lock is left");
-  const lock = leftLock(s, LOCK_AGE_MS - 10_000);
-  assert.ok(denied(s.send(nested("sage:qa", "young"))), "a lock younger than the limit may still have a live holder");
+  const lock = leftLock(s, 0);
+  assert.ok(denied(s.send(nested("sage:qa", "young"))), "a lock made right before this call stays younger than the limit while one hook call runs (Claude Code stops a hook long before), and a young lock may still have a live holder");
   assert.deepEqual(lockFolders(s), ["slots.lock"], "the hook leaves a young lock in place");
-  const at = new Date(Date.now() - LOCK_AGE_MS - 1_000);
-  utimesSync(lock, at, at);
+  ageLock(lock, LOCK_AGE_MS + 1_000);
   assert.equal(s.send(nested("sage:qa", "old")), undefined, "the next call after the limit takes the lock over and starts the agent");
   assert.deepEqual(lockFolders(s), [], "the transaction ends and frees the lock");
 });
