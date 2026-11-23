@@ -582,10 +582,16 @@ When a command stops in a new clone, or in a folder with a wrong link, the chief
 
 | The command stops because | Your options |
 | --- | --- |
-| This folder has no row, but it has the first commit of a shared logbook | Link to that project (for a second clone), or start separate (for a fork that is now its own project). The recommendation follows the GitHub remote: the same remote recommends the link, another remote (a fork) recommends separate, and no remote recommends the link. When two shared logbooks have that first commit, the one with the same remote is recommended. |
+| This folder has no row, but it has the first commit of a shared logbook | Link to that project (for a second clone), or start separate (for a fork that is now its own project). The recommendation follows the GitHub remote: the same remote or no remote recommends the link, and another remote (a fork) recommends separate, except in the cases under this table. When two shared logbooks have that first commit, the one with the same remote is recommended. |
 | This folder's row names another project's logbook | Start separate, or link to another project by its name |
 | This folder's row names a logbook that is missing | Restore the folder from a copy, start separate, or link to another project |
 | This folder is a shallow clone, and the shared root has a logbook | Fetch its full history (recommended), or start separate. A shallow clone's first commit is its newest one, so sage cannot tell which project it is a clone of. |
+
+For another remote, sage first asks GitHub with `gh api`, for 3 seconds at most:
+
+- One repository id for both remotes (a renamed repository) recommends the link. The text says "GitHub says <old> is now <new>".
+- Two repository ids recommend separate, as for a fork.
+- When GitHub gives no answer (no gh, an error, or no answer in 3 seconds), sage looks at the newest row of that logbook. When its folder is gone, sage recommends the link, because this folder looks like that folder, moved. A gone folder in an older row does not count: a live checkout was linked after it.
 
 When sage cannot read a GitHub remote, the text names the folder that has none. A remote URL with a user name or a token in it counts as its repository; the text never shows the token. The last line of each text starts with "For the chief:": it is the command that the chief runs after your reply.
 

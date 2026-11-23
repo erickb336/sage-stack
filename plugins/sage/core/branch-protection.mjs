@@ -4,7 +4,7 @@ const SETUP = 'On GitHub, open the repository, then Settings, Rules, and add a r
 
 const DEADLINE_MS = 5000;
 
-function get(path, cwd, env, deadline) {
+export function ghGet(path, cwd, env, deadline) {
   const left = Math.min(4000, deadline - Date.now());
   if (left <= 0) return { ok: false };
   const { GH_HOST, GH_REPO, ...rest } = env;
@@ -20,14 +20,14 @@ function offered(read) {
 
 export function branchProtection(cwd, env = process.env) {
   const deadline = Date.now() + DEADLINE_MS;
-  const repo = get("repos/{owner}/{repo}", cwd, env, deadline);
+  const repo = ghGet("repos/{owner}/{repo}", cwd, env, deadline);
   const name = repo.body?.full_name, branch = repo.body?.default_branch;
   if (!repo.ok || typeof name !== "string" || typeof branch !== "string" || !/^[\w.-]+\/[\w.-]+$/.test(name) || !branch) return { kind: "unknown" };
   const where = `repos/${name}/`;
-  const rules = get(`${where}rules/branches/${encodeURIComponent(branch)}`, cwd, env, deadline);
+  const rules = ghGet(`${where}rules/branches/${encodeURIComponent(branch)}`, cwd, env, deadline);
   if (rules.ok && Array.isArray(rules.body) && rules.body.some((rule) => rule?.type === "pull_request")) return { kind: "protected", branch };
   if (offered(rules)) return { kind: "unavailable", branch };
-  const classic = get(`${where}branches/${encodeURIComponent(branch)}/protection`, cwd, env, deadline);
+  const classic = ghGet(`${where}branches/${encodeURIComponent(branch)}/protection`, cwd, env, deadline);
   if (classic.ok && classic.body?.required_pull_request_reviews) return { kind: "protected", branch };
   if (offered(classic)) return { kind: "unavailable", branch };
   const rulesRead = rules.ok && Array.isArray(rules.body);
