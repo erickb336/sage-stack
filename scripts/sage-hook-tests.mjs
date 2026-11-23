@@ -4091,11 +4091,12 @@ test("T181: partial higher slots and a held mutation lock cannot admit excess ch
   rmSync(partial, { recursive: true });
   assert.equal(s.send(nested("sage:qa", "p-3")), undefined, "a refused admission is not a completed call");
   const before = readdirSync(dir).sort();
-  mkdirSync(join(s.vars.SAGE_HOOKS_STATE, "slots.lock"));
+  const lock = leftLock(s, 0);
   assert.equal(s.send({ hook_event_name: "SubagentStop", agent_id: "unfinished", agent_type: "sage:qa", last_assistant_message: "incomplete" })?.decision, "block", "a storage lock cannot bypass the report gate");
-  assert.match(denied(s.send(nested("sage:qa", "locked"))) ?? "", /agent-slot lock is busy/);
+  ageLock(lock, 0);
+  assert.match(denied(s.send(nested("sage:qa", "locked"))) ?? "", /agent-slot lock is busy/, "a lock younger than the age limit is held, however long the steps before took");
   assert.deepEqual(readdirSync(dir).sort(), before);
-  rmSync(join(s.vars.SAGE_HOOKS_STATE, "slots.lock"), { recursive: true });
+  rmSync(lock, { recursive: true });
 });
 
 const childRunsSlotTransactions = (slots, inside, count = 1) => `
@@ -4300,6 +4301,48 @@ for (const [n, what, leave] of [
   leave(s);
   assert.equal(denied(s.send(nested("sage:qa", `kind-${n}`))), undefined, "the next agent start takes the lock over and starts the agent");
   assert.deepEqual(lockFolders(s), [], "no lock and no moved lock entry stays behind");
+});
+
+test("F-T1221-2: the next transaction removes a lock folder that a stopped hook moved aside, and the folder of a waiter that ended", () => {
+  const s = nestedSession(), state = s.vars.SAGE_HOOKS_STATE;
+  assert.equal(s.send(nested("sage:qa", "aside-first")), undefined, "the lead holds its slot before the folders are left");
+  const aside = join(state, `slots.lock.stale-${randomUUID()}`);
+  mkdirSync(aside);
+  ageLock(aside, LOCK_AGE_MS + 30_000);
+  ownerFile(join(state, `slots.lock.${randomUUID()}`), { pid: endedPid() });
+  assert.equal(lockFolders(s).length, 2);
+  assert.equal(denied(s.send(nested("sage:qa", "aside"))), undefined, "the next agent starts");
+  assert.deepEqual(lockFolders(s), [], "no moved lock folder and no waiter's folder stays behind");
+});
+
+test("F-T1221-3 F-T1221-5: an agent that ends while the lock is busy frees its slot at the session's next slot change, also one that starts no lead", () => {
+  const s = nestedSession();
+  for (let n = 1; n <= 9; n++) {
+    assert.equal(s.send(nested("sage:qa", `busy-end-${n}`)), undefined, `helper ${n} starts`);
+    s.send(resultOf(`busy-end-${n}`, `busy-end-child-${n}`, LEAD));
+  }
+  assert.match(denied(s.send(nested("sage:qa", "busy-end-10"))) ?? "", /this lead already has 9 children/);
+  const lock = heldLock(s);
+  assert.equal(s.send(ended("busy-end-child-1")), undefined, "the helper's stop goes on while a live holder keeps the lock");
+  rmSync(lock, { recursive: true });
+  assert.equal(denied(s.send(nested("sage:qa", "busy-end-11"))), undefined, "the next helper start frees the ended helper's slot first, so the lead has a free place");
+});
+
+test("F-T1221-6: a holder ends its transaction with no error when its lock is no longer there", () => {
+  const dir = join(mkdtempSync(join(tmpdir(), "sage-gone-lock-")), "slots"), lock = join(dir, "..", "slots.lock");
+  const slots = slotsFor(dir, "s", Date.now(), "s");
+  assert.doesNotThrow(() => slots.reconcile({ filter: () => { rmSync(lock, { recursive: true }); return []; } }), "another hook took the lock over while this hook held it");
+  assert.deepEqual(readdirSync(join(dir, "..")).filter((name) => name.startsWith("slots.lock")), []);
+});
+
+test("F-T1221-8: a link at the lock path that points nowhere frees on the next agent start after the age limit", () => {
+  const s = nestedSession(), lock = join(s.vars.SAGE_HOOKS_STATE, "slots.lock");
+  assert.equal(s.send(nested("sage:qa", "link-first")), undefined, "the lead holds its slot before the link is left");
+  symlinkSync(join(s.vars.SAGE_HOOKS_STATE, "nowhere"), lock);
+  const old = new Date(Date.now() - LOCK_AGE_MS - 30_000);
+  fs.lutimesSync(lock, old, old);
+  assert.equal(denied(s.send(nested("sage:qa", "link"))), undefined, "the next agent start takes the lock over and starts the agent");
+  assert.deepEqual(lockFolders(s), [], "no link and no lock stays behind");
 });
 
 test("T181: unbound child reservations keep a one-hour lease and duplicate Pre does not add capacity", async () => {
