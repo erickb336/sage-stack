@@ -5,17 +5,12 @@ import { PAGE_DEPTH, PAGE_MAX, pageType } from "./message.mjs";
 import { pageFile, pageTaskFolder } from "./page-files.mjs";
 
 export const DESIGN_GATE = "design";
-export const DESIGN_OPTIONS = ["Approve", "Approve with your words", "New version"];
-export const WORDS_MAX = 1000;
 export const DESIGNS_FOLDER = "designs";
 export const DESIGN_LIMITS = { files: 200, bytes: 30 * 1024 * 1024 };
 export const MANIFEST = "manifest.json";
-const WITH_WORDS = `${DESIGN_OPTIONS[1]}: `;
 const LEFTOVER = /^\.G[1-9]\d*-[0-9a-f-]+\.tmp$/;
 const SHOWN = 5;
 
-export const withWords = (words) => `${WITH_WORDS}${words}`;
-export const designChoice = (answer) => (answer === DESIGN_OPTIONS[0] ? 0 : String(answer ?? "").startsWith(WITH_WORDS) ? 1 : answer === DESIGN_OPTIONS[2] ? 2 : -1);
 export const designPathOk = (design) => typeof design === "string" && (pageType(design) !== null || pageType(`${design}/page.md`) !== null);
 
 class NotCopied extends Error {}

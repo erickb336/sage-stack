@@ -32,9 +32,9 @@ import { LEAD_COMMANDS, leadProblem as leadPolicy, leadRequest } from "./lead-po
 import { renderMessage } from "./message-checks.mjs";
 import { KINDS as MESSAGE_KINDS, MAX_SECTIONS, PAGE_DEPTH, PAGE_MAX, PAGE_TYPES, pageType, pageUrl } from "./message.mjs";
 import { boardPort, pageFile, pageTaskFolder } from "./page-files.mjs";
-import { DESIGN_GATE, DESIGN_OPTIONS, WORDS_MAX, copyDesign, designChoice, designFiles, designPathOk, withWords } from "./design-copy.mjs";
+import { DESIGN_GATE, copyDesign, designFiles, designPathOk } from "./design-copy.mjs";
 import { boardAnswers, boardDownLine } from "./board-probe.mjs";
-import { taskWord } from "./state-words.mjs";
+import { DESIGN_OPTIONS, WORDS_MAX, answerOption, taskWord, withWords } from "./state-words.mjs";
 import { AST_GREP_VERSION, LINT_CONFIG, LINT_KINDS, astGrepBinary, lintBase, lintChange } from "./lint.mjs";
 import { adoptBrief, languageList, placeToolFiles, projectLanguages } from "./lint-offer.mjs";
 
@@ -2790,14 +2790,14 @@ function applyAnswer(dir, gates, g, answer, { answered, picked }, opt, project, 
   if (g.kind === LINT_GATE && answer === OFFER_OPTIONS[2]) logbookConfig(dir, ["lint_offer=never"]);
   const designed = g.kind === DESIGN_GATE ? designOutcome(dir, g, answer, picked.at, env) : undefined;
   write(dir, "gates", gates);
-  const own = answer.startsWith("other: ") || designChoice(answer) === 1;
+  const own = answer.startsWith("other: ") || answerOption(DESIGN_OPTIONS, answer) === 1;
   write(dir, "decisions", [...read(dir, "decisions"), { at: picked.at, task: g.task, decision: `${g.question} → ${answer}`, why: own ? "the user's own words" : "the user's answer" }, ...(designed ? [{ at: picked.at, task: g.task, decision: `${g.id} design: ${designed}`, why: "the user's answer to a design question" }] : [])]);
   const kept = g.kind === "replace" && read(dir, "tasks").find((t) => t.id === g.task);
   if (kept) return `${g.id} answered · ${answer} · nothing replaced: ${kept.id} keeps ${kept.chief ? `its chief ${kept.chief}` : "no owning chief"}, and no run ended. ${g.id} is spent: to change the chief, open a new takeover gate.`;
   return `${g.id} answered · ${answer}${adopted}${designed ? ` · ${designed}` : ""}`;
 }
 const lastDesignGate = (gates, task) => gates.filter((g) => g.kind === DESIGN_GATE && g.task === task).at(-1);
-const designApproved = (gates, task) => [0, 1].includes(designChoice(lastDesignGate(gates, task)?.answer));
+const designApproved = (gates, task) => [0, 1].includes(answerOption(DESIGN_OPTIONS, lastDesignGate(gates, task)?.answer));
 function designGate(dir, project, id, opt, env) {
   if (id === undefined) refuse(`a design question belongs to its task: sage gate add <T> --design <the design's page or folder> --question "<q>" --recommend 1 --message <file>. Nothing changed.`);
   if (opt.options !== undefined) refuse(`a design question has three fixed choices (${DESIGN_OPTIONS.join(", ")}), so it takes no --options. Nothing changed.`);
@@ -2813,7 +2813,7 @@ function designAnswerText(g, option, words) {
   return n === 2 ? withWords(need(words, "the owner's words: --other-hex gives only spaces")) : DESIGN_OPTIONS[n - 1];
 }
 function designOutcome(dir, g, answer, at, env) {
-  const choice = designChoice(answer), tasks = read(dir, "tasks"), task = tasks.find((t) => t.id === g.task), to = choice === 2 ? "designing" : "briefed";
+  const choice = answerOption(DESIGN_OPTIONS, answer), tasks = read(dir, "tasks"), task = tasks.find((t) => t.id === g.task), to = choice === 2 ? "designing" : "briefed";
   const moved = task?.state === "awaiting-you" ? (task.state = to, write(dir, "tasks", tasks), `${task.id} awaiting-you → ${to}`) : `${g.task} stays ${task?.state ?? "unknown"}`;
   if (choice === 2) return `${moved} · nothing copied: the owner asked for a new version`;
   let design;

@@ -136,9 +136,11 @@ test("T1121: one click on Needs you opens the question with its material; a page
   assert.deepEqual(w.outside, [], "no outside request");
 });
 
-test("T1222: a design question's choice 2 opens a words field; Send waits for the words, and the words reach the logbook with the choice as one answer", async t => {
-  const DESIGN = "Approve design v1 of the share sheet?";
-  const w = await openBoard(t, undefined, { setup: as => as("C1", "gate", "add", "T1", "--design", "designs/v1", "--question", DESIGN, "--recommend", "1", "--message", questionFile(DESIGN, { task: "T1", file: "notes.md" })) }), { page } = w;
+const DESIGN = "Approve design v1 of the share sheet?";
+const askDesign = as => as("C1", "gate", "add", "T1", "--design", "designs/v1", "--question", DESIGN, "--recommend", "1", "--message", questionFile(DESIGN, { task: "T1", file: "notes.md" }));
+
+test("T1222: a design question's choice 2 opens a words field; Send waits for the words, and the words reach the logbook with the choice as one answer; the answer mark then shows on choice 2", async t => {
+  const w = await openBoard(t, undefined, { setup: askDesign }), { page } = w;
   await page.getByRole("link", { name: DESIGN }).click();
   await page.getByRole("heading", { name: DESIGN, level: 1 }).waitFor();
   assert.equal(await page.getByRole("textbox", { name: /type your words/ }).count(), 0, "no words field before choice 2");
@@ -152,6 +154,28 @@ test("T1222: a design question's choice 2 opens a words field; Send waits for th
   await page.getByText(/^You answered G3: Approve with your words\. Recorded in the logbook\./).waitFor();
   assert.equal(JSON.parse(w.gate("G3").answered).answer, "Approve with your words: Use the shop's logo in the header.");
   assert.deepEqual(w.writes.at(-1).slice(0, 8), ["gate", "answer", "G3", "--via", "board", "--option", "2", "--other-hex"]);
+  await page.reload();
+  await page.locator("label.answer.chosen").first().waitFor();
+  assert.deepEqual(await page.locator("label.answer.chosen .what b").allTextContents(), ["Approve with your words"], "F-T1222-6: the answer mark shows on choice 2, also when the answer holds the owner's words");
+  assert.deepEqual(w.outside, [], "no outside request");
+});
+
+test("T1222 F-T1222-11: on a 390 px window with a file open, choice 2 in the answer bar shows the words field in the bar; Send waits for the words", async t => {
+  const w = await openBoard(t, { width: 390, height: 844 }, { setup: askDesign }), { page } = w;
+  await page.goto(`${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G3`)}`);
+  await page.locator(".mat").first().click();
+  const bar = page.locator(".qbar");
+  await bar.waitFor();
+  assert.equal(await bar.getByRole("textbox").count(), 0, "no words field before choice 2");
+  await bar.getByRole("button", { name: "Approve with your words" }).click();
+  const words = bar.getByRole("textbox", { name: /type your words/ }), send = bar.getByRole("button", { name: "Send" });
+  await inView(page, words, "the words field shows in the bar, where the owner picks choice 2");
+  assert.equal(await send.isDisabled(), true, "choice 2 sends only with words");
+  await words.fill("Use the shop's logo in the header.");
+  await w.shot("question-phone-design-words");
+  await send.click();
+  await inView(page, bar.getByText(/^You answered G3: Approve with your words\. Recorded in the logbook\./), "the bar shows that the answer is sent");
+  assert.equal(JSON.parse(w.gate("G3").answered).answer, "Approve with your words: Use the shop's logo in the header.");
   assert.deepEqual(w.outside, [], "no outside request");
 });
 

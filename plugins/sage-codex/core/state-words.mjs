@@ -116,3 +116,8 @@ function sessionWords(chief, now, clock) {
     sub: [holds, counted(chief.agents, "agent"), chief.confirmed ? null : "program not confirmed"].filter(Boolean).join(" · "), note: chief.confirmed ? null : SESSION_NOT_CONFIRMED };
   return { dot: "unknown", word: UNKNOWN, head: `${head} · no record`, sub: `${holds} · the session sends no sign of life` };
 }
+
+export const DESIGN_OPTIONS = ["Approve", "Approve with your words", "New version"];
+export const WORDS_MAX = 1000;
+export const withWords = (words) => `${DESIGN_OPTIONS[1]}: ${words}`;
+export const answerOption = (options, answer) => options.findIndex((option) => option === answer || (option === DESIGN_OPTIONS[1] && String(answer ?? "").startsWith(withWords(""))));

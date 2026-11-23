@@ -1,6 +1,6 @@
 export { balancedModels, createStateTool } from "./state.mjs";
 export { sharedRoot } from "./shared-root.mjs";
-export { DESIGNS_FOLDER, WORDS_MAX } from "./design-copy.mjs";
+export { DESIGNS_FOLDER } from "./design-copy.mjs";
 export { writerClass } from "./chiefs.mjs";
 export { chiefBeat, chiefEnd, chiefResume, clearLink, clearNote, readLiveRecord, sessionState, sessionsLine } from "./chief-live.mjs";
 export { readLocalGit } from "./local-git.mjs";
@@ -24,7 +24,7 @@ export { readActions, readBoardSources, readHookNotes } from "./board-reader.mjs
 export { AGENT_QUIET_MS, buildBoardModel } from "./board-model.mjs";
 export { boardOverview, runFailure, taskPanel } from "./board-overview.mjs";
 export { boardStats } from "./board-stats.mjs";
-export { SCRIPT_PAGE_NOTE, chiefName, headingId, prName, runWord, taskWord, milestoneWord, releaseWord } from "./state-words.mjs";
+export { SCRIPT_PAGE_NOTE, WORDS_MAX, chiefName, headingId, prName, runWord, taskWord, milestoneWord, releaseWord } from "./state-words.mjs";
 export { renderBoardText, renderTaskText, renderBoardStatus } from "./board-render.mjs";
 export { boardProjectKey, boardView, landingRule } from "./board-view.mjs";
 export { BOARD_PORT, KINDS, LONG_WIDTH, PAGE_MAX, PAGE_TYPES, WIDTH, frameLines, pageBlock, pageType } from "./message.mjs";
