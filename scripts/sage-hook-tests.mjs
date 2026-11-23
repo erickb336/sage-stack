@@ -1,8 +1,10 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { execFileSync as rawExecFileSync, spawn, spawnSync as rawSpawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { hostname, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { test as nodeTest } from "node:test";
@@ -4052,6 +4054,30 @@ test("T181: exact identity includes the raw session and refuses malformed nonmai
   assert.equal(s.send(nested("sage:qa", "free-a", { session_id: "a/b" })), undefined);
 });
 
+const LOCK_AGE_MS = 30_000;
+const ageLock = (lock, ageMs) => {
+  const at = new Date(Date.now() - ageMs);
+  utimesSync(lock, at, at);
+  return lock;
+};
+const leftLock = (s, ageMs) => {
+  const lock = join(s.vars.SAGE_HOOKS_STATE, "slots.lock");
+  mkdirSync(lock, { recursive: true });
+  return ageLock(lock, ageMs);
+};
+const lockFolders = (s) => readdirSync(s.vars.SAGE_HOOKS_STATE).filter((name) => name.startsWith("slots.lock")).sort();
+const ownerFile = (folder, owner) => {
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(join(folder, `${randomUUID()}.json`), JSON.stringify({ host: hostname(), at: Date.now(), ...owner }));
+  return folder;
+};
+const heldLock = (s) => ownerFile(join(s.vars.SAGE_HOOKS_STATE, "slots.lock"), { pid: process.pid });
+const endedPid = () => {
+  const child = spawnSync(process.execPath, ["-e", ""]);
+  assert.equal(child.status, 0, "the child ran and ended");
+  return child.pid;
+};
+
 test("T181: partial higher slots and a held mutation lock cannot admit excess children", () => {
   const s = nestedSession();
   const dir = join(s.vars.SAGE_HOOKS_STATE, "slots"), partial = join(dir, "slot-20");
@@ -4089,8 +4115,8 @@ const leftovers = (state) => readdirSync(state).filter(name => name.startsWith("
 
 test("Stale slot lock: a hook that a kill stops inside a slot transaction leaves no lock that blocks the next agent", () => {
   const s = nestedSession(), state = s.vars.SAGE_HOOKS_STATE, slots = join(state, "slots");
-  const killed = runChild(childRunsSlotTransactions(slots, `() => process.kill(process.pid, "SIGKILL")`));
-  assert.equal(killed.signal, "SIGKILL", "the child stops inside the transaction, as a hook timeout stops a hook");
+  const killed = runChild(childRunsSlotTransactions(slots, `() => process.exit(137)`));
+  assert.equal(killed.status, 137, "the child stops inside the transaction and runs no finally, as a hook timeout stops a hook");
   assert.ok(existsSync(lockFolder(state)), "the killed holder leaves its lock folder behind");
   assert.equal(s.send(nested("sage:qa", "after-kill")), undefined, "the next agent starts: the lock of a holder that is gone is taken over");
   assert.deepEqual(leftovers(state), [], "the take-over and the transaction leave no lock folder");
@@ -4149,17 +4175,131 @@ test("Stale slot lock: processes that take over stale locks at the same time nev
     try { writeFileSync(marker, "", { flag: "wx" }); } catch (error) { appendFileSync(marker + ".overlap", "x"); throw error; }
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1);
     unlinkSync(marker);
-    if ((process.pid + n) % 5 === 0) process.kill(process.pid, "SIGKILL");
+    if ((process.pid + n) % 5 === 0) process.exit(137);
   }`;
   const children = Array.from({ length: 10 }, () => new Promise(done => spawn(process.execPath, ["--input-type=module", "-e", childRunsSlotTransactions(slots, oneHolderAtATimeAndEveryFifthKilled, 15)], { stdio: "ignore" }).on("exit", (code, signal) => done({ code, signal }))));
   const ends = await Promise.all(children);
   const read = (name) => existsSync(join(state, name)) ? readFileSync(join(state, name), "utf8") : "";
   assert.equal(read("inside.overlap"), "", "no two processes held the lock at the same time");
   assert.equal(read("inside.refused"), "", "no transaction was refused: each stale lock was taken over");
-  assert.ok(ends.some(end => end.signal === "SIGKILL"), "some holders were killed while they held the lock");
+  assert.ok(ends.some(end => end.code === 137), "some holders stopped while they held the lock");
   assert.ok(read("inside.done").length > 0, "transactions ran");
   assert.equal(s.send(nested("sage:qa", "after-storm")), undefined, "the next agent starts after the kills");
   assert.deepEqual(leftovers(state), [], "no lock folder and no folder of a killed waiter stays");
+});
+
+
+test("T1211 (1): hooks that find the same stale lock take it over, and only one of them holds it at a time", async () => {
+  const s = nestedSession();
+  leftLock(s, LOCK_AGE_MS + 30_000);
+  const outs = await Promise.all(Array.from({ length: 4 }, (_, k) => s.sendAsync(leadSpawn(`stale-${k}`, 7))));
+  const refusals = outs.map(denied).filter(Boolean);
+  assert.equal(outs.length - refusals.length, 1, "exactly one lead of T7 starts: each hook checked the held leads under the lock");
+  for (const why of refusals) assert.match(why, /already holds a slot/, "the other hooks wait for the lock and then see the first lead");
+  assert.deepEqual(lockFolders(s), [], "no lock and no moved lock folder stays behind");
+});
+
+test("T1211 (1) F-T1221-1: a hook that saw a stale lock never removes or moves the lock of a hook that took the lock in the meantime", () => {
+  const dir = mkdtempSync(join(tmpdir(), "sage-lock-")), lock = join(dir, "slots.lock"), old = new Date(Date.now() - LOCK_AGE_MS - 30_000);
+  mkdirSync(lock);
+  utimesSync(lock, old, old);
+  const slots = slotsFor(join(dir, "slots"), "s", Date.now(), "s"), real = { statSync: fs.statSync, lstatSync: fs.lstatSync, renameSync: fs.renameSync };
+  const taken = [];
+  let raced = false;
+  const otherHookTakes = (how) => { how(); taken.push(real.statSync(lock).ino); };
+  const firstLook = (name) => (path, ...rest) => {
+    const seen = real[name](path, ...rest);
+    if (path === lock && !raced) {
+      raced = true;
+      otherHookTakes(() => { rmSync(lock, { recursive: true }); ownerFile(lock, { pid: process.pid }); });
+    }
+    return seen;
+  };
+  fs.statSync = firstLook("statSync");
+  fs.lstatSync = firstLook("lstatSync");
+  fs.renameSync = (from, to) => {
+    real.renameSync(from, to);
+    if (from === lock) otherHookTakes(() => mkdirSync(lock));
+  };
+  syncBuiltinESMExports();
+  try {
+    assert.throws(() => slots.take("p", 5, "tu-race", { input: {} }), /agent-slot lock is busy/, "this hook does not win while another hook holds the lock");
+  } finally {
+    Object.assign(fs, real);
+    syncBuiltinESMExports();
+  }
+  assert.ok(raced, "another hook took the lock over right after this hook saw it stale");
+  assert.equal(fs.statSync(lock).ino, taken.at(-1), "the lock of the hook that took it last stays at its place: it was not removed, and no moved lock was put back over it");
+  rmSync(dir, { recursive: true });
+});
+
+test("T1211 (2): calls that start or end no agent run while the agent-slot lock is busy", () => {
+  const s = nestedSession();
+  const child = { agent_id: "busy-child", agent_type: "sage:implementer", cwd: FEATURE };
+  assert.equal(s.send(nested("sage:implementer", "busy-call")), undefined);
+  s.send(resultOf("busy-call", "busy-child", LEAD));
+  const lock = join(s.vars.SAGE_HOOKS_STATE, "slots.lock");
+  const calls = {
+    "a read": bash("cat README.md", FEATURE, child),
+    "git": bash("git status", FEATURE, child),
+    "a state tool read": bash(`node ${TOOL} status`, FEATURE, child),
+    "a file write": tool("Write", { file_path: join(FEATURE, "a.js"), content: "x" }, child),
+    "a file edit": tool("Edit", { file_path: join(FEATURE, "a.js"), old_string: "x", new_string: "y" }, child),
+    "a message to main": tool("SendMessage", { to: "main", message: "done" }, child),
+  };
+  for (const [what, call] of Object.entries(calls)) {
+    leftLock(s, 0);
+    assert.equal(denied(s.send(call)), undefined, `${what} runs while the lock is busy`);
+    assert.deepEqual(lockFolders(s), ["slots.lock"], `${what} leaves the fresh lock in place`);
+  }
+  leftLock(s, 0);
+  assert.match(denied(s.send(nested("sage:qa", "busy-start"))) ?? "", /agent-slot lock/, "an agent start still needs the lock");
+  rmSync(lock, { recursive: true });
+});
+
+test("T1211 (3): a refusal for a busy lock names the lock folder, the age after which the hook frees it, and rm -r", () => {
+  const s = nestedSession();
+  assert.equal(s.send(nested("sage:qa", "named-first")), undefined, "the lead holds its slot before the lock is busy");
+  const lock = leftLock(s, 0);
+  const why = denied(s.send(nested("sage:qa", "named-start"))) ?? "";
+  assert.ok(why.includes(lock), `the refusal names ${lock}: ${why}`);
+  assert.match(why, new RegExp(`rm -r "${lock}"`));
+  assert.match(why, new RegExp(`\\b${LOCK_AGE_MS / 1000} s\\b`));
+  rmSync(lock, { recursive: true });
+});
+
+test("T1211 (4): a lock left by a stopped hook frees on the next call after the age limit; a fresh lock is not taken over", () => {
+  const limits = [...readFileSync(fileURLToPath(new URL("../packages/sage-claude/hooks/claude.json", import.meta.url)), "utf8").matchAll(/"timeout": (\d+)/g)].map(([, n]) => Number(n) * 1000);
+  assert.ok(limits.length && Math.max(...limits) < LOCK_AGE_MS, "Claude Code stops each hook before its lock reaches the age limit, so an older lock has no live holder");
+  const s = nestedSession();
+  assert.equal(s.send(nested("sage:qa", "aged-first")), undefined, "the lead holds its slot before the lock is left");
+  const lock = leftLock(s, 0);
+  assert.ok(denied(s.send(nested("sage:qa", "young"))), "a lock made right before this call stays younger than the limit while one hook call runs (Claude Code stops a hook long before), and a young lock may still have a live holder");
+  assert.deepEqual(lockFolders(s), ["slots.lock"], "the hook leaves a young lock in place");
+  ageLock(lock, LOCK_AGE_MS + 1_000);
+  assert.equal(s.send(nested("sage:qa", "old")), undefined, "the next call after the limit takes the lock over and starts the agent");
+  assert.deepEqual(lockFolders(s), [], "the transaction ends and frees the lock");
+});
+
+for (const [n, what, leave] of [
+  [5, "a lock whose time is more than the age limit in the future (clock skew, a restored folder)", (s) => leftLock(s, -(LOCK_AGE_MS + 30_000))],
+  [6, "a stale lock that is a file, not a folder", (s) => {
+    const lock = join(s.vars.SAGE_HOOKS_STATE, "slots.lock");
+    writeFileSync(lock, "");
+    ageLock(lock, LOCK_AGE_MS + 30_000);
+  }],
+  [7, "a stale lock folder that holds a file", (s) => {
+    const lock = join(s.vars.SAGE_HOOKS_STATE, "slots.lock");
+    mkdirSync(lock);
+    writeFileSync(join(lock, "left"), "");
+    ageLock(lock, LOCK_AGE_MS + 30_000);
+  }],
+]) test(`T1211 (${n}): ${what} frees on the next agent start, and nothing of it stays`, () => {
+  const s = nestedSession();
+  assert.equal(s.send(nested("sage:qa", `kind-${n}-first`)), undefined, "the lead holds its slot before the lock is left");
+  leave(s);
+  assert.equal(denied(s.send(nested("sage:qa", `kind-${n}`))), undefined, "the next agent start takes the lock over and starts the agent");
+  assert.deepEqual(lockFolders(s), [], "no lock and no moved lock entry stays behind");
 });
 
 test("T181: unbound child reservations keep a one-hour lease and duplicate Pre does not add capacity", async () => {
@@ -4530,7 +4670,7 @@ test("F-T255-13: a child whose type comes in another letter case keeps its slot 
   assert.match(denied(s.send(nested("sage:qa", "case-10"))) ?? "", /this lead already has 9 children/);
 });
 
-function leadSession(env = {}, size = "small") {
+function leadSession(env = {}, size = "small", named = true) {
   const s = linkedSession(env);
   s.sage("config", "max_agents=20", "cap_total=30");
   s.send(prompt("sage mode"));
@@ -4547,7 +4687,7 @@ function leadSession(env = {}, size = "small") {
   spawnSync("git", ["-C", s.dir, "branch", "claude/t1"]);
   s.sage("task", "T1", "set", "branch=claude/t1");
   const head = () => spawnSync("git", ["-C", s.dir, "rev-parse", "claude/t1"], { encoding: "utf8" }).stdout.trim();
-  assert.equal(s.send(leadSpawn("lead-call", 1, { cwd: s.dir })), undefined);
+  assert.equal(s.send(named ? leadSpawn("lead-call", 1, { cwd: s.dir }) : desktopLead("lead-call", "lead-T1 the task", { cwd: s.dir })), undefined);
   s.send(resultOf("lead-call", "lead-a"));
   leadAdd(s, "qa");
   s.sage("run", "add", "T2", "--role", "qa");
@@ -6559,8 +6699,8 @@ test("T482 R1762-2: within the lease, the sage's end of the old lead run and a n
   assert.match(denied(s.send(tool("Agent", { subagent_type: "sage:qa", prompt: BRIEF, name: "R4" }, { tool_use_id: "late-child", ...LEAD }))) ?? "", /^sage: this lead holds no bound lead slot, so it starts no agent\./, "the old lead starts no helper");
 });
 
-for (const where of ["the same session (a restart)", "another session"]) test(`T1202: once the logbook ends a lead run, a fresh lead of its task starts at once in ${where}, and the old lead's slot and its helpers' slots are free`, () => {
-  const s = leadSession(), other = where === "another session" ? { session_id: "s2" } : {};
+for (const where of ["the same session (a restart)", "another session"]) for (const named of [true, false]) test(`T1202 T1145: once the logbook ends a lead run, a fresh lead of its task starts at once in ${where}, and the old lead's slot and its helpers' slots are free, for a lead started ${named ? "with a name" : "with no name field"}`, () => {
+  const s = leadSession({}, "small", named), other = where === "another session" ? { session_id: "s2" } : {};
   if (other.session_id) s.send({ ...prompt("sage mode"), ...other });
   const dir = join(s.vars.SAGE_HOOKS_STATE, "slots"), h = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
   const team = () => readdirSync(dir).filter((slot) => readdirSync(join(dir, slot)).some((m) => m === `bound-${h("lead-a")}` || m === `parent-${h("lead-a")}`));
@@ -7142,18 +7282,66 @@ test("T1133: a lead that ends its turn with no report, to wait for its backgroun
   assert.match(nudge.reason, /^sage: your report has no STATUS.*A lead that waits for its own background work may end its turn again/, "the report check tells a waiting lead that it may end its turn");
 });
 
-test("T1133: a lead that ends its turn with no report and never wakes frees its slot by the sage's stop, or by its lease once its lead run ends", () => {
-  for (const how of ["stop", "lease"]) {
-    const s = leadSession();
+test("T1133 T1145: a lead keeps its slot through each turn end with no report, and the sage's run done of its lead run frees its slot and its helpers' slots at once", () => {
+  for (const paused of [true, false]) {
+    const s = leadSession(), how = paused ? "a paused lead" : "a lead with a helper";
     s.sage("run", "done", "R2", "--status", "done", "--tokens", "1");
-    assert.equal(pause(s), undefined, how);
-    s.sage("run", "done", "R1", "--status", "failed", "--why", "its agent stopped");
-    if (how === "stop") s.send(tool("TaskStop", { task_id: "lead-T1" }));
-    else ageSlots(s, 61);
-    s.sage("run", "add", "T1", "--role", "lead");
-    assert.equal(denied(s.send(leadSpawn("fresh-lead", 1, { cwd: s.dir }))), undefined, `${how}: a fresh lead of T1 starts`);
-    assert.match(denied(stateRun(s, "round T1")) ?? "", /this lead holds no bound lead slot/, `${how}: the old lead writes nothing`);
+    if (paused) {
+      assert.equal(pause(s, false)?.decision, "block", "the first stop with no report gets the report check");
+      for (const [turn, write] of [[1, "round T1"], [2, "run add T1 --role qa"]]) {
+        assert.equal(pause(s), undefined, `turn end ${turn} with no report`);
+        assert.equal(denied(stateRun(s, write)), undefined, `after turn end ${turn}, the paused lead still holds its slot and writes`);
+      }
+    } else {
+      const kid = leadAdd(s, "qa");
+      assert.equal(denied(s.send(tool("Agent", { subagent_type: "sage:qa", prompt: BRIEF, name: kid }, { tool_use_id: "kid", ...LEAD }))), undefined, "the helper starts");
+      s.send(resultOf("kid", "kid-a", LEAD));
+      assert.equal(helperSlots(s).length, 1, "the helper holds a slot");
+    }
+    chiefRunDone(s, "R1");
+    assert.match(denied(stateRun(s, "round T1")) ?? "", /this lead holds no bound lead slot/, `${how}: the sage's run done frees the lead's slot at once, with no TaskStop and no lease`);
+    assert.deepEqual(helperSlots(s), [], `${how}: no helper of the ended lead run holds a slot`);
+    assert.match(denied(s.send(tool("SendMessage", { to: "lead-T1", message: "a note" }, { cwd: s.dir }))) ?? "", /has ended or holds no lead slot/, `${how}: a message to the ended lead is refused`);
   }
+});
+
+test("T1145: a lead's final report with a missing field keeps its text for its run, as a full report does", () => {
+  const s = leadSession(), kept = () => readFileSync(join(s.sage("logbook"), "reports", "R1.md"), "utf8");
+  s.sage("run", "done", "R2", "--status", "done", "--tokens", "1");
+  const text = report("ready").replace(/\nBRANCH none$/, "");
+  const stop = (active, message) => s.send({ hook_event_name: "SubagentStop", ...LEAD, cwd: s.dir, stop_hook_active: active, last_assistant_message: message });
+  assert.equal(stop(false, text)?.decision, "block", "the report check names the missing field");
+  assert.equal(stop(true, text), undefined, "the lead's turn ends");
+  assert.equal(kept(), text, "the malformed report is kept for R1");
+  assert.equal(stop(false, report("ready")), undefined, "the lead ends with its full report");
+  assert.equal(kept(), report("ready"), "the full report replaces it");
+});
+
+for (const seen of [true, false]) test(`T1145: after an app restart, a lead started with no name field holds its slot until the sage ends its lead run; the refusal names that recovery, and the fresh lead starts with no wait (the sage's run done ${seen ? "seen by the hook" : "not seen by the hook"})`, () => {
+  const s = linkedSession();
+  s.sage("config", "max_agents=20", "cap_total=30");
+  s.send(prompt("sage mode"));
+  s.sage("init");
+  s.sage("task", "add", "--priority", "P2", "--title", "mine", "--size", "small");
+  s.sage("run", "add", "T1", "--role", "lead");
+  const start = (id) => s.send(tool("Agent", { subagent_type: "sage:lead", prompt: BRIEF, description: "lead-T1 the task", run_in_background: true }, { tool_use_id: id, cwd: s.dir }));
+  assert.equal(start("lead-call"), undefined, "the lead starts with no name field, in the background");
+  s.send(tool("Read", { file_path: join(s.dir, "a.txt") }, { cwd: s.dir, ...LEAD }));
+  s.send(resultOf("lead-call", "lead-a"));
+  const dir = join(s.vars.SAGE_HOOKS_STATE, "slots"), leads = () => readdirSync(dir).map((slot) => readdirSync(join(dir, slot))).filter((marks) => marks.includes("role-sage_lead"));
+  assert.equal(leads().length, 1);
+  for (const m of ["role-sage_lead", "run-R1", "task-T1", "possible-launch", "ok"]) assert.ok(leads()[0].includes(m), `the lead's slot has ${m}`);
+  for (const m of ["session-", "bound-"]) assert.ok(leads()[0].some((x) => x.startsWith(m)), `the lead's slot has ${m}`);
+  s.send({ hook_event_name: "SessionStart", source: "resume", cwd: s.dir });
+  assert.match(denied(start("while-R1-runs")) ?? "", /^sage: a lead named lead-T1 already holds a slot, in this session or for this logbook \(F-T273-5, F-T273-16\)\. Wait for it to end, or stop it with TaskStop \(by its agent id, from its start's result: it started with no name field, so a stop by its name is refused\), before you start a fresh lead\. If its agent no longer runs \(after a restart, TaskStop finds no task\), run each of these as a command of its own: node \S+ run done R1 --status failed --why "its session ended", then node \S+ run add T1 --role lead, then start the lead again\.$/, "after the restart, the refusal names the recovery that works with no TaskStop");
+  if (seen) chiefRunDone(s, "R1");
+  else s.sage("run", "done", "R1", "--status", "failed", "--why", "its session ended");
+  const fresh = s.sage("run", "add", "T1", "--role", "lead").split(" ")[0];
+  assert.equal(denied(start("fresh-call")), undefined, "the fresh lead starts with no TaskStop and no wait");
+  s.send(resultOf("fresh-call", "lead-b"));
+  assert.deepEqual(leads().map((marks) => marks.includes(`run-${fresh}`)), [true], "only the fresh lead's slot is left");
+  assert.equal(denied(stateRun(s, "round T1", { agent_id: "lead-b", agent_type: "sage:lead" })), undefined, `the fresh lead writes for ${fresh}`);
+  assert.match(denied(stateRun(s, "round T1")) ?? "", /this lead holds no bound lead slot/, "the old lead writes nothing");
 });
 
 function helperTranscript(s, child, prompt) {
