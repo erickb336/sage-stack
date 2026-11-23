@@ -1262,7 +1262,7 @@ test("T1147 F-T1147-1: in an archived project, finding_move to and a yes to the 
 
   const bar = "sage: this project is archived, so it takes no new task: an archived project starts no agent and merges nothing. If this is new work that the owner asked for in this chat after the archive, restore the project first with sage config archived=no, tell the owner in one line that you restored it, then give the same command again. A lead does not restore a project: report blocked to your chief. Nothing changed.";
   assert.equal((await both("finding_move", { task: "T1", key: "F-T1-1", to: "Export faster" }, ["finding", "move", "T1", "F-T1-1", "--to", "Export faster"])).error, bar);
-  assert.equal((await both("gate_answer", { gate: "G1", option: 1 }, ["gate", "answer", "G1", "--option", "1"])).error, bar.replace("no new task", "no answer"), "T1156 F-T1156-40: a gate answer is refused before it reads the gate");
+  assert.equal((await both("gate_answer", { gate: "G1", option: 1 }, ["gate", "answer", "G1", "--option", "1"])).error, "sage: This project is archived, so it takes no answer and no other owner write. Restore it first, on the board or with sage config archived=no in its own chat when the owner asks for it, then try again. Nothing changed.", "T1156 F-T1156-40, T1219: a gate answer is refused before it reads the gate, with the one text of an owner write");
   assert.equal((await both("task_add", { title: "later", size: "small", priority: "P2" }, ["task", "add", "--title", "later", "--size", "small", "--priority", "P2"])).error, bar, "task add gives the same refusal");
 
   await both("config", { settings: { archived: "no" } }, ["config", "archived=no"]);
