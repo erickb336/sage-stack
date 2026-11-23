@@ -4100,7 +4100,7 @@ test("T181: partial higher slots and a held mutation lock cannot admit excess ch
 });
 
 const childRunsSlotTransactions = (slots, inside, count = 1) => `
-  import { writeFileSync, unlinkSync, appendFileSync } from "node:fs";
+  import { existsSync, writeFileSync, unlinkSync, appendFileSync } from "node:fs";
   const { slotsFor } = await import(${JSON.stringify(pathToFileURL(HOOK).href)});
   const slots = slotsFor(${JSON.stringify(slots)}, "lock-child");
   const marker = ${JSON.stringify(join(slots, "..", "inside"))};
@@ -4138,13 +4138,20 @@ test("Stale slot lock: an empty lock folder of an earlier sage version is taken 
 test("Stale slot lock: a live holder keeps the lock, and a holder that outlives any hook is taken over", async () => {
   const s = nestedSession(), state = s.vars.SAGE_HOOKS_STATE, slots = join(state, "slots");
   assert.equal(s.send(nested("sage:qa", "before-hold")), undefined, "the test's lead is in place before the holder starts");
-  const holder = spawn(process.execPath, ["--input-type=module", "-e", childRunsSlotTransactions(slots, `() => { writeFileSync(${JSON.stringify(join(state, "holding"))}, ""); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 6000); }`)], { stdio: "ignore" });
+  const holding = join(state, "holding"), release = join(state, "release");
+  const waitsOf25msThatOnlyStopABrokenTestFromHangingCI = 4800;
+  const holdUntilReleased = `() => { writeFileSync(${JSON.stringify(holding)}, ""); for (let wait = 0; wait < ${waitsOf25msThatOnlyStopABrokenTestFromHangingCI} && !existsSync(${JSON.stringify(release)}); wait++) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25); }`;
+  const holder = spawn(process.execPath, ["--input-type=module", "-e", childRunsSlotTransactions(slots, holdUntilReleased)], { stdio: "ignore" });
   const exited = new Promise(done => holder.on("exit", done));
-  while (!existsSync(join(state, "holding"))) await new Promise(tick => setTimeout(tick, 20));
-  const refusal = denied(s.send(nested("sage:qa", "while-held"))) ?? "";
-  assert.match(refusal, /agent-slot lock is busy/, "a live holder's lock is never taken over");
-  assert.match(refusal, new RegExp(`pid ${holder.pid} has held`), "the refusal names the holder");
-  assert.ok(existsSync(lockFolder(state)), "the live holder still holds its lock");
+  try {
+    while (!existsSync(holding)) await new Promise(tick => setTimeout(tick, 20));
+    const refusal = denied(s.send(nested("sage:qa", "while-held"))) ?? "";
+    assert.match(refusal, /agent-slot lock is busy/, "a live holder's lock is never taken over");
+    assert.match(refusal, new RegExp(`pid ${holder.pid} has held`), "the refusal names the holder");
+    assert.ok(existsSync(lockFolder(state)), "the live holder still holds its lock");
+  } finally {
+    writeFileSync(release, "");
+  }
   await exited;
   assert.equal(readFileSync(join(state, "inside.done"), "utf8"), "x", "the live holder finished its transaction");
   assert.equal(s.send(nested("sage:qa", "after-release")), undefined);
