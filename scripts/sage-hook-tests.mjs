@@ -7052,18 +7052,39 @@ test("T1133: a lead that ends its turn with no report, to wait for its backgroun
   assert.match(nudge.reason, /^sage: your report has no STATUS.*A lead that waits for its own background work may end its turn again/, "the report check tells a waiting lead that it may end its turn");
 });
 
-test("T1133: a lead that ends its turn with no report and never wakes frees its slot by the sage's stop, or by its lease once its lead run ends", () => {
-  for (const how of ["stop", "lease"]) {
-    const s = leadSession();
+test("T1133 T1145: a lead keeps its slot through each turn end with no report, and the sage's run done of its lead run frees its slot and its helpers' slots at once", () => {
+  for (const paused of [true, false]) {
+    const s = leadSession(), how = paused ? "a paused lead" : "a lead with a helper";
     s.sage("run", "done", "R2", "--status", "done", "--tokens", "1");
-    assert.equal(pause(s), undefined, how);
-    s.sage("run", "done", "R1", "--status", "failed", "--why", "its agent stopped");
-    if (how === "stop") s.send(tool("TaskStop", { task_id: "lead-T1" }));
-    else ageSlots(s, 61);
-    s.sage("run", "add", "T1", "--role", "lead");
-    assert.equal(denied(s.send(leadSpawn("fresh-lead", 1, { cwd: s.dir }))), undefined, `${how}: a fresh lead of T1 starts`);
-    assert.match(denied(stateRun(s, "round T1")) ?? "", /this lead holds no bound lead slot/, `${how}: the old lead writes nothing`);
+    if (paused) {
+      assert.equal(pause(s, false)?.decision, "block", "the first stop with no report gets the report check");
+      for (const [turn, write] of [[1, "round T1"], [2, "run add T1 --role qa"]]) {
+        assert.equal(pause(s), undefined, `turn end ${turn} with no report`);
+        assert.equal(denied(stateRun(s, write)), undefined, `after turn end ${turn}, the paused lead still holds its slot and writes`);
+      }
+    } else {
+      const kid = leadAdd(s, "qa");
+      assert.equal(denied(s.send(tool("Agent", { subagent_type: "sage:qa", prompt: BRIEF, name: kid }, { tool_use_id: "kid", ...LEAD }))), undefined, "the helper starts");
+      s.send(resultOf("kid", "kid-a", LEAD));
+      assert.equal(helperSlots(s).length, 1, "the helper holds a slot");
+    }
+    chiefRunDone(s, "R1");
+    assert.match(denied(stateRun(s, "round T1")) ?? "", /this lead holds no bound lead slot/, `${how}: the sage's run done frees the lead's slot at once, with no TaskStop and no lease`);
+    assert.deepEqual(helperSlots(s), [], `${how}: no helper of the ended lead run holds a slot`);
+    assert.match(denied(s.send(tool("SendMessage", { to: "lead-T1", message: "a note" }, { cwd: s.dir }))) ?? "", /has ended or holds no lead slot/, `${how}: a message to the ended lead is refused`);
   }
+});
+
+test("T1145: a lead's final report with a missing field keeps its text for its run, as a full report does", () => {
+  const s = leadSession(), kept = () => readFileSync(join(s.sage("logbook"), "reports", "R1.md"), "utf8");
+  s.sage("run", "done", "R2", "--status", "done", "--tokens", "1");
+  const text = report("ready").replace(/\nBRANCH none$/, "");
+  const stop = (active, message) => s.send({ hook_event_name: "SubagentStop", ...LEAD, cwd: s.dir, stop_hook_active: active, last_assistant_message: message });
+  assert.equal(stop(false, text)?.decision, "block", "the report check names the missing field");
+  assert.equal(stop(true, text), undefined, "the lead's turn ends");
+  assert.equal(kept(), text, "the malformed report is kept for R1");
+  assert.equal(stop(false, report("ready")), undefined, "the lead ends with its full report");
+  assert.equal(kept(), report("ready"), "the full report replaces it");
 });
 
 function helperTranscript(s, child, prompt) {

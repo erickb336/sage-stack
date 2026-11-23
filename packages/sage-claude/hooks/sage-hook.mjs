@@ -217,8 +217,8 @@ function handleEvent(input, state, slots) {
     const gates = pickupNote(input, state) || (!input.stop_hook_active && gatesWaitNote(input, state));
     if (gates) return { decision: "block", reason: gates };
   }
-  if (event === "SubagentStop" && input.agent_type === "sage:lead" && typeof input.last_assistant_message === "string" && core.missingFields(REPORT_FIELDS, input.last_assistant_message).length) return undefined;
   if (event === "SubagentStop" && ours) keepRunText(input.cwd, "reports", () => slots.runOf(input.agent_id)?.run, input.last_assistant_message);
+  if (event === "SubagentStop" && input.agent_type === "sage:lead" && typeof input.last_assistant_message === "string" && core.missingFields(REPORT_FIELDS, input.last_assistant_message).length) return undefined;
   if (event === "SubagentStop") {
     const helper = slots.helperFor(input.agent_id), head = helper && headOf(helper.folder, helper.task);
     if (!helper || REVIEWERS.includes(helper.role)) {
@@ -720,10 +720,12 @@ function chiefEnded(input, slots) {
     if (!literal || words[0] !== "run" || !words.every(plain)) return;
     const { pos, opt } = optionsOf(words.slice(1));
     if (pos[0] !== "done" || !/^R[1-9]\d*$/.test(pos[1] ?? "")) return;
-    const view = logbookOf(opt.project ?? env.SAGE_PROJECT ?? input.cwd), run = view.row(pos[1]);
-    if (!run || run.status === "running" || !TEAM.includes(run.role)) return;
+    const view = logbookOf(opt.project ?? env.SAGE_PROJECT ?? input.cwd), run = view.row(pos[1]), logbook = digest(view.dir);
+    if (!run || run.status === "running") return;
+    if (run.role === "lead") return void slots.prune([leadKey({ logbook, run: run.id })], run.task);
+    if (!TEAM.includes(run.role)) return;
     const leads = [view.leadRun(run.task), ...view.endedLeadRuns().filter((r) => r.task === run.task)].filter(Boolean);
-    slots.endHelpers(leads.map((lead) => helperOf({ logbook: digest(view.dir), run: lead.id }, run.id)));
+    slots.endHelpers(leads.map((lead) => helperOf({ logbook, run: lead.id }, run.id)));
   } catch {}
 }
 function reportProblem(input, text) {
