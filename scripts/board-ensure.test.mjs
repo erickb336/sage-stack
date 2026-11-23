@@ -133,6 +133,38 @@ test("T216: ensure sets the board up, starts one detached server, and leaves a r
   } finally { await stop(dir, port); }
 });
 
+const UNREACHABLE = `--import=${JSON.stringify(fileURLToPath(new URL("./fixtures/unreachable-board.mjs", import.meta.url)))}`;
+
+test("T1208: when this shell cannot reach 127.0.0.1 but the board's log has its ready line from this start, ensure says that the board started, gives its address, and exits with its own code", async (t) => {
+  const { dir, env } = scratch(t);
+  const port = await boardCommandPort();
+  try {
+    const run = await board(CLI, ["--ensure", "--port", String(port)], { ...env, NODE_OPTIONS: UNREACHABLE });
+    assert.equal(run.stderr, `sage board: the board started, but this shell cannot reach 127.0.0.1 (for example a sandbox); open http://127.0.0.1:${port}/ in a browser.\n`);
+    assert.equal(run.status, 3, "not 1, the code of a real failure");
+    assert.equal(run.stdout, "");
+    const page = await get(port);
+    assert.equal(page.status, 302, "the board runs: a shell that can reach it gets its answer");
+    assert.match(page.board, /^id=[a-f0-9]{16}; pid=\d+; started=\d+$/);
+  } finally { await stop(dir, port); }
+});
+
+test("T1208: when this shell cannot reach 127.0.0.1 and the server does not start, ensure keeps its failure text and exit code 1, also when the log has a ready line from an earlier start", async (t) => {
+  const { dir, env, config } = scratch(t);
+  const port = await boardCommandPort();
+  createBoardConfig(config, { sources: [{ id: "sample", path: join(dir, "logbooks") }], port });
+  const log = join(dirname(config), "board.log");
+  writeFileSync(log, `Sage board: http://127.0.0.1:${port}/ · only on this Mac.\n`, { mode: 0o600 });
+  const holder = createServer();
+  await new Promise((done) => holder.listen(port, "127.0.0.1", done));
+  try {
+    const run = await board(CLI, ["--ensure"], { ...env, NODE_OPTIONS: UNREACHABLE });
+    assert.equal(run.stderr, `sage board: the board server did not start. See its log: ${log}\n`);
+    assert.equal(run.status, 1);
+    assert.match(readFileSync(log, "utf8"), new RegExp(`\\nsage board: Board port ${port} is already in use\\.`), "this start failed: another program holds the port");
+  } finally { await new Promise((done) => holder.close(done)); await stop(dir, port); }
+});
+
 const pairWith = (port, link) => new Promise((done, fail) => {
   const req = request({ host: "127.0.0.1", port, path: "/api/pair", method: "POST", agent: false, headers: { Host: `127.0.0.1:${port}`, Origin: `http://127.0.0.1:${port}`, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" } }, (response) => {
     let body = ""; response.setEncoding("utf8"); response.on("data", (chunk) => { body += chunk; });
