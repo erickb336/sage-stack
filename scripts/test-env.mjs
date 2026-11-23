@@ -6,6 +6,7 @@ import { join } from "node:path";
 process.env.SAGE_SHARED_HOME = join(realpathSync(tmpdir()), `sage-test-shared-${process.pid}`);
 process.on("exit", () => rmSync(process.env.SAGE_SHARED_HOME, { recursive: true, force: true }));
 process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+process.env.PATH = `${join(import.meta.dirname, "fixtures", "fake-gh")}:${process.env.PATH}`;
 process.env.GIT_CONFIG_NOSYSTEM = "1";
 
 process.env.SAGE_TEST_MACHINE_ID = "test-machine";

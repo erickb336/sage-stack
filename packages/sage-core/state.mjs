@@ -11,7 +11,7 @@ import { boardView, sessionRoots, sessionSources } from "./board-view.mjs";
 import { projectName as shownName } from "./board-model.mjs";
 import { ADMIT_LEASE_MS, KEPT_FILE_MAX, KEPT_TEXT_MAX, LAPSED, agentCaps, capNames, projectLimits, queueOrder, slug } from "./logbook-fields.mjs";
 import { logbookIdentity } from "./board-reader.mjs";
-import { PR, USERS_FOLDER, pullRequestBody, pullRequestHead, usersPart } from "./pull-request.mjs";
+import { PR, USERS_FOLDER, mainOverlap, pullRequestBody, pullRequestHead, usersPart } from "./pull-request.mjs";
 import { REPORT_FIELDS } from "./report.mjs";
 import { cleanReport, fieldsOf, proofResults, readReport } from "./report-reader.mjs";
 import { ROLES } from "./roles.mjs";
@@ -2200,7 +2200,9 @@ function boardLandingCheck(sha, env, logbook, pr, checkout) {
 }
 
 function assessMerge(sha, env, options, logbook = null) {
-  const skipped = [], verdict = judgeMerge(sha, env, options, logbook, skipped);
+  const skipped = [], judged = judgeMerge(sha, env, options, logbook, skipped);
+  const overlap = judged.ok && options.pr && !options.readOnly && options.project !== undefined && mainOverlap(options.pr, String(sha).toLowerCase(), options.project, env);
+  const verdict = overlap ? { ok: false, reason: overlap } : judged;
   return skipped.length ? { ...verdict, reason: `${verdict.reason} Skipped ${skipped.map(visible).join(", ")}: a saved change is incomplete there, and it has no row for this commit. Any write there finishes it or says what to do.` } : verdict;
 }
 

@@ -337,7 +337,7 @@ function handleEvent(input, state, slots) {
     const run = view.leadRun(task);
     if (!run) return deny(event, `${task} has no running lead run in the logbook of ${project}. Record it first, as a command of its own: ${stateCommand(`run add ${task} --role lead`)}. A lead starts only from a session opened in the project's folder or one of its worktrees, so that the lead's logbook is the one that the session uses (F-T284-7).`);
     leadMark = { task, logbook: digest(view.dir), run: run.id, folder: project, named: Boolean(String(ti.name ?? "").trim()) };
-    slots.prune(view.endedLeadRuns().map((r) => digest(`${leadMark.logbook}:${r.id}`)));
+    slots.prune(view.endedLeadRuns().map((r) => digest(`${leadMark.logbook}:${r.id}`)), task);
   }
   if (AGENT_TOOLS.test(tool) && OURS.test(spawned)) {
     const missing = core.missingFields(BRIEF_FIELDS, ti.prompt);
@@ -1274,11 +1274,6 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
       const sameName = slot => mark(slot, "task-") === lead.task && mark(slot, "role-") === "sage_lead";
       if (role === "sage:lead" && lead) {
         const mine = new Set(ofSession());
-        for (const slot of list().filter(slot => sameName(slot) && mark(slot, "logbook-") === lead.logbook && !mine.has(slot) && mark(slot, "run-") !== lead.run)) {
-          const bound = mark(slot, "bound-");
-          if (bound) note(`ended-${bound}`, "", join(dir, "..", "slot-events", mark(slot, "scope-") ?? scope));
-          free(slot);
-        }
         const held = list().find(slot => sameName(slot) && mark(slot, "logbook-") === lead.logbook) ?? [...mine].find(sameName);
         if (held) return { refused: "task", elsewhere: !mine.has(held), run: mark(held, "run-"), ...counts(project) };
       }
@@ -1400,11 +1395,19 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
       if (/^lead-t[1-9]\d*$/.test(name)) return !ofSession().some((slot) => live(slot) && mark(slot, "task-") === `T${name.slice("lead-t".length)}`);
       return Boolean(name) && noted(`lead-${hash(name)}`) && !ofSession().some((slot) => live(slot) && mark(slot, "folded-") === hash(name));
     },
-    prune: (leads) => {
+    prune: transaction((leads, task) => {
+      const ended = (slot) => mark(slot, "role-") === "sage_lead" && mark(slot, "task-") === task && leads.includes(leadKey({ logbook: mark(slot, "logbook-"), run: mark(slot, "run-") }));
+      const gone = new Set(list().filter(ended).map((slot) => mark(slot, "bound-")).filter(Boolean));
+      for (const slot of list()) {
+        const key = mark(slot, "helper-");
+        if (!ended(slot) && !gone.has(mark(slot, "parent-")) && !(key && mark(slot, "task-") === task && leads.some((lead) => key.startsWith(`${lead}.`)))) continue;
+        if (mark(slot, "bound-")) note(`ended-${mark(slot, "bound-")}`, "", join(dir, "..", "slot-events", mark(slot, "scope-") ?? scope));
+        free(slot);
+      }
       let names = [];
       try { names = readdirSync(helpers); } catch (error) { if (error.code !== "ENOENT") throw error; }
       for (const name of names) if (leads.some((lead) => name.slice(name.indexOf("-") + 1).startsWith(`${lead}.`))) rmSync(join(helpers, name), { force: true });
-    },
+    }),
     stops: (prefix) => {
       let names = [];
       try { names = readdirSync(helpers); } catch (error) { if (error.code !== "ENOENT") throw error; }

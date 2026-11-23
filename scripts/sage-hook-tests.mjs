@@ -714,6 +714,7 @@ const FAKE_GH = (() => {
     `#!/usr/bin/env node
 const fs = require("fs");
 const args = process.argv.slice(2);
+if (args[0] === "api" && String(args[1]).startsWith("repos/{owner}/{repo}/")) process.exit(require("child_process").spawnSync(${JSON.stringify(fileURLToPath(new URL("fixtures/fake-gh/gh", import.meta.url)))}, args, { stdio: "inherit" }).status);
 if (args[0] === "pr" && args[1] === "view") {
   const head = process.env.FAKE_PR_HEAD ?? "claude/t1";
   if (head === "fail") process.exit(1);
@@ -6468,6 +6469,25 @@ test("T482 R1762-2: within the lease, the sage's end of the old lead run and a n
   assert.match(denied(s.send(tool("Agent", { subagent_type: "sage:qa", prompt: BRIEF, name: "R4" }, { tool_use_id: "late-child", ...LEAD }))) ?? "", /^sage: this lead holds no bound lead slot, so it starts no agent\./, "the old lead starts no helper");
 });
 
+for (const where of ["the same session (a restart)", "another session"]) test(`T1202: once the logbook ends a lead run, a fresh lead of its task starts at once in ${where}, and the old lead's slot and its helpers' slots are free`, () => {
+  const s = leadSession(), other = where === "another session" ? { session_id: "s2" } : {};
+  if (other.session_id) s.send({ ...prompt("sage mode"), ...other });
+  const dir = join(s.vars.SAGE_HOOKS_STATE, "slots"), h = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  const team = () => readdirSync(dir).filter((slot) => readdirSync(join(dir, slot)).some((m) => m === `bound-${h("lead-a")}` || m === `parent-${h("lead-a")}`));
+  const kid = leadAdd(s, "qa");
+  assert.equal(s.send(tool("Agent", { subagent_type: "sage:qa", prompt: BRIEF, name: kid }, { tool_use_id: "kid", ...LEAD })), undefined, `${where}: the helper starts`);
+  s.send(resultOf("kid", "kid-a", LEAD));
+  assert.equal(team().length, 2, `${where}: the lead and its helper hold slots`);
+  assert.match(denied(s.send(leadSpawn("live", 1, { cwd: s.dir, ...other }))) ?? "", /holds a slot/, `${where}: R1 still runs, so a second lead of T1 is refused`);
+  s.sage("run", "done", kid, "--status", "failed", "--why", "its session ended");
+  s.sage("run", "done", "R1", "--status", "failed", "--why", "its session ended");
+  s.sage("run", "add", "T1", "--role", "lead");
+  assert.equal(denied(s.send(leadSpawn("fresh", 1, { cwd: s.dir, ...other }))), undefined, `${where}: the fresh lead starts with no TaskStop and no wait`);
+  assert.deepEqual(team(), [], `${where}: the ended lead's slot and its helper's slot are free`);
+  assert.match(denied(stateRun(s, "round T1")) ?? "", /this lead holds no bound lead slot/, `${where}: the old lead writes nothing`);
+  assert.match(denied(s.send(nested("sage:qa", "late"))) ?? "", /this lead holds no bound lead slot, so it starts no agent/, `${where}: the old lead starts no helper`);
+});
+
 test("T482 R1763-3: the sage's message to an ended lead is refused for its agent id in any case and with spaces, as the slots fold it", () => {
   const s = leadSession();
   const message = (to) => denied(s.send(tool("SendMessage", { to, message: "a note" }, { cwd: s.dir })));
@@ -6528,7 +6548,7 @@ function chiefRunDone(s, run, extra = {}, why) {
   s.send({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: `node ${TOOL} run done ${run} --status failed --why${why ?? " stopped"} --project ${realpathSync(s.dir)}` }, tool_response: { stdout: "", stderr: "", interrupted: false }, cwd: s.dir, ...extra });
 }
 
-test("T482 R1836-1 T504: after a restart, an old helper's slot frees by the stale slot rule after the sage's run done, also after the fresh lead's start", () => {
+test("T482 R1836-1 T504 T1202: after a restart, the fresh lead's start frees the old helpers' slots once the sage ended the old lead run, before or after their own run done", () => {
   for (const helpersFirst of [false, true]) {
     const s = leadSession();
     s.sage("run", "done", "R2", "--status", "done", "--tokens", "1");
@@ -6548,10 +6568,9 @@ test("T482 R1836-1 T504: after a restart, an old helper's slot frees by the stal
     assert.equal(denied(s.send(leadSpawn("fresh-lead", 1, { cwd: s.dir, ...s2 }))), undefined, "the fresh lead starts");
     s.send(resultOf("fresh-lead", "lead-b", s2));
     if (!helpersFirst) for (const run of old) chiefRunDone(s, run, s2);
-    assert.equal(helperSlots(s).length, 2, `variant ${helpersFirst ? "B" : "A"}: the sage's run done frees no slot`);
-    ageSlots(s, 61, helperSlots(s));
+    assert.deepEqual(helperSlots(s), [], `variant ${helpersFirst ? "B" : "A"}: the ended lead run's helpers hold no slot`);
     const run = leadAdd(s, "qa", fresh);
-    assert.equal(denied(s.send(tool("Agent", { subagent_type: "sage:qa", prompt: BRIEF, name: run }, { tool_use_id: "fresh-helper", cwd: s.dir, ...fresh }))), undefined, `variant ${helpersFirst ? "B" : "A"}: the fresh lead starts a helper after the lease`);
+    assert.equal(denied(s.send(tool("Agent", { subagent_type: "sage:qa", prompt: BRIEF, name: run }, { tool_use_id: "fresh-helper", cwd: s.dir, ...fresh }))), undefined, `variant ${helpersFirst ? "B" : "A"}: the fresh lead starts a helper at once, under the cap of 3`);
   }
 });
 
