@@ -2,7 +2,7 @@ import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -51,19 +51,54 @@ test("T1222: a design gate answered Approve copies the design with a manifest an
   assert.equal(w.ask(), "G1 open · Approve design v1 of the receipt mail?");
   assert.deepEqual([w.gate("G1").options, w.gate("G1").kind], ["Approve|Approve with your words|New version", "design"]);
   const said = w.owner("gate", "answer", "G1", "--option", "1");
-  assert.equal(said, "G1 answered · Approve · T1 awaiting-you → briefed · copied 2 pages to designs/T1/G1");
+  assert.equal(said, "G1 answered · Approve · T1 awaiting-you → briefed · copied 2 pages to designs/T1/G1 · left out 1: notes.json (not a page)");
   assert.equal(w.task().state, "briefed");
   const manifest = JSON.parse(readFileSync(join(w.copy("G1"), "manifest.json"), "utf8"));
   assert.deepEqual({ ...manifest, at: "" }, { gate: "G1", task: "T1", design: "designs/final", answer: "Approve", at: "",
-    files: Object.entries(w.files).sort().map(([path, text]) => ({ path, size: Buffer.byteLength(text), sha256: sha(text) })) });
+    files: Object.entries(w.files).sort().map(([path, text]) => ({ path, size: Buffer.byteLength(text), sha256: sha(text) })), leftOut: [{ path: "notes.json", why: "not a page" }] });
   assert.match(manifest.at, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
   for (const [path, text] of Object.entries(w.files)) assert.equal(readFileSync(join(w.copy("G1"), path), "utf8"), text);
-  assert.equal(existsSync(join(w.copy("G1"), "notes.json")), false, "only pages are copied");
+  assert.equal(existsSync(join(w.copy("G1"), "notes.json")), false, "only pages are copied, and the outcome and the manifest name the file left out");
   assert.deepEqual(w.decisions().slice(-2).map((d) => [d.decision, d.why]), [
     ["Approve design v1 of the receipt mail? → Approve", "the user's answer"],
-    ["G1 design: T1 awaiting-you → briefed · copied 2 pages to designs/T1/G1", "the user's answer to a design question"]]);
+    ["G1 design: T1 awaiting-you → briefed · copied 2 pages to designs/T1/G1 · left out 1: notes.json (not a page)", "the user's answer to a design question"]]);
   rmSync(join(w.pages, "designs"), { recursive: true });
   assert.equal(readFileSync(join(w.copy("G1"), "index.html"), "utf8"), w.files["index.html"], "a cleanup of the pages folder keeps the approved copy");
+});
+
+test("T1222 F-T1222-5, -8, -9: the copy names each file that it leaves out, in its outcome and in its manifest: a file that is not a page, a folder too deep for a page, and a link; it follows no link", (t) => {
+  const w = world(t);
+  awaiting(w);
+  const final = join(w.pages, "designs", "final");
+  for (const name of ["app.js", "LOGO.PNG", "Screen Shot.png"]) writeFileSync(join(final, name), "sample");
+  mkdirSync(join(final, "shots", "deep"));
+  writeFileSync(join(final, "shots", "deep", "far.html"), "<p>past the depth limit</p>");
+  mkdirSync(join(w.pages, "secret"));
+  writeFileSync(join(w.pages, "secret", "secret.md"), "# Not part of the design\n");
+  symlinkSync(join(w.pages, "secret"), join(final, "link"));
+  symlinkSync(join(final, "index.html"), join(final, "same.html"));
+  assert.equal(w.ask(), "G1 open · Approve design v1 of the receipt mail?", "a link to a folder does not stop the question");
+  const leftOut = [["LOGO.PNG", "not a page"], ["Screen Shot.png", "not a page"], ["app.js", "not a page"], ["link", "a link"], ["notes.json", "not a page"], ["same.html", "a link"], ["shots/deep/", "too deep"]];
+  const outcome = "T1 awaiting-you → briefed · copied 2 pages to designs/T1/G1 · left out 7: LOGO.PNG (not a page), Screen Shot.png (not a page), app.js (not a page), link (a link), notes.json (not a page), and 2 more in manifest.json";
+  assert.equal(w.owner("gate", "answer", "G1", "--option", "1"), `G1 answered · Approve · ${outcome}`);
+  assert.equal(w.decisions().at(-1).decision, `G1 design: ${outcome}`);
+  const manifest = JSON.parse(readFileSync(join(w.copy("G1"), "manifest.json"), "utf8"));
+  assert.deepEqual(manifest.leftOut, leftOut.map(([path, why]) => ({ path, why })), "the manifest names every file left out");
+  assert.deepEqual(manifest.files.map((file) => file.path), ["index.html", "shots/wide.png"]);
+  assert.deepEqual(readdirSync(w.copy("G1")).sort(), ["index.html", "manifest.json", "shots"], "nothing behind a link is copied");
+  assert.deepEqual(readdirSync(join(w.copy("G1"), "shots")), ["wide.png"]);
+});
+
+test("T1222 F-T1222-8: the walk of a design folder stops at the page limit, before it reads the rest of the folder", (t) => {
+  const w = world(t);
+  const big = join(w.pages, "designs", "big"), rest = join(big, "zz-rest");
+  mkdirSync(rest, { recursive: true });
+  for (let i = 1; i <= 201; i++) writeFileSync(join(big, `p${String(i).padStart(3, "0")}.md`), "sample");
+  chmodSync(rest, 0o000);
+  try {
+    assert.match(w.refused(() => w.as("gate", "add", "T1", "--design", "designs/big", "--question", "q?", "--recommend", "1", "--message", pageQuestion("T1", "designs/final/index.html"))),
+      /^--design designs\/big cannot be copied when the owner approves it: designs\/big holds more than 200 pages, over the limit\. /);
+  } finally { chmodSync(rest, 0o700); }
 });
 
 test("T1222: Approve with your words stores 'Approve with your words: <words>', copies, and moves the task to briefed", (t) => {
@@ -71,7 +106,7 @@ test("T1222: Approve with your words stores 'Approve with your words: <words>', 
   awaiting(w);
   w.ask();
   assert.equal(w.owner("gate", "answer", "G1", "--option", "2", "--other-hex", hex("Use the shop's logo in the header.")),
-    "G1 answered · Approve with your words: Use the shop's logo in the header. · T1 awaiting-you → briefed · copied 2 pages to designs/T1/G1");
+    "G1 answered · Approve with your words: Use the shop's logo in the header. · T1 awaiting-you → briefed · copied 2 pages to designs/T1/G1 · left out 1: notes.json (not a page)");
   assert.equal(w.gate("G1").answer, "Approve with your words: Use the shop's logo in the header.");
   assert.equal(JSON.parse(readFileSync(join(w.copy("G1"), "manifest.json"), "utf8")).answer, "Approve with your words: Use the shop's logo in the header.");
   assert.equal(w.task().state, "briefed");
@@ -111,7 +146,7 @@ test("T1222: an oversize or unreadable page gives 'not copied' with the reason, 
 
   const v = world(t);
   awaiting(v);
-  v.ask();
+  v.ask("designs/final/index.html");
   rmSync(join(v.pages, "designs", "final", "index.html"));
   symlinkSync(join(v.base, "elsewhere.html"), join(v.pages, "designs", "final", "index.html"));
   writeFileSync(join(v.base, "elsewhere.html"), "<p>not in the pages folder</p>");
@@ -126,7 +161,7 @@ test("T1222: a design gate's board answer is copied at the chief's pickup, and a
   assert.match(w.owner("gate", "answer", "G1", "--option", "2", "--other-hex", hex("Shorter subject line."), "--via", "board"), /^G1 recorded · Approve with your words: Shorter subject line\. · from the board/);
   assert.equal(existsSync(join(w.dir, "designs")), false, "a board answer only records: nothing is copied before the pickup");
   const [line] = claude.pickupAnswers(w.project, "s-a", w.env);
-  assert.match(line, /^G1 \(T1\): the owner answered "Approve with your words: Shorter subject line\." on the board at .* G1 answered · Approve with your words: Shorter subject line\. · T1 awaiting-you → briefed · copied 2 pages to designs\/T1\/G1$/);
+  assert.match(line, /^G1 \(T1\): the owner answered "Approve with your words: Shorter subject line\." on the board at .* G1 answered · Approve with your words: Shorter subject line\. · T1 awaiting-you → briefed · copied 2 pages to designs\/T1\/G1 · left out 1: notes\.json \(not a page\)$/);
 
   const v = world(t);
   awaiting(v);
@@ -163,7 +198,7 @@ test("T1222: a design task moves from awaiting-you to briefed only when its late
 
   w.as("task", "T1", "set", "state=designing");
   w.ask();
-  assert.equal(w.owner("gate", "answer", "G2", "--option", "1"), "G2 answered · Approve · T1 stays designing · copied 2 pages to designs/T1/G2");
+  assert.equal(w.owner("gate", "answer", "G2", "--option", "1"), "G2 answered · Approve · T1 stays designing · copied 2 pages to designs/T1/G2 · left out 1: notes.json (not a page)");
   awaiting(w);
   w.ask("designs/final", "Approve design v2?");
   w.owner("gate", "answer", "G3", "--option", "3");

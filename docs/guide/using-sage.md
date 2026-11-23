@@ -151,6 +151,7 @@ When a design waits for your approval, the chief asks a design question. It has 
 - **Your words.** On the board, pick choice 2 and type your words (at most 1,000 characters) under it. In the chat, pick choice 2, and the chief asks you for the words.
 - **The copy.** At the chief's pickup of an approval, sage copies the design's pages to `designs/<task>/<question>/` in the logbook, with a manifest: the answer, the time, and each file's size and sha256. A cleanup of the pages folder keeps it.
 - **Copy limits.** Plain files only, with no link, at most 200 pages and 30 MiB.
+- **Files left out.** sage copies only pages, at most 4 levels down in the pages folder, and it follows no link. The chief's output and the manifest name each file that it leaves out, and why: not a page, a link, or too deep.
 - **Not copied.** When the design is gone or too big, your answer still counts. The chief's output and the logbook's decisions say "not copied" and why.
 - **No other way to the build.** A design task moves from waiting for you to the build only on an approval of its latest design question.
 
