@@ -13,7 +13,7 @@ import { startLink } from "../plugins/sage/board/access.mjs";
 import { createBoardServer, loadBoardApp, withoutPaths } from "../plugins/sage/board/server.mjs";
 import { writeInWorker } from "../plugins/sage/board/writes.mjs";
 import { boardCommandPort } from "./fixtures/board-port.mjs";
-import { QUESTION } from "./fixtures/question-message.mjs";
+import { QUESTION, pageQuestion } from "./fixtures/question-message.mjs";
 
 const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
 const CLI = new URL("../plugins/sage/board/cli.mjs", import.meta.url).pathname, TEST_CHILD = new URL("./board-test-child.mjs", import.meta.url).pathname;
@@ -230,6 +230,28 @@ test("the owner answers, undoes and answers again from the board; a changed ques
   const detail = await call(w.port, `/app/gate/${Buffer.from(`${w.logbook}/G1`).toString("base64url")}`, { method: "GET" });
   await waitFor(async () => (await call(w.port, `/app/gate/${Buffer.from(`${w.logbook}/G1`).toString("base64url")}`, { method: "GET" })).json?.answer === "yes", "the gate detail shows the chat answer");
   assert.equal(detail.status, 200);
+});
+
+test("T1222: a board answer to a design question sends the owner's words with choice 2 as hex, and the state tool keeps them as one answer", async t => {
+  const w = await board(t), p = await pair(w);
+  const pages = w.as("pages", "T1");
+  mkdirSync(join(pages, "designs", "final"), { recursive: true });
+  writeFileSync(join(pages, "designs", "final", "index.html"), "<p>SAMPLE receipt mail</p>");
+  w.as("gate", "add", "T1", "--design", "designs/final", "--question", "Approve design v1 of the receipt mail?", "--recommend", "1", "--message", pageQuestion("T1", "designs/final/index.html"));
+  let need;
+  await waitFor(async () => (need = (await needs(w)).needs.find(item => item.gate === "G2")), "the model lists the design question");
+  assert.deepEqual(need.options, ["Approve", "Approve with your words", "New version"]);
+  const body = extra => ({ logbook: w.logbook, gate: "G2", option: 2, digest: need.digest, ...extra });
+  const bare = await call(w.port, "/api/answer", { headers: p.headers, body: body({}) });
+  assert.equal(bare.status, 409);
+  assert.match(bare.json.text, /^G2 is a design question, so its answer is one of its three choices: .* after choice 2, ask the owner for the words\. Nothing changed\.$/);
+  const long = await call(w.port, "/api/answer", { headers: p.headers, body: body({ words: "x".repeat(1001) }) });
+  assert.equal(long.status, 400, "words over the limit do not reach the state tool");
+  assert.equal(w.gate("G2").answered ?? "", "", "a refused answer writes nothing");
+  const sent = await call(w.port, "/api/answer", { headers: p.headers, body: body({ words: "Use the shop's logo, not \"Shop\"; keep — the dash." }) });
+  assert.equal(sent.status, 200, sent.text);
+  assert.match(sent.json.text, /^G2 recorded · Approve with your words: Use the shop's logo, not "Shop"; keep — the dash\. · from the board/);
+  assert.equal(JSON.parse(w.gate("G2").answered).answer, "Approve with your words: Use the shop's logo, not \"Shop\"; keep — the dash.");
 });
 
 test("T1219: each owner write that reaches the state tool after an archive, while the board's read still shows the project as not archived, is refused by the state tool with one text and writes nothing", async t => {

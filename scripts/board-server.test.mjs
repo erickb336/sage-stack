@@ -384,6 +384,16 @@ test("board watcher errors publish a stale diagnostic and recover on an observed
   await stream.next(p => !p.stale && has(p, "Sample watcher restored"));
 });
 
+test("T1222: the board watches no designs folder of a logbook, so approved design copies cause no reads", async t => {
+  const original = fs.watch, watched = [];
+  fs.watch = (path, ...rest) => { watched.push(String(path)); return original(path, ...rest); };
+  syncBuiltinESMExports();
+  t.after(() => { fs.watch = original; syncBuiltinESMExports(); });
+  const f = await fixture(t, { before: project => { mkdirSync(join(project, "designs", "T1", "G1"), { recursive: true }); mkdirSync(join(project, "reports")); } });
+  assert.ok(watched.includes(join(f.project, "reports")), "the board watches the other folders of a logbook");
+  assert.deepEqual(watched.filter(path => path.includes(`${join(f.project, "designs")}`)), [], "and no folder in designs");
+});
+
 test("a folder that is gone before the board can watch it (a write's short lock) is no watch failure: the board does not go stale", async t => {
   const original = fs.watch;
   fs.watch = (path, ...rest) => { if (String(path).endsWith("/.lock")) rmSync(path, { recursive: true, force: true }); return original(path, ...rest); };
