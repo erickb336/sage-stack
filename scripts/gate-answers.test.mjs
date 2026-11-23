@@ -121,19 +121,27 @@ test("first answer wins: a second answer to a plain or a takeover gate is refuse
   assert.equal(w.refused("claude", "gate", "answer", "G1", "--option", "1", "--via", "phone"), `--via is the place of the owner's answer: board, claude-card, codex-card, chat. Nothing changed.`);
 });
 
-test("T1156 F-T1156-40: in an archived project, gate answer is refused from every place and both providers, also after the board read the project as not archived; Restore lets the answer land", (t) => {
+test("T1156 F-T1156-40, T1219: in an archived project, every owner write (gate answer, undo and give, chief name) is refused with one text from every place and both providers; archive, restore and config name= stay open, and Restore lets the answer land", (t) => {
   const w = shared(t);
   w.as("claude", "task", "add", "--title", "a", ...ADD);
   w.as("claude", "gate", "add", "--message", QUESTION, "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes");
+  w.owner("claude", "gate", "answer", "G1", "--option", "1", "--via", "board");
   w.owner("claude", "config", "archived=yes");
-  const before = readFileSync(join(w.dir, "gates.tsv"), "utf8");
-  const chat = "this project is archived, so it takes no answer: an archived project starts no agent and merges nothing. If this is new work that the owner asked for in this chat after the archive, restore the project first with sage config archived=no, tell the owner in one line that you restored it, then give the same command again. A lead does not restore a project: report blocked to your chief. Nothing changed.";
+  const tables = () => ["gates", "tasks", "decisions"].map((table) => readFileSync(join(w.dir, `${table}.tsv`), "utf8")).join("\n");
+  const before = tables(), shut = "This project is archived, so it takes no answer and no other owner write. Restore it first, on the board or with sage config archived=no in its own chat when the owner asks for it, then try again. Nothing changed.";
   for (const provider of ["claude", "codex"]) {
-    for (const via of ["chat", "claude-card", "codex-card"]) assert.equal(w.refused(provider, "gate", "answer", "G1", "--option", "2", "--via", via), chat, `${provider} --via ${via}`);
-    assert.equal(w.refused(provider, "gate", "answer", "G1", "--option", "2", "--via", "board"), "This project is archived, so it takes no answer. Restore it, then answer again. Nothing changed.", `${provider} --via board: the owner's own words`);
+    for (const via of ["chat", "claude-card", "codex-card", "board"]) assert.equal(w.refused(provider, "gate", "answer", "G1", "--option", "2", "--via", via), shut, `${provider} gate answer --via ${via}`);
+    assert.equal(w.refused(provider, "gate", "undo", "G1"), shut, `${provider} gate undo: the board answer from before the archive stays`);
+    assert.equal(w.refused(provider, "gate", "give", "T1", "--to", "C2"), shut, `${provider} gate give`);
+    assert.equal(w.refused(provider, "chief", "name", "C2", "Codex desk"), shut, `${provider} chief name`);
   }
-  assert.equal(readFileSync(join(w.dir, "gates.tsv"), "utf8"), before, "a refused answer writes nothing");
+  assert.equal(tables(), before, "a refused owner write writes nothing");
+  assert.equal(existsSync(join(w.dir, "chief-names.json")), false, "a refused chief name writes no name");
+
+  assert.match(w.as("claude", "config", "name=Lantern"), /^name=Lantern archived=yes /, "a name is not work: config name= lands in an archived project");
+  assert.match(w.owner("codex", "config", "archived=yes"), /is archived already/, "archive stays open");
   w.owner("claude", "config", "archived=no");
+  assert.match(w.owner("codex", "gate", "undo", "G1"), /^G1 undone/, "after Restore the undo lands");
   assert.match(w.owner("codex", "gate", "answer", "G1", "--option", "2", "--via", "board"), /^G1 recorded · no · from the board/, "after Restore the same answer lands");
 });
 

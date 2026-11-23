@@ -168,7 +168,7 @@ test("T995: the chat board and the task view of an old logbook say milestone, be
   for (const when of ["before", "after"]) {
     if (when === "after") s.ok("log", "-", "a note", "--why", "w");
     const chat = s.ok("board"), task = s.ok("board", "T984", "--view", "task");
-    assert.match(chat, /### ◫ Milestones\n- Milestone \d+\\: Sage feel/, when);
+    assert.match(chat, /### Milestones\n(?:- .*\n)*- Sage feel: /, when);
     for (const page of [chat, task.split("**Latest decisions**")[0]]) assert.doesNotMatch(page, /\bprograms?\b|\bPG\d/i, `${when}: no program word and no old id`);
   }
 });

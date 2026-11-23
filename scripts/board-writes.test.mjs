@@ -232,6 +232,41 @@ test("the owner answers, undoes and answers again from the board; a changed ques
   assert.equal(detail.status, 200);
 });
 
+test("T1219: each owner write that reaches the state tool after an archive, while the board's read still shows the project as not archived, is refused by the state tool with one text and writes nothing", async t => {
+  let w, during = false;
+  const archive = word => claude.sage(["config", `archived=${word}`, "--project", w.project], w.env);
+  w = await board(t, { write: async job => {
+    if (!during) return writeInWorker(job);
+    archive("yes");
+    try { return await writeInWorker(job); } finally { archive("no"); }
+  } });
+  const p = await pair(w), need = (await needs(w)).needs.find(item => item.gate === "G1");
+  const send = (job, body) => call(w.port, `/api/${job}`, { headers: p.headers, body });
+  const answer = { logbook: w.logbook, gate: "G1", option: 2, digest: need.digest }, shut = "This project is archived, so it takes no answer and no other owner write. Restore it first, on the board or with sage config archived=no in its own chat when the owner asks for it, then try again. Nothing changed.";
+  const tables = () => ["gates", "tasks"].map(table => readFileSync(join(w.dir, `${table}.tsv`), "utf8")).join("\n");
+  const open = () => waitFor(async () => (({ projects = [] }) => projects.length === 1 && !projects[0].archived)(await needs(w)), "the board reads the project as not archived");
+  const refusedDuringArchive = async (job, body) => {
+    await open();
+    const before = tables();
+    during = true;
+    const got = await send(job, body).finally(() => { during = false; });
+    assert.deepEqual([got.status, got.json.text], [409, shut], `${job}: the state tool refuses it, not the board's own check`);
+    assert.equal(tables(), before, `${job}: a refused write writes nothing`);
+  };
+
+  await refusedDuringArchive("answer", answer);
+  await open();
+  const recorded = await send("answer", answer);
+  assert.equal(recorded.status, 200, `with no archive, the same answer records: ${recorded.text}`);
+  await refusedDuringArchive("undo", { logbook: w.logbook, gate: "G1" });
+  await refusedDuringArchive("give", { logbook: w.logbook, task: "T1", to: "C2" });
+  await refusedDuringArchive("name", { logbook: w.logbook, chief: "C2", name: "Codex desk" });
+  assert.equal(existsSync(join(w.dir, "chief-names.json")), false, "the refused name is not kept");
+  await open();
+  const undo = await send("undo", { logbook: w.logbook, gate: "G1" });
+  assert.equal(undo.status, 200, `with no archive, the undo lands: ${undo.text}`);
+});
+
 test("the owner renames a chief and gives a task to another chief", async t => {
   const w = await board(t), p = await pair(w);
   const named = await call(w.port, "/api/name", { headers: p.headers, body: { logbook: w.logbook, chief: "C2", name: "Codex desk" } });

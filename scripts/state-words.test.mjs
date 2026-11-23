@@ -180,11 +180,10 @@ test("T997: the board model gives each card its word, one card for each of the s
   assert.deepEqual(Object.fromEntries(Object.keys(SHOWN).map(id => [id, board.tasks.find(card => card.id === id).word])), SHOWN);
 });
 
-test("T997: each chat board line shows its word after the title, and a wait names the word of the task that it waits for", () => {
+test("T997, T1217: the chat digest puts a task that needs you, one in progress and one done in their parts, and leaves out the backlog's not started, waiting and stopped tasks", () => {
   const board = sixBoard(), text = renderBoardText(board);
-  for (const [id, word] of Object.entries(SHOWN).filter(([id]) => id !== "T6")) assert.ok(text.includes(`**Sample** ${id} · ${word} · one · `), `${id}: ${text}`);
-  assert.ok(text.includes("**1 · Sample** T4 · needs you · one · "), "the Needs you item too");
-  assert.ok(text.includes("⧗ Waits for T3 \\(in progress\\)\\.") && text.includes("⊘ Waits for T6 \\(stopped\\)\\: it cannot start\\."), text);
+  assert.ok(text.includes("### 🔴 Needs you\n- Sample. Sample: which layout?\n  Recommended: the first.\n\n### Moving now\n- Sample. Building.\n\n### Done since yesterday\n- Sample. Merged at "), text);
+  assert.equal(text.split("\n").filter(line => line.startsWith("- Sample")).length, 3, "T1, T2, T6 and T7 are not started, waiting or stopped: no line");
   assert.equal(renderTaskText(board.tasks.find(card => card.id === "T6")).split("\n")[1], "one · sample · stopped · small", "the chat lookup of one task");
 });
 

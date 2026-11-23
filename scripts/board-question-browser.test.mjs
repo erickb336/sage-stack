@@ -502,7 +502,7 @@ test("T1156 F-T1156-40, -47: an answer sent while the Archive write lands is ref
   await page.goto(`${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G1`)}`);
   await page.getByRole("radio", { name: /^A: yes/ }).check();
   await page.getByRole("button", { name: "Send answer" }).click();
-  await page.getByText("Not recorded. This project is archived, so it takes no answer. Restore it, then answer again. Nothing changed.").waitFor();
+  await page.getByText("Not recorded. This project is archived, so it takes no answer and no other owner write. Restore it first, on the board or with sage config archived=no in its own chat when the owner asks for it, then try again. Nothing changed.").waitFor();
   assert.equal(w.gate("G1").answered ?? "", "", "the archived project keeps no answer");
   await page.locator(".send").getByRole("button", { name: "Restore" }).waitFor();
   await w.shot("t1156-archived-refused-1440");

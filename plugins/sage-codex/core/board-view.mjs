@@ -57,7 +57,7 @@ export function boardProjectKey({ sources, project = null, name = null, provider
   return groups.length === 1 ? groups[0].key : null;
 }
 
-export function boardView({ sources, scope = "all", project = null, logbookKey = null, here = null, providerRoots = [], taskId = null, format = "chat", now = new Date().toISOString() }) {
+export function boardView({ sources, scope = "all", project = null, logbookKey = null, here = null, providerRoots = [], taskId = null, format = "chat", port, now = new Date().toISOString() }) {
   if (!["chat", "task", "status"].includes(format)) throw new TypeError("unknown board format");
   if (taskId !== null && !/^T[1-9]\d*$/.test(taskId)) throw new TypeError("task id must be T followed by a positive number");
   const snapshots = readBoardSources(sources, { now: Date.parse(now), logbookKey, providerRoots });
@@ -89,5 +89,5 @@ export function boardView({ sources, scope = "all", project = null, logbookKey =
     return renderTaskText(tasks[0]);
   }
   if (format === "task") throw new TypeError("task view needs a task id");
-  return format === "status" ? renderBoardStatus(model) : renderBoardText(model);
+  return format === "status" ? renderBoardStatus(model) : renderBoardText(model, { port });
 }

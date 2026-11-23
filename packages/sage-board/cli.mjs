@@ -312,7 +312,7 @@ export async function runBoardCli(argv, { output = line => process.stdout.write(
   const taskId = /^T[1-9]\d*$/.test(value) ? value : null;
   if (options.scope && !taskId) throw new TypeError("--scope selects the exact project of a task lookup");
   const format = options.status ? "status" : taskId ? "task" : "chat";
-  output(boardView({ sources: readSources(config.sources, env), scope: taskId ? options.scope ?? "this" : value, project: options.project ?? process.cwd(), providerRoots: providerRoots(env), taskId, format }));
+  output(boardView({ sources: readSources(config.sources, env), scope: taskId ? options.scope ?? "this" : value, project: options.project ?? process.cwd(), providerRoots: providerRoots(env), taskId, format, port: config.port }));
   return null;
 }
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

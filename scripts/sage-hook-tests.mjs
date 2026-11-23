@@ -3346,8 +3346,8 @@ test("T72-C5-STATECMD: with the plugin in a folder with a space, the read-only b
   assert.ok(!lines.some(line => line.includes("gate answer")));
   const shown = spawnSync("node", [tool, "board", "this", "--project", project, "--view", "chat"], { encoding: "utf8", env });
   assert.equal(shown.status, 0, shown.stderr);
-  assert.match(shown.stdout, /G1/);
-  assert.ok(shown.stdout.includes("G1 · q?"));
+  assert.ok(shown.stdout.includes("\n- t. q?\n  Options: 1 yes · 2 no.\n"), shown.stdout);
+  assert.match(shown.stdout, /\nRef: T1 current\/app-[0-9a-f]{6}\/G1\n$/, "the gate key is on the Ref line (T1217)");
   const answered = spawnSync("node", [tool, "gate", "answer", "G1", "--option", "2", "--project", project], { encoding: "utf8", env });
   assert.equal(answered.status, 0, answered.stderr);
   assert.equal(answered.stdout, "G1 answered · no\n");

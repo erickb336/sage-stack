@@ -332,17 +332,10 @@ test("F-T1182-2: the board reads the pick-up decision rows: one pick-up for one 
   assert.deepEqual(chiefs, { C1: { pickedUp: null, passedOn: { at, to: "C3" } }, C2: { pickedUp: null, passedOn: { at, to: "C3" } }, C3: { pickedUp: { at, tasks: 146, gates: 0, queued: 0, lost: 1 }, passedOn: null } });
 });
 
-test("F-T1182-1: the Sessions part and the pick-up list show each pick-up short, in counts, with its lost run: on the chat board and in the browser", (t) => {
-  const { at, model, project } = firstRealPickupOf20Nov(t);
-  const hhmm = at.slice(11, 16), sessions = renderBoardText(model).split("### Sessions\n")[1]?.split("\n\n### ")[0] ?? "";
-  const row = (id) => sessions.split("\n").findIndex((line) => line.startsWith(`- Claude · ${id} `) || line.startsWith(`- Codex · ${id} `));
-  const sub = (id) => sessions.split("\n")[row(id) + 1] ?? "";
-  assert.match(sub("C3"), new RegExp(`· picked up 146 tasks at ${hhmm.replace(":", "\\\\:")} UTC, 1 run lost$`), "the session that took the work");
-  assert.match(sub("C1"), new RegExp(`· passed on to C3 at ${hhmm.replace(":", "\\\\:")} UTC$`), "a session that passed its work on");
-  const line = sessions.split("\n").map((one) => one.replaceAll("\\", "")).find((one) => one.includes("picked up 146 tasks:"));
-  assert.equal(line, `- ${at.slice(0, 10)} ${hhmm} UTC · Claude · C3 picked up 146 tasks: 69 from Claude · C1, 2 from Codex · C2 and 75 with no owning chief · 1 run lost: R1`);
-  assert.doesNotMatch(line, /T\d/, "counts, not task ids");
-  assert.ok(sessions.includes("Pick-ups, last 7 days:"), sessions);
+test("F-T1182-1, T1217: the browser's Sessions part and pick-up list show each pick-up in counts, and the chat digest leaves both out", (t) => {
+  const { model, at, project } = firstRealPickupOf20Nov(t);
+  const chat = renderBoardText(model);
+  assert.ok(!/Sessions|Pick-ups|picked up|passed on/.test(chat), chat);
   const web = boardOverview(model), chief = web.chiefs.find((c) => c.id === "C3");
   assert.deepEqual([chief.pickedUp, web.pickups.length], [{ at, tasks: 146, gates: 0, queued: 0, lost: 1 }, 1], "the browser gets the same notes for its Sessions part and its pick-up list");
   assert.equal(project.chiefs.find((c) => c.id === "C3").tasks, 146);
@@ -375,16 +368,6 @@ test("F-T1186-4: a passed-on or picked-up note 12 h old or more shows its date, 
   const rows = [handover("C1", "C3", { tasks: ["T1"] })];
   assert.deepEqual(notesOf(rows, "2026-11-20T15:00:00.000Z"), { C1: ["passed on to C3 at 09:25"], C2: [], C3: ["picked up 1 task at 09:25"] });
   assert.deepEqual(notesOf(rows, "2026-11-22T10:00:00.000Z"), { C1: ["passed on to C3 at 2026-11-20 09:25"], C2: [], C3: ["picked up 1 task at 2026-11-20 09:25"] });
-});
-
-test("F-T1186-4: on the chat board, a passed-on note two days old shows its date", (t) => {
-  const { w } = firstRealPickupOf20Nov(t);
-  const file = join(w.dir, "decisions.tsv"), [head, ...lines] = readFileSync(file, "utf8").trim().split("\n"), cols = head.split("\t"), old = new Date(Date.now() - 2 * 86_400_000).toISOString();
-  writeFileSync(file, [head, ...lines.map((l) => (l.split("\t")[cols.indexOf("why")] === "pick-up" ? l.split("\t").with(cols.indexOf("at"), old).join("\t") : l))].join("\n") + "\n");
-  w.record("C1", { ago: 2 * 86_400_000 + 10 * 60_000, ended: "prompt_input_exit" });
-  const now = Date.now(), model = buildBoardModel(readBoardSources([{ id: "shared", path: w.env.SAGE_SHARED_HOME, label: "shared" }], { now }), { now: new Date(now).toISOString() });
-  const text = renderBoardText(model).replaceAll("\\", "");
-  assert.ok(text.includes(`passed on to C3 at ${old.slice(0, 10)} ${hhmm(old)} UTC`), text);
 });
 
 test("F-T1186-6: a repeated pick-up row counts once", () => {
