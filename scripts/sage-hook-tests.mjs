@@ -1393,7 +1393,7 @@ test("T670-MERGETEXT: the word merge in a program's text, or a local git merge-t
     "for n in 447 452; do b=$(gh pr view $n --json headRefName -q .headRefName); git -C /x merge-tree --write-tree origin/main origin/$b; done",
     "gh pr checks 41 && if git merge-base --is-ancestor a b; then echo behind; fi",
   ];
-  for (const s of [off, on]) for (const command of text) expectPass(s.send(bash(command)), /node -e|python3 -c/.test(command), command);
+  for (const s of [off, on]) for (const command of text) expectPass(s.send(bash(command)), /node -e/.test(command), command);
 });
 
 test("T670-KEEP-MERGES: any other merge form, and a merge as a real command, also in a loop, a chain, bash -c, sh -c or eval, is still refused", () => {
@@ -2059,7 +2059,7 @@ const expectPass = (answer, chiefWrite, message) => (chiefWrite ? assert.match(d
 const SHELL_WRITES = ["sed -i '' 's/a/b/' README.md", "sed -i.bak s/a/b/ src/app.js", "echo x > README.md", "printf x >> notes.txt",
   "cp README.md README.bak", "mv src/a.js src/b.js", "rm -rf src", "rm README.md", "touch new.txt", "npm test 2>&1 | tee test.log",
   `echo x > ${FEATURE}/notes.txt`,
-  "echo x > $TMPDIR/out.txt",
+  "echo x > $OUTDIR/out.txt",
   `node -e "require('fs').writeFileSync('a.txt', 'x')"`, "git diff --output=out.patch"];
 const SCRATCH_WRITES = [`cp README.md ${SCRATCH}/copy.md`, `sed -i '' s/a/b/ ${SCRATCH}/copy.md`, `D=${SCRATCH}/d; mkdir -p $D && echo x > "$D/out.txt"`];
 const CHIEF_SCRATCH_WRITES = [`cp README.md ${SCRATCH}/copy.md`, `printf x | tee ${SCRATCH}/out.txt`];
@@ -2169,7 +2169,7 @@ test("T947: a review's or QA's medium or high finding carries a proof that the p
     ["- K1 medium a.js:1 an empty name saves a row", /^sage: K1 is medium and has no proof line\./],
     ["- K1 high a.js:1 a crash\n  proof: npm test", /^sage: K1's proof has no saw line\./],
     ["- K1 medium a page\n  proof: screenshot /tmp/r40/a.png", /^sage: K1's proof has no steps line\./],
-    ["- K1 medium a.js:1 a stuck job\n  proof: kill 1\n  saw: done", /^sage: K1's proof "kill 1" is refused: an agent never reads or signals the real process list/],
+    ["- K1 medium a.js:1 a stuck job\n  proof: kill 1\n  saw: done", /^sage: K1's proof "kill 1" is refused: an agent never signals or controls a real process/],
     ["- K1 medium a.js:1 a bad file\n  proof: npm test > out.txt\n  saw: not ok 1", /^sage: K1's proof "npm test > out\.txt" is refused: it writes outside the scratch folder\./],
     ["- K1 low a.js:1 a nit\n- K2 medium a.js:2 a bad value", /^sage: K2 is medium and has no proof line\./],
     ...["git reset --hard", "git clean -fdx", "git -C /Users/x/repo log", "npm test && git branch -D claude/t12", "git worktree add /tmp/w HEAD"].map((proof) =>
@@ -2365,20 +2365,22 @@ test("an agent never runs git stash in any form; the chief may, and git status a
   }
 });
 
-test("an agent never lists or signals the real processes: ps, pgrep, kill and pkill pass only as fakes in the temp folder", () => {
+test("an agent never signals the real processes: kill, pkill, killall, top and launchctl pass only as fakes in the temp folder; lsof, pgrep and ps look (G233)", () => {
   const s = session(SYSTEM_PATH);
   s.send(prompt("sage mode"));
-  const real = ["ps -U me", "pgrep -fl node", "pkill -f node", "kill 12345", "/bin/ps -ax", "/bin/kill -9 1", "/usr/bin/pgrep node", "/usr/bin/pkill node", "killall node", "lsof -i :8080", "top -l 1", "sudo kill 1", "xargs kill", `${FAKES}/real-ps`, `PATH=${FAKES}/links:$PATH ps`, `bash -c "ps -ax"`, "find . -name x -exec kill {} ;", `PATH=${FAKES}:$PATH kill 1`,
+  const real = ["pkill -f node", "kill 12345", "/bin/kill -9 1", "/usr/bin/pkill node", "killall node", "top -l 1", "sudo kill 1", "xargs kill", `bash -c "kill 1"`, "find . -name x -exec kill {} ;", `PATH=${FAKES}:$PATH kill 1`,
     "launchctl list", "/bin/launchctl bootout gui/501/x"];
+  const looks = ["ps -U me", "pgrep -fl node", "/bin/ps -ax", "/usr/bin/pgrep node", "lsof -i :8080", `${FAKES}/real-ps`, `PATH=${FAKES}/links:$PATH ps`, `bash -c "ps -ax"`, "lsof -t -i :5173 | head -1"];
+  for (const command of looks) assert.equal(s.send(bash(command, FEATURE, AGENT)), undefined, `a look (G233): ${command}`);
   for (const command of real) {
-    assert.match(denied(s.send(bash(command, FEATURE, AGENT))) ?? "", /never reads or signals the real process list \(standing order 14\).*fake ps.*Sat Jan  1 00:00:00 2000/, command);
+    assert.match(denied(s.send(bash(command, FEATURE, AGENT))) ?? "", /never signals or controls a real process.*only looks at the processes, with lsof, pgrep or ps.*standing order 14.*fake ps.*Sat Jan  1 00:00:00 2000/, command);
     expectPass(s.send(bash(command)), /^bash -c|^find /.test(command), `the chief: ${command}`);
   }
   const fakes = [`PATH=${FAKES}:$PATH ps -o lstart= -p 1`, `export PATH=${FAKES}:$PATH; ps -ax`, `PATH=${FAKES}:$PATH pgrep -fl node`, `PATH=${FAKES}:$PATH pkill -f node`, `${FAKES}/ps -ax`, `${FAKES}/kill 1`, `PATH=${FAKES}:$PATH env kill 1`, `cd ${FAKES} && ./pkill node`, `${FAKES}/launchctl list`];
   for (const command of fakes) assert.equal(s.send(bash(command, FEATURE, AGENT)), undefined, command);
-  assert.match(denied(s.send(tool("Monitor", { command: "ps -ax", description: "d" }, { cwd: FEATURE, ...AGENT }))) ?? "", /standing order 14/);
+  assert.match(denied(s.send(tool("Monitor", { command: "kill 1", description: "d" }, { cwd: FEATURE, ...AGENT }))) ?? "", /standing order 14/);
   assert.match(denied(s.send(tool("PowerShell", { command: "Get-Process" }, { cwd: FEATURE, ...AGENT }))) ?? "", /standing order 14/);
-  assert.match(denied(s.send(tool("mcp__terminal__run_in_terminal", { command: "pgrep node" }, { cwd: FEATURE, ...AGENT }))) ?? "", /standing order 14/);
+  assert.match(denied(s.send(tool("mcp__terminal__run_in_terminal", { command: "pkill node" }, { cwd: FEATURE, ...AGENT }))) ?? "", /standing order 14/);
   assert.equal(s.send(bash("npm test", FEATURE, AGENT)), undefined, "other commands pass");
 });
 
@@ -2386,24 +2388,24 @@ test("a process program is refused after a shell keyword, inside a shell's -c te
   const s = session(SYSTEM_PATH);
   s.send(prompt("sage mode"));
   const hidden = [
-    "while pgrep -f vite >/dev/null; do sleep 1; done",
-    "if pgrep -f vite; then echo up; fi",
+    "while pkill -0 -f vite >/dev/null; do sleep 1; done",
+    "if pkill -0 -f vite; then echo up; fi",
     "for p in 1 2; do kill $p; done",
-    "until ! lsof -i :5173; do sleep 1; done",
-    "! ps",
-    "{ ps; }",
-    "if true; then :; elif ps; then :; else kill 1; fi",
-    "while true; do pgrep -fl vite; sleep 1; done",
-    "function f { ps; }",
-    "sh -c ps",
-    'bash -c "lsof"',
-    "eval ps",
-    "sudo -u root ps",
+    "until ! killall -0 node; do sleep 1; done",
+    "! top",
+    "{ top; }",
+    "if true; then :; elif top; then :; else kill 1; fi",
+    "while true; do pkill -0 vite; sleep 1; done",
+    "function f { top; }",
+    "sh -c top",
+    'bash -c "killall"',
+    "eval top",
+    "sudo -u root top",
     "xargs -I {} kill {}",
-    "env -u X ps",
+    "env -u X top",
     "timeout -s TERM 60 pkill node",
     "nice -n 5 top -l 1",
-    ...(existsSync("/bin/PS") ? ["PS -ax"] : []),
+    ...(existsSync("/bin/KILL") ? ["KILL 1"] : []),
   ];
   for (const command of hidden) {
     assert.match(denied(s.send(bash(command, FEATURE, AGENT))) ?? "", /standing order 14.*To stop your own server or background job, run it as a background task and stop that task\./, command);
@@ -2433,7 +2435,7 @@ test("the rule holds for any subagent in sage mode and for a sage agent, not for
   assert.match(denied(s.send(bash("git stash", FEATURE, AGENT))) ?? "", /git stash/, "a sage agent, also outside sage mode");
   assert.equal(s.send(bash("git stash", FEATURE, { agent_id: "e1", agent_type: "Explore" })), undefined, "another agent outside sage mode");
   s.send(prompt("sage mode"));
-  assert.match(denied(s.send(bash("ps -ax", FEATURE, { agent_id: "e1", agent_type: "Explore" }))) ?? "", /standing order 14/, "any subagent in sage mode");
+  assert.match(denied(s.send(bash("kill 1", FEATURE, { agent_id: "e1", agent_type: "Explore" }))) ?? "", /standing order 14/, "any subagent in sage mode");
 });
 
 const AGENT_PATH = SYSTEM_PATH.PATH;
@@ -2447,7 +2449,7 @@ test("R454-N1: fuser, pidof, htop and kill-port or fkill through npx, npm exec, 
 });
 
 test("R454-N2: a redirection before or against the program does not hide it, and is not read as the program", async () => {
-  const refused = ["ps>/tmp/out", "2>/dev/null ps -ax", ">/dev/null kill 1", "ps</dev/null", "&>/dev/null pgrep node", "{fd}>/dev/null lsof -i :3000", "kill 1 2>&1", "ps 2>&1 | head", 'bash <<< "kill 1"'];
+  const refused = ["top>/tmp/out", "2>/dev/null top -l 1", ">/dev/null kill 1", "top</dev/null", "&>/dev/null pkill node", "{fd}>/dev/null killall node", "kill 1 2>&1", "top 2>&1 | head", 'bash <<< "kill 1"'];
   for (const command of refused) assert.match((await refusal(command)) ?? "", /standing order 14/, command);
   const pass = ["npm test 2>&1 | tail -20", "echo ps > notes.txt", "node build.mjs >/tmp/ps 2>&1", "cat < ps", "git log >/tmp/kill"];
   for (const command of pass) assert.equal(await refusal(command), undefined, command);
@@ -2456,7 +2458,7 @@ test("R454-N2: a redirection before or against the program does not hide it, and
 test("R454-N6: a script's arguments and a case pattern are not programs; a shell's -c text and stdin still are", async () => {
   const pass = ["bash ./x.sh kill", "sh scripts/run.sh ps top", "bash -c 'echo $0' kill", "case $1 in\n top) echo top;;\n ps|kill) echo other;;\nesac", "case x in (top) :;; esac", "bash x.sh <<EOF\nps\nEOF", 'x=$(case $1 in top) echo t;; esac); echo "$x"'];
   for (const command of pass) assert.equal(await refusal(command), undefined, JSON.stringify(command));
-  const refused = ["case $1 in\n a) ps;;\nesac", "case x in (a) kill 1;; esac", "case x in a) :;& b) top;;& esac", "case x in a) :;; esac | top", "x=$(case a in a) :;; esac); top", 'bash -lc "ps"', "bash -c ps x", "bash <<EOF\nps\nEOF", "bash -s <<EOF\nkill 1\nEOF", "eval kill 1", "pwsh -Command Get-Process"];
+  const refused = ["case $1 in\n a) top;;\nesac", "case x in (a) kill 1;; esac", "case x in a) :;& b) top;;& esac", "case x in a) :;; esac | top", "x=$(case a in a) :;; esac); top", 'bash -lc "top"', "bash -c top x", "bash <<EOF\ntop\nEOF", "bash -s <<EOF\nkill 1\nEOF", "eval kill 1", "pwsh -Command Get-Process"];
   for (const command of refused) assert.match((await refusal(command)) ?? "", /standing order 14/, JSON.stringify(command));
 });
 
@@ -2522,7 +2524,7 @@ test("R466-CASESUB: the arms of a case inside a subshell or a group are commands
     assert.match(denied(s.send(bash(command))) ?? "", TO_MAIN, command);
   }
   assert.match(denied(s.send(bash("(case x in (*) gh pr merge 1 --admin;; esac)"))) ?? "", CANNOT);
-  for (const command of ["(case x in (a) ps -ax;; esac)", "{ case x in (a) ps;; esac; }", "(case x in (a) (case y in (b) kill 1;; esac);; esac)"]) {
+  for (const command of ["(case x in (a) top -l 1;; esac)", "{ case x in (a) top;; esac; }", "(case x in (a) (case y in (b) kill 1;; esac);; esac)"]) {
     assert.match(denied(s.send(bash(command, FEATURE, AGENT))) ?? "", /standing order 14/, command);
   }
   assert.equal(s.send(bash("(case x in (top) echo top;; esac)", FEATURE, AGENT)), undefined, "a pattern is still not a program");
@@ -2537,7 +2539,7 @@ test("R466-PROCSUB: a process substitution is read as commands of its own, not a
   assert.equal(withGh.send(bash("comm <(git branch) <(git branch -r); git push origin t100-x")), undefined);
   assert.match(denied(s.send(bash("diff <(git push origin main) x"))) ?? "", TO_MAIN);
   assert.equal(await refusal("diff <(sort a) <(sort b) | grep kill"), undefined);
-  for (const command of ["diff <(ps) x", "tee >(kill 1) < f", "cat <(echo $(ps))"]) assert.match((await refusal(command)) ?? "", /standing order 14/, command);
+  for (const command of ["diff <(top) x", "tee >(kill 1) < f", "cat <(echo $(top))"]) assert.match((await refusal(command)) ?? "", /standing order 14/, command);
 });
 
 test("R466-FAILCLOSED: a line the reader cannot read, or text nested past 3 levels, is refused when it names what a rule guards", async () => {
@@ -2545,17 +2547,18 @@ test("R466-FAILCLOSED: a line the reader cannot read, or text nested past 3 leve
   s.send(prompt("sage mode"));
   const unreadable = ["(case x in a) %", "( %", "case x in a) %", "x=$(case x in a) %)", "(case x in a) % )", "case x in (% x) :;; esac"];
   for (const command of unreadable) {
-    const lead = /^(?:sage: )?the hook cannot read this command \([^)]+\), so it refuses it\. Close each quote, substitution and heredoc\. Its text names /;
+    const lead = /^(?:sage: )?the hook cannot read this command \([^)]+\), so it refuses it\. (?:Close each \( with a \)|End each case with esac, and give each case pattern one word)\. Its text names /;
     assert.match(denied(s.send(bash(command.replace("%", "git push origin main")))) ?? "", new RegExp(`${lead.source}a push\\. Push only with`), command);
     assert.match(denied(s.send(bash(command.replace("%", "gh pr merge 1")))) ?? "", new RegExp(`${lead.source}a merge\\. Merge only with gh pr merge <n>`), command);
-    assert.match((await refusal(command.replace("%", "ps"))) ?? "", new RegExp(`${lead.source}a process program \\("ps"\\)\\. An agent never reads or signals the real process list \\(standing order 14\\)`), command);
+    assert.match((await refusal(command.replace("%", "kill 1"))) ?? "", new RegExp(`${lead.source}a process program \\("kill"\\)\\. An agent never signals or controls a real process`), command);
+    assert.equal(await refusal(command.replace("%", "ps")), undefined, `a look names nothing that a rule guards (G233): ${command}`);
     assert.match((await refusal(command.replace("%", "gh pr view 1"))) ?? "", new RegExp(`${lead.source}gh\\. An agent runs only these gh commands`), command);
     assert.match((await refusal(command.replace("%", "git stash"))) ?? "", new RegExp(`${lead.source}git stash\\. An agent never runs git stash`), command);
     assert.equal(await refusal(command.replace("%", "ls")), undefined, `names nothing that a rule guards: ${command}`);
   }
-  assert.match((await refusal("bash -c \"bash -c \\\"bash -c 'bash -c ps'\\\"\"")) ?? "", /^the hook cannot read this command \(commands nested more than 3 levels deep\), so it refuses it\. Run the inner command as a command of its own\. Its text names a process program \("ps"\)\. An agent never reads or signals the real process list \(standing order 14\)/);
-  assert.doesNotMatch((await refusal("bash -c \"bash -c \\\"bash -c 'ps'\\\"\"")) ?? "", /cannot (?:be )?read/, "3 levels are read");
-  assert.match((await refusal("bash -c \"bash -c \\\"bash -c 'ps'\\\"\"")) ?? "", /standing order 14/, "3 levels are read");
+  assert.match((await refusal("bash -c \"bash -c \\\"bash -c 'bash -c kill'\\\"\"")) ?? "", /^the hook cannot read this command \(commands nested more than 3 levels deep\), so it refuses it\. Run the inner command as a command of its own\. Its text names a process program \("kill"\)\. An agent never signals or controls a real process/);
+  assert.doesNotMatch((await refusal("bash -c \"bash -c \\\"bash -c 'kill'\\\"\"")) ?? "", /cannot (?:be )?read/, "3 levels are read");
+  assert.match((await refusal("bash -c \"bash -c \\\"bash -c 'kill'\\\"\"")) ?? "", /standing order 14/, "3 levels are read");
   assert.equal(await refusal("bash -c \"bash -c \\\"bash -c 'bash -c ls'\\\"\""), undefined);
 });
 
@@ -3485,7 +3488,7 @@ test("T670-KEEP-WRITES: uniq IN OUT, an operand that can expand, xargs uniq or a
     assert.match(denied(s.send(bash(command, FEATURE, AGENT))) ?? "", LOGBOOK_SHELL, `agent: ${command}`);
     assert.match(denied(s.send(bash(command))) ?? "", /the chief never writes, moves or removes a logbook file/, `chief: ${command}`);
   }
-  for (const command of ["cp x tasks.ts[v:w]", "cp x ledger.ts?", "python3 -c 'f = open(\"tasks.tsv\")'", `ls ${root}/p | xargs uniq`]) {
+  for (const command of ["cp x tasks.ts[v:w]", "cp x ledger.ts?", "python3 -c 'f = open(\"tasks.tsv\", \"w\")'", `ls ${root}/p | xargs uniq`]) {
     assert.match(denied(s.send(bash(command))) ?? "", CHIEF_SHELL, `${command}: the chief's write rule (T960), not the logbook rule`);
   }
 });
@@ -3495,9 +3498,10 @@ test("T670-SLICE: a jq slice (.headSha[0:8]) or a Python slice (s[i:j], sha[:8])
   s.send(prompt("sage mode"));
   for (const command of [
     "gh pr list --json number,headSha | jq -r '.[].headSha[0:8]' | tee heads.txt",
-    "python3 -c 'import sys; s = sys.stdin.read(); i, j = 0, 8; print(s[i:j])'",
     "python3 -c 'sha = \"abc\"; print(sha[:8])' > short.txt",
   ]) assert.match(denied(s.send(bash(command))) ?? "", CHIEF_SHELL, `${command}: the chief's write rule (T960), not the logbook rule`);
+  const read = "python3 -c 'import sys; s = sys.stdin.read(); i, j = 0, 8; print(s[i:j])'";
+  assert.equal(denied(s.send(bash(read))), undefined, `${read}: a python3 -c read passes (T1210), and the slice names no logbook file`);
 });
 
 test("T670-ROOTVAR, T815: SAGE_HOME set from a variable or to a scratch path passes: an assignment is no write", () => {
@@ -3548,7 +3552,7 @@ test("F-T815-14: a long word keeps its start and its end, so the root part shows
 
 test("F-T815-17, F-T815-6: command -v and -V run nothing; gh api with a bundled -iX reads its method", async () => {
   for (const command of ["command -v gh", "command -V ps", "command -v ps && echo found", "command -pv kill"]) assert.equal(await refusal(command), undefined, command);
-  assert.match((await refusal("command ps aux")) ?? "", /standing order 14/, "command <program> runs it");
+  assert.match((await refusal("command kill 1")) ?? "", /standing order 14/, "command <program> runs it");
   assert.match((await refusal("command gh pr close 1")) ?? "", /"gh pr close" is not one of them/);
   for (const [command, method] of [["gh api -iXDELETE repos/o/r/git/refs/heads/x", "DELETE"], ["gh api -iX DELETE repos/o/r/git/refs/heads/x", "DELETE"], ["gh api -iX POST repos/o/r/issues", "POST"]]) {
     assert.match((await refusal(command)) ?? "", new RegExp(`"gh api ${method}" is not one of them`), command);
@@ -3696,7 +3700,7 @@ test("Q3-N1WORD, T815: every run of the state tool's write is refused wherever t
   for (const command of cases) {
     const answer = denied(s.send(bash(command, FEATURE, AGENT))) ?? "";
     assert.match(answer, ONLY_CHIEF, command);
-    assert.match(answer, /node <path to skills\/sage\/sage\.mjs> (?:<status, merge-check, logbook, standing or config>|status \(or merge-check, logbook, standing, config\))/, command);
+    assert.match(answer, /node <path to skills\/sage\/sage\.mjs> (?:<status, merge-check, logbook, standing, config or task <T>>|status \(or merge-check, logbook, standing, config, task <T>\))/, command);
   }
   assert.equal(denied(s.send(bash(`python3 -c "import json; print(len(open('${path}').read()))"`, FEATURE, AGENT))), undefined, "a read of the tool's source");
 });
@@ -4556,7 +4560,7 @@ test("T273: each command that is not on the lead's list is refused, with the sen
     "config cycles.small=1": "config", init: "init", "standing add never": "standing add", "logbook repair --accept-loss tasks": "logbook repair",
     "logbook repair --accept-change-loss yes": "logbook repair", "observe T1 --kind x": "observe", "newcommand T1": "newcommand", "run frob T1": "run frob", "round T1 T2": "round",
     [`verdict T1 T2 --kind qa-pass --sha ${SHA}`]: "verdict", "run add T1 T2 --role qa": "run add", "finding close T1 F-T1-2 F-T1-1": "finding close",
-    "run done R2 R3 --status done": "run done", "task T1": "task", "task add --title x --size small": "task add", "task T1 set": "task set",
+    "run done R2 R3 --status done": "run done", "task add --title x --size small": "task add", "task T1 set": "task set",
     "task T1 frob state=building": "task", "pages T1 record x y": "pages" });
   for (const args of notOwn) {
     const why = denied(stateRun(s, args)) ?? "";
@@ -4569,6 +4573,7 @@ test("T273: each command that is not on the lead's list is refused, with the sen
     assert.match(why, NOT_LISTED, args);
     assert.match(why, LEAD_TAIL, args);
   }
+  assert.equal(denied(stateRun(s, "task T1")), undefined, "a lead reads one task, like any agent (T1210)");
 });
 
 test("F-T928-10: a lead's pages with no task says that it names none, and names the lead's own task", () => {

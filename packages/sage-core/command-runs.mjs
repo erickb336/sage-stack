@@ -1,7 +1,7 @@
 import { realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { programsRun } from "./command-reader.mjs";
-import { commandWrites, readerDispatch, uniqWrites } from "./shell-write-policy.mjs";
+import { commandWrites, pythonRead, readerDispatch, uniqWrites } from "./shell-write-policy.mjs";
 import { outputDispatchWrites } from "./output-writes.mjs";
 import { programName } from "./program-name.mjs";
 import { ghApiMethod, ghWords, gitSubcommand } from "./command-policy.mjs";
@@ -12,13 +12,14 @@ function realRoot(path) {
   try { return realpathSync.native(path); } catch { return dirname(path) === path ? path : join(realRoot(dirname(path)), basename(path)); }
 }
 
-const DATA = /^(?:echo|printf|cat|grep|egrep|fgrep|rg|head|tail|wc|jq|ls|diff|cut|stat|file|cd|pushd|popd|true|test|\[|:|tr|uniq|git|gh|node|nodejs|g?sed|g?awk|sort)$/;
+const DATA = /^(?:echo|printf|cat|grep|egrep|fgrep|rg|head|tail|wc|jq|ls|diff|cut|stat|file|cd|pushd|popd|true|test|\[|:|tr|uniq|git|gh|node|nodejs|g?sed|g?awk|sort|python[\d.]*)$/;
 const GIT_WRITES = /^(?:clean|checkout|restore|reset|rm|mv|stash|apply|am|merge|rebase|pull|cherry-pick|revert|clone|init|worktree|switch|archive|checkout-index)$/;
 function judged(word, args, entry = { run: { word, args } }) {
   const name = word.includes("/") ? "" : programName(word);
   if (!DATA.test(name) || readerDispatch(entry) || outputDispatchWrites(entry)) return true;
   if (name === "git") return GIT_WRITES.test(gitSubcommand(args, 0));
   if (/^(?:node|nodejs)$/.test(name)) return args.some((a) => /^(?:-e|--eval|-p|--print)$|^--(?:eval|print)=/.test(a));
+  if (/^python/.test(name)) return !pythonRead(name, args);
   if (/^g?sed$/.test(name)) return args.some((a) => /^-[a-zA-Z]*i|^--in-place/.test(a));
   if (/^g?awk$/.test(name)) return args.some((a) => a === "inplace" || /^-i/.test(a));
   if (name === "sort") return args.some((a) => /^-[a-zA-Z]*o|^--o/.test(a));

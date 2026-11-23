@@ -188,7 +188,7 @@ const CHIEF_RUNS = ["git status", "git add -A && git commit -m 'a change'", "git
   "gh repo fork acme/site", "gh repo fork acme/site --clone=false", "gh -R acme/site release download v1 -D /tmp/notes/rel", `awk '$3 > 100 { print "a|b" }' a.txt`,
   "chmod +x /tmp/notes/fake/ps", "chmod -R u+w ~", "git checkout main", "git worktree add .claude/worktrees/t1 -b claude/t1",
   `awk '{ print ($1 > 3) }' a.txt`, `awk '{ print "bad row" > "/dev/stderr" }' a.txt`, `awk '{ printf("%d", ($2 > $3)) }' a.txt`];
-const LAUNCHED_CODE = [`uv run python -c "open('src/a.js','w')"`, "poetry run python -c x", "bundle exec ruby -e x", "pnpm exec node -e x", "arch -arm64 node -e x", "xcrun python3 -c x"];
+const LAUNCHED_CODE = [`uv run python -c "open('src/a.js','w')"`, `poetry run python -c "open('a','w')"`, "bundle exec ruby -e x", "pnpm exec node -e x", "arch -arm64 node -e x", `xcrun python3 -c "import os; os.remove('a')"`];
 CHIEF_WRITES.push(...LAUNCHED_CODE);
 CHIEF_RUNS.push("mkdir -p /tmp/x/sh");
 test("T960: the Claude hook and the Codex gate give the chief the same answer to each command, in sage mode and out of it", async () => {
@@ -396,6 +396,153 @@ test("T1199 F-T1199-7: the refusal names the protected place that the command hi
   }
 });
 
+async function scratchPlaces(t) {
+  const { home, project, verdict, REFUSED, RUNS } = await homePlaces(t);
+  const scratch = realpathSync(mkdtempSync(join(tmpdir(), "sage-t1210-scratch-"))), saved = process.env.TMPDIR;
+  t.after(() => { rmSync(scratch, { recursive: true, force: true }); if (saved === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = saved; });
+  process.env.TMPDIR = `${scratch}/`;
+  const places = [project, `${home}/.ssh`, `${home}/.claude`, `${home}/.zshrc`, `${process.env.SAGE_HOME}/p-abc`];
+  const named = async (target, commands) => {
+    process.env.TMPDIR = target;
+    for (const command of commands) assert.deepEqual(await verdict(command), REFUSED, `$TMPDIR names ${target}: ${command}`);
+    process.env.TMPDIR = `${scratch}/`;
+  };
+  return { scratch, places, verdict, named, REFUSED, RUNS };
+}
+
+test("T1210: a read-only role writes into its temp folder by a literal path or by $TMPDIR; each protected place stays refused, in both providers", async (t) => {
+  const { scratch, places, verdict, named, REFUSED, RUNS } = await scratchPlaces(t);
+  for (const command of [`echo x > ${scratch}/a.txt`, "echo x > $TMPDIR/a.txt", 'cp README.md "${TMPDIR}/b.md"', "mkdir -p $TMPDIR/R1 && node probe.mjs > $TMPDIR/R1/out.txt 2>&1", "printf x | tee $TMPDIR/log"]) {
+    assert.deepEqual(await verdict(command), RUNS, `a scratch write: ${command}`);
+  }
+  for (const target of places) {
+    for (const command of [`echo x > ${target}/a`, `cp a $TMPDIR/${"../".repeat(scratch.split("/").length - 1)}${target.slice(1)}/a`, `TMPDIR=${target}; echo x > $TMPDIR/a`,
+      `export TMPDIR=${target}; cp a $TMPDIR/b`, `python3 -c "open('${target}/a', 'w').write('x')"`]) {
+      assert.deepEqual(await verdict(command), REFUSED, `a protected place: ${command}`);
+    }
+    await named(target, ["echo x > $TMPDIR/a"]);
+  }
+  for (const command of ["echo x > $UNSET_PLACE/a", "echo x > ${TMPDIR:-.}/a"]) assert.deepEqual(await verdict(command), REFUSED, `a target that the hook cannot tell: ${command}`);
+});
+
+test("T1210: a read-only role's curl -o into its temp folder passes; curl -o into a protected place, and a curl target that the hook cannot tell, stay refused, in both providers", async (t) => {
+  const { scratch, places, verdict, named, REFUSED, RUNS } = await scratchPlaces(t);
+  for (const command of [`curl -s -o ${scratch}/page.html https://example.invalid/`, "curl -sS -o $TMPDIR/page.html https://example.invalid/", `curl --output-dir ${scratch} -o page.html https://example.invalid/`,
+    "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9/"]) {
+    assert.deepEqual(await verdict(command), RUNS, `a scratch download: ${command}`);
+  }
+  for (const target of places) {
+    for (const command of [`curl -o ${target}/a https://example.invalid/`, `curl --output-dir ${target} -o a https://example.invalid/`, `curl -sD ${target}/h https://example.invalid/`]) {
+      assert.deepEqual(await verdict(command), REFUSED, `a protected place: ${command}`);
+    }
+    await named(target, ["curl -o $TMPDIR/a https://example.invalid/"]);
+  }
+  for (const command of ["curl -O https://example.invalid/a", "curl -K /tmp/x/curlrc https://example.invalid/", "curl -w '%output{/tmp/x/a}' https://example.invalid/"]) {
+    assert.deepEqual(await verdict(command), REFUSED, `a target that the hook cannot tell: ${command}`);
+  }
+});
+
+test("T1210: a read-only role's find -exec with a reader such as ls passes; find -delete and find -exec with a writer stay refused, in both providers", async (t) => {
+  const { scratch, places, verdict, REFUSED, RUNS } = await scratchPlaces(t);
+  for (const command of [`find ${scratch} -name '*.json' -exec ls -l {} \\;`, "find . -name '*.md' -exec grep -l sage {} +"]) assert.deepEqual(await verdict(command), RUNS, `a read: ${command}`);
+  for (const target of places) assert.deepEqual(await verdict(`find ${target} -exec rm {} \\;`), REFUSED, `a protected place: ${target}`);
+  for (const command of ["find . -delete", `find ${scratch} -exec ls {} \\; -exec rm {} \\;`]) assert.deepEqual(await verdict(command), REFUSED, `a write: ${command}`);
+});
+
+test("T1210: after a HOME change, a cd into a literal folder passes for a read-only role; a cd with no folder or a ~ stays refused, and so does any cd after a CDPATH change, in both providers", async (t) => {
+  const { home, verdict, REFUSED, RUNS } = await homePlaces(t);
+  const scratch = realpathSync(mkdtempSync(join(tmpdir(), "sage-t1210-home-")));
+  t.after(() => rmSync(scratch, { recursive: true, force: true }));
+  for (const command of [`HOME=${scratch} npm test; cd ${scratch} && echo x > out.txt`, `export HOME=${scratch} && cd ${scratch} && npm ci > ${scratch}/npm.log 2>&1`,
+    `cd ${scratch} && HOME=${scratch} DO_NOT_TRACK=1 npx tool > out.txt`]) {
+    assert.deepEqual(await verdict(command), RUNS, `a HOME change, then a cd into a literal folder: ${command}`);
+  }
+  for (const command of [`HOME=${home}/.ssh; cd; echo x > config`, `export HOME=${home}/.ssh && cd && touch config`, `HOME=${home}/.ssh; cd -P; echo x > config`,
+    `HOME=${home}/.ssh; cd -- ; echo x > config`, `HOME=${home}/.ssh bash -c 'cd; echo x > config'`, `HOME=${home}/.ssh; cd ~ && echo x > config`, `HOME=${scratch}; echo x > ~/a`,
+    `CDPATH=${home}; cd .ssh && echo x > config`]) {
+    assert.deepEqual(await verdict(command), REFUSED, `a cd with no folder or a ~ after a HOME change, or a cd after a CDPATH change: ${command}`);
+  }
+});
+
+test("T1210: a python3 -c read of a logbook file passes for the chief and an agent, and a python3 -c write is refused, in both providers", async (t) => {
+  const { handle } = await import(new URL("../plugins/sage/hooks/sage-hook.mjs", import.meta.url));
+  const { sharedRoot } = await import(new URL("../plugins/sage-codex/core/index.mjs", import.meta.url));
+  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {} };
+  const project = realpathSync(mkdtempSync(join(tmpdir(), "sage-t1210-project-")));
+  t.after(() => rmSync(project, { recursive: true, force: true }));
+  mkdirSync(join(project, ".git"));
+  const g = fixed({ sage: true });
+  const child = { ...CHILD, cwd: project, transcript_path: record(t, { id: "child", session_id: base.session_id, agent_path: "/root/sage_implementer_t1_r1", source: { subagent: { thread_spawn: { depth: 1 } } } }) };
+  const claude = (command, agent) => deniedRaw(handle({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, cwd: project, session_id: "s1", ...(agent ? { agent_id: "a1", agent_type: "sage:implementer" } : {}) }, { sage: true, autopilot: false, start: false }, slots));
+  const codex = async (command, agent) => deniedRaw(await g.run(pre("Bash", command, agent ? child : { cwd: project })));
+  for (const root of [process.env.SAGE_HOME, sharedRoot(process.env)]) {
+    const file = `${root}/p-abc/kept/R4721.json`;
+    const reads = [`python3 -I -c "import json,sys;d=json.load(open('${file}'));print(list(d.keys()))"`, `python3 -c "import json; print(json.load(open('${file}', 'r'))['text'][:200])"`,
+      `python3 -I -c "import json,os.path; sys.stdout.write(open('${file}').read())"${root.includes("/.codex/") ? "" : " > /tmp/x/out.txt"}`];
+    const writes = [`python3 -c "open('${file}', 'w').write('{}')"`, `python3 -c "import json; json.dump({}, open('${file}', 'a'))"`, `python3 -c "import os; os.remove('${file}')"`,
+      `python3 -c "import shutil; shutil.move('/tmp/x/a', '${file}')"`, `python3 -c "from pathlib import Path; Path('${file}').write_text('x')"`, `python3 -c "exec('x')" ${file}`, `python3 ${project}/w.py ${file} > /tmp/x/o`];
+    for (const agent of [false, true]) {
+      const who = agent ? "an agent" : "the chief";
+      for (const command of reads) assert.deepEqual({ claude: claude(command, agent), codex: await codex(command, agent) }, { claude: undefined, codex: undefined }, `${who} reads: ${command}`);
+      for (const command of writes) {
+        const got = { claude: claude(command, agent), codex: await codex(command, agent) };
+        assert.ok(got.claude && got.codex, `${who} writes: ${command} ${JSON.stringify(got)}`);
+      }
+    }
+  }
+});
+
+async function toolChecks(t) {
+  const { handle, agentProblem } = await import(new URL("../plugins/sage/hooks/sage-hook.mjs", import.meta.url));
+  const claudeTool = fileURLToPath(new URL("../plugins/sage/skills/sage/sage.mjs", import.meta.url));
+  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {} };
+  const project = realpathSync(mkdtempSync(join(tmpdir(), "sage-t1210-tools-")));
+  t.after(() => rmSync(project, { recursive: true, force: true }));
+  const g = fixed({ sage: true });
+  const child = { ...CHILD, cwd: project, transcript_path: record(t, { id: "child", session_id: base.session_id, agent_path: "/root/sage_qa_t1_r4", source: { subagent: { thread_spawn: { depth: 1 } } } }) };
+  const claude = (command) => deniedRaw(handle({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, cwd: project, session_id: "s1", agent_id: "a1", agent_type: "sage:qa" }, { sage: true, autopilot: false, start: false }, slots));
+  const codex = async (command, extra = child) => deniedRaw(await g.run(pre("Bash", command, extra)));
+  const implementer = { ...child, transcript_path: record(t, { id: "child", session_id: base.session_id, agent_path: "/root/sage_implementer_t1_r1", source: { subagent: { thread_spawn: { depth: 1 } } } }) };
+  return { project, claudeTool, agentProblem, claude, codex, implementer };
+}
+
+test("T1210: an agent may run the state tool's task read in Claude; a task write stays refused", async (t) => {
+  const { project, claudeTool, claude } = await toolChecks(t);
+  for (const command of [`node ${claudeTool} task T12`, `node ${claudeTool} task T12 --project ${project}`]) assert.equal(claude(command), undefined, `the task read in Claude (Codex reads it in its scoped form, T49): ${command}`);
+  for (const rest of ["task T12 set state=abandoned", "task add --size small --title x", "task T12 T13", "task T12 --why x set pr=1"]) {
+    assert.match(claude(`node ${claudeTool} ${rest}`) ?? "passed", /writes the logbook, or is not a read command of the state tool/, `a task write stays refused: ${rest}`);
+  }
+});
+
+test("T1210: an agent may run lsof, pgrep and ps (G233); kill and pkill stay refused, with one text in both providers", async (t) => {
+  const { claude, codex } = await toolChecks(t);
+  for (const command of ["lsof -i :3000", "pgrep -fl node", "ps aux", "ps -o pid,lstart -p 123", "lsof -nP -iTCP:5173 -sTCP:LISTEN | tail -1", "/usr/sbin/lsof -i :8080"]) {
+    assert.deepEqual({ claude: claude(command), codex: await codex(command) }, { claude: undefined, codex: undefined }, `a look at the processes: ${command}`);
+  }
+  for (const [command, word] of [["kill 1", "kill"], ["pkill node", "pkill"], ["killall node", "killall"], ["lsof -t -i :3000 | xargs kill", "kill"], ["pgrep node && pkill node", "pkill"]]) {
+    const got = { claude: claude(command), codex: await codex(command) };
+    assert.equal(got.codex, got.claude?.replace(/\.$/, ""), `one text in both providers: ${command}`);
+    assert.match(got.claude ?? "passed", new RegExp(`^sage: an agent never signals or controls a real process, so "${word}" is refused: an agent only looks at the processes, with lsof, pgrep or ps\\.`), command);
+  }
+});
+
+test("T1210: an unreadable command names its own cause and its way forward, in both providers", async (t) => {
+  const { project, agentProblem, codex, implementer } = await toolChecks(t);
+  const dirs = ["/usr", "/bin", "/etc", "/tmp", "/var", "/sbin", "/private"].map((dir) => `npm test && pushd ${dir}`).join("; ");
+  const causes = [["kill 'x", "an open quote", "Close each quote, substitution and heredoc."],
+    [`bash -c "bash -c \\"bash -c 'bash -c kill'\\""`, "commands nested more than 3 levels deep", "Run the inner command as a command of its own."],
+    [`${dirs}; kill 1`, "too many possible command directories", "Change the folder once, with one cd to a literal path, or give each command its folder (git -C <path>, or absolute paths)."],
+    ["timeout --bogus 5 kill 1", "unknown or ambiguous wrapper option --bogus", "Run the program without the wrapper, or give the wrapper only options that the hook knows, each with its value."],
+    ["kill 1; env -u", "env option has no value", "Run the program without the wrapper, or give the wrapper only options that the hook knows, each with its value."],
+    ["kill 1 >", "a redirection with no target", "Give each redirection a target."],
+    ["case x in a) kill 1;;", "a case with no esac", "End each case with esac, and give each case pattern one word."],
+    ["(kill 1", 'an open "("', "Close each ( with a )."]];
+  for (const [command, cause, way] of causes) {
+    assert.equal((agentProblem(command, project, "/usr/bin:/bin") ?? "").split(" Its text names")[0], `the hook cannot read this command (${cause}), so it refuses it. ${way}`, command);
+    assert.match(await codex(command, implementer) ?? "", new RegExp(`cannot read this command \\(${cause.replace(/[()"]/g, "\\$&")}\\), so it refuses it\\. ${way.replace(/[().<>]/g, "\\$&")} Its text names`), `codex: ${command}`);
+  }
+});
+
 function scratchWorktree(t) {
   const wt = realpathSync(mkdtempSync(join(tmpdir(), "sage-t968-wt-")));
   t.after(() => rmSync(wt, { recursive: true, force: true }));
@@ -539,8 +686,9 @@ test("T931: a sage child, and every child in sage mode, runs no git stash and no
   for (const sage of [true, false]) {
     const g = fixed({ sage });
     assert.equal(denied(await g.run(pre("Bash", "git stash", sageChild))), STASH, `sage mode ${sage}: a sage child`);
-    for (const [command, word] of [["ps aux", "ps"], ["pgrep -f node", "pgrep"], ["kill 1", "kill"], ["pkill node", "pkill"], ["launchctl list", "launchctl"]]) {
-      assert.match(denied(await g.run(pre("Bash", command, sageChild))) ?? "passed", new RegExp(`^sage: an agent never reads or signals the real process list \\(standing order 14\\), so "${word}" is refused\\.`), command);
+    for (const command of ["ps aux", "pgrep -f node", "lsof -i :3000"]) assert.equal(denied(await g.run(pre("Bash", command, sageChild))), undefined, `a look at the processes (G233): ${command}`);
+    for (const [command, word] of [["kill 1", "kill"], ["pkill node", "pkill"], ["launchctl list", "launchctl"]]) {
+      assert.match(denied(await g.run(pre("Bash", command, sageChild))) ?? "passed", new RegExp(`^sage: an agent never signals or controls a real process, so "${word}" is refused: `), command);
     }
     for (const command of ["git stash list", "ps aux", "kill 1", "launchctl list"]) assert.equal(await g.run(pre("Bash", command)), undefined, `sage mode ${sage}: the chief runs ${command}`);
   }

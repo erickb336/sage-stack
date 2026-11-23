@@ -514,8 +514,8 @@ function moveCheck({ owner, repo, branch }) {
   }
 }
 
-const READS = { status: () => true, "merge-check": () => true, logbook: (pos) => pos[0] !== "repair", standing: (pos) => pos[0] !== "add", config: (pos) => !pos.length };
-const READ_FORM = "node <path to skills/sage/sage.mjs> <status, merge-check, logbook, standing or config> [--project <path>] (config without a key=value)";
+const READS = { status: () => true, "merge-check": () => true, logbook: (pos) => pos[0] !== "repair", standing: (pos) => pos[0] !== "add", config: (pos) => !pos.length, task: (pos) => pos.length === 1 && TASK.test(pos[0]) };
+const READ_FORM = "node <path to skills/sage/sage.mjs> <status, merge-check, logbook, standing, config or task <T>> [--project <path>] (config without a key=value)";
 const PLAIN = /^[\w./=:@,+-]+(?:[ \t]+[\w./=:@,+-]+)*$/;
 const fields = (v) => (typeof v === "string" ? [v] : v && typeof v === "object" ? Object.values(v).flatMap(fields) : []);
 const fold = (text) => text.normalize("NFKC").toLowerCase();
@@ -667,7 +667,7 @@ function leadProblem(input, cmd, pos, opt, slots) {
   if (view.shared && (opt.lead !== lead.run || opt.chief !== undefined)) return `this project's logbook is shared, so a lead's write names its lead run: add --lead ${lead.run}, with no --chief.`;
   return leadEndProblem(request, view, { lead, slots });
 }
-const READ_WAY = "To run a read command of the state tool, run node <path to skills/sage/sage.mjs> status (or merge-check, logbook, standing, config), with the path of the copy that this hook loads; to read the file, use cat <path> or git show <sha>:<path>.";
+const READ_WAY = "To run a read command of the state tool, run node <path to skills/sage/sage.mjs> status (or merge-check, logbook, standing, config, task <T>), with the path of the copy that this hook loads; to read the file, use cat <path> or git show <sha>:<path>.";
 function optionsOf(args) {
   const pos = [], opt = Object.create(null);
   let twice;
