@@ -102,11 +102,12 @@ export function sessionRow(chief, now, clock, dated = clock) {
   const row = sessionWords(chief, now, clock), notes = pickupNotes(chief, stamp);
   return notes.length ? { ...row, sub: [row.sub, ...notes].join(" · ") } : row;
 }
+export const stoppedAt = (chief) => chief.reason === "ended" ? chief.endedAt : chief.reason === "quiet-8h" ? new Date(Date.parse(chief.heartbeat) + 8 * 3_600_000).toISOString() : chief.heartbeat;
 function sessionWords(chief, now, clock) {
   const head = `${chiefName(null, chief.provider) || "Chief"} · ${chief.id}`, holds = counted(chief.tasks, "task");
   if (chief.session === "stopped") {
     const ended = chief.reason === "ended";
-    return { dot: "stopped", word: ended ? "ended" : "stopped", head: `${head} · ${ended ? "ended" : "stopped"} ${clock(ended ? chief.endedAt : chief.reason === "quiet-8h" ? new Date(Date.parse(chief.heartbeat) + 8 * 3_600_000).toISOString() : chief.heartbeat)}`,
+    return { dot: "stopped", word: ended ? "ended" : "stopped", head: `${head} · ${ended ? "ended" : "stopped"} ${clock(stoppedAt(chief))}`,
       sub: [holds, lostText(chief.lost), chief.reason === "quiet-8h" ? "8 h with no action" : null].filter(Boolean).join(" · ") };
   }
   if (chief.session === "quiet") return { dot: "quiet", word: "quiet", head: `${head} · no action for ${idleText(Date.parse(now) - Date.parse(chief.heartbeat))}`,

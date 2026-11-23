@@ -20,8 +20,9 @@ const zone = (d) => {
 };
 export function localTime(at) {
   const d = new Date(String(at ?? ""));
-  if (Number.isNaN(d.getTime())) return { clock: "", day: "", date: "" };
-  return { clock: `${two(d.getHours())}:${two(d.getMinutes())} ${zone(d)}`, day: `${d.getDate()} ${MONTHS[d.getMonth()]}`, date: `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}` };
+  if (Number.isNaN(d.getTime())) return { clock: "", time: "", zone: "", day: "", date: "" };
+  const time = `${two(d.getHours())}:${two(d.getMinutes())}`;
+  return { clock: `${time} ${zone(d)}`, time, zone: zone(d), day: `${d.getDate()} ${MONTHS[d.getMonth()]}`, date: `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}` };
 }
 const clock = (at) => localTime(at).clock;
 export const providersOf = (plan) => [...new Set(plan.sources.map((s) => s.provider))];

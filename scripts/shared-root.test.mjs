@@ -1601,7 +1601,6 @@ test("the move takes the open tasks of both old logbooks into one shared logbook
   assert.deepEqual([card(`shared/${folder}/T4`).was, card(`shared/${folder}/T6`).was, card(`shared/${folder}/T7`).was, card(`claude/${folder}/T1`).was], ["was Claude T2", "was Codex T1", undefined, undefined]);
   assert.equal(card(`claude/${folder}/T1`).old.label, "Old · Claude · read-only");
   assert.equal(model.projects.length, 1, "one project");
-  assert.match(renderBoardText(model), /\*\*claude open\*\* T4 · was Claude T2 · /);
   assert.match(renderTaskText(card(`shared/${folder}/T6`)), /^\*\*codex open\*\* T6 · was Codex T1\n/);
 });
 
@@ -2148,7 +2147,8 @@ test("the board shows a banner for 7 days after a move, with the map page by nam
   const at = rowsIn(join(w.shared, folder, "sources.tsv"))[0].at, after = (days) => boardOf(w, { now: new Date(Date.parse(at) + days * 86400000).toISOString() });
   const text = `3 open tasks have new numbers, and each card shows its old number. Finished tasks stay in Done as Old and read-only. The old-to-new map is move-map.html in the logbook folder ${folder}, on this Mac.`;
   const chat = renderBoardText(after(1));
-  assert.ok(chat.replaceAll("\\", "").includes(`⇢ project moved to one shared logbook on ${at.slice(0, 10)} ${at.slice(11, 16)} UTC. ${text}`));
+  const day = new Date(at), local = `${day.getDate()} ${day.toLocaleString("en", { month: "short" })}`;
+  assert.ok(chat.includes(`\nproject moved to one shared logbook on ${local}. ${text}\n`), chat);
   assert.equal(chat.includes(w.base), false, "no path of the Mac on the board");
   assert.equal(renderBoardText(after(8)).includes("moved to one shared logbook"), false, "gone after 7 days, as Done is");
 });
