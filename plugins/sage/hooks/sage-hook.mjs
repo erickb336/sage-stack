@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { appendFileSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, utimesSync, watch, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { appendFileSync, chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, utimesSync, watch, writeFileSync } from "node:fs";
+import { homedir, hostname } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -1127,6 +1127,30 @@ function noteStart(input) {
 }
 
 const HOOK_TIME_LIMIT_MS = 10_000, LOCK_AGE_MS = 3 * HOOK_TIME_LIMIT_MS, skipWhenBusy = () => {};
+const LOCK_OWNER = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/;
+
+function lockHolder(path) {
+  let info, names = [], owner;
+  try { info = lstatSync(path); if (info.isDirectory()) names = readdirSync(path); }
+  catch (error) { if (error.code === "ENOENT") return { free: true }; throw error; }
+  if (names.length === 1 && LOCK_OWNER.test(names[0])) try { owner = JSON.parse(readFileSync(join(path, names[0]), "utf8")); } catch {}
+  const at = Number.isFinite(owner?.at) ? owner.at : info.mtimeMs;
+  return { folder: info.isDirectory(), names, pid: owner?.pid, host: owner?.host, age: Math.abs(Date.now() - at) };
+}
+
+function holderGone(holder) {
+  if (holder.age > LOCK_AGE_MS) return true;
+  if (holder.host !== hostname() || !Number.isInteger(holder.pid) || holder.pid <= 0) return false;
+  try { process.kill(holder.pid, 0); return false; }
+  catch (error) { return error.code === "ESRCH"; }
+}
+
+function removeSeenLock(path, { folder, names }) {
+  if (!folder) { try { unlinkSync(path); } catch {} return; }
+  for (const name of names) rmSync(join(path, name), { recursive: true, force: true });
+  try { rmdirSync(path); } catch {}
+}
+
 export function slotsFor(dir, session, now = Date.now(), rawSession = session, leadRuns = liveLeadRun) {
   const STALE = { pending: 10 * 60_000, agent: 60 * 60_000 };
   const id = (raw) => safe(raw) || undefined;
@@ -1172,27 +1196,53 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
     try { rmdirSync(join(dir, slot)); }
     catch { rmSync(join(dir, slot), { recursive: true, force: true }); }
   };
-  const stale = (path) => Math.abs(Date.now() - statSync(path).mtimeMs) > LOCK_AGE_MS;
-  const takeStale = () => {
-    try { if (!stale(lock)) return; } catch (error) { if (error.code === "ENOENT") return; throw error; }
-    const away = `${lock}.stale-${randomUUID()}`;
-    try { renameSync(lock, away); } catch (error) { if (error.code === "ENOENT") return; throw error; }
-    if (!stale(away)) return renameSync(away, lock);
-    try { rmSync(away, { recursive: true, force: true }); } catch {}
-  };
-  const busy = () => { throw Error(`the agent-slot lock is busy, so no agent can start or end until the slot state is available. The hook frees the lock folder ${lock} by itself when it is older than ${LOCK_AGE_MS / 1000} s; if it stays, the user removes it with: rmdir "${lock}"`); };
-  const transaction = (fn, whenBusy = busy) => (...args) => {
-    mkdirSync(dirname(lock), { recursive: true });
-    let held = false;
-    for (let attempt = 0; attempt < 400; attempt++) {
-      try { mkdirSync(lock); held = true; break; }
-      catch (error) { if (error.code !== "EEXIST") throw error; }
-      takeStale();
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+  const endsNoted = join(events, "ended-while-lock-busy");
+  const applyEndsNoted = () => {
+    let names;
+    try { names = readdirSync(endsNoted); }
+    catch (error) { if (error.code === "ENOENT") return; throw error; }
+    for (const name of names) {
+      let value;
+      try { value = JSON.parse(readFileSync(join(endsNoted, name), "utf8")); } catch {}
+      if (valid(value?.agent)) release(value.agent, value.report ?? undefined);
+      rmSync(join(endsNoted, name), { force: true });
     }
-    if (!held) return whenBusy();
-    try { return fn(...args); }
-    finally { rmdirSync(lock); }
+  };
+  const busy = (holder) => {
+    const who = holder.pid !== undefined ? `pid ${holder.pid} has held it for ${(holder.age / 1000).toFixed(1)} s` : holder.free ? "other hooks took it first each time" : "it has no owner file";
+    throw Error(`the agent-slot lock is busy (${who}), so no agent can start or end until the slot state is available. The hook frees the lock folder ${lock} by itself as soon as its holder has ended, or when it is older than ${LOCK_AGE_MS / 1000} s; if it stays, the user removes it with: rm -r "${lock}"`);
+  };
+  const transaction = (fn, whenBusy = busy) => (...args) => {
+    const parent = dirname(lock), token = randomUUID(), file = `${token}.json`, temporary = `${lock}.${token}`;
+    mkdirSync(parent, { recursive: true });
+    mkdirSync(temporary);
+    let held = false, holder;
+    try {
+      chmodSync(temporary, 0o700);
+      writeFileSync(join(temporary, file), JSON.stringify({ pid: process.pid, host: hostname(), at: Date.now() }));
+      for (let attempt = 0; attempt < 400 && !held; attempt++) {
+        holder = lockHolder(lock);
+        if (holder.free) {
+          try { renameSync(temporary, lock); held = true; continue; }
+          catch (error) { if (!["EEXIST", "ENOTEMPTY", "ENOTDIR"].includes(error.code)) throw error; }
+        } else if (holderGone(holder)) { removeSeenLock(lock, holder); continue; }
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+      }
+    } finally {
+      if (!held) rmSync(temporary, { recursive: true, force: true });
+    }
+    if (!held) return whenBusy(holder, ...args);
+    try {
+      for (const name of readdirSync(parent)) {
+        if (!name.startsWith(`${basename(lock)}.`)) continue;
+        const left = lockHolder(join(parent, name));
+        if (!left.free && holderGone(left)) removeSeenLock(join(parent, name), left);
+      }
+      applyEndsNoted();
+      return fn(...args);
+    } finally {
+      removeSeenLock(lock, { folder: true, names: [file] });
+    }
   };
   const expire = () => {
     const age = slot => has(slot, "possible-launch") || mark(slot, "agent-") !== undefined || mark(slot, "bound-") !== undefined ? STALE.agent : STALE.pending;
@@ -1353,7 +1403,7 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
       if (stopped(agent)) release(agent);
       else utimesSync(join(dir, slot), new Date(now), new Date(now));
     }),
-    release: transaction(release),
+    release: transaction(release, (holder, agent, report) => valid(agent) && note(hash(agent), JSON.stringify({ agent, report: report ?? null }), endsNoted)),
     bindByBriefRun: transaction((agent, role, { run, task }) => {
       if (!valid(agent) || !run || stopped(agent) || ofSession().some(slot => ownsAgent(slot, agent)) || noted(`binding-${hash(agent)}`)) return;
       const calls = observationOf(agent)?.calls ?? [];
