@@ -176,14 +176,16 @@ test("f: both boards agree with the merge check on a head whose cycles carry, an
   const sources = [{ id: "current", path: w.env.SAGE_HOME }];
   const card = () => buildBoardModel(readBoardSources(sources), { landing: landingRule(sources) }).tasks.find((c) => c.id === "T1").mergeCheck;
   assert.deepEqual(card(), { ok: true, text: `The merge check passes on ${h2.slice(0, 7)}. The board does not check the PR's head branch.` }, "the rich board");
-  assert.match(w.cli("board", "all"), /\n> The board cannot tell if autopilot is on, so review and merge PR 41\\\.\n/, "the chat board");
+  const board = w.cli("board", "all");
+  assert.match(board, /\. The board cannot tell if autopilot is on, so review and merge its PR\.\n/, "the chat board");
+  assert.match(board, /\nRef: T1 PR 41$/, "the chat board keeps the PR number for the Ref line (T1217)");
   w.git("update-ref", "-d", "refs/remotes/origin/main");
   assert.equal(w.refused(h2), notCarried(h1, GONE));
   assert.deepEqual(card(), { ok: false, text: `The merge check refuses ${h2.slice(0, 7)}. T1: 0 of 1 clean cycles on this SHA; never recorded: review-clean, qa-pass.` });
   const chat = w.cli("board", "all");
-  assert.ok(chat.includes(`Now: The merge check refuses ${h2.slice(0, 7)}\\. T1\\: 0 of 1 clean cycles on this SHA; never recorded\\: review-clean, qa-pass\\.`), chat);
-  assert.ok(chat.includes("No recorded task needs you."), "F-T1096-8: a refused merge is the chief's to fix, so it is not in Needs you");
-  assert.doesNotMatch(chat, /review and merge PR 41/, "the chat board");
+  assert.ok(chat.includes("\n### Moving now\n- t. The merge check refuses its last commit; the chief repairs it.\n"), chat);
+  assert.ok(chat.includes("### Needs you\nNothing waits for you."), "F-T1096-8: a refused merge is the chief's to fix, so it is not in Needs you");
+  assert.doesNotMatch(chat, /review and merge/, "the chat board");
 });
 
 test("g: a carried refusal says that a verdict on this SHA replaces the carried cycles, and the next refusal says why (F-T805-2)", (t) => {
