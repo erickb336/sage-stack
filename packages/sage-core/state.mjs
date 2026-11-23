@@ -32,6 +32,7 @@ import { LEAD_COMMANDS, leadProblem as leadPolicy, leadRequest } from "./lead-po
 import { renderMessage } from "./message-checks.mjs";
 import { KINDS as MESSAGE_KINDS, MAX_SECTIONS, PAGE_DEPTH, PAGE_MAX, PAGE_TYPES, pageType, pageUrl } from "./message.mjs";
 import { boardPort, pageFile, pageTaskFolder } from "./page-files.mjs";
+import { boardAnswers, boardDownLine } from "./board-probe.mjs";
 import { taskWord } from "./state-words.mjs";
 import { AST_GREP_VERSION, LINT_CONFIG, LINT_KINDS, astGrepBinary, lintBase, lintChange } from "./lint.mjs";
 import { adoptBrief, languageList, placeToolFiles, projectLanguages } from "./lint-offer.mjs";
@@ -2892,7 +2893,8 @@ function readMessage(file, json, project, env) {
 }
 function writeMessage(project, taskId, { input, logbook }, shape, env) {
   const folder = taskId && pagesDir(project, taskId, env);
-  const out = renderMessage(input, folder ? { pagePath: (name) => join(folder, name), pageUrl: (name) => pageUrl(logbook, taskId, name, boardPort(env)) } : {});
+  const port = boardPort(env), down = () => (boardAnswers(port) ? undefined : boardDownLine());
+  const out = renderMessage(input, folder ? { pagePath: (name) => join(folder, name), pageUrl: (name) => pageUrl(logbook, taskId, name, port), down } : { down });
   if (out.problems) refuse(`the message is not in its kind's shape, so ${shape}. Nothing written.\n${out.problems.map((p) => `- ${p}`).join("\n")}`);
   if (!out.page) return out.text;
   if (!folder) refuse("the message has a long form, a picture or a toggle, so it needs a page, and a page lives in a task's pages folder: give the gate its task. Nothing written.");
