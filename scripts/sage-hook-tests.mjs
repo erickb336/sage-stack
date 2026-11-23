@@ -969,7 +969,7 @@ test("a push command that the hook cannot read is refused with what to do (F-R90
   const s = session();
   s.send(prompt("sage mode"));
   assert.match(denied(s.send(bash("git push origin 'feat"))) ?? "", /^sage: the hook cannot read this command \(an open quote\), so it refuses it\. Close each quote, substitution and heredoc\. Its text names a push\. Push only with git \[-C <dir>\] push/);
-  assert.match(denied(s.send(bash("echo 'it"))) ?? "", CHIEF_SHELL, "a command with no push is not the push rule's: the chief's write rule refuses a line that it cannot read (T960)");
+  assert.equal(denied(s.send(bash("echo 'it"))), "sage: the hook cannot read this command (an open quote), so it refuses it. Close each quote, substitution and heredoc.", "a command with no push is not the push rule's: the chief's write rule refuses a line that it cannot read (T960), with its cause and way (F-T1210-14)");
 });
 
 test("a merge needs autopilot on, the checked head SHA, and its clean cycles in the ledger", () => {
@@ -3506,14 +3506,15 @@ test("T670-SLICE: a jq slice (.headSha[0:8]) or a Python slice (s[i:j], sha[:8])
   assert.equal(denied(s.send(bash(read))), undefined, `${read}: a python3 -c read passes (T1210), and the slice names no logbook file`);
 });
 
-test("T670-ROOTVAR, T815: SAGE_HOME set from a variable or to a scratch path passes: an assignment is no write", () => {
+test("T670-ROOTVAR, T815, F-T1210-17: SAGE_HOME set from a variable or to a scratch path passes: an assignment is no write, and the chief's write through a variable set to the scratch folder passes", () => {
   const s = session();
   s.send(prompt("sage mode"));
   const scratch = realpathSync(mkdtempSync(join(tmpdir(), "sage-scratch-")));
   for (const command of [`S=${scratch}; SAGE_HOME=$S/home/sage node --test a.test.mjs > $S/out.txt 2>&1`, `SAGE_HOME=${scratch}/home/sage node --test a.test.mjs > ${scratch}/out.txt 2>&1`]) {
     assert.equal(denied(s.send(bash(command, FEATURE, AGENT))), undefined, `agent: ${command}`);
-    expectPass(s.send(bash(command)), command.includes("> $S/"), `chief: ${command}`);
+    expectPass(s.send(bash(command)), false, `chief: ${command}`);
   }
+  expectPass(s.send(bash(`S=${FEATURE}; echo x > $S/out.txt`)), true, "chief: a variable set to the project's checkout");
 });
 
 test("R5-DOLLARQUOTE, T815: a test log with echo exit=$? passes; a pattern that names the sage root is a limit, but its literal part still counts", () => {
