@@ -3,7 +3,7 @@ import { lstatSync, readFileSync, readdirSync, watch } from "node:fs";
 import { createServer } from "node:http";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AGENT_QUIET_MS, readActions, readHookNotes, readBoardSources, buildBoardModel, boardOverview, boardStats, taskPanel, landingRule, pageTaskFolder, sharedRoot, BOARD_PORT } from "../core/index.mjs";
+import { AGENT_QUIET_MS, readActions, readHookNotes, readBoardSources, buildBoardModel, boardOverview, boardStats, taskPanel, landingRule, pageTaskFolder, sharedRoot, BOARD_PORT, DESIGNS_FOLDER, WORDS_MAX } from "../core/index.mjs";
 import { COOKIE, boardAccess, readJson } from "./access.mjs";
 import { gateMaterial } from "./material.mjs";
 import { failureOf, pagesRequest, servePages, taskFiles } from "./pages.mjs";
@@ -81,7 +81,8 @@ const PAIR_AGAIN = "To pair it, type show board in a chief's chat, and click the
 const HEADERS_MAX = 64 * 1024;
 const GATE = /^G[1-9]\d*$/, TASK = /^T[1-9]\d*$/, CHIEF = /^C[1-9]\d*$/, LOGBOOK = /^([A-Za-z0-9_-]{1,80})\/([a-z0-9-]+-[0-9a-f]{6})$/;
 const JOBS = {
-  answer: body => GATE.test(body.gate) && Number.isInteger(body.option) && body.option >= 1 && body.option <= 99 && /^[0-9a-f]{16}$/.test(body.digest ?? "") && ["gate", "answer", body.gate, "--via", "board", "--option", String(body.option), "--seen", body.digest],
+  answer: body => GATE.test(body.gate) && Number.isInteger(body.option) && body.option >= 1 && body.option <= 99 && /^[0-9a-f]{16}$/.test(body.digest ?? "") && (body.words === undefined || typeof body.words === "string" && [...body.words].length <= WORDS_MAX)
+    && ["gate", "answer", body.gate, "--via", "board", "--option", String(body.option), ...(body.words?.trim() ? ["--other-hex", Buffer.from(body.words, "utf8").toString("hex")] : []), "--seen", body.digest],
   undo: body => GATE.test(body.gate) && ["gate", "undo", body.gate],
   give: body => TASK.test(body.task) && CHIEF.test(body.to) && ["gate", "give", body.task, "--to", body.to],
   name: body => CHIEF.test(body.chief) && typeof body.name === "string" && body.name.length <= 240 && ["chief", "name", body.chief, ...(body.name.trim() ? [body.name.trim()] : [])],
@@ -248,7 +249,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = () =
     };
     const tree = path => {
       add(path);
-      for (const entry of readdirSync(path, { withFileTypes: true })) if (entry.isDirectory()) try { tree(join(path, entry.name)); } catch {}
+      for (const entry of readdirSync(path, { withFileTypes: true })) if (entry.isDirectory() && entry.name !== DESIGNS_FOLDER) try { tree(join(path, entry.name)); } catch {}
     };
     for (const source of configured) {
       try { tree(source.path); } catch {}

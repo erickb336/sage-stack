@@ -1,5 +1,6 @@
 export { balancedModels, createStateTool } from "./state.mjs";
 export { sharedRoot } from "./shared-root.mjs";
+export { DESIGNS_FOLDER, WORDS_MAX } from "./design-copy.mjs";
 export { writerClass } from "./chiefs.mjs";
 export { chiefBeat, chiefEnd, chiefResume, clearLink, clearNote, readLiveRecord, sessionState, sessionsLine } from "./chief-live.mjs";
 export { readLocalGit } from "./local-git.mjs";

@@ -104,7 +104,7 @@ Four exceptions can interrupt you again:
 
 - An irreversible action always gets its own yes.
 - A new fact that changes an earlier answer can bring the question back.
-- A large task's design goes to you after the PE check. It waits for your approval when it changes what you see or data that you keep. An internal shape goes ahead as recommended when you do not answer.
+- A large task's design goes to you after the PE check, as a design question. It waits for your approval ([A design question](#a-design-question)).
 - An escalation: the work finds something that the chief cannot decide alone. For example:
   - The task is held or needs a new plan.
   - An agent stops at a new product question.
@@ -137,6 +137,22 @@ A design check reads the page before you get it:
 - It names each missing part, and it fails on a page with no diagram, tabs or hidden parts, code above "Under the hood", invented data that is not labelled sample, or fewer than 2 web links (`http` or `https`) to the prior art in "How it works".
 - The designer and the arena judge run it, and the chief runs it again before it sends you the design.
 - The format and the check are in `core/references/design-format.md` and `core/design-page.mjs` in the plugin's folder.
+
+### A design question
+
+When a design waits for your approval, the chief asks a design question. It has three fixed choices:
+
+| Choice | What happens |
+| --- | --- |
+| Approve | sage keeps a copy of the design in the logbook, and the build starts. |
+| Approve with your words | The same, and your words go with the approval, as one answer: `Approve with your words: <your words>`. The build follows them. |
+| New version | The designer makes a new version, and the chief asks you again. Nothing is copied. |
+
+- **Your words.** On the board, pick choice 2 and type your words (at most 1,000 characters) under it. In the chat, pick choice 2, and the chief asks you for the words.
+- **The copy.** At the chief's pickup of an approval, sage copies the design's pages to `designs/<task>/<question>/` in the logbook, with a manifest: the answer, the time, and each file's size and sha256. A cleanup of the pages folder keeps it.
+- **Copy limits.** Plain files only, with no link, at most 200 pages and 30 MiB.
+- **Not copied.** When the design is gone or too big, your answer still counts. The chief's output and the logbook's decisions say "not copied" and why.
+- **No other way to the build.** A design task moves from waiting for you to the build only on an approval of its latest design question.
 
 ### Prior art
 
@@ -194,6 +210,8 @@ Until then, you can take a board answer back. An answer in the chat or on a card
 | `node <board folder>/cli.mjs board --ensure --link --project <chat folder>` | The chief, when you send `show board`. The hooks refuse `--link` from an agent. | The board's address with a one-time pairing link and the chat's project. One click on it opens the board on that project and pairs the browser, within 10 minutes ([Act from the board](board.md#act-from-the-board)). |
 | `node <board folder>/cli.mjs board --pair` | You, in Terminal, once for each browser, when no chat is open. It refuses input that is not a terminal, and the hooks refuse it from an agent. | A one-time code for the board in the browser. After you type it there, the browser can answer, undo, rename a chief and give a task to another chief ([Act from the board](board.md#act-from-the-board)). |
 | `sage gate add <T> ... --message <file>` | The chief, when it parks a question: every gate that the chief opens needs it. The file is the JSON of the question's message. When the task's pages folder holds a page, the message names the main page with a Page block (`{ "t": "page", "title", "task", "file" }`), which may name another task's page. | The gate keeps the whole message as `gates/G<n>.json` in the logbook, after the message check, so that the board can show the full question and link the page. A gate without a message, or without a Page block on a task with pages, is refused with the fix. |
+| `sage gate add <T> --design <page or folder> ... --message <file>` | The chief, when a design waits for your approval. The design is a page or a folder of pages in the task's pages folder. | A design question with three fixed choices: Approve, Approve with your words and New version ([A design question](#a-design-question)). It is refused when sage cannot copy the design. |
+| `sage gate answer <G> --option 2 --other-hex <hex>` | The chief, after you pick Approve with your words and give the words in the chat; or the board, with the words that you type under the choice. | The answer is `Approve with your words: <your words>`. Choice 2 with no words, or words with another choice, is refused. Words have at most 1,000 characters. |
 | `sage gate add <T> ... --run R<n>` | The chief, when a run of the task asked the question, for example a designer or PE run. | The gate keeps the run, so that the board can show the question beside that run's report. A run of another task is refused. With no `--run`, the board takes the newest designer, PE or investigate run of the task. |
 
 - **Who picks up a board answer.** The chief that owns the question's task now, also after a takeover; the chief that opened a question with no task, such as the lint offer; or the receiving chief of a takeover gate. Its hook reads your answer at its next step, applies it, records the pickup and tells the chief what it did.
