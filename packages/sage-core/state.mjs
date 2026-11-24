@@ -2571,7 +2571,7 @@ function sageCommand(argv, env) {
   if (!COMMANDS.includes(cmd)) refuse(`unknown command "${cmd ?? ""}". Commands: ${COMMANDS.join(", ")}${GONE.includes(cmd) ? `\n${cmd} is gone: give up your own task with unclaim <T>; the work of a stopped session and a task with no owning chief pass on by the pick-up; a task of a live chief moves only through the owner's takeover gate (gate replace <T> --to C<n>).` : ""}`);
   const { pos, opt } = parse(cmd, rest);
   if (cmd === "prior-art") return priorArtCommand(pos, opt, env, refuse);
-  const readOnly = scopedRead(cmd, pos, opt) || readForm(cmd, pos, opt);
+  const readOnly = scopedRead(cmd, pos, opt);
   const root = sageRoot(env), project = resolve(opt.project ?? env.SAGE_PROJECT ?? folderHere());
   if ((opt.chief !== undefined || opt.lead !== undefined || chiefOnly(cmd, pos)) && !locate(project, env).shared) refuse(chiefOnly(cmd, pos) ? `${visible(project)} has no shared logbook, so it has no chiefs to hand a task to. Nothing changed.` : `${visible(project)} has no shared logbook, and only a shared logbook has chiefs: leave out --chief and --lead. Nothing changed.`);
   if (cmd === "board") {
@@ -2644,7 +2644,7 @@ function sageCommand(argv, env) {
     const printed = visible(project);
     refuse(`no logbook for the project ${printed}. ${printed === project ? `Run: sage init --project ${shell(project)}` : "Its path has control characters, so no command is printed to paste. Rename the folder, or run sage init from inside it."}`);
   }
-  if (readOnly || cmd === "stats" || (cmd === "pages" && pos[1] !== "record") || cmd === "message" || cmd === "worktrees" || (cmd === "storage" && pos[0] !== "clean")) return act(cmd, pos, opt, dir, env, [], project);
+  if (readOnly || readForm(cmd, pos, opt) || cmd === "stats" || (cmd === "pages" && pos[1] !== "record") || cmd === "message" || cmd === "worktrees" || (cmd === "storage" && pos[0] !== "clean")) return act(cmd, pos, opt, dir, env, [], project);
   notePlugin(env);
   if (place.row && !place.row.commits && fillCommits(place.checkout, env)) locate(project, env);
   const run = () => change(cmd, pos, opt, dir, env, skip, project, place.shared);

@@ -1591,7 +1591,7 @@ const FORGERIES = [
   `${TOOL} task T2 set milestone=M1`,
   `${TOOL} newcommand T2`,
 ].map((args) => `node ${args} --project /p`);
-const READ_COMMANDS = (dir) => ["status", `merge-check --sha ${SHA}`, "standing", "logbook", "config", "status --project=x", `standing --project ${dir}`].map((args) => `node ${TOOL} ${args} --project ${dir}`);
+const READ_COMMANDS = (dir) => ["status", `merge-check --sha ${SHA}`, "standing", "logbook", "config", `standing --project ${dir}`].map((args) => `node ${TOOL} ${args} --project ${dir}`).concat(`node ${TOOL} status --project=${dir}`);
 
 for (const command of FORGERIES) {
   test(`an agent's "${command.replace(`node ${dirname(TOOL)}/`, "").replace(" --project /p", "")}" is refused, in sage mode and out of it; the chief's passes (T83)`, () => {
@@ -3549,7 +3549,7 @@ test("F-T815-14: a long word keeps its start and its end, so the root part shows
     assert.ok(shown.includes(root.slice(0, 40)), "the start of the root shows");
   }
   const agent = denied(s.send(bash(`echo x > ${root}/p/a.tsv`, FEATURE, AGENT))) ?? "";
-  assert.match(agent, /\[--project <path>\] \(config without a key=value\)\./);
+  assert.match(agent, /\[--project <path>\] \(config without a key=value, and no other option\)\./);
   assert.doesNotMatch(agent, /with config with no/);
 });
 
