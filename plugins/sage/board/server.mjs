@@ -101,7 +101,7 @@ function jsonBody(request) {
   });
 }
 
-export function createBoardServer({ sources, port = BOARD_PORT, id, clock = null, settleReads = SETTLE_READS, lightEvery = LIGHT_EVERY, duringRead = null, holds = null, providerRoots = [], app = loadBoardApp(), reader = MARKDOWN !== null, stateDir = null, pairCommand = null, write = writeInWorker, onStop = null } = {}) {
+export function createBoardServer({ sources, port = BOARD_PORT, id, clock = null, settleReads = SETTLE_READS, lightEvery = LIGHT_EVERY, duringRead = null, holds = null, providerRoots = [], app = loadBoardApp(), reader = MARKDOWN !== null, stateDir = null, pairCommand = null, write = writeInWorker, onStop = null, onWatch = null } = {}) {
   if (!Number.isSafeInteger(port) || port !== 0 && (port < 1024 || port > 65535)) throw new TypeError("board port must be an integer from 1024 through 65535, or 0 for a free port that the system picks");
   if (clock !== null && typeof clock !== "function") throw new TypeError("the board clock must be a function that gives an ISO time");
   if (holds !== null && !(holds instanceof Int32Array && holds.buffer instanceof SharedArrayBuffer && holds.length >= 4)) throw new TypeError("the board's holds must be an Int32Array of 4 or more on a SharedArrayBuffer");
@@ -127,6 +127,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = null
   let light = null, answering = null, answeringGood = false, building = null, again = false, changingShown = false;
   let planShown = 0, publishes = 0, asks = 0, hooks = {}, lastSeed = null, stops = [];
   let readyAccept, readyReject;
+  const idlers = [];
   const readyPromise = new Promise((accept, reject) => { readyAccept = accept; readyReject = reject; });
   readyPromise.catch(() => {});
 
@@ -237,6 +238,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = null
         item.watcher = watch(plan.path, (event, filename) => {
           if (event !== "rename" && !item.plan.all && filename && !item.plan.children.includes(String(filename))) return;
           watchErrors.clear();
+          onWatch?.(item.plan.path, filename == null ? null : String(filename));
           const change = lightOf(item.plan.path, filename);
           if (change) lightSchedule(change); else schedule();
         });
@@ -294,6 +296,11 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = null
     lastSeed = { type: "seed", rows: message.rows, hooks };
     light?.post(lastSeed);
     readyAccept();
+    wakeIdlers();
+  }
+
+  function wakeIdlers() {
+    if (facts && !refreshTimer && !building && !again && shownSeq === publishes) for (const accept of idlers.splice(0)) accept();
   }
 
   function lit(message) {
@@ -544,6 +551,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = null
       return startPromise;
     },
     ready: () => readyPromise,
+    idle: () => new Promise(accept => { idlers.push(accept); wakeIdlers(); }),
     address: () => server.address(),
     close() {
       if (closePromise) return closePromise;
