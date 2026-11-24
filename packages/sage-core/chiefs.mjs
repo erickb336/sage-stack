@@ -15,11 +15,11 @@ export function writerClass(cmd, [sub, id] = []) {
     case "pickup": return ANY;
     case "release": return sub === "add" ? ANY : READ;
     case "task-adopt": case "round": case "verdict": case "lint": return onTask(sub);
-    case "finding": return onTask(id);
+    case "finding": return sub === "show" ? READ : onTask(id);
     case "milestone": case "program": return id === "set" ? ANY : { kind: "milestone" };
     case "run": return sub === "add" ? onTask(id) : sub === "done" ? { kind: "task", run: id } : sub === "usage" ? ANY : READ;
     case "gate": return ["answer", "undo", "give"].includes(sub) ? OWNER : sub === "replace" ? ANY : sub === "add" ? (id === undefined ? ANY : onTask(id)) : READ;
-    case "log": return TASK.test(sub ?? "") ? onTask(sub) : ANY;
+    case "log": return id === undefined ? READ : TASK.test(sub ?? "") ? onTask(sub) : ANY;
     case "observe": return { ...ANY, task: sub };
     case "pages": return id === "record" ? { ...ANY, task: sub } : READ;
     case "standing": return sub === "add" ? ANY : READ;

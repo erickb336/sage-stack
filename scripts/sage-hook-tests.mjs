@@ -3703,7 +3703,7 @@ test("Q3-N1WORD, T815: every run of the state tool's write is refused wherever t
   for (const command of cases) {
     const answer = denied(s.send(bash(command, FEATURE, AGENT))) ?? "";
     assert.match(answer, ONLY_CHIEF, command);
-    assert.match(answer, /node <path to skills\/sage\/sage\.mjs> (?:<status, merge-check, logbook, standing, config or task <T>>|status \(or merge-check, logbook, standing, config, task <T>\))/, command);
+    assert.match(answer, /node <path to skills\/sage\/sage\.mjs> (?:<status, merge-check, logbook, standing, config, task <T>, pages <T>, log <T>, finding show <T> <key> or help>|status \(or merge-check, logbook, standing, config, task <T>, pages <T>, log <T>, finding show <T> <key>, help\))/, command);
   }
   assert.equal(denied(s.send(bash(`python3 -c "import json; print(len(open('${path}').read()))"`, FEATURE, AGENT))), undefined, "a read of the tool's source");
 });

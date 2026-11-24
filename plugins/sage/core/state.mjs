@@ -1633,6 +1633,25 @@ function scopedRead(cmd, pos, opt) {
   return cmd === "task" || (cmd === "board" && opt.view === "task");
 }
 
+function readForm(cmd, pos, opt) {
+  if (Object.keys(opt).some((key) => !["project", "chief", "lead"].includes(key))) return false;
+  const [sub] = pos;
+  if (cmd === "status") return true;
+  if (cmd === "logbook") return sub !== "repair";
+  if (cmd === "standing") return sub !== "add";
+  if (cmd === "finding") return sub === "show" && pos.length === 3;
+  return ["task", "pages", "log"].includes(cmd) && pos.length === 1 && (TASK_ID.test(sub) || (cmd === "log" && sub === "-"));
+}
+const HELP = ["help", "--help"];
+function readsOnly([cmd, ...args]) {
+  if (HELP.includes(cmd)) return true;
+  if (!COMMANDS.includes(cmd)) return false;
+  try {
+    const { pos, opt } = parse(cmd, args);
+    return readForm(cmd, pos, opt) || cmd === "merge-check" || (cmd === "config" && !pos.length);
+  } catch { return false; }
+}
+
 function roleReadProject([cmd, ...args]) {
   try {
     const { pos, opt } = parse(cmd, args);
@@ -2548,10 +2567,11 @@ function sage(argv, env = process.env) {
 }
 function sageCommand(argv, env) {
   const [cmd, ...rest] = argv;
+  if (HELP.includes(cmd)) return `Commands: ${COMMANDS.join(", ")}. The sage skill's references/commands.md gives the rules of each command.`;
   if (!COMMANDS.includes(cmd)) refuse(`unknown command "${cmd ?? ""}". Commands: ${COMMANDS.join(", ")}${GONE.includes(cmd) ? `\n${cmd} is gone: give up your own task with unclaim <T>; the work of a stopped session and a task with no owning chief pass on by the pick-up; a task of a live chief moves only through the owner's takeover gate (gate replace <T> --to C<n>).` : ""}`);
   const { pos, opt } = parse(cmd, rest);
   if (cmd === "prior-art") return priorArtCommand(pos, opt, env, refuse);
-  const readOnly = scopedRead(cmd, pos, opt);
+  const readOnly = scopedRead(cmd, pos, opt) || readForm(cmd, pos, opt);
   const root = sageRoot(env), project = resolve(opt.project ?? env.SAGE_PROJECT ?? folderHere());
   if ((opt.chief !== undefined || opt.lead !== undefined || chiefOnly(cmd, pos)) && !locate(project, env).shared) refuse(chiefOnly(cmd, pos) ? `${visible(project)} has no shared logbook, so it has no chiefs to hand a task to. Nothing changed.` : `${visible(project)} has no shared logbook, and only a shared logbook has chiefs: leave out --chief and --lead. Nothing changed.`);
   if (cmd === "board") {
@@ -2624,7 +2644,7 @@ function sageCommand(argv, env) {
     const printed = visible(project);
     refuse(`no logbook for the project ${printed}. ${printed === project ? `Run: sage init --project ${shell(project)}` : "Its path has control characters, so no command is printed to paste. Rename the folder, or run sage init from inside it."}`);
   }
-  if (readOnly || (cmd === "logbook" && !repair) || cmd === "status" || cmd === "stats" || (cmd === "standing" && pos[0] !== "add") || (cmd === "pages" && pos[1] !== "record") || cmd === "message" || cmd === "worktrees" || (cmd === "storage" && pos[0] !== "clean")) return act(cmd, pos, opt, dir, env, [], project);
+  if (readOnly || cmd === "stats" || (cmd === "pages" && pos[1] !== "record") || cmd === "message" || cmd === "worktrees" || (cmd === "storage" && pos[0] !== "clean")) return act(cmd, pos, opt, dir, env, [], project);
   notePlugin(env);
   if (place.row && !place.row.commits && fillCommits(place.checkout, env)) locate(project, env);
   const run = () => change(cmd, pos, opt, dir, env, skip, project, place.shared);
@@ -3494,6 +3514,11 @@ function act(cmd, pos, opt, dir, env, skip, project) {
     }
     case "finding": {
       const findings = read(dir, "findings");
+      if (sub === "show") {
+        const key = need(more[0], "the finding's key"), f = findings.find((x) => x.task === id && x.key === key) ?? missing(`finding ${key} on ${id}`, findings.filter((x) => x.task === id).map((x) => x.key));
+        const tags = [f.run, f.class, f.triage && `triage ${f.triage}`].filter(Boolean).map((tag) => ` · ${tag}`).join("");
+        return `${f.key} ${f.status} · ${f.severity} · ${f.task} · round ${f.round} · from ${f.source}${tags}\n${f.summary}${f.reason ? `\nreason: ${f.reason}` : ""}`;
+      }
       if (sub === "add") {
         const { task } = taskOf(dir, need(id, "the task id"));
         notHeld(task, "finding add");
@@ -3702,6 +3727,11 @@ function act(cmd, pos, opt, dir, env, skip, project) {
       refuse("gate add, gate replace, gate give, gate answer or gate undo");
     }
     case "log": {
+      if (id === undefined && opt.why === undefined) {
+        const task = sub === "-" ? "" : taskOf(dir, need(sub, "the task id, or - for the decisions with no task")).task.id;
+        const rows = read(dir, "decisions").filter((d) => d.task === task);
+        return rows.length ? rows.map((d) => `${d.at} · ${d.decision}${d.why ? ` · ${d.why}` : ""}`).join("\n") : `no decisions ${task ? `on ${task}` : "with no task"}`;
+      }
       write(dir, "decisions", [...read(dir, "decisions"), { at: now(), task: sub === "-" ? "" : sub, decision: need(id, "the decision"), why: need(opt.why, "--why") }]);
       return "logged";
     }
@@ -3949,5 +3979,5 @@ const { bindings, fillCommits, folderOf, link, locate, movePlans, notePlugin, pl
   listed: (root) => known(root, undefined, undefined, true),
   enroll });
 const { chiefs, chiefRow, rowOf } = createChiefs({ now, provider, readRegular, refuse, rowsOf, sheetText, swap });
-return { SIZES, BLOCKS, RISKS, KINDS, STATES, DEFAULTS, PR, LEAD_COMMANDS, leadProblem, leadRequest, sageRoot, locate, chiefFor, chiefLink, sessionProbe, sessionsHere, stoppedSessions, sessionBar, branchBar, actorOptions, git, projectRoot, roleReadProject, optionsOf, slug, worktreeRoot, pagesRoot, BRANCH, ofTask, branchOfTask, branchTip, projectName, storeDir, config, cyclesFor, modelFor, read, mergeCheck, boardLandingCheck, carryOver, logbookView, sage, keepReport, keepRunText, keepSpend, keepUsage, observePush, compareRetainedReport, ownGates, pickupAnswers, queueOf, chiefQueue, queueProblem, pendingRun, markStart, sweepQueue, withLock, command, runCli, waitingPlugins, writeIdFloors };
+return { SIZES, BLOCKS, RISKS, KINDS, STATES, DEFAULTS, PR, LEAD_COMMANDS, leadProblem, leadRequest, sageRoot, locate, chiefFor, chiefLink, sessionProbe, sessionsHere, stoppedSessions, sessionBar, branchBar, actorOptions, git, projectRoot, roleReadProject, readsOnly, optionsOf, slug, worktreeRoot, pagesRoot, BRANCH, ofTask, branchOfTask, branchTip, projectName, storeDir, config, cyclesFor, modelFor, read, mergeCheck, boardLandingCheck, carryOver, logbookView, sage, keepReport, keepRunText, keepSpend, keepUsage, observePush, compareRetainedReport, ownGates, pickupAnswers, queueOf, chiefQueue, queueProblem, pendingRun, markStart, sweepQueue, withLock, command, runCli, waitingPlugins, writeIdFloors };
 }
