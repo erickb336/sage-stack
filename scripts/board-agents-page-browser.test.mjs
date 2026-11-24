@@ -7,9 +7,10 @@ import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { startPairing } from "../packages/sage-board/access.mjs";
-import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
+import { loadBoardApp } from "../packages/sage-board/server.mjs";
 import { HOSTILE_TEXT, writeTasksLogbook } from "./fixtures/board-app.mjs";
 import { measureContrast } from "./fixtures/contrast.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const chromium = requireBrowser();
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -37,7 +38,7 @@ async function open(t, options = {}, { path = "/app/", theme = "dark", width = 1
   }
   const stateDir = seen === undefined ? null : join(dir, "state");
   if (stateDir) mkdirSync(stateDir, { mode: 0o700 });
-  const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port: 0, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair" });
+  const server = quietBoard({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port: 0, app: APP, stateDir, pairCommand: "node /sample/board/cli.mjs board --pair" });
   const { port } = await server.start();
   await server.ready();
   const base = `http://127.0.0.1:${port}`;

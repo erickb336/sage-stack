@@ -10,9 +10,10 @@ import { buildBoardModel } from "../packages/sage-core/board-model.mjs";
 import { boardOverview, taskPanel } from "../packages/sage-core/board-overview.mjs";
 import { renderTaskText } from "../packages/sage-core/board-render.mjs";
 import { readBoardSources } from "../packages/sage-core/board-reader.mjs";
-import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
+import { loadBoardApp } from "../packages/sage-board/server.mjs";
 import { budgetOf } from "../packages/sage-board/reader.mjs";
 import { ABOUT, appTables, writeTasksLogbook } from "./fixtures/board-app.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const NOW = "2026-11-13T12:00:00.000Z";
@@ -29,7 +30,7 @@ function world(t, options) {
 const modelOf = sources => buildBoardModel(readBoardSources(sources, { now: Date.parse(NOW) }), { now: NOW });
 
 async function serve(t, sources, more = {}) {
-  const server = createBoardServer({ sources, port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [], ...more });
+  const server = quietBoard({ sources, port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), ...more });
   t.after(() => server.close());
   const { port } = await server.start();
   await server.ready();

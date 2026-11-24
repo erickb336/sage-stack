@@ -17,6 +17,7 @@ import { providerRoots, readSources, standardSources } from "../packages/sage-bo
 import * as view from "../packages/sage-core/board-view.mjs";
 import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
 import * as claude from "../plugins/sage/skills/sage/sage.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const NOW = Date.now(), iso = (ms = 0) => new Date(NOW + ms).toISOString(), MIN = 60_000, DAY = 86_400_000;
 const FOLDER = "lantern-4be1a2", HARBOR = "harbor-90c1de";
@@ -265,7 +266,7 @@ test("a table that changes during a read gives a retry; after two more differenc
 test("the server keeps its last good read, not stale, while the logbook changes, and the next read with no change shows it", async t => {
   const w = world(t), dir = join(w.claudeRoot, HARBOR);
   let churn = false, n = 0;
-  const server = createBoardServer({ sources: [w.sources[0]], port: 0, settleReads: [], app: APP, duringRead: key => { if (churn && key.endsWith(HARBOR)) rewrite(dir, `Busy write ${++n}`); } });
+  const server = quietBoard({ sources: [w.sources[0]], port: 0, app: APP, duringRead: key => { if (churn && key.endsWith(HARBOR)) rewrite(dir, `Busy write ${++n}`); } });
   t.after(() => server.close());
   const { port } = await server.start();
   await server.ready();
@@ -393,7 +394,7 @@ test("F-T624-12: a milestone that moved with its open task leaves the old logboo
 
 test("F-T624-13: the board server reads an old logbook under a provider root that its config leaves out, as the one-shot board does", async t => {
   const w = world(t);
-  const server = createBoardServer({ sources: [w.sources[0], w.sources[2]], port: 0, settleReads: [], app: APP, providerRoots: [{ path: w.codexRoot, provider: "codex" }] });
+  const server = quietBoard({ sources: [w.sources[0], w.sources[2]], port: 0, app: APP, providerRoots: [{ path: w.codexRoot, provider: "codex" }] });
   t.after(() => server.close());
   const { port } = await server.start();
   await server.ready();
@@ -613,7 +614,7 @@ test("F-T624-16: a source of another id at the shared root's path reads as the s
 
 test("F-T624-20: a sources.tsv row that stays refused is a note: the server stays live for every project", async t => {
   const w = world(t), dir = join(w.claudeRoot, HARBOR);
-  const server = createBoardServer({ sources: w.sources, port: 0, settleReads: [], app: APP });
+  const server = quietBoard({ sources: w.sources, port: 0, app: APP });
   t.after(() => server.close());
   const { port } = await server.start();
   await server.ready();

@@ -6,8 +6,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
+import { loadBoardApp } from "../packages/sage-board/server.mjs";
 import { writeTasksLogbook } from "./fixtures/board-app.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const chromium = requireBrowser();
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -27,7 +28,7 @@ async function board(t, { question = false } = {}) {
     const row = { id: "R90", task: "T2", role: "implementer", round: "0", status: "question", started: new Date(Date.now() - 50 * 60_000).toISOString(), ended: new Date(Date.now() - 20 * 60_000).toISOString(), chief: "C1" };
     appendFileSync(runs, `${columns.map(column => row[column] ?? "").join("\t")}\n`);
   }
-  const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port: 0, app: APP, settleReads: [] });
+  const server = quietBoard({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port: 0, app: APP });
   const { port } = await server.start();
   await server.ready();
   t.after(async () => { await server.close(); if (saved === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = saved; rmSync(dir, { recursive: true, force: true }); });

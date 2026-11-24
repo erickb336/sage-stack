@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
-import { untilTheWatchersReportAWrite } from "./fixtures/board-watch.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const HEADERS = {
   tasks: "id title size risk route state branch pr round keys",
@@ -35,12 +35,13 @@ const APP = loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", impo
 const has = (model, text) => JSON.stringify(model).includes(text);
 const BOARD_POLICY = "default-src 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'";
 
-async function fixture(t, { missing = false, id, clock, before, settleReads } = {}) {
+async function fixture(t, { missing = false, id, clock, before, quiet = false, probe } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-server-")), root = join(dir, "source");
   if (!missing) populate(root);
   before?.(join(root, "project-abcdef"));
   const sources = [{ id: "sample", path: root, label: "Sample source" }];
-  const server = createBoardServer({ sources, port: 0, id, app: APP, ...(clock ? { clock } : {}), ...(settleReads ? { settleReads } : {}) });
+  const options = { sources, port: 0, id, app: APP, ...(clock ? { clock } : {}) };
+  const server = quiet ? quietBoard(options, probe === undefined ? {} : { probe }) : createBoardServer(options);
   t.after(async () => { await server.close(); rmSync(dir, { recursive: true, force: true }); });
   const { port } = await server.start();
   await server.ready();
@@ -312,7 +313,7 @@ test("board event streams keep the last valid content while an incomplete write 
 });
 
 test("R1506-F1: a table written in place after an earlier rename onto it still updates the board, on Linux too", async t => {
-  const f = await fixture(t, { settleReads: [] }), stream = events(f); t.after(() => stream.close());
+  const f = await fixture(t, { quiet: true }), stream = events(f); t.after(() => stream.close());
   assert.equal((await stream.next()).stale, false);
   const target = join(f.project, "tasks.tsv"), temporary = join(f.project, "tasks.pending");
   const renamed = () => { writeFileSync(temporary, tasks(row("Sample renamed title"))); renameSync(temporary, target); };
@@ -418,7 +419,7 @@ test("a parent rename that names only the destination refreshes the missing boar
   };
   syncBuiltinESMExports();
   let f;
-  try { f = await fixture(t, { settleReads: [] }); } finally { fs.watch = original; syncBuiltinESMExports(); }
+  try { f = await fixture(t, { quiet: true, probe: null }); } finally { fs.watch = original; syncBuiltinESMExports(); }
   const stream = events(f); t.after(() => stream.close());
   await stream.next(p => !p.stale);
   renameSync(f.root, join(f.dir, "renamed-source"));
@@ -446,12 +447,11 @@ async function lightBoard(t, { lightEvery, quiet = false, slotOnly = false, hook
   if (quiet) { const long = new Date(Date.now() - 40 * 60_000); for (const name of slotOnly ? ["slot-2", "slot-1"] : ["slot-1"]) utimesSync(join(root, ".hooks", "slots", name), long, long); }
   mkdirSync(join(project, "actions"));
   let reads = 0;
-  const server = createBoardServer({ sources: [{ id: "sample", path: root, label: "Sample" }], port: 0, settleReads: [], ...(lightEvery ? { lightEvery } : {}), duringRead: () => { reads++; },
+  const server = quietBoard({ sources: [{ id: "sample", path: root, label: "Sample" }], port: 0, ...(lightEvery ? { lightEvery } : {}), duringRead: () => { reads++; },
     app: loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", import.meta.url))) });
   t.after(async () => { await server.close(); rmSync(dir, { recursive: true, force: true }); });
   const { port } = await server.start();
   await server.ready();
-  await untilTheWatchersReportAWrite(port, project);
   return { dir, root, project, port, file: join(project, "actions", "R1.jsonl"), slot: join(root, ".hooks", "slots", "slot-1"), reads: () => reads };
 }
 
@@ -599,4 +599,32 @@ test("F-T1158-3: while the board shows its last good copy, a read that changes t
   const later = await stream.next(model => model.stale && model.stats !== stale.stats);
   assert.equal(later.at, stale.at, "the board still shows its last good copy");
   assert.equal(JSON.parse((await read(f, "/app/stats")).body).total.open, 3, "Stats of the newest read count the new tasks");
+});
+
+test("F-T1215-16, F-T1215-19: every script that starts a board with no settle reads starts it through quietBoard", () => {
+  const scripts = fileURLToPath(new URL(".", import.meta.url)), helper = join("fixtures", "quiet-board.mjs");
+  const files = fs.readdirSync(scripts, { recursive: true }).filter(name => name.endsWith(".mjs") && name !== helper && !name.split("/").includes("node_modules"));
+  assert.ok(files.length > 50, "the scan reads the scripts folder");
+  const theOptionNotNamedInThisFile = /settle[R]eads/;
+  assert.deepEqual(files.filter(name => theOptionNotNamedInThisFile.test(readFileSync(join(scripts, name), "utf8"))), [], "pass no settle reads to createBoardServer: use quietBoard from scripts/fixtures/quiet-board.mjs, whose ready() waits until the watchers report its probe files and the reads end");
+});
+
+test("F-T1215-16: a quiet board's ready() waits for the read that its probe file started (held 500 ms, as on a loaded Mac), so a new stream's next model is the test's own write", async t => {
+  const dir = mkdtempSync(join(tmpdir(), "sage-board-quiet-")), root = join(dir, "source"), project = populate(root);
+  const holds = new Int32Array(new SharedArrayBuffer(16)), release = () => { Atomics.store(holds, 0, 0); Atomics.notify(holds, 0); };
+  const server = quietBoard({ sources: [{ id: "sample", path: root, label: "Sample" }], port: 0, app: APP, holds });
+  t.after(async () => { release(); await server.close(); rmSync(dir, { recursive: true, force: true }); });
+  const f = { port: (await server.start()).port }, first = events(f);
+  await first.next(); first.close();
+  Atomics.store(holds, 0, 1);
+  const ready = server.ready();
+  while (Atomics.load(holds, 1) < 1) await new Promise(wake => setTimeout(wake, 10));
+  let released = Infinity;
+  setTimeout(() => { released = Date.now(); release(); }, 500);
+  await ready;
+  const stream = events(f); t.after(() => stream.close());
+  const current = await stream.next();
+  assert.ok(Date.parse(current.at) >= released, "ready() returned after the held read ended, and a new stream starts with that read");
+  writeFileSync(join(project, "tasks.tsv"), tasks(row("Sample title after ready")));
+  assert.ok(has(await stream.next(), "Sample title after ready"), "the model after the current one is the test's write, not a read of a probe file");
 });

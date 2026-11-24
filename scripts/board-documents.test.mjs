@@ -11,8 +11,9 @@ import { readBoardSources } from "../packages/sage-core/board-reader.mjs";
 import { readReport } from "../packages/sage-core/index.mjs";
 import { renderMarkdown } from "../packages/sage-board/markdown.mjs";
 import { readerPage, readerUrl } from "../packages/sage-board/reader.mjs";
-import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
+import { loadBoardApp } from "../packages/sage-board/server.mjs";
 import { writeTasksLogbook } from "./fixtures/board-app.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const NOW = "2026-11-13T12:00:00.000Z";
@@ -360,7 +361,7 @@ const get = (base, path, headers = {}) => new Promise((accept, reject) => {
 
 test("T1064: the server serves the reader script-free under the sandbox policy, pictures only from the task's pages folder, and the task panel lists the design and the recorded pages", async t => {
   const w = world(t, { hostile: true });
-  const server = createBoardServer({ sources: w.sources, port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [] });
+  const server = quietBoard({ sources: w.sources, port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")) });
   t.after(() => server.close());
   const { port } = await server.start();
   await server.ready();
@@ -380,7 +381,7 @@ test("T1064: the server serves the reader script-free under the sandbox policy, 
   assert.deepEqual(panel.files.designs, { versions: 2, arena: true });
   const limits = JSON.parse((await get(base, `/app/task/${Buffer.from(KEY("T3")).toString("base64url")}`)).body);
   assert.deepEqual(limits.files.recorded.map(item => [item.file, item.state]), [["gone-plan.md", "gone"], ["notes.md", "changed"]]);
-  const bare = createBoardServer({ sources: w.sources, port: 0, app: null, reader: false, settleReads: [] });
+  const bare = quietBoard({ sources: w.sources, port: 0, app: null, reader: false });
   t.after(() => bare.close());
   const { port: barePort } = await bare.start(), missing = await get(`http://127.0.0.1:${barePort}`, readerUrl(KEY("T3"), "brief", "R7"));
   await bare.ready();
@@ -406,7 +407,7 @@ test("T1126: the task panel says which runs have a brief or a report, the same a
   writeFileSync(join(w.logbook, "reports", "R80.md"), "STATUS done\nRESULT ready. Sign-in shows one message\n  when a session ends.\nEVIDENCE none\n");
   writeFileSync(join(w.logbook, "reports", "R81.md"), "STATUS done\nRESULT an older lead's result\n");
   writeFileSync(join(w.logbook, "reports", "R83.md"), "STATUS done\nRESULT the lead's result, which the PR's text replaces\n");
-  const server = createBoardServer({ sources: w.sources, port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [] });
+  const server = quietBoard({ sources: w.sources, port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")) });
   t.after(() => server.close());
   const { port } = await server.start();
   await server.ready();

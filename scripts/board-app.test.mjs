@@ -5,10 +5,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
+import { loadBoardApp } from "../packages/sage-board/server.mjs";
 import { APP_SOURCE, BUDGET, budgetProblems, licencesOf } from "./board-app.mjs";
 import { writeAppLogbook } from "./fixtures/board-app.mjs";
-import { untilTheWatchersReportAWrite } from "./fixtures/board-watch.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PLUGINS = ["plugins/sage", "plugins/sage-codex"];
@@ -16,11 +16,10 @@ const PLUGINS = ["plugins/sage", "plugins/sage-codex"];
 async function board(t, { app = loadBoardApp(join(ROOT, "plugins/sage/board/app")), now = new Date().toISOString() } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-app-")), root = join(dir, "logbooks");
   const project = writeAppLogbook(root, now);
-  const server = createBoardServer({ sources: [{ id: "sample", path: root, label: "Sample" }], port: 0, app, settleReads: [] });
+  const server = quietBoard({ sources: [{ id: "sample", path: root, label: "Sample" }], port: 0, app });
   t.after(async () => { await server.close(); rmSync(dir, { recursive: true, force: true }); });
   const { port } = await server.start();
   await server.ready();
-  if (app) await untilTheWatchersReportAWrite(port, project);
   return { base: `http://127.0.0.1:${port}`, project };
 }
 

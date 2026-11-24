@@ -6,9 +6,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
+import { loadBoardApp } from "../packages/sage-board/server.mjs";
 import { boardOverview, buildBoardModel, readBoardSources } from "../packages/sage-core/index.mjs";
 import { writeSampleLogbooks } from "./board-sample.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const chromium = requireBrowser();
 const APP = loadBoardApp(join(dirname(fileURLToPath(import.meta.url)), "..", "plugins/sage/board/app"));
@@ -19,7 +20,7 @@ after(async () => { await browser?.close(); });
 async function board(t) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-truth-"))), now = new Date().toISOString();
   const sources = writeSampleLogbooks(join(dir, "sample"), { now }).map(({ id, label, path }) => ({ id, label, path }));
-  const server = createBoardServer({ sources, port: 0, app: APP, settleReads: [] });
+  const server = quietBoard({ sources, port: 0, app: APP });
   const { port } = await server.start();
   await server.ready();
   t.after(async () => { await server.close(); rmSync(dir, { recursive: true, force: true }); });
