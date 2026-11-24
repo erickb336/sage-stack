@@ -83,7 +83,7 @@ const dataAt = (model, link, lostAt) => link === "lost" && !model.stale ? lostAt
 const age = (at, now) => `${when(at)}, ${ago(at, now)}`;
 
 function Status({ model, link, lostAt, now }) {
-  if (link === "connecting" && !model) return <span className="live" role="status"><span className="dot" />Connecting</span>;
+  if (link === "connecting" && !model) return <span className="live" role="status"><span className="dot" />Reading the logbooks</span>;
   if (!model) return <span className="live bad" role="status"><span className="dot" />Cannot reach the board</span>;
   if (link === "lost") return <span className="live bad" role="status"><span className="dot" />Not updated since {age(dataAt(model, link, lostAt), now)} · trying again</span>;
   if (model.stale) return <span className="live bad" role="status"><span className="dot" />Not updated since {age(model.at, now)}</span>;
@@ -107,7 +107,7 @@ function Banner({ model, link, lostAt, now, own }) {
 }
 
 function NoData({ link }) {
-  if (link === "connecting") return <p className="loading" role="status">Reading the logbook.</p>;
+  if (link === "connecting") return <div className="loading" role="status"><p><b>Reading the logbooks</b></p><p>The board shows your tasks when its first read ends.</p></div>;
   return (
     <div className="banner fail" role="alert"><AlertIcon />
       <div><b>The board cannot reach its server on this Mac.</b> It tries again every few seconds. If this lasts, check that the board service runs.</div>
@@ -140,7 +140,7 @@ function useProject(all, page) {
 }
 
 export function App() {
-  const { model: all, link, lostAt } = useModel("/app/events"), now = useNow();
+  const { model: all, link, lostAt, notice } = useModel("/app/events"), now = useNow();
   const page = useHashPage(!!all);
   const [current, unknown] = useProject(all, page);
   const model = all && projectView(all, current?.key ?? null);
@@ -194,6 +194,7 @@ export function App() {
         </header>
         {model && !page.own && page.hash !== "question" && <ChiefChips chiefs={model.chiefs} filter={filter} setFilter={setFilter} />}
         <main className="main">
+          {notice && <div className="banner fail" role="alert"><AlertIcon /><div>{notice}</div></div>}
           {model ? <><Banner model={model} link={link} lostAt={lostAt} now={now} own={page.own} />{unknown && !page.own && <p className="banner" role="status">This board shows no project {unknown}, so it opened {current.name}.</p>}
             <ArchiveLayer all={all} current={page.own || page.hash === "question" ? null : current} now={now} />{page.hash === "" && current && <WelcomeBack key={`${current.key} ${current.welcome}`} project={current} model={model} now={now} />}{body}{page.hash === "" && <ArchiveFoot project={current} />}</> : <NoData link={link} />}
         </main>

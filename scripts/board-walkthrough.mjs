@@ -6,7 +6,8 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startLink } from "../packages/sage-board/access.mjs";
-import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
+import { loadBoardApp } from "../packages/sage-board/server.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 import { writeTasksLogbook } from "./fixtures/board-app.mjs";
 import { isMain } from "./is-main.mjs";
 
@@ -306,12 +307,14 @@ export async function record({ theme = "dark", tour = false, fps = FPS, browserP
     if (tour) { writeArchivedSample(join(dir, "logbooks"), now); writePickupSample(join(dir, "logbooks"), now); }
     const stateDir = join(dir, "board-state");
     mkdirSync(stateDir, { mode: 0o700 });
-    server = createBoardServer({
+    server = quietBoard({
       sources: [{ id: "shared", label: "Shared", path: join(dir, "logbooks") }],
-      port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [], stateDir,
+      port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), stateDir,
       pairCommand: "node <sage>/board/cli.mjs board --pair", write: () => ({ code: 1, text: "The walkthrough sample records no writes." }),
     });
-    const base = `http://127.0.0.1:${(await server.start()).port}`;
+    const { port } = await server.start();
+    await server.ready();
+    const base = `http://127.0.0.1:${port}`;
     const context = await browser.newContext({ viewport: VIEW, deviceScaleFactor: 1, colorScheme: theme, reducedMotion: "reduce", locale: "en-US", timezoneId: "UTC" });
     await context.route("**/*", route => route.request().url().startsWith(`${base}/`) ? route.continue() : route.abort());
     await context.addInitScript(value => localStorage.setItem("board-theme", value), theme);

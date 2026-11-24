@@ -81,6 +81,7 @@ before(async () => {
   process.env.SAGE_WORKTREES = join(dir, "worktrees");
   board = createBoardServer({ sources: [{ id: "sample", path: join(dir, "source") }], port: 0, app: loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", import.meta.url))) });
   ({ port: boardPort } = await board.start());
+  await board.ready();
   const otherSite = `http://localhost:${otherPort}`;
   writeFileSync(join(pages, "hostile.html"), hostile(otherSite));
   writeFileSync(join(pages, "refresh.html"), `<!DOCTYPE html><title>SAMPLE</title><meta http-equiv="refresh" content="0; url=${otherSite}/refresh?data=SAMPLE"><p>SAMPLE refresh</p>`);

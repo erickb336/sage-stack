@@ -12,6 +12,7 @@ import { runBoardCli } from "../plugins/sage/board/cli.mjs";
 import { startLink } from "../plugins/sage/board/access.mjs";
 import { createBoardServer, loadBoardApp } from "../plugins/sage/board/server.mjs";
 import { QUESTION } from "./fixtures/question-message.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const chromium = requireBrowser();
 const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
@@ -63,8 +64,9 @@ async function openBoard(t, { viewport = { width: 1440, height: 1000 } } = {}) {
   dirs.meadowClaude = claude.storeDir(meadow, inClaude);
   const sources = [{ id: "claude", label: "Claude", provider: "claude", path: inClaude.SAGE_HOME }, { id: "codex", label: "Codex", provider: "codex", path: inCodex.SAGE_HOME }, { id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }];
   const config = join(base, "home", ".config", "sage-board", "board.json"), stateDir = join(base, "home", ".config", "sage-board", "state");
-  const server = createBoardServer({ sources, port: 0, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair" });
+  const server = quietBoard({ sources, port: 0, app: APP, stateDir, pairCommand: "node /sample/board/cli.mjs board --pair" }, { create: createBoardServer });
   const { port } = await server.start();
+  await server.ready();
   await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify(sources)], { output: () => {}, env });
   const context = await browser.newContext({ viewport, colorScheme: "dark", timezoneId: "America/New_York" });
   t.after(async () => {

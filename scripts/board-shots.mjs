@@ -8,6 +8,7 @@ import { TABLES } from "../packages/sage-core/logbook-fields.mjs";
 import { writeTasksLogbook } from "./fixtures/board-app.mjs";
 import { NOW as WALK_NOW, STAGES } from "./fixtures/board-walkthrough.mjs";
 import { isMain } from "./is-main.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SOURCES = ["scripts/fixtures/board-app.mjs", "scripts/fixtures/board-walkthrough.mjs"];
@@ -49,8 +50,9 @@ function writeWalkthrough(root, stage, now) {
 
 async function serve(dir, sources) {
   const { createBoardServer, loadBoardApp } = await import("../packages/sage-board/server.mjs");
-  const server = createBoardServer({ sources: [{ id: "shared", path: sources, label: "Shared" }], port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [] });
+  const server = quietBoard({ sources: [{ id: "shared", path: sources, label: "Shared" }], port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")) });
   const { port } = await server.start();
+  await server.ready();
   return { base: `http://127.0.0.1:${port}`, close: () => server.close() };
 }
 

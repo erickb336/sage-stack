@@ -11,6 +11,7 @@ import { startLink } from "../plugins/sage/board/access.mjs";
 import { createBoardServer, loadBoardApp } from "../plugins/sage/board/server.mjs";
 import { HOSTILE_MARKDOWN } from "./fixtures/board-app.mjs";
 import { QUESTION, questionFile } from "./fixtures/question-message.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const chromium = requireBrowser();
 const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
@@ -80,9 +81,10 @@ async function openBoard(t, viewport = { width: 1440, height: 1000 }, { refuse, 
   const stateDir = join(base, "home", ".config", "sage-board", "state"), writes = [];
   mkdirSync(stateDir, { recursive: true, mode: 0o700 });
   const { writeInWorker } = await import("../plugins/sage/board/writes.mjs");
-  const server = createBoardServer({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port: 0, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair",
-    write: job => { writes.push(job.argv); before?.(job); return refuse ? { code: 1, text: refuse } : writeInWorker(job); } });
+  const server = quietBoard({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port: 0, app: APP, stateDir, pairCommand: "node /sample/board/cli.mjs board --pair",
+    write: job => { writes.push(job.argv); before?.(job); return refuse ? { code: 1, text: refuse } : writeInWorker(job); } }, { create: createBoardServer });
   const { port } = await server.start();
+  await server.ready();
   const context = await browser.newContext({ viewport, colorScheme: "dark", timezoneId: "America/New_York" });
   t.after(async () => {
     await context.close(); await server.close();

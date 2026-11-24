@@ -15,8 +15,9 @@ import { renderMarkdown } from "../packages/sage-board/markdown.mjs";
 import { MAX, gateMaterial } from "../packages/sage-board/material.mjs";
 import { failureOf } from "../packages/sage-board/pages.mjs";
 import { readerPage, readerUrl } from "../packages/sage-board/reader.mjs";
-import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
+import { loadBoardApp } from "../packages/sage-board/server.mjs";
 import { writeTasksLogbook } from "./fixtures/board-app.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const NOW = "2026-11-13T12:00:00.000Z";
@@ -162,9 +163,11 @@ const get = (base, path, headers = {}) => new Promise((accept, reject) => {
   req.on("error", reject); req.end();
 });
 async function serve(t, w) {
-  const server = createBoardServer({ sources: w.sources, port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [], clock: () => NOW });
+  const server = quietBoard({ sources: w.sources, port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), clock: () => NOW });
   t.after(() => server.close());
-  return `http://127.0.0.1:${(await server.start()).port}`;
+  const { port } = await server.start();
+  await server.ready();
+  return `http://127.0.0.1:${port}`;
 }
 
 test("T1121 R5: the app may frame only reader pages and the pages folder; a reader page opens in a frame only with ?in=board, without its top bar, and its links leave the frame; a pages file only in a frame of the board", async t => {

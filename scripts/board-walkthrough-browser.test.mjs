@@ -7,8 +7,9 @@ import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { startLink } from "../packages/sage-board/access.mjs";
-import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
+import { loadBoardApp } from "../packages/sage-board/server.mjs";
 import { writeTasksLogbook } from "./fixtures/board-app.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const chromium = requireBrowser();
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -50,8 +51,9 @@ async function board(t, { empty = false, noTasks = false, judge = null } = {}) {
   }
   const stateDir = join(dir, "state"), stops = [];
   mkdirSync(stateDir);
-  const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port: 0, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair", onStop: () => { stops.push(Date.now()); } });
+  const server = quietBoard({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port: 0, app: APP, stateDir, pairCommand: "node /sample/board/cli.mjs board --pair", onStop: () => { stops.push(Date.now()); } });
   const { port } = await server.start();
+  await server.ready();
   t.after(async () => { await server.close(); if (saved === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = saved; rmSync(dir, { recursive: true, force: true }); });
   return { base: `http://127.0.0.1:${port}`, stateDir, stops, logbook };
 }

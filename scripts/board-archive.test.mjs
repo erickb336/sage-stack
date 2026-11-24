@@ -12,6 +12,7 @@ import { runBoardCli } from "../plugins/sage/board/cli.mjs";
 import { createBoardServer, loadBoardApp } from "../plugins/sage/board/server.mjs";
 import { ownerWrite, writeInWorker } from "../plugins/sage/board/writes.mjs";
 import { QUESTION } from "./fixtures/question-message.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
 const gitEnv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
@@ -71,9 +72,10 @@ async function world(t) {
   for (const dir of Object.values(dirs)) assert.ok(existsSync(join(dir, "tasks.tsv")), `${dir} is a logbook`);
   const config = join(base, "home", ".config", "sage-board", "board.json");
   const sources = [{ id: "claude", label: "Claude", provider: "claude", path: join(env.CLAUDE_CONFIG_DIR, "sage") }, { id: "codex", label: "Codex", provider: "codex", path: join(env.CODEX_HOME, "sage") }, { id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }];
-  const server = createBoardServer({ sources, port: 0, app: APP, settleReads: [], stateDir: join(base, "home", ".config", "sage-board", "state"), pairCommand: "node /sample/board/cli.mjs board --pair" });
+  const server = quietBoard({ sources, port: 0, app: APP, stateDir: join(base, "home", ".config", "sage-board", "state"), pairCommand: "node /sample/board/cli.mjs board --pair" }, { create: createBoardServer });
   t.after(() => server.close());
   const { port } = await server.start();
+  await server.ready();
   await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify(sources)], { output: () => {}, env });
   const origin = `http://127.0.0.1:${port}`, headers = { Origin: origin, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" };
   return { base, env, own, inClaude, port, config, headers, dirs, sources, checkouts: { lantern, harbor, meadow } };
@@ -305,9 +307,10 @@ test("F-T1159-35: an Archive and a Restore sent at once, as from two tabs, run o
     steps.push(`${job.argv[1]} ends`);
     return done;
   };
-  const second = createBoardServer({ sources: w.sources, port: 0, app: APP, settleReads: [], stateDir: join(w.base, "home", ".config", "sage-board", "state"), pairCommand: "node /sample/board/cli.mjs board --pair", write });
+  const second = quietBoard({ sources: w.sources, port: 0, app: APP, stateDir: join(w.base, "home", ".config", "sage-board", "state"), pairCommand: "node /sample/board/cli.mjs board --pair", write }, { create: createBoardServer });
   t.after(() => second.close());
   const { port } = await second.start(), tab = { ...headers, Origin: `http://127.0.0.1:${port}` };
+  await second.ready();
   await until({ port }, all => projectOf(all, "meadow")?.books.length === 2, "the second server shows two logbooks");
   const [archived, restored] = await Promise.all([call(port, "/api/archive", { headers: tab, body: { project: key } }), call(port, "/api/restore", { headers: tab, body: { project: key } })]);
   assert.deepEqual([archived.status, restored.status], [200, 200], `${archived.text} ${restored.text}`);
