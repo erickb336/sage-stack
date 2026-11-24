@@ -10,6 +10,7 @@ import * as claude from "../plugins/sage/skills/sage/sage.mjs";
 import { tool as codex } from "../plugins/sage-codex/skills/sage/sage.mjs";
 import { runBoardCli } from "../plugins/sage/board/cli.mjs";
 import { createBoardServer, loadBoardApp } from "../plugins/sage/board/server.mjs";
+import { untilTheWatchersReportAWrite } from "./fixtures/board-watch.mjs";
 import { ownerWrite, writeInWorker } from "../plugins/sage/board/writes.mjs";
 import { QUESTION } from "./fixtures/question-message.mjs";
 
@@ -75,6 +76,7 @@ async function world(t) {
   t.after(() => server.close());
   const { port } = await server.start();
   await server.ready();
+  await untilTheWatchersReportAWrite(port, dirs.lantern);
   await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify(sources)], { output: () => {}, env });
   const origin = `http://127.0.0.1:${port}`, headers = { Origin: origin, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" };
   return { base, env, own, inClaude, port, config, headers, dirs, sources, checkouts: { lantern, harbor, meadow } };
