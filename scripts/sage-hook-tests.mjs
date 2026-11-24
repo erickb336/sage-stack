@@ -1591,7 +1591,7 @@ const FORGERIES = [
   `${TOOL} task T2 set milestone=M1`,
   `${TOOL} newcommand T2`,
 ].map((args) => `node ${args} --project /p`);
-const READ_COMMANDS = (dir) => ["status", `merge-check --sha ${SHA}`, "standing", "logbook", "config", `standing --project ${dir}`].map((args) => `node ${TOOL} ${args} --project ${dir}`).concat(`node ${TOOL} status --project=${dir}`);
+const READ_COMMANDS = (dir) => ["status", `merge-check --sha ${SHA}`, "standing", "logbook", "config"].map((args) => `node ${TOOL} ${args} --project ${dir}`).concat(`node ${TOOL} status --project=${dir}`, `node ${TOOL} standing`);
 
 for (const command of FORGERIES) {
   test(`an agent's "${command.replace(`node ${dirname(TOOL)}/`, "").replace(" --project /p", "")}" is refused, in sage mode and out of it; the chief's passes (T83)`, () => {
