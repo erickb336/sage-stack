@@ -28,7 +28,7 @@ const within = (path, root) => path === root || path.startsWith(root.endsWith(se
 function shower(env, project, named = []) {
   const roots = [...[...named, ...NAMED].filter((name) => env[name] && isAbsolute(env[name])).map((name) => [resolve(env[name]), `$${name}`]), ...(project ? [[project, ""]] : []), [homeOf(env), "~"]]
     .sort((a, b) => b[0].length - a[0].length);
-  return (path) => {
+  const show = (path) => {
     if (path === TMPDIR) return TMPDIR;
     const [root, name] = roots.find(([r]) => within(path, r)) ?? [];
     if (root === undefined) return path;
@@ -36,6 +36,8 @@ function shower(env, project, named = []) {
     if (name === "") return path === root ? "the project" : `the project's ${rest}`;
     return path === root ? name : `${name}/${rest}`;
   };
+  show.text = (text) => roots.filter(([, name]) => name).reduce((out, [root, name]) => out.split(root).join(name), text);
+  return show;
 }
 
 function readText(file, shown) {
@@ -126,7 +128,7 @@ function claude({ env, cwd, places }) {
     const [, dir, tool] = SAGE_ENTRY.exec(entry) ?? [];
     return dir && !dir.split("/").some((s) => s === "." || s === "..") && within(dir, plugins) && !writes.some((root) => within(dir, root)) ? tool : undefined;
   };
-  const loose = excluded.filter(({ entry }) => entry !== "gh *" && !sageEntry(entry)).map(({ entry, l }) => `${l.shown}: excludedCommands ${JSON.stringify(entry)}`);
+  const loose = excluded.filter(({ entry }) => entry !== "gh *" && !sageEntry(entry)).map(({ entry, l }) => `${l.shown}: excludedCommands ${JSON.stringify(show.text(entry))}`);
   for (const l of layers) for (const [path, type] of LOOSE) {
     const v = at(l, ["sandbox", ...path], type);
     if (v === true || (type === "list" && v?.length) || (type === "number" && v !== undefined)) loose.push(`${l.shown}: sandbox.${path.join(".")}`);

@@ -24,8 +24,10 @@ const block = (provider, lang) => new RegExp("```" + lang + "\\n([\\s\\S]*?)```"
 const CLAUDE_BLOCK = block("claude", "json"), CODEX_BLOCK = block("codex", "toml");
 const NEVER = 'approval_policy = "never"\n';
 
+const TEMP = realpathSync(tmpdir());
+const BASE = ["/tmp", "/private/tmp"].some((root) => TEMP === root || TEMP.startsWith(`${root}/`)) ? "/var/tmp" : TEMP;
 function scratch(t) {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "sage-sandbox-")));
+  const dir = realpathSync(mkdtempSync(join(BASE, "sage-sandbox-")));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const home = join(dir, "home"), project = join(home, "work", "app"), system = join(dir, "system");
   mkdirSync(join(project, ".git"), { recursive: true });
@@ -126,7 +128,7 @@ test("F-T1241-1, F-T1241-12, F-T1241-2, F-T1241-10: an excluded command that is 
     s.write(file, JSON.stringify(settings({ excludedCommands: [entry] })));
     const found = s.state("claude");
     assert.equal(found.state, "may-run-unsandboxed", entry);
-    assert.ok(found.loose.some((item) => item.endsWith(`excludedCommands ${JSON.stringify(entry)}`)), `${entry} is named: ${found.loose}`);
+    assert.ok(found.loose.some((item) => item.endsWith(`excludedCommands ${JSON.stringify(entry.split(s.home).join("~"))}`)), `${entry} is named: ${found.loose}`);
     assert.ok(s.line("claude").includes(`may run outside the sandbox: `), entry);
     rmSync(file);
   };
@@ -293,6 +295,9 @@ test("F-T1241-5: the line names a path under CLAUDE_CONFIG_DIR or SAGE_WORKTREES
   assert.match(line, / · writes: the project, \$TMPDIR, \$CLAUDE_CONFIG_DIR\/build · /);
   assert.match(line, /"\$SAGE_WORKTREES" in sandbox\.filesystem\.allowWrite/);
   for (const value of [config, worktrees, s.dir]) assert.ok(!line.includes(value), `no value of the environment: ${line}`);
+  s.write(join(config, "settings.json"), JSON.stringify(settings({ ...FAILS_CLOSED, excludedCommands: [`node ${s.home}/x.mjs *`, `node ${config}/y.mjs *`] })));
+  assert.match(s.line("claude", more), /excludedCommands "node ~\/x\.mjs \*"; \$CLAUDE_CONFIG_DIR\/settings\.json: excludedCommands "node \$CLAUDE_CONFIG_DIR\/y\.mjs \*"/);
+  assert.ok(!s.line("claude", more).includes(s.dir), "an entry's text names a folder by its variable too");
   s.codex('default_permissions = "x"\n[permissions.x]\nextends = ":workspace"\n');
   assert.match(s.line("codex", more), /"\$SAGE_WORKTREES" = "write" in \[permissions\.x\.filesystem\]/);
   assert.ok(!s.line("codex", more).includes(s.dir));
