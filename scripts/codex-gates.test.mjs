@@ -1,7 +1,7 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, cpSync, existsSync, lstatSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -551,6 +551,58 @@ test("T1210: an agent may run the state tool's task read in Claude; a task write
   for (const rest of ["task T12 set state=abandoned", "task add --size small --title x", "task T12 T13", "task T12 --why x set pr=1"]) {
     assert.match(claude(`node ${claudeTool} ${rest}`) ?? "passed", /writes the logbook, or is not a read command of the state tool/, `a task write stays refused: ${rest}`);
   }
+});
+
+const AGENT_READS = ["help", "--help", "help --chief C1", "finding show T12 F-T12-1", "pages T12", "log T12", "log -", "log T12 --chief C2", "status", "standing", "logbook", "merge-check --sha a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"];
+const AGENT_WRITES = ["pages T12 record /tmp/x/page.md", "pages T12 --run R1 --text x", "finding add T12 --source qa --severity low --summary x", "finding triage T12 F-T12-1 fix", "finding show T12",
+  "finding show T12 F-T12-1 --why x", "log T12 decided --why x", "log T12 --why x", "task T12 --why x", "task T12 set state=abandoned", "standing add x", "logbook repair --accept-loss runs"];
+test("T1233: an agent may run help, finding show, pages <T> and log <T> in both providers, from one shared list in core; write forms, and task or log with a write-making option (F-T1233-1), stay refused in both", async (t) => {
+  const { claudeTool, claude, codex } = await toolChecks(t);
+  for (const rest of AGENT_READS) {
+    assert.deepEqual({ claude: claude(`node ${claudeTool} ${rest}`), codex: await codex(`node ${TOOL} ${rest}`) }, { claude: undefined, codex: undefined }, `a read: ${rest}`);
+  }
+  for (const rest of ["task T12", "task T12 --lead R1", "config"]) assert.equal(claude(`node ${claudeTool} ${rest}`), undefined, `a read in Claude; Codex binds it to the agent's project (T49): ${rest}`);
+  for (const rest of AGENT_WRITES) {
+    const got = { claude: claude(`node ${claudeTool} ${rest}`), codex: await codex(`node ${TOOL} ${rest}`) };
+    assert.match(got.claude ?? "passed", /writes the logbook, or is not a read command of the state tool/, `Claude refuses: ${rest}`);
+    assert.match(got.codex ?? "passed", /only the chief records the logbook/, `Codex refuses: ${rest}`);
+  }
+});
+
+function files(...roots) {
+  const seen = {};
+  const walk = (path) => {
+    const s = lstatSync(path, { throwIfNoEntry: false });
+    if (!s) return;
+    if (!s.isDirectory()) return void (seen[path] = s.isFile() ? createHash("sha256").update(readFileSync(path)).digest("hex") : `not a file ${s.mode}`);
+    seen[path] = "folder";
+    for (const name of readdirSync(path)) walk(join(path, name));
+  };
+  roots.forEach(walk);
+  return seen;
+}
+test("T1233: each read that agents may run prints what it reads and leaves every file of the logbook byte-identical, through both providers' state tools", (t) => {
+  const w = world(t);
+  for (const args of [["init"], ["task", "add", "--priority", "P2", "--title", "t", "--size", "small"], ["finding", "add", "T1", "--source", "sage", "--severity", "low", "--summary", "a low note"], ["log", "T1", "decided to read", "--why", "because"]]) {
+    const r = w.sage(...args);
+    assert.equal(r.status, 0, r.stderr);
+  }
+  const tools = { claude: fileURLToPath(new URL("../plugins/sage/skills/sage/sage.mjs", import.meta.url)), codex: TOOL };
+  const run = (tool, line) => spawnSync(process.execPath, [tool, ...line.split(" "), "--project", w.project], { encoding: "utf8", env: w.env });
+  const roots = [w.env.SAGE_HOME, w.env.HOME, w.env.CODEX_HOME];
+  const pages = run(tools.codex, "pages T1").stdout.trim();
+  const before = files(...roots);
+  const shows = { help: /^Commands: .*\bfinding\b.*\blog\b/, "--help": /^Commands: /, "finding show T1 F-T1-1": /^F-T1-1 open · low · T1\b[^]*\na low note$/, "log T1": /· decided to read · because$/, "log -": /\S/,
+    "pages T1": new RegExp(`^${pages}$`), "task T1": /^T1 framed/, status: /T1/, standing: /^# Standing orders/, logbook: new RegExp(`^${w.env.SAGE_HOME}/`), config: /\bmax_agents=/ };
+  for (const [provider, tool] of Object.entries(tools)) {
+    for (const [line, shown] of Object.entries(shows)) {
+      const r = run(tool, line);
+      assert.equal(r.status, 0, `${provider} ${line}: ${r.stderr}`);
+      assert.match(r.stdout.trim(), shown, `${provider} ${line}`);
+    }
+    run(tool, `merge-check --sha ${SHA}`);
+  }
+  assert.deepEqual(files(...roots), before, "no file or folder changed");
 });
 
 const SYSTEM_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";

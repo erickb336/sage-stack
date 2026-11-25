@@ -38,4 +38,4 @@ const tool = createStateTool({
 });
 export const { SIZES, BLOCKS, RISKS, KINDS, STATES, DEFAULTS, PR, sageRoot, locate, chiefFor, chiefLink, sessionProbe, sessionsHere, stoppedSessions, sessionBar, branchBar, actorOptions, git, projectRoot, optionsOf, slug, worktreeRoot, pagesRoot, BRANCH, ofTask, branchOfTask, branchTip, projectName, storeDir, config, cyclesFor, modelFor, read, mergeCheck, logbookView, sage, withLock, keepReport, observePush, keepRunText, keepSpend, ownGates, pickupAnswers, queueOf, chiefQueue, queueProblem, pendingRun, markStart, sweepQueue } = tool;
 if (process.argv[1] === fileURLToPath(import.meta.url)) tool.runCli();
-export const { leadProblem, leadRequest } = tool;
+export const { leadProblem, leadRequest, readsOnly } = tool;

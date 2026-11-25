@@ -87,7 +87,7 @@ test("T995 F4: every command of the state tool is a read or has a writer class, 
   const WRITES = {
     init: [[]], logbook: [["repair"]], standing: [["add"]], pages: [["T1", "record"]], task: [["add"], ["T1", "set"]], "task-adopt": [["T1"]],
     milestone: [["propose"], ["M1", "set"]], release: [["add"]], round: [["T1"]], run: [["add", "T1"], ["done", "R1"], ["usage", "R1"]], finding: [["add", "T1"], ["triage", "T1"], ["close", "T1"], ["move", "T1"]],
-    verdict: [["T1"]], lint: [["T1"]], gate: [["add"], ["add", "T1"], ["answer", "G1"], ["replace", "T1"]], log: [["T1"], ["-"]], config: [["max_rounds=3"]], projects: [["rebuild"]],
+    verdict: [["T1"]], lint: [["T1"]], gate: [["add"], ["add", "T1"], ["answer", "G1"], ["replace", "T1"]], log: [["T1", "a decision"], ["-", "a decision"]], config: [["max_rounds=3"]], projects: [["rebuild"]],
     observe: [["T1"]], unclaim: [["T1"]], pickup: [[]], move: [[]], chief: [["name", "C1"]], storage: [["clean"]],
   };
   const OUTSIDE_LOGBOOKS = ["prior-art"];
@@ -96,6 +96,7 @@ test("T995 F4: every command of the state tool is a read or has a writer class, 
   for (const [cmd, forms] of Object.entries({ ...WRITES, program: [["propose"], ["M1", "set"]] })) for (const pos of forms) assert.notEqual(writerClass(cmd, pos).kind, "read", `${cmd} ${pos.join(" ")}`);
   assert.deepEqual(writerClass("program", ["propose"]), writerClass("milestone", ["propose"]), "an old word has the class of its new word");
   assert.equal(writerClass("release", ["T1"]).kind, "read", "release T<n> writes nothing: the release command refuses it");
+  assert.deepEqual([writerClass("log", ["T1"]).kind, writerClass("log", ["-"]).kind, writerClass("finding", ["show", "T1"]).kind], ["read", "read", "read"], "log <T> and finding show only read (T1233), so they name no chief");
   assert.deepEqual([writerClass("release", ["add"]).kind, writerClass("milestone", ["M1", "set"]).kind], ["any", "any"]);
   assert.deepEqual([chiefOnly("release", ["T1"]), chiefOnly("release", ["add"]), chiefOnly("unclaim", ["T1"])], [false, false, true]);
 });

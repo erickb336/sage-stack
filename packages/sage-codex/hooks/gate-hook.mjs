@@ -257,8 +257,7 @@ export function codexRuns(command, cwd = "/", env = process.env) {
 }
 const runsPatch = (command, cwd, env) => { try { return programsRun(command, cwd, env.PATH ?? "").some((p) => PATCH_NAME.test(programName(p.word))); } catch { return true; } };
 
-const STATE_READS = new Map([["status", null], ["merge-check", null], ["logbook", "repair"], ["standing", "add"], ["pages", "record"]]);
-const readsOnly = ([command, ...rest]) => STATE_READS.has(command) && !rest.includes(STATE_READS.get(command));
+const PROJECT_BOUND_READS = new Set(["task", "config"]);
 const STATE_SCRIPT = /(?:^|\/)(?:skills\/sage\/sage\.mjs|mcp\/state-server\.mjs)$/;
 const LITERAL_WORD = /(?:[A-Za-z0-9_./,:=+-]|'[^'\r\n]*'|"[^"$`\\\r\n]*")+/;
 const LITERAL_COMMAND = new RegExp(`^[ \\t]*${LITERAL_WORD.source}(?:[ \\t]+${LITERAL_WORD.source})*[ \\t]*$`);
@@ -301,8 +300,7 @@ export function stateToolWrites(command, cwd = "/", env = process.env) {
     const file = real(script) ?? script;
     if (!own.has(file) && !STATE_SCRIPT.test(file) && !STATE_SCRIPT.test(script)) continue;
     if (/state-server\.mjs$/.test(file) || /state-server\.mjs$/.test(script)) return true;
-    const words = args.filter((word) => !word.startsWith("-"));
-    if (!readsOnly(words)) return true;
+    if (!tool.readsOnly(args) || PROJECT_BOUND_READS.has(args[0])) return true;
   }
   return false;
 }
