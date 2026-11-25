@@ -517,7 +517,7 @@ test("T1100: a quiet agent that wakes, also one whose slot names no run, and a s
   for (let i = 0; i < 600 && f.reads() === reads; i++) await wait(50);
   assert.ok(f.reads() > reads, "the agent of the slot with no run works again, and that is a full read (F-T1100-1)");
   renew(f.slot);
-  await stream.until(() => r1() && r1().flag === null);
+  await stream.until(() => r1() && !r1().flag);
   writeFileSync(join(f.project, "runs.tsv"), `${readFileSync(join(f.project, "runs.tsv"), "utf8")}R3\tT1\tcode-reviewer\t0\t\t\trunning\t\t\t${new Date().toISOString()}\t\n`);
   slot(f.root, "slot-3", ["project-project", "role-sage_code-reviewer", "run-R3"]);
   await stream.until(() => runs().some(run => run.id === "R3" && run.role === "code-reviewer" && run.status === "running"));
