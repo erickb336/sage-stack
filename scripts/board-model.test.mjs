@@ -513,7 +513,7 @@ test("T305, R1071-2, R1076-3: an investigation shows Plan, Investigate, Evidence
   assert.deepEqual(line(oneTask(task("T1", "concluded", { size: "investigate", route }), evidence)), ["Plan: done", "Investigate: done", "Evidence review: done", "Conclude: done"]);
 });
 
-test("T305: a run's time is minutes or hours up to 24 h; after 24 h with no logbook change, the run may be stuck", async () => {
+test("T305: a run's time is minutes or hours up to 24 h; after 24 h with no logbook change, the clock says no news", async () => {
   const { runClock } = await import("../packages/sage-core/board-model.mjs");
   const at = Date.parse(now);
   assert.deepEqual(runClock("2026-10-08T19:20:00Z", at, null), { text: "40 min", stale: false });
@@ -521,7 +521,20 @@ test("T305: a run's time is minutes or hours up to 24 h; after 24 h with no logb
   assert.deepEqual(runClock("2026-10-05T08:00:00Z", at, "2026-10-05T08:00:00Z"), { text: "no news since 5 Oct, so ask the chief to check it", stale: true, since: "5 Oct" });
   assert.deepEqual(runClock("2026-10-05T08:00:00Z", at, "2026-10-08T12:00:00Z"), { text: "since 5 Oct", stale: false }, "a change in the last 24 h: not stale");
   const card = oneTask(task("T1", "building"), { runs: [{ id: "R5", task: "T1", role: "implementer", status: "running", started: "2026-10-05T08:00:00Z" }] });
-  assert.equal(card.runClocks.R5.text, "no news since 5 Oct, so ask the chief to check it", "F-T1096-9: one flag, may be stuck, and no second phrase");
+  assert.equal(card.runClocks.R5.text, "no news since 5 Oct, so ask the chief to check it", "F-T1096-9: one phrase");
+});
+
+test("T1224: the task loop and the chat card take a running run's flag from the one rule: Look at it for a Claude run with no news for a day, never for Codex", async () => {
+  const { renderTaskText } = await import("../packages/sage-core/board-render.mjs");
+  const quiet = { runs: [{ id: "R5", task: "T1", role: "implementer", status: "running", started: "2026-10-05T08:00:00Z" }] };
+  const claude = oneTask(task("T1", "building"), quiet);
+  assert.deepEqual([claude.loop.steps[1].status, claude.runs[0].flag.text], ["stale", "Look at it"]);
+  assert.match(renderTaskText(claude), /\nR5 .*· implementer · in progress · Look at it · no news since 5 Oct/);
+  const codex = buildBoardModel([{ ...source("codex", [task("T1", "building")], quiet), provider: "codex" }], { now, landing: passes }).tasks[0];
+  assert.deepEqual([codex.loop.steps[1].status, codex.loop.steps[1].detail, codex.runs[0].flag.level, codex.runs[0].flag.text], ["run", "No news from the implementer (run R5) since 5 Oct, so ask the chief to check it.", "calm", "Codex: activity unknown"], "the step is in progress with no amber, and still says the fact");
+  assert.match(renderTaskText(codex), /\nR5 .*· implementer · in progress · Codex\\: activity unknown · no news since 5 Oct/, "the chat escapes the colon");
+  const fresh = oneTask(task("T1", "building"), { runs: [{ ...quiet.runs[0], started: "2026-10-08T19:00:00Z" }] });
+  assert.deepEqual([fresh.loop.steps[1].status, fresh.runs[0].flag], ["run", null], "a run with news today has no flag");
 });
 
 const twoSources = (claude, codex) => buildBoardModel([["claude", "Claude", claude], ["codex", "Codex", codex]].map(([id, provider, books]) => ({ id, label: id, provider, diagnostics: [], projects: books.map(({ name, tasks, ...rest }) => ({ key: `${id}/${name}`, name, diagnostics: [], warnings: [], tables: { tasks }, ...rest })) })), { now });
