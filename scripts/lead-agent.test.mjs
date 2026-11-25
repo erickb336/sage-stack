@@ -686,7 +686,7 @@ test("T301: the lead file gets only the tools that a lead needs", () => {
 
 const stepOf = (text, n) => new RegExp(`^( *)${n}\\. \\*\\*[\\s\\S]*?(?=^\\1${n + 1}\\. |(?![\\s\\S]))`, "m").exec(text)?.[0] ?? assert.fail(`no step ${n}`);
 
-const MERGE_READ = /`sage (merge-check --sha <sha> --pr <n>)`/.exec(TEXT)?.[1] ?? assert.fail("agents/lead.md teaches the merge check as a read");
+const MERGE_READ = /`(merge-check --sha <sha> --pr <n>)`/.exec(TEXT)?.[1] ?? assert.fail("agents/lead.md teaches the merge check as a read");
 const DOCS_START = ["$ sage task T1 set state=building branch=sage/t1-example", "$ sage run add T1 --role implementer --branch sage/t1-example", "→ R2 running · implementer on T1", "> R2 sage:implementer", "< R2 done: none",
   "$ sage run done R2 --status done --tokens 1", "$ sage task T1 set state=reviewing pr=12", "$ wait T1 --ci", "→ CI pass · PR 12 · <sha>", `$ sage ${MERGE_READ.replace("<n>", "12")}`];
 
