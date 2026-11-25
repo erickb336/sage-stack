@@ -405,6 +405,8 @@ A plugin cannot turn it on: you set it in your settings file, and the agents of 
 
 sage reads your settings and tells you the state of the sandbox. The hook keeps all its rules in this version, also with the sandbox on.
 
+You need Claude Code v2.1.285 or later. Before v2.1.285, a project's `"allowUnsandboxedCommands": true` won over the `false` in your own settings file ([Claude Code: Sandboxing](https://code.claude.com/docs/en/sandboxing.md#the-unsandboxed-retry-escape-hatch)).
+
 1. Open `~/.claude/settings.json` (or `settings.json` in the folder that `CLAUDE_CONFIG_DIR` names). Make the file if it does not exist.
 2. Add the keys of this block to it. If the file has a `permissions.allow` list already, add the one entry to that list, and keep the other keys of the file.
 
@@ -420,8 +422,8 @@ sage reads your settings and tells you the state of the sandbox. The hook keeps 
        "autoAllowBashIfSandboxed": true,
        "excludedCommands": [
          "gh *",
-         "node *skills/sage/sage.mjs *",
-         "node *board/cli.mjs board *"
+         "node /Users/YOU/.claude/plugins/cache/sage/sage/VERSION/skills/sage/sage.mjs *",
+         "node /Users/YOU/.claude/plugins/cache/sage/sage/VERSION/board/cli.mjs board *"
        ],
        "filesystem": {
          "allowWrite": ["~/sage-worktrees", "/tmp", "/private/tmp"],
@@ -431,8 +433,10 @@ sage reads your settings and tells you the state of the sandbox. The hook keeps 
    }
    ```
 
-3. Start a new session.
-4. Check it: ask the chief "is the sandbox on?", and the chief runs `sage sandbox`. In Terminal, in the project's folder, you can also run `node <the sage plugin's folder>/skills/sage/sage.mjs sandbox`. The Claude Code line must say `on, fails closed` and `missing: none`.
+3. Replace the 3 lines of `excludedCommands` with the 3 lines that `sage sandbox entries` prints: ask the chief "what are the sandbox entries?". The two `node` lines name the sage plugin's folder in full, with its version, because Claude Code compares the text of a command as written.
+4. Start a new session.
+5. Check it: ask the chief "is the sandbox on?", and the chief runs `sage sandbox`. In Terminal, in the project's folder, you can also run `node <the sage plugin's folder>/skills/sage/sage.mjs sandbox`. The Claude Code line must say `on, fails closed` and `missing: none`.
+6. After each sage update, do step 3 again: the plugin's folder name changes with the version.
 
 What each line does:
 
@@ -443,28 +447,35 @@ What each line does:
 | `"failIfUnavailable": true` | When the sandbox cannot start, Claude Code stops with an error. Without it, commands run with no sandbox, and nothing tells sage. |
 | `"allowUnsandboxedCommands": false` | Claude cannot run a blocked command again outside the sandbox. |
 | `"autoAllowBashIfSandboxed": true` | A sandboxed command runs with no permission prompt. Your ask and deny rules still apply. |
-| `"excludedCommands"` | These commands run outside the sandbox: `gh` (it needs your login and the network), the state tool (it writes the logbook, which the sandbox keeps closed) and the board start (it reads its own config). They still go through your permission rules. |
+| `"excludedCommands"` | These commands run outside the sandbox, with your full access: `gh` (it needs your login and the network), the state tool (it writes the logbook, which the sandbox keeps closed) and the board start (it reads its own config). They still go through your permission rules. |
 | `"allowWrite"` | Lets commands write in the sage worktrees folder (the task worktrees and the pages) and in `/tmp`. On macOS, `/tmp` is a link to `/private/tmp`, so the list names both. The project's folder and Claude's own temp folder are writable without a line. |
 | `"denyRead"` | Keeps sandboxed commands out of the board's config folder, which holds the board's pairing data. |
+
+**Excluded commands are not a boundary.** Claude Code says so itself: "Exclusion is a convenience, not a security boundary" ([Claude Code: settings](https://code.claude.com/docs/en/settings-reference.md#sandbox-excludedcommands)).
+
+- A command that matches an entry runs outside the sandbox, with your full access.
+- So the two `node` entries name the exact files of the installed plugin, which a sandboxed command cannot change. They have no `*` before the last one, because a `*` matches any text, also a path such as `../../my-script`.
+- `gh *` is a known gap: `gh` can run a command that you or an agent set up earlier, for example with `gh alias set --shell`, and that command runs outside the sandbox too.
 
 The states of the `sage sandbox` line:
 
 | State | What it means |
 | --- | --- |
-| `on, fails closed` | The sandbox is on, Claude Code stops when it cannot start, and no command can run again outside it. Only the excluded commands run outside. |
-| `on, but may run unsandboxed` | The sandbox is on, but a command can run outside it: `failIfUnavailable` is not `true`, or `allowUnsandboxedCommands` is not `false`. The line names what is missing. |
+| `on, fails closed` | The sandbox is on, Claude Code stops when it cannot start, and no command can run again outside it. Only the excluded commands of the guide run outside. |
+| `on, but may run unsandboxed` | The sandbox is on, but a command can run outside it: `failIfUnavailable` is not `true`, `allowUnsandboxedCommands` is not `false`, a settings file excludes a command that is not one of the guide's 3 lines, or a settings file sets a key that opens the sandbox (`allowAppleEvents`, `allowNestedUserNamespaces`, `enableWeakerNestedSandbox`, `enableWeakerNetworkIsolation`, or under `network`: `allowAllUnixSockets`, `allowUnixSockets`, `allowMachLookup`, `allowLocalBinding`, `httpProxyPort`, `socksProxyPort`). The line names each file and entry. |
 | `off` | The sandbox is off, or its file part is off (`sandbox.filesystem.disabled`). |
-| `strict rules` | sage cannot confirm the sandbox: a settings file cannot be read or is not valid JSON, or a key has a wrong type. The line names the file. The hook keeps all its rules. |
+| `strict rules` | sage cannot confirm the sandbox: a settings file cannot be read or is not valid JSON, a key has a wrong type, or a path in a list has a `$`, a `~name` or nothing in it. The line names the file. The hook keeps all its rules. |
 
-The line also gives the folders that a command may write, the network, the count of excluded commands, and what is missing from the block above. It prints a path in your home folder with `~`, and the temp folder as `$TMPDIR`. It prints no other value of your environment, and it changes no file.
+The line also gives the folders that a command may write, the network, the count of the guide's excluded commands, and what is missing from the block above. It prints a path in your home folder with `~`, the temp folder as `$TMPDIR`, and a path in a folder that `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `SAGE_WORKTREES` or `SAGE_HOME` names by that name. It prints no value of your environment, and it changes no file.
 
-- **What sage reads:** `~/.claude/settings.json`, the project's `.claude/settings.json` and `.claude/settings.local.json` (also the one in the main checkout, for a worktree), and the managed settings file (`/Library/Application Support/ClaudeCode/managed-settings.json` on macOS). Claude Code's hook input has no field for the sandbox, so sage reads the files only.
+- **What sage reads:** `~/.claude/settings.json`, the project's `.claude/settings.json` and `.claude/settings.local.json` (also the one in the main checkout, for a worktree), and the managed settings file (`/Library/Application Support/ClaudeCode/managed-settings.json` on macOS). Claude Code merges the `excludedCommands` of all these files, so sage checks each one. Claude Code's hook input has no field for the sandbox, so sage reads the files only.
 - **What sage cannot see:** a `--settings` option, the settings that your organization sends from the admin console or by a device profile. A `managed-settings.d` folder gives `strict rules`.
 - **To undo it:** set `"enabled": false` in the `sandbox` block, or remove the block and the `WebFetch(domain:*)` entry. Then start a new session.
 
 | Command | Does |
 | --- | --- |
 | `sage sandbox` | Prints one line for Claude Code and one for Codex: the state of the sandbox, the folders that a command may write, the network and what is missing. It reads the settings files only and changes nothing. The chief runs it when you ask, and you can run it in Terminal. |
+| `sage sandbox entries` | Prints the 3 lines of `excludedCommands` for this machine: `gh *`, and the state tool and the board start with the full path of the installed sage plugin. Only the Claude Code plugin prints them. It changes nothing. |
 
 ## To update sage
 
