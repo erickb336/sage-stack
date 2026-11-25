@@ -21,7 +21,6 @@ const STATE_ORDER = ["stuck", "lost", "active", "changing", "proposed", "done"];
 const stateRank = state => STATE_ORDER.includes(state) ? STATE_ORDER.indexOf(state) : STATE_ORDER.length;
 const number = id => Number(String(id).replace(/^\D+/, "")) || 0;
 
-const flagOf = (run, agent) => run.status !== "running" ? null : agent ? agent.flag : run.flag ?? null;
 function everyAgent(agents) {
   const all = [], walk = agent => { all.push(agent); for (const child of agent.children ?? []) walk(child); };
   for (const project of agents?.projects ?? []) for (const agent of project.agents) walk(agent);
@@ -117,7 +116,7 @@ function agentsOf(model, recent, agents, chiefs) {
   const look = [];
   const books = (model.agents?.limits ?? []).map(book => {
     const all = model.tasks.filter(task => task.project === book.key).flatMap(task => task.runs.map(run => {
-      const agent = run.status === "running" ? states.get(`${book.key}/${run.id}`) : null, flag = flagOf(run, agent);
+      const agent = run.status === "running" ? states.get(`${book.key}/${run.id}`) : null, flag = run.flag ?? null;
       return { run, task, agent, flag, state: run.status !== "running" ? null : agent?.state ?? "work", look: run.status === "failed" ? !task.archived && !ENDED.includes(task.state) && recent(run.ended) && !retried(task, run) : needsLook(flag) };
     }));
     look.push(...all.filter(item => item.look));
@@ -259,7 +258,7 @@ export function taskPanel(model, key) {
     decisions: [...(task.gateRows ?? [])].reverse().map(gate => ({ id: gate.id, question: firstLine(gate.question), answer: gate.answer || null, pending: boardAnswer(gate)?.answer ?? null, recommendation: gate.recommendation || null, waits: waiting.has(gate.id), at: iso(gate.at) })),
     artifacts: task.artifacts.map(record => ({ id: record.id, type: record.data.type, label: record.data.label, run: record.data.run ?? null, at: iso(record.observedAt),
       url: /^https:\/\//.test(record.data.url ?? "") ? record.data.url : null, path: record.data.path ?? null, verified: !!record.content?.verified })),
-    runs: task.runs.map(run => ({ id: run.id, role: run.role, status: run.status, started: iso(run.started), ended: iso(run.ended), ...runMeasure(run), place: run.place ?? null, state: agents.get(run.id)?.state ?? null, flag: [flagOf(run, agents.get(run.id))].find(needsLook) ?? null })),
+    runs: task.runs.map(run => ({ id: run.id, role: run.role, status: run.status, started: iso(run.started), ended: iso(run.ended), ...runMeasure(run), place: run.place ?? null, state: agents.get(run.id)?.state ?? null, flag: needsLook(run.flag) ? run.flag : null })),
     ...aboutOf(model, task),
   };
 }

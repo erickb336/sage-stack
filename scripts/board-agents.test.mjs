@@ -9,6 +9,8 @@ import { join, relative } from "node:path";
 import { buildBoardModel } from "../packages/sage-core/board-model.mjs";
 import { readBoardSources, readHookNotes } from "../packages/sage-core/board-reader.mjs";
 import { agentCaps } from "../packages/sage-core/logbook-fields.mjs";
+import { taskPanel } from "../packages/sage-core/board-overview.mjs";
+import { renderBoardText, renderTaskText } from "../packages/sage-core/board-render.mjs";
 
 const NOW = "2026-10-18T12:00:00.000Z", at = Date.parse(NOW);
 const ago = minutes => at - minutes * 60_000;
@@ -133,6 +135,43 @@ test("T308, T1224: unreadable hook notes show every Claude run from the logbook,
   assert.deepEqual(model.problems, [{ source: "claude", message: "its folder has no read permission" }]);
   assert.deepEqual(model.unmatched, []);
   assert.equal(model.look, 0);
+});
+
+test("T1224 (F-T1224-2, F-T1224-4): the step line, the task page steps, the chat task card and the chat board show the Agents row's flag for the same run", () => {
+  const history = [10, 10, 10, 20, 30].map((minutes, i) => ended(`R${10 + i}`, "implementer", minutes));
+  const b = book("sample-abcdef", [...history, run("R1", "implementer", 60), run("R2", "designer", 30, { task: "T2" }), run("R3", "lead", 120, { task: "T3" }), run("R4", "qa", 40, { task: "T3" })]);
+  b.tables.tasks = ["T1", "T2", "T3"].map(id => task(id));
+  const lead = sha256(`${b.logbook}:R3`);
+  const model = buildBoardModel([claude([b], [implementerSlot("slot-1", "R1", 20), slot("slot-3", ["project-sample", "role-sage_lead", "run-R3", `logbook-${b.logbook}`, `bound-${sha256("x")}`], 1)],
+    { helpers: [{ lead, run: "R4", stopped: false, at: null }, { lead, run: "R4", stopped: true, at: Date.parse("2026-10-18T11:46:00Z") }] })], { now: NOW });
+  const plain = text => text.replace(/\\/g, "");
+  const chat = plain(renderBoardText(model));
+  const cases = [
+    ["T1", "R1", "stale", LOOK, "Look at it. For the implementer (run R1), no note for 20 min, and past 30 min, the usual top length of an implementer run here."],
+    ["T2", "R2", "stale", LOOK, "Look at it. For the designer (run R2), no agent slot holds this run: the hook frees a slot after 60 min with no activity. Ask the chief to check the run."],
+    ["T3", "R4", "lost", STOPPED, "The lead is at work on the build. Stopped without a report. For the QA agent (run R4), its process ended at 11:46 UTC with no report; the logbook still says running."],
+  ];
+  for (const [id, runId, status, flag, now] of cases) {
+    const card = model.tasks.find(item => item.id === id), row = rows(model.agents).find(agent => agent.runId === runId), text = flag.replace(/^\w+ /, "");
+    assert.equal(flagOf(row), flag, `${runId}: the Agents row`);
+    assert.deepEqual(card.runs.find(item => item.id === runId).flag, row.flag, `${runId}: the card's run has the row's flag`);
+    assert.deepEqual([card.loop.steps[1].status, card.loop.now.text], [status, now], `${id}: the step line`);
+    const panel = taskPanel(model, card.key);
+    assert.deepEqual([panel.steps[1].status, panel.runs.find(item => item.id === runId).flag?.text], [status, text], `${id}: the task page steps`);
+    const taskText = plain(renderTaskText(card));
+    assert.ok(taskText.includes(`Now: ${now}`), `${id}: the chat task card's Now line`);
+    assert.match(taskText, new RegExp(`\\n! Build: in progress · ${text} · `), `${id}: the chat task card's step`);
+    assert.match(taskText, new RegExp(`\\n${runId} .* · in progress · ${text} · `), `${id}: the chat task card's run`);
+    assert.ok(chat.includes(`Sample task ${id}. Building, ${text} (run ${runId}).`), `${id}: the chat board's line`);
+  }
+});
+
+test("T1224: a run of an old logbook has no Agents row, so its step and the chat take the flag from its logbook alone: Look at it after a day with no news", () => {
+  const old = { ...book("sample-abcdef", [run("R1", "implementer", 4000)], { old: { provider: "claude", of: "shared/sample-abcdef" } }), key: "old-claude/sample-abcdef" };
+  const shared = { id: "shared", label: "Shared", shared: true, config: {}, diagnostics: [], hooks: { present: false, slots: [], helpers: [], problem: null }, projects: [{ ...book("sample-abcdef", []), key: "shared/sample-abcdef", source: "shared", shared: true, tables: { tasks: [] } }, old] };
+  const model = buildBoardModel([shared, claude([])], { now: NOW }), card = model.tasks.find(item => item.key === "old-claude/sample-abcdef/T1");
+  assert.deepEqual([model.agents.count, card.runs[0].flag?.text, card.loop.steps[1].status, card.loop.now.text], [0, "Look at it", "stale", "Look at it. For the implementer (run R1), no news since 15 Oct, so ask the chief to check it."]);
+  assert.match(renderTaskText(card).replace(/\\/g, ""), /\nR1 .* · in progress · Look at it · /);
 });
 
 test("T1224: no built plugin copy, guide or skill names an old agent word beside the one flag", () => {

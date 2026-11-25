@@ -162,7 +162,7 @@ header.top { position: sticky; top: 0; z-index: 20; min-height: 52px; display: f
 .row .age { text-align: right; }
 .row.ended .text { color: var(--muted); }
 .step.need, .awhy.need { color: var(--need); }
-.step.fail, .step.stale, .step.blocked { color: var(--fail); }
+.step.fail, .step.stale, .step.lost, .step.blocked { color: var(--fail); }
 .step.run { color: var(--run); }
 .badge.warn { color: var(--need); border-color: var(--need); }
 .badge.word { justify-self: start; }

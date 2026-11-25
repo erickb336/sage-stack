@@ -73,7 +73,7 @@ export const OBJECTS = {
   "pull request": { label: "Pull request", states: {} },
   chief: { label: "Chief", states: { live: ["in progress"], quiet: ["waiting"], waits: ["needs you"], stopped: ["stopped"] } },
 };
-export const STEPS = { done: ["done"], run: ["in progress"], need: ["needs you"], wait: ["not started"], idle: ["waiting"], stale: ["in progress", LOOK_AT_IT], fail: ["done", "failed"], blocked: ["in progress", "blocked"] };
+export const STEPS = { done: ["done"], run: ["in progress"], need: ["needs you"], wait: ["not started"], idle: ["waiting"], stale: ["in progress", LOOK_AT_IT], lost: ["in progress", STOPPED_NO_REPORT], fail: ["done", "failed"], blocked: ["in progress", "blocked"] };
 
 export const shown = ([word, flag] = []) => ({ word: word ?? UNKNOWN, flag: flag ?? null, mark: flag ? MARKS.problem : MARKS[word] ?? MARKS.unknown, text: !word ? UNKNOWN : flag ? `${word} · ${flag}` : word });
 export const runWord = (status, flag = null) => {

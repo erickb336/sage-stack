@@ -433,8 +433,8 @@ test("R1075-1, R1071-1: a step runs now only while a run of the task runs; a gat
     "F-T1016-5: with no open gate, Next does not say that you approve every design");
   const stale = oneTask(task("T1", "building"), { runs: [{ id: "R5", task: "T1", role: "implementer", status: "running", started: "2026-10-05T08:00:00Z" }] });
   assert.deepEqual(line(stale)[1], "Build: stale");
-  assert.deepEqual(stale.loop.now, { needs: false, stale: true, text: "No news from the implementer since 5 Oct, so ask the chief to check it." });
-  assert.equal(stale.loop.steps[1].detail, "No news from the implementer (run R5) since 5 Oct, so ask the chief to check it.");
+  assert.deepEqual(stale.loop.now, { needs: false, stale: true, text: "Look at it. For the implementer (run R5), no news since 5 Oct, so ask the chief to check it." });
+  assert.equal(stale.loop.steps[1].detail, "For the implementer (run R5), no news since 5 Oct, so ask the chief to check it.");
   assert.deepEqual([stale.agents.map(agent => agent.stale), buildBoardModel([source("one", [task("T1", "building")], { runs: stale.runs })], { now }).counts.recordedAgents], [[true], 0], "a stale run is not an agent at work");
 });
 

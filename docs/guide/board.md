@@ -268,7 +268,9 @@ A click on a card's title, on "About" or on an agent opens the task page. A run 
 | ▶ in progress | The logbook says that the run runs. |
 | ⧗ waiting | A lead has at least one helper that still runs. |
 
-A flag is not a state: it shows after the state, and one rule in sage's code gives it on every page and in the chat board. Most rows have no flag.
+A flag is not a state: it shows after the state, and one rule in sage's code gives it on every page and in the chat board. Most rows have no flag. The board finds each run's flag once, and the task's step, its Now line and the chat show that same flag: the step shows the worst flag of its runs, and the Now line names each flagged run and the reason.
+
+The chat view of one task (`show board T197`) reads only that task's logbook, not the hook's notes. So there a run shows only the flags that the logbook gives: "Stopped without a report" when the run's chief stopped, and "Look at it" when the run has no news for a day.
 
 | Flag | Shown when |
 | --- | --- |

@@ -5,6 +5,7 @@ import { BOARD_PORT } from "./message.mjs";
 import { localTime } from "./move-text.mjs";
 import { KINDS as KIND, MARKS, STEPS, UNKNOWN, chiefName, runWord, shown, stoppedAt } from "./state-words.mjs";
 import { measureLabel } from "./usage.mjs";
+import { flagRank, needsLook } from "./agent-flag.mjs";
 const md = value => String(value ?? "").replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029]/g, " ").replace(/\p{Cf}/gu, "").replace(/[\\`*_{}\[\]()<>#+.!|&~:@]/g, c => String.fromCharCode(92) + c);
 const mdLines = (value, join = "\n") => String(value ?? "").split(LINE).map(md).join(join);
 const mdBlock = value => String(value ?? "").split(/\r?\n/).map(md).join("\n");
@@ -99,6 +100,7 @@ function problemLine(model, need, ref) {
 }
 function movingText(task) {
   const live = task.agents.find(agent => !agent.stale), stale = task.agents.find(agent => agent.stale);
+  const flagged = task.runs.filter(run => run.status === "running" && needsLook(run.flag)).sort((a, b) => flagRank(a.flag) - flagRank(b.flag))[0];
   const review = task.loop.steps.find(step => step.key.startsWith("review-") && step.status !== "done");
   const problem = task.problems?.length ? ownText(task, task.problems[0].text).split(/(?<=\.)\s/)[0].replace(/\.$/, "") : null;
   const what = problem ? /the chief repairs it/.test(problem) ? problem : `${problem}; the chief repairs it` : task.waitLine ? task.waitLine.never ? "Cannot start" : "Waits for another task" : {
@@ -106,7 +108,7 @@ function movingText(task) {
     repairing: `In repair, round ${Number(task.round) || 1}`, verifying: "The chief checks the verdicts", verified: "Ready to merge", "pr-ready": "Ready to merge",
     reviewing: review ? review.label.replace(/^Review /, "In review, cycle ").replace(/^Evidence review/, "In evidence review") : "The reviews are clean",
   }[task.state] ?? title(task.word || UNKNOWN);
-  const clock = live ? task.runClocks?.[live.id]?.text : stale ? `no news since ${task.runClocks?.[stale.id]?.since ?? "a day"}` : "";
+  const clock = flagged ? `${flagged.flag.text} (run ${flagged.id})` : live ? task.runClocks?.[live.id]?.text : stale ? `no news since ${task.runClocks?.[stale.id]?.since ?? "a day"}` : "";
   return `${what}${clock ? `, ${clock}` : ""}.`;
 }
 function doneText(task, today) {
