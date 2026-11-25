@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import { buildBoardModel } from "../packages/sage-core/board-model.mjs";
-import { boardOverview } from "../packages/sage-core/board-overview.mjs";
+import { boardOverview, taskPanel } from "../packages/sage-core/board-overview.mjs";
 import { boardChiefs } from "../packages/sage-core/chief-live.mjs";
 import { appTables } from "./fixtures/board-app.mjs";
 
@@ -51,6 +51,9 @@ test("T1054, T1224: the board reads again when a merge leaves the last 24 hours;
   const later = overview(undefined, "2026-11-14T13:00:00.000Z");
   assert.deepEqual(lookRuns(later.agents[0]), ["R2"], "the failed run R1 left the window; R2 now has no news for a day, so it is Look at it");
   assert.equal(later.agents[0].runs.find(run => run.id === "R2").flag.text, "Look at it");
+  const panel = (label, at) => taskPanel(buildBoardModel([source(undefined, label)], { now: at }), `${label}/sample-app-abc123/T3`).runs.find(run => run.id === "R2");
+  assert.equal(panel("claude", "2026-11-14T13:00:00.000Z").flag.text, "Look at it", "the task page shows the same flag");
+  assert.equal(panel("codex", "2026-11-14T13:00:00.000Z").flag, null, "the task page's short line leaves out a calm flag");
 });
 
 test("F-T1065-2, T1224: a Codex run says Codex: activity unknown and never counts as flagged, also with no logbook write for 40 min", () => {
