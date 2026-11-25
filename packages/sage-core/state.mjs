@@ -48,7 +48,7 @@ export const balancedModels = (strong, light) => ({
   "model.implementer.tiny": light, "model.code-reviewer.tiny": light, "model.qa.tiny": light, "model.qa.small": light,
 });
 
-export function createStateTool({ defaultRoot, legacyRoots: namedRoots = () => [], provider, models = ["inherit"], modelDefaults = {}, spawnFields = (model) => (model ? { model } : {}), usageInterfaces = [], replaceStep = (task, chief) => `run sage gate replace ${task} --to ${chief} --chief ${chief}`, takeoverCycle, queueWait = () => "", autopilot = () => false }) {
+export function createStateTool({ defaultRoot, legacyRoots: namedRoots = () => [], provider, models = ["inherit"], modelDefaults = {}, spawnFields = (model) => (model ? { model } : {}), usageInterfaces = [], replaceStep = (task, chief) => `run sage gate replace ${task} --to ${chief} --chief ${chief}`, takeoverCycle, queueWait = () => "", autopilot = () => false, sandboxPlaces }) {
 if (typeof defaultRoot !== "function") throw new TypeError("defaultRoot must be a function");
 if (typeof namedRoots !== "function") throw new TypeError("legacyRoots must be a function");
 const rootsOf = (env) => namedRoots(env).map((root) => {
@@ -2574,7 +2574,7 @@ function sageCommand(argv, env) {
   if (cmd === "prior-art") return priorArtCommand(pos, opt, env, refuse);
   const readOnly = scopedRead(cmd, pos, opt);
   const root = sageRoot(env), project = resolve(opt.project ?? env.SAGE_PROJECT ?? folderHere());
-  if (cmd === "sandbox") return pos.length ? refuse("sandbox takes no words. It prints one line for Claude Code and one for Codex: the sandbox state, the folders that a command may write, the network and what is missing. It reads the settings files and changes nothing.") : sandboxStatus({ env, cwd: project });
+  if (cmd === "sandbox") return pos.length ? refuse("sandbox takes no words. It prints one line for Claude Code and one for Codex: the sandbox state, the folders that a command may write, the network and what is missing. It reads the settings files and changes nothing.") : sandboxPlaces ? sandboxStatus({ env, cwd: project, places: sandboxPlaces(env) }) : refuse("this plugin names no settings files for the sandbox, so sandbox cannot read them. Update the sage plugin.");
   if ((opt.chief !== undefined || opt.lead !== undefined || chiefOnly(cmd, pos)) && !locate(project, env).shared) refuse(chiefOnly(cmd, pos) ? `${visible(project)} has no shared logbook, so it has no chiefs to hand a task to. Nothing changed.` : `${visible(project)} has no shared logbook, and only a shared logbook has chiefs: leave out --chief and --lead. Nothing changed.`);
   if (cmd === "board") {
     const hex = opt["name-hex"];

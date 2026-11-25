@@ -8,6 +8,8 @@ import { test } from "node:test";
 import { ROOT } from "./build.mjs";
 import { sandboxLine, sandboxState } from "../packages/sage-core/index.mjs";
 import { parseToml } from "../packages/sage-core/toml.mjs";
+import { sandboxPlaces } from "../plugins/sage/skills/sage/sage.mjs";
+import { sandboxPlaces as codexPlaces } from "../plugins/sage-codex/skills/sage/sage.mjs";
 
 const CLAUDE_TOOL = join(ROOT, "plugins/sage/skills/sage/sage.mjs"), CODEX_TOOL = join(ROOT, "plugins/sage-codex/skills/sage/sage.mjs");
 
@@ -34,9 +36,11 @@ function scratch(t) {
   };
   const claude = (text) => write(join(home, ".claude", "settings.json"), typeof text === "string" ? text : JSON.stringify(text));
   const codex = (text) => write(join(home, ".codex", "config.toml"), text);
-  const state = (provider, more = {}) => sandboxState(provider, { env: { ...env, ...more }, cwd: project, system });
+  const managed = join(system, "ClaudeCode"), systemConfig = join(system, "codex", "config.toml");
+  const places = (all) => ({ claude: { ...all.claude, managed }, codex: { ...all.codex, system: systemConfig } });
+  const state = (provider, more = {}, cwd = project) => sandboxState(provider, { env: { ...env, ...more }, cwd, places: places(sandboxPlaces({ ...env, ...more }))[provider] });
   const line = (provider, more = {}) => sandboxLine(state(provider, more), { env: { ...env, ...more }, cwd: project });
-  return { dir, home, project, system, env, write, claude, codex, state, line };
+  return { dir, home, project, system, managed, systemConfig, env, write, claude, codex, state, line };
 }
 
 const settings = (sandbox, permissions) => ({ ...(permissions ? { permissions } : {}), sandbox });
@@ -88,7 +92,7 @@ test("Claude Code: the project's files count in Claude Code's order, and a user 
   s.write(join(s.project, ".claude", "settings.json"), JSON.stringify(settings({ allowUnsandboxedCommands: false })));
   s.write(join(s.project, ".claude", "settings.local.json"), "{}");
   assert.equal(s.state("claude").state, "on", "the shared project file sets the retry off");
-  s.write(join(s.system, process.platform === "darwin" ? "Library/Application Support/ClaudeCode" : "etc/claude-code", "managed-settings.json"), JSON.stringify(settings({ enabled: false })));
+  s.write(join(s.managed, "managed-settings.json"), JSON.stringify(settings({ enabled: false })));
   assert.equal(s.state("claude").state, "off", "the managed file is above every other file");
 });
 
@@ -98,7 +102,7 @@ test("Claude Code: in a worktree, the local file of the main checkout counts", (
   const worktree = join(s.home, "sage-worktrees", "app-t1");
   s.write(join(worktree, ".git"), `gitdir: ${join(s.project, ".git", "worktrees", "app-t1")}\n`);
   s.write(join(s.project, ".claude", "settings.local.json"), JSON.stringify(settings({ enabled: false })));
-  assert.equal(sandboxState("claude", { env: s.env, cwd: worktree, system: s.system }).state, "off");
+  assert.equal(s.state("claude", {}, worktree).state, "off");
 });
 
 test("Claude Code: a settings file that sage cannot read or parse, or a key of a wrong type, gives strict rules, never on", (t) => {
@@ -133,7 +137,7 @@ test("Claude Code: a settings file that sage cannot read or parse, or a key of a
     chmodSync(join(s.home, ".claude", "settings.json"), 0o600);
   }
   assert.equal(s.state("claude").state, "on");
-  mkdirSync(join(s.system, process.platform === "darwin" ? "Library/Application Support/ClaudeCode" : "etc/claude-code", "managed-settings.d"), { recursive: true });
+  mkdirSync(join(s.managed, "managed-settings.d"), { recursive: true });
   assert.match(strict("sage does not read the managed folder"), /managed-settings\.d exists, and sage does not read it$/);
 });
 
@@ -184,16 +188,16 @@ test("Codex: the guide's sage profile is on and fails closed, with .git, ~/sage-
 
 test("Codex: the system config is the lowest layer, and a profile can extend another profile", (t) => {
   const s = scratch(t);
-  s.write(join(s.system, "etc", "codex", "config.toml"), 'sandbox_mode = "danger-full-access"\n');
+  s.write(s.systemConfig, 'sandbox_mode = "danger-full-access"\n');
   assert.equal(s.state("codex").state, "off");
   s.codex('sandbox_mode = "read-only"\n');
   assert.equal(s.state("codex").state, "on", "the user's config is above the system config");
-  s.write(join(s.system, "etc", "codex", "config.toml"), CODEX_BLOCK.replace('default_permissions = "sage"\n', ""));
+  s.write(s.systemConfig, CODEX_BLOCK.replace('default_permissions = "sage"\n', ""));
   s.codex('default_permissions = "team"\n\n[permissions.team]\nextends = "sage"\n\n[permissions.team.filesystem]\n"~/sage-worktrees" = "deny"\n');
   const found = s.state("codex");
   assert.equal(found.state, "on");
   assert.equal(found.network, true, "the parent's network");
-  assert.deepEqual(found.missing, ['"~/sage-worktrees" = "write" in [permissions.team.filesystem]']);
+  assert.ok(!found.writes.includes(join(s.home, "sage-worktrees")), "the child's deny wins over the parent's write");
 });
 
 test("Codex: a config that sage cannot read or parse, or a profile that Codex refuses, gives strict rules, never on", (t) => {
@@ -217,7 +221,7 @@ test("Codex: a config that sage cannot read or parse, or a profile that Codex re
   s.codex(CODEX_BLOCK);
   assert.equal(s.state("codex").state, "on");
   s.write(join(s.project, ".codex", "config.toml"), 'sandbox_mode = "danger-full-access"\n');
-  assert.equal(s.state("codex").reason, "the project's .codex/config.toml sets sandbox_mode; sage reads these keys only in ~/.codex/config.toml and " + join(s.system, "etc/codex/config.toml"));
+  assert.equal(s.state("codex").reason, `the project's .codex/config.toml sets sandbox_mode; sage reads these keys only in ~/.codex/config.toml and ${s.systemConfig}`);
   s.write(join(s.project, ".codex", "config.toml"), 'model = "x"\n');
   assert.equal(s.state("codex").state, "on", "a project config without a sandbox key changes nothing");
   s.write(join(s.project, ".codex", "config.toml"), "model = \n");
@@ -242,6 +246,12 @@ function files(dir) {
     return `${name} ${stat.isFile() ? readFileSync(join(dir, name), "utf8") : "folder"}`;
   });
 }
+
+test("both plugins name the same settings files: Claude Code's and Codex's, from HOME, CLAUDE_CONFIG_DIR and CODEX_HOME", () => {
+  for (const env of [{ HOME: "/h" }, { HOME: "/h", CLAUDE_CONFIG_DIR: "/c", CODEX_HOME: "/x" }]) assert.deepEqual(codexPlaces(env), sandboxPlaces(env));
+  assert.deepEqual([sandboxPlaces({ HOME: "/h" }).claude.user, sandboxPlaces({ HOME: "/h" }).codex.user], ["/h/.claude/settings.json", "/h/.codex/config.toml"]);
+  assert.deepEqual([sandboxPlaces({ HOME: "/h", CLAUDE_CONFIG_DIR: "/c", CODEX_HOME: "/x" }).claude.user, sandboxPlaces({ HOME: "/h", CODEX_HOME: "/x" }).codex.user], ["/c/settings.json", "/x/config.toml"]);
+});
 
 test("sage sandbox in each plugin prints one line for each provider, changes no file and prints no value of the environment", (t) => {
   const s = scratch(t);

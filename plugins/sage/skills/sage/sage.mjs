@@ -23,8 +23,16 @@ function autopilot(session, env) {
     if (fd !== undefined) closeSync(fd);
   }
 }
+export const sandboxPlaces = (env) => {
+  const home = env.HOME || homedir(), claude = env.CLAUDE_CONFIG_DIR ?? join(home, ".claude"), codex = env.CODEX_HOME ?? join(home, ".codex");
+  return {
+    claude: { user: join(claude, "settings.json"), userShown: env.CLAUDE_CONFIG_DIR ? "$CLAUDE_CONFIG_DIR/settings.json" : "~/.claude/settings.json", project: ".claude/settings.json", local: ".claude/settings.local.json", managed: process.platform === "darwin" ? "/Library/Application Support/ClaudeCode" : "/etc/claude-code" },
+    codex: { user: join(codex, "config.toml"), userShown: env.CODEX_HOME ? "$CODEX_HOME/config.toml" : "~/.codex/config.toml", project: ".codex/config.toml", system: "/etc/codex/config.toml" },
+  };
+};
 const tool = createStateTool({
   provider: "claude",
+  sandboxPlaces,
   defaultRoot,
   autopilot,
   legacyRoots,

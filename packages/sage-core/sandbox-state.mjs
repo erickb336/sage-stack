@@ -8,8 +8,7 @@ const MAX_BYTES = 1 << 20;
 const TMPDIR = "$TMPDIR";
 const NAMES = { claude: "Claude Code", codex: "Codex" };
 const LABELS = { on: "on, fails closed", "may-run-unsandboxed": "on, but may run unsandboxed", off: "off", strict: "strict rules (sage cannot confirm the sandbox)" };
-const CLAUDE_MANAGED = process.platform === "darwin" ? "Library/Application Support/ClaudeCode" : "etc/claude-code";
-const CODEX_SANDBOX_KEYS = ["sandbox_mode", "sandbox_workspace_write", "default_permissions", "permissions", "approval_policy", "approvals_reviewer"];
+const SANDBOX_KEYS = ["sandbox_mode", "sandbox_workspace_write", "default_permissions", "permissions", "approval_policy", "approvals_reviewer"];
 const ACCESS = ["read", "write", "deny"];
 
 class Strict extends Error {}
@@ -48,18 +47,17 @@ function gitRoots(start) {
   }
 }
 
-function claude({ env, cwd, system }) {
-  const home = homeOf(env), project = resolve(cwd), config = env.CLAUDE_CONFIG_DIR ? resolve(env.CLAUDE_CONFIG_DIR) : join(home, ".claude");
+function claude({ env, cwd, places }) {
+  const home = homeOf(env), project = resolve(cwd), config = dirname(places.user);
   const { main } = gitRoots(project);
-  const user = join(config, "settings.json"), managed = join(system, CLAUDE_MANAGED);
   const files = [
-    { kind: "user", file: user, shown: env.CLAUDE_CONFIG_DIR ? "$CLAUDE_CONFIG_DIR/settings.json" : "~/.claude/settings.json" },
-    { kind: "project", file: join(project, ".claude", "settings.json") },
-    { kind: "local", file: join(project, ".claude", "settings.local.json") },
-    main && main !== home && { kind: "local", file: join(main, ".claude", "settings.local.json") },
-    { kind: "managed", file: join(managed, "managed-settings.json") },
+    { kind: "user", file: places.user, shown: places.userShown },
+    { kind: "project", file: join(project, places.project) },
+    { kind: "local", file: join(project, places.local) },
+    main && main !== home && { kind: "local", file: join(main, places.local) },
+    { kind: "managed", file: join(places.managed, "managed-settings.json") },
   ].filter((f, i, all) => f && all.findIndex((g) => g && g.file === f.file) === i);
-  try { if (statSync(join(managed, "managed-settings.d"))) strict(`${join(managed, "managed-settings.d")} exists, and sage does not read it`); } catch (error) { if (error instanceof Strict) throw error; }
+  try { if (statSync(join(places.managed, "managed-settings.d"))) strict(`${join(places.managed, "managed-settings.d")} exists, and sage does not read it`); } catch (error) { if (error instanceof Strict) throw error; }
   const layers = files.map((f) => {
     const shown = f.shown ?? shownPath(f.file, { home, project });
     return { ...f, shown, data: readLayer(f.file, shown, JSON.parse, "JSON") };
@@ -111,18 +109,16 @@ function sandboxPath(path, home, base) {
   return p.startsWith("//") ? resolve(p.slice(1)) : p.startsWith("/") ? resolve(p) : p === "~" || p.startsWith("~/") ? fromHome(p, home, base) : resolve(base, p);
 }
 
-function codex({ env, cwd, system }) {
-  const home = homeOf(env), project = resolve(cwd), codexHome = env.CODEX_HOME ? resolve(env.CODEX_HOME) : join(home, ".codex");
-  const user = join(codexHome, "config.toml"), userShown = env.CODEX_HOME ? "$CODEX_HOME/config.toml" : "~/.codex/config.toml";
-  const systemFile = join(system, "etc", "codex", "config.toml");
+function codex({ env, cwd, places }) {
+  const home = homeOf(env), project = resolve(cwd), { user, userShown, system } = places;
   const top = gitRoots(project).top ?? project;
   for (let dir = project; ; dir = dirname(dir)) {
-    const file = join(dir, ".codex", "config.toml"), shown = shownPath(file, { home, project });
-    const keys = file === user ? [] : Object.keys(readLayer(file, shown, parseToml, "TOML") ?? {}).filter((key) => CODEX_SANDBOX_KEYS.includes(key));
-    if (keys.length) strict(`${shown} sets ${keys.join(", ")}; sage reads these keys only in ${userShown} and ${shownPath(systemFile, { home })}`);
+    const file = join(dir, places.project), shown = shownPath(file, { home, project });
+    const keys = file === user ? [] : Object.keys(readLayer(file, shown, parseToml, "TOML") ?? {}).filter((key) => SANDBOX_KEYS.includes(key));
+    if (keys.length) strict(`${shown} sets ${keys.join(", ")}; sage reads these keys only in ${userShown} and ${shownPath(system, { home })}`);
     if (dir === top || dir === dirname(dir)) break;
   }
-  const merged = merge(readLayer(systemFile, shownPath(systemFile, { home }), parseToml, "TOML") ?? {}, readLayer(user, userShown, parseToml, "TOML") ?? {});
+  const merged = merge(readLayer(system, shownPath(system, { home }), parseToml, "TOML") ?? {}, readLayer(user, userShown, parseToml, "TOML") ?? {});
   const text = (key) => (merged[key] === undefined || typeof merged[key] === "string" ? merged[key] : strict(`${key} is not a string`));
   const mode = text("sandbox_mode"), chosen = text("default_permissions");
   let found;
@@ -202,10 +198,11 @@ function shownPath(path, { home, project }) {
   return within(path, home) ? `~${path.slice(home.length)}` : path;
 }
 
-export function sandboxState(provider, { env = process.env, cwd = process.cwd(), system = "/" } = {}) {
-  const read = { claude, codex }[provider] ?? strict(`no provider ${provider}`);
+export function sandboxState(provider, { env = process.env, cwd = process.cwd(), places }) {
+  const read = { claude, codex }[provider];
+  if (!read || !places) throw new TypeError(`sandboxState needs a provider (claude or codex) and the places of its settings files, not ${provider}`);
   try {
-    return { provider, ...read({ env, cwd, system }) };
+    return { provider, ...read({ env, cwd, places }) };
   } catch (error) {
     if (!(error instanceof Strict)) throw error;
     return { provider, state: "strict", reason: error.message, writes: [], missing: [] };
@@ -224,4 +221,4 @@ export function sandboxLine(found, { env = process.env, cwd = process.cwd() } = 
   return parts.join(" · ");
 }
 
-export const sandboxStatus = (options) => ["claude", "codex"].map((provider) => sandboxLine(sandboxState(provider, options), options)).join("\n");
+export const sandboxStatus = ({ places, ...options }) => ["claude", "codex"].map((provider) => sandboxLine(sandboxState(provider, { ...options, places: places[provider] }), options)).join("\n");
