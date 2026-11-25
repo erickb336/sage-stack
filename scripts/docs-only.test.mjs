@@ -1,18 +1,19 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { docsOnly } from "../plugins/sage/core/docs-only.mjs";
 import { keepReport } from "../plugins/sage/skills/sage/sage.mjs";
 import { backed } from "./verdict-backing.mjs";
 
 const TOOL = fileURLToPath(new URL("../plugins/sage/skills/sage/sage.mjs", import.meta.url));
 const DOCS = /^T1 may merge: [0-9a-f]{7} is docs-only: (?:the one file|each of the \d+ files) that it changes since its merge base with origin\/main is /;
 
-function world(t, { size = "large", risk = ["--risk", "input"], origin = true } = {}) {
+function repo(t, { origin = true } = {}) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "sage-docs-only-")));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const project = join(dir, "project");
@@ -29,6 +30,11 @@ function world(t, { size = "large", risk = ["--risk", "input"], origin = true } 
   const fetch = () => git("update-ref", "refs/remotes/origin/main", "main");
   if (origin) fetch();
   git("checkout", "-q", "-b", "sage/t1");
+  return { dir, project, git, work, fetch };
+}
+
+function world(t, { size = "large", risk = ["--risk", "input"], origin = true } = {}) {
+  const { dir, project, git, work, fetch } = repo(t, { origin });
   const env = { ...process.env, HOME: join(dir, "home"), SAGE_HOME: join(dir, "sage") };
   const run = (...args) => spawnSync(process.execPath, [TOOL, ...args, "--project", project], { encoding: "utf8", env, timeout: 60_000 });
   const cli = (...args) => {
@@ -147,4 +153,90 @@ test("T1239: a docs-only head moves to verified with checks-pass alone", (t) => 
   w.checked(head);
   w.ok("task", "T1", "set", "state=verifying");
   assert.match(w.ok("task", "T1", "set", "state=verified"), /^T1 verified/);
+});
+
+function docsOnlyEachAlone(t, paths) {
+  const r = repo(t), start = r.git("rev-parse", "HEAD");
+  return Object.fromEntries(paths.map((path) => {
+    r.git("reset", "-q", "--hard", start);
+    return [path, docsOnly(r.project, r.work({ [path]: "x\n" })).only];
+  }));
+}
+
+test("T1239 F-T1239-1, F-T1239-5: a README, CHANGELOG, LICENSE or CONTRIBUTING name with a code extension, or in a dot folder, is not documentation", (t) => {
+  const paths = [".github/workflows/changelog.yml", "scripts/changelog.mjs", "src/License.ts", ".husky/readme", "src/Readme.tsx", ".github/README.md", "README.en.md"];
+  assert.deepEqual(docsOnlyEachAlone(t, paths), Object.fromEntries(paths.map((path) => [path, false])));
+});
+
+test("T1239 F-T1239-2, F-T1239-4: under a docs folder only text and picture files are documentation, never code, config or MDX", (t) => {
+  const paths = ["app/docs/page.tsx", "src/docs/handler.js", ".github/actions/docs/action.yml", "packages/x/hooks/docs/guard.mjs", "docs/conf.py", "docs/hooks.py", "docs/mkdocs.yml", "docs/page.mdx", ".github/docs/guide.md"];
+  assert.deepEqual(docsOnlyEachAlone(t, paths), Object.fromEntries(paths.map((path) => [path, false])));
+});
+
+test("T1239: this repository's own documentation stays docs-only", (t) => {
+  const paths = ["docs/guide/using-sage.md", "docs/README.md", "docs/assets/hero-dark.svg", "docs/assets/board.png", "docs/assets/tour.gif", "README.md", "CONTRIBUTING.md", "CHANGELOG.md", "LICENSE", "plugins/sage/LICENSE", "principles/README.md", "packages/x/docs/deep/page.txt", "Changelog.rst", "notes/CONTRIBUTING"];
+  assert.deepEqual(docsOnlyEachAlone(t, paths), Object.fromEntries(paths.map((path) => [path, true])));
+});
+
+test("T1239 F-T1239-4: a symlink is not documentation, also as docs/*.md", (t) => {
+  const r = repo(t);
+  assert.equal(docsOnly(r.project, r.work({ "docs/guide.md": "how\n" })).only, true, "the page alone is docs-only");
+  symlinkSync("../src/app.js", join(r.project, "docs/link.md"));
+  assert.equal(docsOnly(r.project, r.work({})).only, false, "a symlink under docs/");
+});
+
+test("T1239 F-T1239-4: a submodule entry is not documentation, also as docs/*.md", (t) => {
+  const r = repo(t), start = r.git("rev-parse", "HEAD");
+  assert.equal(docsOnly(r.project, r.work({ "docs/guide.md": "how\n" })).only, true, "the page alone is docs-only");
+  r.git("update-index", "--add", "--cacheinfo", `160000,${start},docs/sub.md`);
+  r.git("commit", "-q", "-m", "submodule");
+  assert.equal(docsOnly(r.project, r.git("rev-parse", "HEAD")).only, false, "a submodule entry under docs/");
+});
+
+function mainNewerThanOrigin(t) {
+  const w = world(t);
+  w.git("checkout", "-q", "main");
+  w.work({ "src/app.js": "app v2\n" });
+  w.git("checkout", "-q", "sage/t1");
+  return w;
+}
+
+test("T1239 F-T1239-6: with a stale origin/main, a merge of the newer main that keeps the old code is not docs-only", (t) => {
+  const w = mainNewerThanOrigin(t);
+  w.git("merge", "-q", "-s", "ours", "-m", "merge main, keep the old app", "main");
+  const head = w.work({ "docs/guide.md": "how\n" });
+  w.checked(head);
+  assert.match(w.refused(head), /^sage: T1: 0 of 2 clean cycles on this SHA/);
+});
+
+test("T1239 F-T1239-6: with a stale origin/main, a branch on the newer main whose commit undoes its code is not docs-only", (t) => {
+  const w = mainNewerThanOrigin(t);
+  w.git("reset", "-q", "--hard", "main");
+  const head = w.work({ "src/app.js": "app\n", "docs/guide.md": "how\n" });
+  w.checked(head);
+  assert.match(w.refused(head), /^sage: T1: 0 of 2 clean cycles on this SHA/);
+});
+
+test("T1239 F-T1239-6: a docs branch that merges a fetched main stays docs-only", (t) => {
+  const w = world(t);
+  w.work({ "docs/guide.md": "how\n" });
+  w.git("checkout", "-q", "main");
+  w.work({ "src/app.js": "app v2\n" });
+  w.fetch();
+  w.git("checkout", "-q", "sage/t1");
+  w.git("merge", "-q", "-m", "merge main", "main");
+  const head = w.git("rev-parse", "HEAD");
+  w.checked(head);
+  assert.match(w.check(head), DOCS);
+});
+
+test("T1239 F-T1239-10, F-T1239-3: docs_paths refuses globs that together match every file, and keeps a narrow value", (t) => {
+  const w = world(t);
+  for (const glob of ["*,*/**", "*,*/*,*/*/*", "*,**/*.*", "**/*.*"]) {
+    const r = w.run("config", `docs_paths=${glob}`);
+    assert.equal(r.status, 1, `docs_paths=${glob} is refused`);
+    assert.match(r.stderr, /matches every file, so every pull request would merge with no review\. Nothing changed\./);
+  }
+  assert.equal(w.cli("config", "docs_paths=*"), "name= archived=no start=normal docs_paths=*", "* alone matches only the top folder, so it stays allowed");
+  assert.equal(w.cli("config", "docs_paths=guides/**,**/*.adoc"), "name= archived=no start=normal docs_paths=guides/**,**/*.adoc");
 });

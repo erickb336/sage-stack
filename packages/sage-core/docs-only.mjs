@@ -1,8 +1,10 @@
 import { readLocalGit } from "./local-git.mjs";
 
 const NAMES = ["readme", "changelog", "license", "contributing"];
-const WIDE = ["x", "x.mjs", "src/x.py", ".github/workflows/ci.yml", "a/b/c/Makefile"];
-export const DOCS_RULE = "a file under a docs folder, or a README, CHANGELOG, LICENSE or CONTRIBUTING file";
+const TEXT = ["md", "txt", "rst", "adoc"], PICTURES = ["png", "jpg", "jpeg", "gif", "webp", "svg"];
+const WIDE = ["x.mjs", "src/x.py", ".github/workflows/ci.yml"];
+const LINKS = ["120000", "160000"];
+export const DOCS_RULE = "a .md, .txt, .rst, .adoc or picture file under a docs folder, or a README, CHANGELOG, LICENSE or CONTRIBUTING file (with no extension or a text one), and in no dot folder";
 
 function globPattern(glob) {
   let out = "";
@@ -19,27 +21,43 @@ function globPattern(glob) {
 export const globsOf = (text) => String(text ?? "").split(",").map((glob) => glob.trim()).filter(Boolean);
 
 export function docsPathsProblem(text) {
-  const wide = globsOf(text).find((glob) => WIDE.every((path) => globPattern(glob).test(path)));
-  return wide && `the glob ${JSON.stringify(wide)} matches every file, so every pull request would merge with no review`;
+  const globs = globsOf(text), patterns = globs.map(globPattern);
+  return globs.length > 0 && WIDE.every((path) => patterns.some((glob) => glob.test(path)))
+    && `the value ${JSON.stringify(globs.join(","))} matches every file, so every pull request would merge with no review`;
 }
 
 function isDoc(path, globs) {
-  const parts = path.split("/"), name = parts.at(-1).replace(/\.[^.]*$/, "").toLowerCase();
-  return parts.slice(0, -1).includes("docs") || NAMES.includes(name) || globs.some((glob) => glob.test(path));
+  if (globs.some((glob) => glob.test(path))) return true;
+  const folders = path.split("/"), name = folders.pop().toLowerCase(), dot = name.lastIndexOf(".");
+  const ext = dot > 0 ? name.slice(dot + 1) : "", stem = dot > 0 ? name.slice(0, dot) : name;
+  if (folders.some((folder) => folder.startsWith("."))) return false;
+  return (folders.includes("docs") && [...TEXT, ...PICTURES].includes(ext)) || (NAMES.includes(stem) && (dot < 0 || TEXT.includes(ext)));
+}
+
+function rawFiles(text) {
+  const out = [], parts = text.split("\0");
+  for (let i = 0; i < parts.length; i++) {
+    if (!parts[i].startsWith(":")) continue;
+    const modes = parts[i].slice(1).split(" ", 2);
+    out.push([parts[++i], modes]);
+  }
+  return out;
 }
 
 export function docsOnly(project, sha, docsPaths) {
   if (docsPaths !== undefined && (typeof docsPaths !== "string" || docsPathsProblem(docsPaths))) return null;
-  let files;
+  let files, commits;
   try {
     const git = (...args) => readLocalGit(project, args).toString();
-    const base = git("merge-base", "refs/remotes/origin/main", sha).trim();
-    files = git("diff", "--name-only", "-z", "--no-renames", base, sha, "--").split("\0").filter(Boolean);
+    const base = git("merge-base", "refs/remotes/origin/main", sha).trim(), raw = ["--raw", "-z", "--no-renames", "--no-abbrev", "--ignore-submodules=none"];
+    files = rawFiles(git("diff", ...raw, base, sha, "--"));
+    commits = rawFiles(git("log", ...raw, "--no-merges", "--format=", `${base}..${sha}`, "--"));
   } catch {
     return null;
   }
   const globs = globsOf(docsPaths).map(globPattern);
-  return { only: files.length > 0 && files.every((path) => isDoc(path, globs)), count: files.length, extra: globs.length > 0, sha };
+  const only = files.length > 0 && [...files, ...commits].every(([path, modes]) => !modes.some((mode) => LINKS.includes(mode)) && isDoc(path, globs));
+  return { only, count: files.length, extra: globs.length > 0, sha };
 }
 
 export const docsNote = ({ sha, count, extra }) =>
