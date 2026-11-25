@@ -166,6 +166,15 @@ test("T1224 (F-T1224-2, F-T1224-4): the step line, the task page steps, the chat
   }
 });
 
+test("T1224 (F-T1224-5): a done run with no start, no end, a start that is not a time, or an end before its start counts for no usual length", () => {
+  const five = [10, 10, 10, 20, 30].map((minutes, i) => ended(`R${10 + i}`, "implementer", minutes));
+  const bad = [{ started: "" }, { ended: "" }, { started: "not a time" }, { started: iso(500), ended: iso(1000) }].map((change, i) => ({ ...ended(`R${20 + i}`, "implementer", 10), ...change }));
+  const model = agents(claude([book("sample-abcdef", [...five, ...bad, run("R1", "implementer", 60)])], [implementerSlot("slot-1", "R1", 20)]));
+  assert.deepEqual([flagOf(rows(model)[0]), rows(model)[0].why], [LOOK, "no note for 20 min, and past 30 min, the usual top length of an implementer run here"], "the 5 good runs give the usual length; the bad ones change nothing");
+  const fewer = agents(claude([book("sample-abcdef", [...five.slice(1), ...bad, run("R1", "implementer", 60)])], [implementerSlot("slot-1", "R1", 20)]));
+  assert.equal(flagOf(rows(fewer)[0]), "none", "4 good runs and 4 bad ones: fewer than 5 done runs, so no usual length");
+});
+
 test("T1224: a run of an old logbook has no Agents row, so its step and the chat take the flag from its logbook alone: Look at it after a day with no news", () => {
   const old = { ...book("sample-abcdef", [run("R1", "implementer", 4000)], { old: { provider: "claude", of: "shared/sample-abcdef" } }), key: "old-claude/sample-abcdef" };
   const shared = { id: "shared", label: "Shared", shared: true, config: {}, diagnostics: [], hooks: { present: false, slots: [], helpers: [], problem: null }, projects: [{ ...book("sample-abcdef", []), key: "shared/sample-abcdef", source: "shared", shared: true, tables: { tasks: [] } }, old] };

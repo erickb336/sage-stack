@@ -537,7 +537,7 @@ function agentsOf(sources, groups, groupOf, cards, at, stoppedChiefs = new Set()
   const usual = new Map();
   const usualOf = (group, role) => {
     const key = `${group}\n${role}`;
-    if (!usual.has(key)) usual.set(key, usualTop((groups.find(item => item.key === group)?.books ?? []).flatMap(book => book.project.tables.runs ?? []).filter(run => run.role === role && run.status === "done").map(run => time(run.ended) - time(run.started))));
+    if (!usual.has(key)) usual.set(key, usualTop((groups.find(item => item.key === group)?.books ?? []).flatMap(book => book.project.tables.runs ?? []).filter(run => run.role === role && run.status === "done" && time(run.started) !== null && time(run.ended) !== null).map(run => time(run.ended) - time(run.started))));
     return usual.get(key);
   };
   let next = Infinity;
