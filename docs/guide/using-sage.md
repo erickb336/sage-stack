@@ -280,6 +280,8 @@ A lead runs up to 9 helpers, but never more than the project's cap allows: with 
 
 A tiny task has no review and no QA in its route, so its lead runs only the implementer. A task with no review or QA in its route has no cycle: it needs only checks-pass. A risk flag, an arena or an added review puts a review in the route, and then the task needs its clean cycles like any other task.
 
+A docs-only pull request needs no cycle, whatever its size or risk flags: see [Docs-only pull requests](#docs-only-pull-requests).
+
 | A finding of a helper | What the lead does |
 | --- | --- |
 | Medium or high | After the proof check, it sends the finding to a repair round. |
@@ -396,6 +398,17 @@ sage config commit_email=12345+name@users.noreply.github.com commit_name="Your N
 - In Claude and Codex, the hook then refuses an agent's `git commit`, `merge`, `pull`, `cherry-pick`, `revert`, `am`, `rebase` or `commit-tree` without that identity before the subcommand: `git -c user.name='Your Name' -c user.email=12345+name@users.noreply.github.com commit ...`. The refusal prints this form with the project's values.
 - Without the setting, the hook checks no commit identity. `commit_email=` alone removes it.
 - The chief's own commits, a git alias and an identity from an exported variable are not checked.
+
+## Docs-only pull requests
+
+A pull request that changes only documentation merges after CI, with no review and no QA. Every other pull request keeps its clean cycles.
+
+- **Documentation:** a file under a folder named `docs`, at any depth, and a file named README, CHANGELOG, LICENSE or CONTRIBUTING, with any extension and in any letter case. Other Markdown, such as a skill, an agent file or a principle, is not documentation: it steers agents.
+- **The check:** the merge check reads the files that the head changes since its merge base with `origin/main` from git. A rename or a deletion counts by both paths, so a move from `src/` into `docs/` is not docs-only. When git cannot give the files, the full rules apply.
+- **What it needs:** checks-pass, and lint-pass when the project lints. Open findings still block. The merge check's message says that the head is docs-only and why.
+- **The lead** runs the merge check at the start of a cycle, and for a docs-only head it runs no review and no QA: it reports ready after CI.
+- **More paths:** ask the chief to add globs for one project, for example `sage config docs_paths=guides/**,**/*.adoc`. `*` matches within a folder and `**` across folders.
+- **Limits of the globs:** they only add to the list, and the config refuses a glob that matches every file. `docs_paths=` alone removes them.
 
 ## To update sage
 
