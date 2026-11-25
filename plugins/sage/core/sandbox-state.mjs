@@ -10,7 +10,7 @@ const NAMES = { claude: "Claude Code", codex: "Codex" };
 const LABELS = { on: "on, fails closed", "may-run-unsandboxed": "on, but may run unsandboxed", off: "off", strict: "strict rules (sage cannot confirm the sandbox)" };
 const SANDBOX_KEYS = ["sandbox_mode", "sandbox_workspace_write", "default_permissions", "permissions", "approval_policy", "approvals_reviewer"];
 const ACCESS = ["read", "write", "deny"];
-const NAMED = ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "SAGE_WORKTREES", "SAGE_HOME", "TMPDIR"];
+const NAMED = ["SAGE_WORKTREES", "SAGE_HOME", "TMPDIR"];
 const LOOSE = [
   [["allowAppleEvents"], "boolean"], [["allowNestedUserNamespaces"], "boolean"], [["enableWeakerNestedSandbox"], "boolean"], [["enableWeakerNetworkIsolation"], "boolean"],
   [["network", "allowAllUnixSockets"], "boolean"], [["network", "allowLocalBinding"], "boolean"], [["network", "allowUnixSockets"], "list"], [["network", "allowMachLookup"], "list"],
@@ -25,8 +25,8 @@ const isTable = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const homeOf = (env) => resolve(env.HOME || homedir());
 const within = (path, root) => path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
 
-function shower(env, project) {
-  const roots = [...NAMED.filter((name) => env[name] && isAbsolute(env[name])).map((name) => [resolve(env[name]), `$${name}`]), ...(project ? [[project, ""]] : []), [homeOf(env), "~"]]
+function shower(env, project, named = []) {
+  const roots = [...[...named, ...NAMED].filter((name) => env[name] && isAbsolute(env[name])).map((name) => [resolve(env[name]), `$${name}`]), ...(project ? [[project, ""]] : []), [homeOf(env), "~"]]
     .sort((a, b) => b[0].length - a[0].length);
   return (path) => {
     if (path === TMPDIR) return TMPDIR;
@@ -79,7 +79,7 @@ function gitRoots(start, show) {
 }
 
 function claude({ env, cwd, places }) {
-  const home = homeOf(env), project = resolve(cwd), config = dirname(places.user), show = shower(env, project);
+  const home = homeOf(env), project = resolve(cwd), config = dirname(places.user), show = shower(env, project, places.named);
   const { main } = gitRoots(project, show);
   const files = [
     { kind: "user", file: places.user, shown: places.userShown },
@@ -190,7 +190,7 @@ function allowRules(dir, show) {
 }
 
 function codex({ env, cwd, places }) {
-  const home = homeOf(env), project = resolve(cwd), { user, userShown, system, managed } = places, show = shower(env, project);
+  const home = homeOf(env), project = resolve(cwd), { user, userShown, system, managed } = places, show = shower(env, project, places.named);
   const top = gitRoots(project, show).top ?? project;
   const ruleDirs = [join(dirname(user), "rules"), join(dirname(system), "rules")];
   for (let dir = project; ; dir = dirname(dir)) {
@@ -294,15 +294,15 @@ export function sandboxState(provider, { env = process.env, cwd = process.cwd(),
   const read = { claude, codex }[provider];
   if (!read || !places) throw new TypeError(`sandboxState needs a provider (claude or codex) and the places of its settings files, not ${provider}`);
   try {
-    return { provider, ...read({ env, cwd, places }) };
+    return { provider, named: places.named ?? [], ...read({ env, cwd, places }) };
   } catch (error) {
     if (!(error instanceof Strict)) throw error;
-    return { provider, state: "strict", reason: error.message, writes: [], loose: [], missing: [] };
+    return { provider, named: places.named ?? [], state: "strict", reason: error.message, writes: [], loose: [], missing: [] };
   }
 }
 
 export function sandboxLine(found, { env = process.env, cwd = process.cwd() } = {}) {
-  const show = shower(env, resolve(cwd));
+  const show = shower(env, resolve(cwd), found.named);
   const parts = [`${NAMES[found.provider]}: ${LABELS[found.state]}${found.reason ? `: ${found.reason}` : ""}`];
   if (found.state === "on" || found.state === "may-run-unsandboxed") {
     parts.push(`writes: ${found.writes.length ? found.writes.map(show).join(", ") : "nothing"}`);
