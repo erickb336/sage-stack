@@ -153,8 +153,8 @@ or `--target-directory` option, or a wrapper before the program (`xargs rm`,
 home folder. A target that holds the project, such as a parent folder of
 `cwd`, counts too. Each target counts both as written (its folder's real path
 and its own name, so `rm` of a link in the project counts) and through a link,
-also a link to a file that does not exist yet. A `..` counts as the system
-follows it, after a link too (T1240).
+also a link to a file that does not exist yet. A `..` counts both as written
+and as the system follows it, after a link too (T1240).
 
 `scratchTarget(path, cwd, scratch, guard)` gives this answer for one path. Core's
 `chiefFileProblem` asks it for each path of the chief's file tool or patch, with

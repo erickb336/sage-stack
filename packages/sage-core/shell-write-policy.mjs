@@ -247,7 +247,8 @@ function intoScratch({ target, dir, uncertainDirectory }, cwd, scratch, place = 
   const { home, guard = [], protect } = place;
   const word = home && /^~(?:\/|$)/.test(target) ? home + target.slice(1) : target;
   if ((!protect && !scratch.length) || uncertainDirectory || /[$`*?[\]{}~!]/.test(word)) return false;
-  const absolute = isAbsolute(word) ? word : `${resolve(dir ?? cwd)}/${word}`, paths = [...new Set([join(realPath(dirname(absolute)), basename(absolute)), realPath(absolute)])];
+  const written = isAbsolute(word) ? word : `${resolve(dir ?? cwd)}/${word}`;
+  const paths = [...new Set([resolve(written), written].flatMap((absolute) => [join(realPath(dirname(absolute)), basename(absolute)), realPath(absolute)]))];
   if (protect) {
     const open = scratch.map((folder) => realPath(resolve(folder)));
     const places = [...checkouts(cwd, scratch).map((path) => ({ path, name: "the project's checkout" })), ...protect.map((p) => ({ ...p, path: realPath(resolve(p.path)), prefix: p.prefix && join(realPath(dirname(resolve(p.path))), basename(p.path)) }))];
