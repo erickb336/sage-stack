@@ -145,6 +145,60 @@ The desktop app puts its worktree threads under `~/.codex/worktrees`. sage's `.c
   If you removed the plugin first, the sage entries do nothing, because the launcher finds no sage: run step 1 at any time. The Codex logbook in `~/.codex/sage` stays; delete that folder yourself to remove it.
 - Codex keeps the trust records of the sage hooks in your Codex config (`~/.codex/config.toml`): the `[hooks.state."<your Codex home>/hooks.json:..."]` tables, and the `[hooks.state."sage@sage:..."]` tables of the plugin hooks before T957. They do nothing without the entries. To remove them too, delete those tables from the file.
 
+## Turn on the sandbox
+
+Codex's sandbox is a boundary of the operating system around each command that Codex runs. Agents get the sandbox of the session: an agent's own file cannot change it ([Codex: Subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents.md)). Under full access (`sandbox_mode = "danger-full-access"`), there is no sandbox.
+
+The steps below give Codex a sage permission profile. It starts from Codex's `:workspace` profile, and it also lets commands write the project's `.git` folder and the sage worktrees folder, with the network on ([Codex: Permissions](https://learn.chatgpt.com/docs/permissions.md)). On macOS, Codex starts each sandboxed command through `/usr/bin/sandbox-exec` with the profile, and when it cannot make the profile, the command does not run ([Codex source: seatbelt.rs](https://github.com/openai/codex/blob/06f334aa4b053023c5b4199dde0ba9c004d64820/codex-rs/sandboxing/src/seatbelt.rs#L43-L62)).
+
+sage reads your config and tells you the state of the sandbox. The hooks keep all their rules in this version, also with the sandbox on. For Claude Code, see [Turn on the sandbox](using-sage.md#turn-on-the-sandbox).
+
+1. Open `~/.codex/config.toml` (or `config.toml` in the folder that `CODEX_HOME` names).
+2. Remove the `sandbox_mode` line, and the `[sandbox_workspace_write]` table if the file has one. While a config file sets `sandbox_mode`, Codex uses it and ignores `default_permissions`.
+3. Copy this block in two parts. Put its first line, `default_permissions = "sage"`, at the top of the file, above the first line that starts with `[`: in TOML, a key belongs to the table above it. Put the 4 tables at the end of the file.
+
+   ```toml
+   default_permissions = "sage"
+
+   [permissions.sage]
+   description = "sage: the workspace, its .git folder and ~/sage-worktrees are writable; the network is on"
+   extends = ":workspace"
+
+   [permissions.sage.filesystem]
+   "~/sage-worktrees" = "write"
+
+   [permissions.sage.filesystem.":workspace_roots"]
+   ".git" = "write"
+
+   [permissions.sage.network]
+   enabled = true
+   ```
+
+4. Start a new session. In the desktop app, keep the permission mode under the composer at the default: the mode that you choose there is the mode of the chat and of its agents.
+5. Check it: run `node <the sage plugin's folder>/skills/sage/sage.mjs sandbox` in Terminal, in the project's folder (the plugin's folder is in `~/.codex/plugins/cache/sage/sage/`). The Codex line must say `on, fails closed` and `missing: none`.
+6. To see the sandbox refuse a write, run `codex sandbox macos --permissions-profile sage --log-denials touch ~/sandbox-probe`: it must fail with `Operation not permitted`. If it does not fail, delete `~/sandbox-probe` and check the steps again.
+
+What each line does:
+
+| Line | What it does |
+| --- | --- |
+| `default_permissions = "sage"` | Makes the `sage` profile the permissions of each new session. |
+| `extends = ":workspace"` | Starts from Codex's `:workspace` profile: commands write in the session's workspace and the temp folders, and the workspace's `.git`, `.agents`, `.codex` and `.aws` folders stay read-only. |
+| `"~/sage-worktrees" = "write"` | Lets commands write in the sage worktrees folder: the task worktrees and the pages. |
+| `".git" = "write"` under `":workspace_roots"` | Lets commands write the workspace's `.git` folder, so that `git commit` and `git worktree add` can work in the sandbox. |
+| `enabled = true` under `network` | Lets commands reach the network directly. Without `features.network_proxy`, Codex checks no host list. |
+
+The `sage sandbox` line has the same states as in [Claude Code](using-sage.md#turn-on-the-sandbox). In Codex:
+
+- `off`: `sandbox_mode = "danger-full-access"`, or `default_permissions = ":danger-full-access"`.
+- `on, but may run unsandboxed`: `approvals_reviewer = "auto_review"`, so an automatic reviewer, not you, can approve a command outside the sandbox. A command that you approve outside the sandbox runs there too: refuse a prompt that you do not expect.
+- `strict rules`: a config file cannot be read or is not valid TOML, the profile is missing, its `extends` is wrong, a value has a wrong type, or a project's `.codex/config.toml` sets a sandbox key (sage reads these keys only in your own config and in `/etc/codex/config.toml`).
+- With no `sandbox_mode` and no `default_permissions`, Codex chooses its default sandbox, so the line says `on`, and names the profile as missing.
+
+- **What sage cannot see:** a `--sandbox`, `--profile`, `-c` or `--yolo` option, a change with `/permissions`, the permission mode under the composer, and a managed config. Codex's hook input has no field for the sandbox, so sage reads the files only.
+- **In a worktree:** a worktree's `.git` file points into the main checkout's `.git` folder, which workspace-write keeps read-only; sage did not check this with the profile. So `git commit` in a worktree may still need your approval, and the pilot counts these cases.
+- **To undo it:** remove the `default_permissions` line and the 4 `[permissions.sage...]` tables, and put back the line that you removed in step 2 (for example `sandbox_mode = "danger-full-access"`). Then start a new session.
+
 ## Check that the sage gate runs
 
 Do this check after you install sage's hooks, after an update that asks you to run `hooks install`, and when a sage rule seems not to run. Codex runs a hook only when you trust it.
@@ -530,7 +584,7 @@ Limits:
   - a copy of codex or a link to it by another name (`cp <codex> c && ./c exec hi`), or a program from a variable or a substitution;
   - a script file that names codex inside it, or text that hides the word codex (for example in base64).
 - An agent can still run the state tool's write commands from `node -e` code, from standard input (`node -`, or the tool piped into `node`), after a `node` option with a value (`node --stack-size 4000 <tool>`), as a module to load first (`--import`, `-r`), or from a copied script; any `node` script that loads sage's core can write the logbook too. The hook blocks the tool only as `node`'s first plain word, or when it runs as a program.
-- For these forms, Codex's sandbox is the stop. In workspace-write, network access is off for the session, so a new Codex session cannot reach its model, and the Codex home and the logbook are read-only. Keep network access off, and keep the workspace-write mode.
+- For these forms, Codex's sandbox is the stop: in workspace-write and in the [sage profile](#turn-on-the-sandbox), the Codex home and the logbook are read-only. The sage profile has the network on, by your choice (standing order 89), so a new Codex session that such a form starts can reach its model. In workspace-write with the network off, it cannot.
 - The send rules read the multi-agent v2 tools in any namespace, by the end of their name (`send_message`, `followup_task`). So another tool whose name ends so, other than an MCP tool, gets the same rules: no message to the main thread, and none from a role agent. sage's own dispatch uses `collaboration`, so with another namespace in your Codex config it does not work.
 - In `codex exec --ephemeral`, Codex's review thread has no record, and its hook events carry no field that tells it from the main thread, so the hook reads it as the chief.
 - The merge command pins the reviewed head commit (`--match-head-commit`), and the merge check reads the verdicts of that commit. When you merge in GitHub, check that the PR head still matches the reviewed head: a new head needs fresh CI and cycles.
@@ -545,7 +599,7 @@ Limits:
   - `gh pr checkout` runs. It changes the work tree as `git checkout` does, and git's commands run for the chief, because it makes worktrees and branches with them.
 - In sage mode, a push goes only to a remote whose URL names `github.com` (or `ssh.github.com`), in the https, ssh or `user@host:owner/name` form, because the hook asks GitHub for the default branch. A remote that uses an ssh host alias from `~/.ssh/config` (such as `github-work:owner/name`) is refused: give the remote its github.com URL. A push also needs `gh` logged in.
 - Codex 0.164.0 runs no hook for text that an agent types into a shell that still runs (`write_stdin`, for example after `zsh -i`). That text passes every sage rule, also a push or a merge. Autopilot off does not stop such a merge.
-- In workspace-write, the sandbox keeps this text off the network and keeps the logbook and the sessions folder closed. Keep network access off for the session (`[sandbox_workspace_write] network_access = false`, the default). When Codex asks to run an interactive shell (for example `zsh -i`) outside the sandbox, refuse.
+- In workspace-write and in the sage profile, the sandbox keeps the logbook and the sessions folder closed to this text. With the network off (`[sandbox_workspace_write] network_access = false`, the default of workspace-write), it also keeps the text off the network; the sage profile has the network on. When Codex asks to run an interactive shell (for example `zsh -i`) outside the sandbox, refuse.
 - Codex runs a sage hook only when your trust record matches its entry. When the record does not match, for example after you edit an entry or `hooks install` changes one, Codex runs the tool call with no hook and no warning; the proof check then refuses every sage logbook tool, so sage does no work until you trust the hooks again. When a hook fails or times out, Codex runs the tool call too, and it shows a Failed line for the hook.
 - When sage's hooks do not load, or give no answer in four fifths of their timeout, the launcher refuses a shell merge or push itself, and lets every other call run. When a hook blocks the launcher's process (a call that waits with no timeout of its own), the launcher cannot answer either, and Codex runs the call.
 - An update of sage runs with no new review: Codex trusts the entries, and the launcher runs the code of the version that Codex uses. This is the same as in Claude Code, by the owner's choice (T957).

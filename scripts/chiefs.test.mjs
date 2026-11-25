@@ -83,7 +83,7 @@ test("F-T604-23: the printed repair line on a legacy project adds no chiefs.tsv 
 test("T995 F4: every command of the state tool is a read or has a writer class, also the old word program, and the release level (T1003); release <T> is no command (F-T1172-16)", () => {
   let listed;
   try { claude.sage(["no-such-command"]); } catch (error) { listed = /Commands: (.*)$/.exec(error.message)[1].split(", "); }
-  const READS = ["status", "stats", "merge-check", "board", "link", "worktrees", "message"];
+  const READS = ["status", "stats", "merge-check", "board", "link", "worktrees", "message", "sandbox"];
   const WRITES = {
     init: [[]], logbook: [["repair"]], standing: [["add"]], pages: [["T1", "record"]], task: [["add"], ["T1", "set"]], "task-adopt": [["T1"]],
     milestone: [["propose"], ["M1", "set"]], release: [["add"]], round: [["T1"]], run: [["add", "T1"], ["done", "R1"], ["usage", "R1"]], finding: [["add", "T1"], ["triage", "T1"], ["close", "T1"], ["move", "T1"]],

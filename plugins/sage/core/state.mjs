@@ -24,6 +24,7 @@ import { MOVES, PLAN_MAX, checkoutGone, createSharedRoot, githubRemote, sharedRo
 import { changedText, countsOf, endText, gateQuestion, gateText, localTime, mapHtml, mismatchText, previewText, providersOf, reconciliationText, startText, stepText, stoppedText, title } from "./move-text.mjs";
 import { pagesFolder, worktreeRoot, worktrees } from "./worktrees.mjs";
 import { priorArtCommand } from "./prior-art-index.mjs";
+import { sandboxStatus } from "./sandbox-state.mjs";
 import { storageClean, storagePlan, storageView } from "./storage.mjs";
 import { CHIEF, TAKEOVER_OPTIONS, chiefOnly, createChiefs, crossed, offerOf, replaceOf, replaceQuestion, writerClass } from "./chiefs.mjs";
 import { NAMES_FILE, boardChiefs, chiefNames, readLiveRecord } from "./chief-live.mjs";
@@ -115,7 +116,7 @@ const TABLES = { ...PLAIN_TABLES, ...Object.fromEntries(Object.entries(SPARSE).m
 const ADDED = { ...FILLED, ...Object.fromEntries(Object.entries(SPARSE).map(([t, cols]) => [t, [...(FILLED[t] ?? []), ...cols]])) };
 const RUN_ENDS = ["done", "blocked", "question", "failed"];
 const GONE = ["claim", "offer", "cancel", "accept"];
-const COMMANDS = ["init", "logbook", "standing", "pages", "message", "task", "task-adopt", "milestone", "release", "round", "run", "finding", "verdict", "lint", "gate", "log", "status", "stats", "merge-check", "config", "projects", "board", "observe", "link", "unclaim", "pickup", "move", "worktrees", "storage", "chief", "prior-art"];
+const COMMANDS = ["init", "logbook", "standing", "pages", "message", "task", "task-adopt", "milestone", "release", "round", "run", "finding", "verdict", "lint", "gate", "log", "status", "stats", "merge-check", "config", "projects", "board", "observe", "link", "unclaim", "pickup", "move", "worktrees", "storage", "chief", "prior-art", "sandbox"];
 const OPTIONS = {
   "logbook repair": ["accept-loss", "accept-change-loss"],
   link: ["to", "separate"],
@@ -2573,6 +2574,7 @@ function sageCommand(argv, env) {
   if (cmd === "prior-art") return priorArtCommand(pos, opt, env, refuse);
   const readOnly = scopedRead(cmd, pos, opt);
   const root = sageRoot(env), project = resolve(opt.project ?? env.SAGE_PROJECT ?? folderHere());
+  if (cmd === "sandbox") return pos.length ? refuse("sandbox takes no words. It prints one line for Claude Code and one for Codex: the sandbox state, the folders that a command may write, the network and what is missing. It reads the settings files and changes nothing.") : sandboxStatus({ env, cwd: project });
   if ((opt.chief !== undefined || opt.lead !== undefined || chiefOnly(cmd, pos)) && !locate(project, env).shared) refuse(chiefOnly(cmd, pos) ? `${visible(project)} has no shared logbook, so it has no chiefs to hand a task to. Nothing changed.` : `${visible(project)} has no shared logbook, and only a shared logbook has chiefs: leave out --chief and --lead. Nothing changed.`);
   if (cmd === "board") {
     const hex = opt["name-hex"];
