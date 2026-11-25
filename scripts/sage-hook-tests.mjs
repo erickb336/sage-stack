@@ -156,7 +156,7 @@ test("sage mode makes the session the chief of staff, and only subagents may cha
 
 test("a session that starts as the chief-of-staff agent is in sage mode without the phrase", () => {
   const s = session();
-  assert.match(denied(s.send(edit({ agent_type: "sage:chief-of-staff" }))), /you do not change files yourself/);
+  assert.match(denied(s.send(edit({ agent_type: "sage:chief-of-staff" }))), /the chief does not change files outside its scratch places/);
 });
 
 test("T398: in a session that starts as the chief, the off phrase holds until the on phrase", () => {
@@ -164,7 +164,7 @@ test("T398: in a session that starts as the chief, the off phrase holds until th
   const chief = { agent_type: "sage:chief-of-staff" };
   const fileTools = fileToolsOf(chief);
   assert.match(context(s.send({ ...prompt("what is open?"), ...chief })), /# Chief of staff/, "sage mode is on at the first event");
-  for (const call of fileTools) assert.match(denied(s.send(call)) ?? "", /you do not change files yourself/, `${call.tool_name} is refused while on`);
+  for (const call of fileTools) assert.match(denied(s.send(call)) ?? "", /the chief does not change files outside its scratch places/, `${call.tool_name} is refused while on`);
   assert.match(context(s.send({ ...prompt("sage mode off"), ...chief })), /sage mode is off/);
   for (const call of fileTools) assert.equal(s.send(call), undefined, `the chief may use ${call.tool_name} after the off phrase`);
   assert.equal(s.send({ ...prompt("fix the typo"), ...chief }), undefined, "no chief text at the next prompt");
@@ -172,7 +172,7 @@ test("T398: in a session that starts as the chief, the off phrase holds until th
   assert.equal(s.send({ ...prompt("and the next one"), ...chief }), undefined, "nor after a compaction");
   assert.equal(s.send(edit(chief)), undefined, "sage mode stays off");
   assert.match(context(s.send({ ...prompt("sage mode"), ...chief })), /# Chief of staff/, "the on phrase turns it on again");
-  for (const call of fileTools) assert.match(denied(s.send(call)) ?? "", /you do not change files yourself/, `${call.tool_name} is refused again`);
+  for (const call of fileTools) assert.match(denied(s.send(call)) ?? "", /the chief does not change files outside its scratch places/, `${call.tool_name} is refused again`);
 });
 
 test("T948: a project whose logbook has start=sage-mode starts each new session in sage mode, and the off phrase holds", () => {
@@ -197,7 +197,7 @@ test("T948: a project whose logbook has start=sage-mode starts each new session 
 test("T398 F-R1517-1: when the hook cannot read or save its state, it refuses the chief's file tools (fail closed)", () => {
   const chief = { agent_type: "sage:chief-of-staff" };
   const refusedAll = (s, why, ms) => {
-    for (const call of fileToolsOf(chief)) assert.match(denied(s.sendRaw(call, ms)) ?? "", /could not check|you do not change files yourself/, `${why}: ${call.tool_name}`);
+    for (const call of fileToolsOf(chief)) assert.match(denied(s.sendRaw(call, ms)) ?? "", /could not check|the chief does not change files outside its scratch places/, `${why}: ${call.tool_name}`);
   };
   const file = join(mkdtempSync(join(tmpdir(), "sage-file-")), "not-a-folder");
   writeFileSync(file, "");
@@ -239,7 +239,7 @@ test("T398 F-R1516-2: an off value that the owner's off phrase did not set does 
     const s = session();
     mkdirSync(join(s.dir, "state"));
     writeFileSync(join(s.dir, "state", "s1.json"), JSON.stringify({ sage: value, given: true }));
-    for (const call of fileToolsOf(chief)) assert.match(denied(s.send(call)) ?? "", /you do not change files yourself/, `sage ${JSON.stringify(value)}: ${call.tool_name}`);
+    for (const call of fileToolsOf(chief)) assert.match(denied(s.send(call)) ?? "", /the chief does not change files outside its scratch places/, `sage ${JSON.stringify(value)}: ${call.tool_name}`);
   }
 });
 
@@ -309,7 +309,7 @@ test("T347: in sage mode the chief writes only Markdown files of its own memory 
   assert.equal(write("Edit", join(memory, "MEMORY.md")), undefined, "the index");
   assert.equal(write("MultiEdit", join(memory, "MEMORY.md")), undefined);
   assert.equal(write("Write", join(config, "projects", "new", "memory", "a.md")), undefined, "a memory folder that does not exist yet");
-  const refused = /you do not change files yourself/;
+  const refused = /the chief does not change files outside its scratch places/;
   assert.match(write("Write", join(root, "app", "README.md")), refused, "the project");
   assert.match(write("Write", join(root, "other", "projects", "-x-workspace-app", "memory", "a.md")), refused, "another config folder");
   assert.match(write("Write", join(memory, "a.txt")), refused, "not Markdown");
@@ -2320,7 +2320,7 @@ test("T1240: in sage mode the chief's Write and Edit write where its shell write
   }
   assert.deepEqual(wrong, [], "each row: Write, Edit and the shell give the row's answer");
   const s = sessions.get(JSON.stringify(table.rows[0].env));
-  assert.match(denied(s.send(tool("Write", { file_path: join(table.project, "README.md"), content: "x" }, { cwd: table.project }))) ?? "", /^sage: sage mode is on, so you do not change files yourself outside your scratch places: the temp folder and the sage worktrees folder/, "the refusal names the scratch places");
+  assert.match(denied(s.send(tool("Write", { file_path: join(table.project, "README.md"), content: "x" }, { cwd: table.project }))) ?? "", /^sage: sage mode is on, so the chief does not change files outside its scratch places: the temp folder and the sage worktrees folder/, "the refusal names the scratch places");
   assert.match(denied(s.send(tool("NotebookEdit", { notebook_path: join(table.project, "a.ipynb"), file_path: join(tmpdir(), "a.ipynb"), new_source: "x" }, { cwd: table.project }))) ?? "", /^sage: /, "NotebookEdit: each path field counts");
   assert.match(denied(s.send(tool("Write", { file_path: join(tmpdir(), "a.md"), content: "x" }, { cwd: table.project, agent_id: "c1", agent_type: "sage:chief-of-staff" }))) ?? "", /you are a chief agent, so you do not change files yourself/, "a chief subagent stays refused");
 });
