@@ -15,6 +15,7 @@ import { backed } from "./verdict-backing.mjs";
 import { REPORT_FIELDS } from "../packages/sage-core/report.mjs";
 import { readReport } from "../packages/sage-core/report-reader.mjs";
 import { QUESTION } from "./fixtures/question-message.mjs";
+import { chiefPlaces } from "./fixtures/chief-places.mjs";
 
 const CALL_MS = 60_000;
 const bounded = (options = {}) => ({ timeout: CALL_MS, killSignal: "SIGKILL", ...options });
@@ -144,7 +145,7 @@ test("sage mode makes the session the chief of staff, and only subagents may cha
   assert.match(on, /The state tool: node \S+\/skills\/sage\/sage\.mjs <command> --project <path>\. Each shell call starts fresh, so write this full command every time/);
   assert.match(on, /Load these skills now: sage:sage, sage:principle-never-block-on-the-human/);
   assert.doesNotMatch(on, /^(?:name: chief-of-staff|skills:)$/m, "the agent's frontmatter is left out");
-  assert.match(denied(s.send(edit())), /Give this change to a sage:implementer/);
+  assert.match(denied(s.send(edit())), /Brief an implementer to make this change/);
   assert.equal(s.send(edit({ agent_id: "a1", agent_type: "sage:implementer" })), undefined, "an implementer may edit");
   assert.equal(s.send(prompt("also add CSV export")), undefined, "the instructions come once");
   s.send({ hook_event_name: "PostCompact" });
@@ -182,7 +183,7 @@ test("T948: a project whose logbook has start=sage-mode starts each new session 
   assert.equal(s.send(edit(at("s0"))), undefined);
   s.sage("config", "start=sage-mode");
   assert.match(context(s.send({ ...prompt("what is open?"), ...at("s1") })), /# Chief of staff/, "a new session is on at its first prompt");
-  assert.match(denied(s.send(edit(at("s1")))), /Give this change to a sage:implementer/);
+  assert.match(denied(s.send(edit(at("s1")))), /Brief an implementer to make this change/);
   assert.match(context(s.send({ ...prompt("sage mode off"), ...at("s1") })), /sage mode is off/);
   assert.equal(s.send(edit(at("s1"))), undefined, "the off phrase holds for the rest of the session");
   assert.equal(s.send({ ...prompt("fix the typo"), ...at("s1") }), undefined, "no chief text after the off phrase");
@@ -2305,6 +2306,25 @@ test("F-T807-1: in sage mode the chief's rm -rf of a live worktree in the sage w
   assert.match(denied(s.send(bash(`git worktree remove --force ${live}`))) ?? "", /^sage: sage mode is on, so the chief does not throw away uncommitted work: /, "--force");
 });
 
+test("T1240: in sage mode the chief's Write and Edit write where its shell writes: the temp folder and the sage worktrees folder, and nowhere else", () => {
+  const sessions = new Map(), table = chiefPlaces(), wrong = [];
+  for (const row of table.rows) {
+    const key = JSON.stringify(row.env);
+    if (!sessions.has(key)) { const s = session(row.env); s.send(prompt("sage mode")); sessions.set(key, s); }
+    const s = sessions.get(key), { path } = row, at = { cwd: table.project };
+    const answers = { Write: denied(s.send(tool("Write", { file_path: path, content: "x" }, at))), Edit: denied(s.send(tool("Edit", { file_path: path, old_string: "a", new_string: "b" }, at))), shell: denied(s.send(bash(`printf x > ${path}`, table.project))) };
+    for (const [how, why] of Object.entries(answers)) {
+      const right = row.scratch ? why === undefined : (row.worktree ? /does not change a git work tree in the sage worktrees folder/ : /^sage: /).test(why ?? "");
+      if (!right) wrong.push(`${row.name} (${how}): ${why === undefined ? "passes" : why.slice(0, 70)}`);
+    }
+  }
+  assert.deepEqual(wrong, [], "each row: Write, Edit and the shell give the row's answer");
+  const s = sessions.get(JSON.stringify(table.rows[0].env));
+  assert.match(denied(s.send(tool("Write", { file_path: join(table.project, "README.md"), content: "x" }, { cwd: table.project }))) ?? "", /^sage: sage mode is on, so you do not change files yourself outside your scratch places: the temp folder and the sage worktrees folder/, "the refusal names the scratch places");
+  assert.match(denied(s.send(tool("NotebookEdit", { notebook_path: join(table.project, "a.ipynb"), file_path: join(tmpdir(), "a.ipynb"), new_source: "x" }, { cwd: table.project }))) ?? "", /^sage: /, "NotebookEdit: each path field counts");
+  assert.match(denied(s.send(tool("Write", { file_path: join(tmpdir(), "a.md"), content: "x" }, { cwd: table.project, agent_id: "c1", agent_type: "sage:chief-of-staff" }))) ?? "", /you are a chief agent, so you do not change files yourself/, "a chief subagent stays refused");
+});
+
 test("T968: in sage mode the chief's git that throws away uncommitted work is refused in the project and runs in a scratch worktree; a reviewer's git runs in its own", () => {
   const s = session(), off = session();
   s.send(prompt("sage mode"));
@@ -3388,7 +3408,7 @@ test("T94: when the state tool does not load, the hook still keeps its state und
   };
   assert.match(context(send(prompt("sage mode"))), /sage mode is on/);
   assert.equal(JSON.parse(readFileSync(join(dir, "root", ".hooks", "s1.json"), "utf8")).sage, true, "the state file is in <SAGE_HOME>/.hooks");
-  assert.match(denied(send(edit())) ?? "", /Give this change to a sage:implementer/, "the next event reads the state back");
+  assert.match(denied(send(edit())) ?? "", /Brief an implementer to make this change/, "the next event reads the state back");
   assert.match(denied(send(bash("git push origin main"))) ?? "", TO_MAIN);
   assert.match(denied(send(bash(MERGE))) ?? "", /autopilot is off/);
   assert.equal(send(bash("git status")), undefined, "a plain command goes through");
@@ -3423,7 +3443,7 @@ test("T94: an old hook state file in the temp folder is ignored, not trusted", (
   assert.equal(s.send(edit()), undefined, "sage mode is not on: the old file does not turn it on");
   s.send(prompt("sage mode"));
   assert.match(denied(s.send(bash(MERGE))) ?? "", /autopilot is off/, "autopilot is not on: the old file does not turn it on");
-  assert.match(denied(s.send(edit())) ?? "", /Give this change to a sage:implementer/, "the hook's own state still works");
+  assert.match(denied(s.send(edit())) ?? "", /Brief an implementer to make this change/, "the hook's own state still works");
 });
 
 test("N1-KEYWORD: a state-tool write behind a shell keyword or a wrapper with an option value is refused; a read in a loop passes (T83)", () => {

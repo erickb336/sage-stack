@@ -10,7 +10,7 @@ export { shellCommands, programsRun, commandText } from "./command-reader.mjs";
 export { createCommandPolicy, mentionsMerge, gitSubcommand, programName, unreadable } from "./command-policy.mjs";
 export { createPushPolicy, gitHubRepository } from "./push-policy.mjs";
 export { logbookWrite, stateToolRun, ghRuns, AGENT_GH, agentGh } from "./command-runs.mjs";
-export { agentCommandProblem, boardCommandProblem, boardPathProblem, CHIEF_GIT, CHIEF_SHELL, CHIEF_WORKTREE, chiefShellProblem, READ_ONLY_PAGE_NOTE, READ_ONLY_SHELL_WAY, readOnlyPlace, readOnlyShell, TEMP } from "./agent-rules.mjs";
+export { agentCommandProblem, boardCommandProblem, boardPathProblem, CHIEF_FILE, CHIEF_GIT, CHIEF_SHELL, CHIEF_WORKTREE, chiefFileProblem, chiefShellProblem, READ_ONLY_PAGE_NOTE, READ_ONLY_SHELL_WAY, readOnlyPlace, readOnlyShell, TEMP } from "./agent-rules.mjs";
 export { PR, keptUsersText, pullRequestHead } from "./pull-request.mjs";
 export { branchProtection, protectionNote } from "./branch-protection.mjs";
 export { fileWriteOutsideRoots, partNames } from "./protected-paths.mjs";

@@ -152,7 +152,14 @@ or `--target-directory` option, or a wrapper before the program (`xargs rm`,
 `env rm`) counts as a write. `home` reads a leading `~` in a target as the
 home folder. A target that holds the project, such as a parent folder of
 `cwd`, counts too. Each target counts both as written (its folder's real path
-and its own name, so `rm` of a link in the project counts) and through a link.
+and its own name, so `rm` of a link in the project counts) and through a link,
+also a link to a file that does not exist yet. A `..` counts as the system
+follows it, after a link too (T1240).
+
+`scratchTarget(path, cwd, scratch, guard)` gives this answer for one path. Core's
+`chiefFileProblem` asks it for each path of the chief's file tool or patch, with
+the same `chiefPlaces` and `guard` as `chiefShellProblem`, so the file tools
+and the shell cannot drift (T1240).
 
 `guard` (the chief's rule, F-T807-1) lists folders, the sage worktrees folder,
 where a git work tree holds repository files: a target in or over one is no

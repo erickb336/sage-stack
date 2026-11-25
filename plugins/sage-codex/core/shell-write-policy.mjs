@@ -2,7 +2,7 @@ import { flowOf, shellCommands, programsRun } from "./command-reader.mjs";
 import { curlTargets, ghTargets, outputDispatchWrites } from "./output-writes.mjs";
 import { GIT_VALUE, gitSubcommand, programName } from "./command-policy.mjs";
 import { pythonRead } from "./python-read.mjs";
-import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 
 const CODE = /^-(?:[a-z]*[ce]|p|-eval|-print|command)$/;
@@ -234,8 +234,12 @@ function gitTargets(args, destroys = false) {
   }
   return [];
 }
-function realPath(path) {
-  try { return realpathSync.native(path); } catch { return dirname(path) === path ? path : join(realPath(dirname(path)), basename(path)); }
+function realPath(path, links = 40) {
+  try { return realpathSync.native(path); } catch {}
+  let target;
+  try { if (links && lstatSync(path).isSymbolicLink()) target = readlinkSync(path); } catch {}
+  if (target !== undefined) return realPath(isAbsolute(target) ? target : `${realPath(dirname(path), links - 1)}/${target}`, links - 1);
+  return dirname(path) === path ? path : join(realPath(dirname(path), links), basename(path));
 }
 const under = (path, folder) => path.startsWith(folder.endsWith(sep) ? folder : folder + sep);
 const meets = (path, folder) => path === folder || under(path, folder) || under(folder, path);
@@ -243,7 +247,7 @@ function intoScratch({ target, dir, uncertainDirectory }, cwd, scratch, place = 
   const { home, guard = [], protect } = place;
   const word = home && /^~(?:\/|$)/.test(target) ? home + target.slice(1) : target;
   if ((!protect && !scratch.length) || uncertainDirectory || /[$`*?[\]{}~!]/.test(word)) return false;
-  const absolute = resolve(dir ?? cwd, word), paths = [...new Set([join(realPath(dirname(absolute)), basename(absolute)), realPath(absolute)])];
+  const absolute = isAbsolute(word) ? word : `${resolve(dir ?? cwd)}/${word}`, paths = [...new Set([join(realPath(dirname(absolute)), basename(absolute)), realPath(absolute)])];
   if (protect) {
     const open = scratch.map((folder) => realPath(resolve(folder)));
     const places = [...checkouts(cwd, scratch).map((path) => ({ path, name: "the project's checkout" })), ...protect.map((p) => ({ ...p, path: realPath(resolve(p.path)), prefix: p.prefix && join(realPath(dirname(resolve(p.path))), basename(p.path)) }))];
@@ -420,6 +424,7 @@ export function literalNames(text, known = {}) {
   return out;
 }
 const at = ({ run, uncertainDirectory }, target) => ({ target, dir: run.dir, uncertainDirectory });
+export const scratchTarget = (path, cwd, scratch, guard = []) => intoScratch({ target: path }, cwd, scratch, { guard });
 const outsideScratch = (targets, entry, cwd, scratch, place) => targets === true || targets.some((target) => !intoScratch(at(entry, target), cwd, scratch, place));
 export function gitDestroysWork(text, cwd, scratch = [], guard = []) {
   try {
