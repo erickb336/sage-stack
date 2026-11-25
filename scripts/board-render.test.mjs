@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildBoardModel } from "../packages/sage-core/board-model.mjs";
+import { boardOverview } from "../packages/sage-core/board-overview.mjs";
 import { renderBoardText, renderTaskText, renderBoardStatus } from "../packages/sage-core/board-render.mjs";
 import { NOW as MILESTONES_NOW, milestonesSource, milestonesTables } from "./fixtures/board-milestones.mjs";
 import { NOW as DIGEST_NOW, LONG_TITLE, digestSources, landing } from "./fixtures/board-digest.mjs";
@@ -405,4 +406,21 @@ test("T1217: a Quiet line counts the projects with nothing that moves or needs y
   const empty = digest(sources);
   assert.ok(empty.includes("### Needs you\nNothing waits for you.\n\n### Moving now\nNo task moves now."), "no red mark when nothing waits");
   assert.ok(empty.includes("\n\nQuiet: 3 projects have nothing that moves or needs you.\n\n"), empty);
+});
+
+test("T1223: the chat digest and the board give each task the same row state, from the one function in core", () => {
+  const sources = digestSources(), stack = sources[0].projects[0];
+  stack.tables.tasks.push(
+    { ...stack.tables.tasks[0], id: "T1211", title: "Briefed and waiting for its build agent", state: "briefed", milestone: "" },
+    { ...stack.tables.tasks[0], id: "T1212", title: "Abandoned with its question still open", state: "abandoned", milestone: "" });
+  stack.tables.gates.push({ id: "G237", task: "T1212", question: "Keep the abandoned branch?", options: "yes|no", recommendation: "no", default: "", answer: "", at: "2026-11-23T15:00:00Z" });
+  const model = buildBoardModel(sources, { now: DIGEST_NOW, landing });
+  const board = Object.fromEntries(boardOverview(model).tasks.map(row => [row.id, row.row]));
+  const text = digest(sources), parts = ["Needs you", "Moving now", "Done since yesterday"];
+  const placed = Object.fromEntries(model.tasks.map(task => [task.id, parts.filter(label => partOf(text, label).includes(`- ${task.title.slice(0, 30)}`))]));
+  const rows = { T1204: "work", T1206: "work", T1205: "needs", T1210: "needs", T88: "needs", T89: "work", T1211: "waits", T1150: "waits", T1151: "waits", T3: "waits", T1199: "done", T1190: "done", T1180: "done", T1212: "done" };
+  const PLACE = { needs: ["Needs you"], work: ["Moving now"], waits: ["Moving now"], done: ["Done since yesterday"] };
+  const backlog = ["T1150", "T1151", "T3"], older = ["T1180", "T1212"];
+  assert.deepEqual({ board, digest: placed }, { board: rows, digest: Object.fromEntries(Object.entries(rows).map(([id, row]) => [id, backlog.includes(id) || older.includes(id) ? [] : PLACE[row]])) },
+    "a row that waits shows under Moving now past the backlog; done shows for today and yesterday; abandoned is done, also with its question open");
 });

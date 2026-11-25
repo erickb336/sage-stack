@@ -7,6 +7,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readActions, readBoardSources } from "../packages/sage-core/board-reader.mjs";
 import { buildBoardModel } from "../packages/sage-core/board-model.mjs";
+import { boardOverview } from "../packages/sage-core/board-overview.mjs";
+import { copyDesign } from "../packages/sage-core/design-copy.mjs";
 import { readerPage, readerUrl } from "../packages/sage-board/reader.mjs";
 import { renderMarkdown } from "../packages/sage-board/markdown.mjs";
 import { ARENA_KEY, ARENA_NOW, writeArenaFixture } from "./fixtures/board-arena.mjs";
@@ -282,4 +284,22 @@ test("T1100 F-T1100-3: readActions never reads through a logbook folder that is 
   finally { fs.lstatSync = original; syncBuiltinESMExports(); }
   assert.ok(swapped);
   assert.throws(() => readActions(logbook, "R1"), { code: "ELOOP" }, "a logbook folder that is a link is refused");
+});
+
+test("T1223: the board reads the approved designs from their manifests only, and a damaged or linked copy is a warning, not a design", t => {
+  const root = mkdtempSync(join(tmpdir(), "sage-board-designs-")), source = join(root, "source"), logbook = join(source, "sample-abcdef");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const env = { SAGE_WORKTREES: join(root, "worktrees") }, pages = join(env.SAGE_WORKTREES, "sample-abcdef", "pages", "T1", "designs", "final");
+  mkdirSync(pages, { recursive: true }); mkdirSync(logbook, { recursive: true });
+  writeFileSync(join(pages, "page.md"), "# Sample design\n");
+  writeFileSync(join(logbook, "tasks.tsv"), "id\ttitle\tsize\trisk\troute\tstate\tbranch\tpr\tround\tkeys\nT1\tSample design task\tsmall\t\tdesign,build\tbriefed\t\t\t0\t\n");
+  const copied = copyDesign({ dir: logbook, task: "T1", gate: "G2", design: "designs/final", answer: "Approve", at: "2026-11-20T10:00:00.000Z" }, env);
+  assert.match(copied, /^copied 1 page to designs\/T1\/G2/);
+  mkdirSync(join(logbook, "designs", "T1", "G3")); writeFileSync(join(logbook, "designs", "T1", "G3", "manifest.json"), "{ not json");
+  symlinkSync(join(logbook, "designs", "T1", "G2"), join(logbook, "designs", "T1", "G4"));
+  mkdirSync(join(logbook, "designs", "notes")); writeFileSync(join(logbook, "designs", "T1", "README.md"), "not a gate folder");
+  const [read] = readBoardSources([{ id: "sample", path: source }]), book = read.projects[0];
+  assert.deepEqual(book.designs, [{ task: "T1", gate: "G2", design: "designs/final", answer: "Approve", at: "2026-11-20T10:00:00.000Z", files: 1 }]);
+  assert.deepEqual(book.warnings, ["designs/T1/G3/manifest.json: invalid JSON", "designs/T1/G4/manifest.json: not a folder"]);
+  assert.deepEqual(boardOverview(buildBoardModel([read], { now: "2026-11-21T10:00:00.000Z" })).designs.map(row => [row.key, row.title, row.files]), [["sample/sample-abcdef/T1/G2", "Sample design task", 1]]);
 });
