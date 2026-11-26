@@ -1068,6 +1068,8 @@ test("T928: one lead policy in core: a lead's write to another task, a command o
   assert.equal(readFileSync(join(claude.storeDir(w.project, w.env), "tasks.tsv"), "utf8"), before, "nothing changed");
   assert.equal(w.bash("task T1 set state=building --lead R1", "s1", lead), undefined);
   assert.equal(callerRefusal(caller, "task_set", { project: w.project, task: "T1", fields: { state: "building" } }, w.env), undefined);
+  assert.equal(callerRefusal(caller, "merge_check", { project: w.project, sha: "0".repeat(40), pr: 41 }, w.env), undefined, "T1239: a Codex lead reads the merge check, which names a docs-only head");
+  assert.equal(w.bash(`merge-check --sha ${"0".repeat(40)} --pr 41`, "s1", lead), undefined, "T1239: a Claude lead reads the merge check too");
   assert.match(codex.sage(["task", "T1", "set", "state=building", "--project", w.project, "--lead", "R1"], w.env), /^T1 building/);
 });
 

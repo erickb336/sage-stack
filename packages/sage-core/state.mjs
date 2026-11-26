@@ -38,6 +38,7 @@ import { boardAnswers, boardDownLine } from "./board-probe.mjs";
 import { DESIGN_OPTIONS, WORDS_MAX, answerOption, taskWord, withWords } from "./state-words.mjs";
 import { AST_GREP_VERSION, LINT_CONFIG, LINT_KINDS, astGrepBinary, lintBase, lintChange } from "./lint.mjs";
 import { adoptBrief, languageList, placeToolFiles, projectLanguages } from "./lint-offer.mjs";
+import { DOCS_RULE, docsNote, docsOnly, docsPathsProblem, globsOf } from "./docs-only.mjs";
 
 export const STUCK_WRITE = 'This command changed nothing. This project cannot save changes; other projects work. Tell the owner. There are two ways out. With a backup: the owner restores the folder that `sage logbook` prints; rows newer than the backup are lost. With no backup: after the owner accepts the loss of this saved change, the chief runs `sage logbook repair --accept-change-loss yes --project <the project>`, or the owner runs it in a terminal when the chief cannot; it keeps the file, and a half-published update keeps mixed tables. Do not remove review-pending.json by hand.';
 
@@ -1889,9 +1890,9 @@ function planTaskChanges(before, id, changes, at, facts) {
         const rows = facts.ledger.filter((r) => r.task === task.id);
         const tip = task.branch && branchTip(facts.project, task.branch, facts.env);
         const head = tip || rows.at(-1)?.sha || refuse(`${task.id} has no verdicts yet`);
-        const checkout = tip ? branchCheckout(storeDir(facts.project, facts.env), facts.project, task.branch, facts.env) : undefined;
+        const dir = storeDir(facts.project, facts.env), checkout = tip ? branchCheckout(dir, facts.project, task.branch, facts.env) : undefined;
         const carry = carryOver(checkout, task, head, rows);
-        const r = judge("", task, facts.findings, decisions, task.id, carry.rows, 1);
+        const r = judge("", task, facts.findings, decisions, task.id, carry.rows, 1, { docs: docsOf(dir, checkout, head) });
         if (!r.ok) refuse(`${task.id} is not verified on ${head.slice(0, 7)}: ${r.reason}`);
       }
       if (["merged", "concluded", "abandoned"].includes(v)) decided.push({ at: at, task: task.id, decision: `state ${v}`, why: (v === "abandoned" && facts.why) || "task set" });
@@ -2006,7 +2007,7 @@ const prHistory = (pr, tasks, decisions, ledger) =>
 
 const notFull = (sha) => (/^[0-9a-f]{40}$/i.test(sha) ? "" : `${JSON.stringify(sha)} is not a full commit SHA: a short one can match another commit. Give all 40 characters: git rev-parse <branch>.`);
 
-function judge(dir, task, findings, decisions, id, rows, cycles, repaired, cfg, pr, from, lint) {
+function judge(dir, task, findings, decisions, id, rows, cycles, { repaired, cfg, pr, from, lint, docs } = {}) {
   if (!task) return { ok: false, reason: `${id} is in ${join(dir, "ledger.tsv")} but not in its tasks.tsv: ${repaired ? `tasks.tsv was started again without rows (see decisions.tsv), so the verdicts of ${id} are on a lost task. Push a new commit, and record its verdicts under a task that the logbook has.` : `a stray or damaged logbook. If no project uses it, ask the user to remove ${dir}.`}` };
   const who = task.state === "abandoned" ? `${task.id} (abandoned)` : task.id;
   if (!rows.length && !builds(task)) return { ok: false, reason: `${who} is an investigation, so it has no pull request, but it has PR ${task.pr}: clear its PR (sage task ${task.id} set pr=).` };
@@ -2021,19 +2022,21 @@ function judge(dir, task, findings, decisions, id, rows, cycles, repaired, cfg, 
     ? `${who}: the merge check cannot read the git checkout of the project (${lint.error}), so it cannot tell if origin/main has a root ${LINT_CONFIG}. Run it with --project set to the project's git checkout.`
     : !lint.main ? `${who}: ${visible(lint.top)} has a root ${LINT_CONFIG} but no origin/main, and lint reads its rules only from the tip of origin/main, so no SHA here can get lint-pass. lint needs a remote named origin with a branch named main.`
     : `${who}: ${linted ? "lint-fail" : "no lint-pass"} on this SHA, and origin/main ${lint.main.slice(0, 7)} has a root ${LINT_CONFIG}. ${linted ? "Fix the lines that lint named in a new commit, then lint that commit" : `Run sage lint ${task.id} --sha <sha> on it`}.` };
-  const perCycle = cleanKinds(task);
+  const perCycle = kindsOf(task, docs);
   const want = perCycle.length ? cycles : 1;
-  const clean = perCycle.length ? cleanCycles(task, rows) : 1;
+  const clean = perCycle.length ? cleanCycles(task, rows, docs) : 1;
   if (clean < want) {
     const missing = perCycle.filter((k) => !rows.some((r) => r.kind === k));
     const high = want > LIMIT["cycles.small"] && cycleKeys(task).find((k) => cfg[k] === want);
     return { ok: false, reason: `${who}: ${clean} of ${want} clean cycles on this SHA${high ? ` (${high} is ${want} in config.json; the config command takes 1 to 10)` : ""}${missing.length ? `; never recorded: ${missing.join(", ")}` : ""}. ${from ? `A review or QA verdict on this SHA replaces the carried cycles of ${from}, so this SHA then needs all ${want} clean cycles of its own: run them on this SHA, or run the missing cycles on ${from}.` : "Run the next cycle of its reviews on this SHA and record each verdict."}` };
   }
-  return { ok: true, reason: `${task.id} may merge: ${clean} clean cycle${clean === 1 ? "" : "s"} on this SHA` };
+  return { ok: true, reason: `${task.id} may merge: ${docs?.only ? docsNote(docs) : `${clean} clean cycle${clean === 1 ? "" : "s"} on this SHA`}` };
 }
 
 const cleanKinds = (task) => list(task.route).map((b) => VERDICT[b]).filter((k) => k && k !== "checks-pass");
-const cleanCycles = (task, rows) => [...new Set(rows.map((r) => r.cycle))].filter((c) => cleanKinds(task).every((k) => rows.some((r) => r.cycle === c && r.kind === k))).length;
+const kindsOf = (task, docs) => (docs?.only ? [] : cleanKinds(task));
+const cleanCycles = (task, rows, docs) => [...new Set(rows.map((r) => r.cycle))].filter((c) => kindsOf(task, docs).every((k) => rows.some((r) => r.cycle === c && r.kind === k))).length;
+const docsOf = (dir, checkout, sha) => (checkout === undefined ? null : docsOnly(checkout, sha, jsonObject(join(dir, "config.json"))?.docs_paths));
 
 function carryOver(checkout, task, head, all) {
   const own = all.filter((r) => String(r.sha).toLowerCase() === String(head).toLowerCase());
@@ -2225,13 +2228,14 @@ function boardLandingCheck(sha, env, logbook, pr, checkout) {
 }
 
 function assessMerge(sha, env, options, logbook = null) {
-  const skipped = [], judged = judgeMerge(sha, env, options, logbook, skipped);
+  const skipped = [], seen = {}, judged = judgeMerge(sha, env, options, logbook, skipped, seen);
   const overlap = judged.ok && options.pr && !options.readOnly && options.project !== undefined && mainOverlap(options.pr, String(sha).toLowerCase(), options.project, env);
-  const verdict = overlap ? { ok: false, reason: overlap } : judged;
+  const refused = overlap ? { ok: false, reason: overlap } : judged;
+  const verdict = !refused.ok && seen.docs?.only ? { ok: false, reason: `${refused.reason} ${docsNote(seen.docs)}` } : refused;
   return skipped.length ? { ...verdict, reason: `${verdict.reason} Skipped ${skipped.map(visible).join(", ")}: a saved change is incomplete there, and it has no row for this commit. Any write there finishes it or says what to do.` } : verdict;
 }
 
-function judgeMerge(sha, env, { cycles, pr, readOnly, head, project, locked, session, chief: merger, checkout }, logbook, skipped) {
+function judgeMerge(sha, env, { cycles, pr, readOnly, head, project, locked, session, chief: merger, checkout }, logbook, skipped, seen) {
   let root = sageRoot(env);
   try {
     if (notFull(sha)) return { ok: false, reason: notFull(sha) };
@@ -2246,6 +2250,8 @@ function judgeMerge(sha, env, { cycles, pr, readOnly, head, project, locked, ses
     }
     sha = String(sha).toLowerCase();
     pr &&= prNumber(String(pr));
+    const docsMemo = new Map(), docsAt = (dir) => (docsMemo.has(dir) ? docsMemo : docsMemo.set(dir, docsOf(dir, gitOf(dir), sha))).get(dir);
+    seen.docs = home ? docsAt(home) : logbook !== null ? docsAt(join(root, logbook)) : null;
     const cfg = config(env, home);
     const broken = Object.keys(cfg).find((k) => cfg[k] === "invalid");
     if (broken) return { ok: false, reason: `the merge check refuses every merge, because ${broken} in ${join(root, "config.json")} is not a number. Set it with sage config ${broken}=<n> (a whole number from ${floor(broken)} to 10), or remove the key.` };
@@ -2278,18 +2284,18 @@ function judgeMerge(sha, env, { cycles, pr, readOnly, head, project, locked, ses
       if (head !== undefined && ofPr.size) absent.push(...tasks.filter((t) => !ofPr.has(t.id) && owns(t.id)).map((t) => ({ name: `${visible(dir)} ${t.id}`, how: how(t.id) })));
       const graph = waitGraph(tasks, book ? rowsOf(book.milestones) : [], book ? rowsOf(book.gates) : [], decisions);
       const chief = basename(dir) !== mine ? undefined : merger ?? (session !== undefined ? chiefFor(project, session, env) : undefined);
-      const lint = lintNeed(gitOf(dir)), shut = archivedIn(dir);
+      const lint = lintNeed(gitOf(dir)), shut = archivedIn(dir), docs = docsAt(dir);
       const checked =[...new Set([...rows.map((r) => r.task), ...ofPr])].map((id) => {
         const task = byId.get(id), carry = carryOver(gitOf(dir), task, sha, ledgerOf.get(id) ?? []), own = carry.rows;
         const held = task?.state === "held" && { ok: false, reason: `${id} is held: only the sage moves a held task, and it does not merge until then.` };
-        const judged = judge(dir, task, findingsOf.get(id) ?? [], decisionsOf.get(id) ?? [], id, own, task ? Math.max(cycles ?? 0, cyclesFor(task, cfg)) : cycles, repaired, cfg, pr, carry.from, lint);
+        const judged = judge(dir, task, findingsOf.get(id) ?? [], decisionsOf.get(id) ?? [], id, own, task ? Math.max(cycles ?? 0, cyclesFor(task, cfg)) : cycles, { repaired, cfg, pr, from: carry.from, lint, docs });
         const note = carry.from ? `cycles from ${carry.from} carried to ${sha}: clean merge of main, same patch-id` : carry.why;
         const verdict = !note ? judged : judged.ok ? (carry.from ? { ...judged, reason: judged.reason.replace(/ on this SHA$/, `, ${note}`) } : judged) : { ...judged, reason: `${judged.reason} ${carry.from ? `(${note})` : note}` };
         const live = (runsOf.get(id) ?? []).filter((r) => LIVE.includes(r.status) && CHECKERS.includes(r.role)).map((r) => `${r.id} (${r.role}${r.status === "queued" ? ", queued" : ""})`);
         const busy = verdict.ok && live.length > 0 && { ok: false, reason: `${id} has a review or QA run that still runs: ${live.join(", ")}. End it with its report's findings recorded, then check again.` };
         const bar = candidateBar(task ?? { id }, head ?? task?.branch, candidates, runsOf.get(id) ?? []), arena = bar && { ok: false, reason: bar };
         const since = verdict.ok && task && takenAt(decisions, id), older = since && olderThan(since, runsOf.get(id) ?? []);
-        const fresh = since && !cleanCycles(task, own.filter((r) => !older(r))) && { ok: false, reason: `${id} came from a chief of another provider (${since}, by a takeover gate or a pick-up), so the cycles before that do not merge it alone: ${takeoverCycle ? takeoverCycle(id) : "its owning chief runs one cycle of its reviews and QA on this SHA, and records each verdict"}.` };
+        const fresh = since && !cleanCycles(task, own.filter((r) => !older(r)), docs) && { ok: false, reason: `${id} came from a chief of another provider (${since}, by a takeover gate or a pick-up), so the cycles before that do not merge it alone: ${takeoverCycle ? takeoverCycle(id) : "its owning chief runs one cycle of its reviews and QA on this SHA, and records each verdict"}.` };
         const notOwn = chief && task && liveBar(dir, task, chief), owner = notOwn && { ok: false, reason: notOwn };
         const archived = shut && { ok: false, reason: mine !== undefined && basename(dir) !== mine
           ? `${id} is in the logbook ${visible(basename(dir))}, and that project is archived, so ${id} does not merge: an archived project merges nothing. A chat restores only its own project, so do not restore that one from here. To merge the change, push a new commit, and record its verdicts only under this project's tasks. If the owner wants that project back, the owner restores it on the board or in that project's own chat.`
@@ -2330,7 +2336,7 @@ function judgeMerge(sha, env, { cycles, pr, readOnly, head, project, locked, ses
     });
     const one = strangers.length === 1;
     if (strangers.length) return { ok: false, reason: `${strangers.map(visible).join(" and ")} ${one ? "has" : "have"} verdicts on ${sha.slice(0, 7)} but ${one ? "is" : "are"} not in the known project list (${join(root, "projects.tsv")}), so the merge check refuses: a logbook that init did not make may be forged. init adds only a project's own logbook folder, so it does not help here. If ${one ? "it is" : "one is"} a project's logbook under another name (a renamed folder or a link), ask the user to give the folder back its own name, or to run ${REBUILD} and check each folder that it prints. If no project uses ${one ? "it" : "one"}, ask the user to remove it.` };
-    if (!each.length) return { ok: false, reason: `no verdicts recorded for ${sha}. Record the reviews and QA with sage verdict first.` };
+    if (!each.length) return { ok: false, reason: `no verdicts recorded for ${sha}. ${seen.docs?.only ? "Record checks-pass on it." : "Record the reviews and QA with sage verdict first."}` };
     if (pr && !each.some((r) => r.ofPr)) return { ok: false, reason: `no task of PR ${pr}${mine === undefined ? "" : ` in this project's logbook (${visible(mine)})`} has verdicts on ${sha.slice(0, 7)}: only ${each.map((r) => `${visible(r.dir)} ${r.id}`).join(", ")} ${each.length === 1 ? "has" : "have"}. Record PR ${pr}'s verdicts under its own task (sage verdict <T> --sha <sha> --pr ${pr}), or set its PR: sage task <T> set pr=${pr}.` };
     const strays = head === undefined ? [] : each.filter((r) => r.ofPr && !r.owns);
     if (strays.length && each.every((r) => r.ok)) {
@@ -2483,9 +2489,10 @@ function logbookView(project, env = process.env, { max = Infinity } = {}) {
     cleanCycles: (id, sha) => {
       const task = one(rows("tasks").filter((t) => t.id === id));
       if (!task) return 0;
-      const carry = carryOver(branchCheckout(dir, project, task.branch, env), task, sha, rows("ledger").filter((r) => r.task === id));
-      if (carry.from && !judge(dir, task, rows("findings"), rows("decisions"), id, carry.rows, 1).ok) return 0;
-      return cleanKinds(task).length ? cleanCycles(task, carry.rows) : null;
+      const checkout = branchCheckout(dir, project, task.branch, env), docs = docsOf(dir, checkout, sha);
+      const carry = carryOver(checkout, task, sha, rows("ledger").filter((r) => r.task === id));
+      if (carry.from && !judge(dir, task, rows("findings"), rows("decisions"), id, carry.rows, 1, { docs }).ok) return 0;
+      return kindsOf(task, docs).length ? cleanCycles(task, carry.rows, docs) : null;
     },
     endedLeadRuns: () => rows("runs").filter((r) => r.role === "lead" && RUN_ENDS.includes(r.status)),
     prTasks: (pr) => prHistory(prNumber(pr), rows("tasks"), rows("decisions"), rows("ledger")),
@@ -2497,7 +2504,7 @@ function fileOrNone(file) {
   const st = lstatSync(file, { throwIfNoEntry: false });
   if (st && !st.isFile()) refuse(`${file} is ${st.isSymbolicLink() ? "a link" : st.isDirectory() ? "a folder" : st.isFIFO() ? "a named pipe" : st.isSocket() ? "a socket" : "a device"}, not a regular file, so config writes nothing. Replace it with a regular file.`);
 }
-const ownKey = (kv) => /^(name|archived|start|lint_offer|commit_email|commit_name)(=|$)/.test(kv);
+const ownKey = (kv) => /^(name|archived|start|lint_offer|commit_email|commit_name|docs_paths)(=|$)/.test(kv);
 
 function jsonObject(file) {
   try {
@@ -2517,7 +2524,7 @@ function logbookConfig(dir, pairs) {
   const set = {};
   for (const kv of pairs) {
     const at = kv.indexOf("="), k = at < 0 ? kv : kv.slice(0, at), v = at < 0 ? undefined : kv.slice(at + 1);
-    if (!ownKey(kv)) refuse(`"${visible(k)}" is a key for all projects, and name=, archived=, start=, lint_offer=, commit_email= and commit_name= are keys of one logbook: set them in a config command of their own.`);
+    if (!ownKey(kv)) refuse(`"${visible(k)}" is a key for all projects, and name=, archived=, start=, lint_offer=, commit_email=, commit_name= and docs_paths= are keys of one logbook: set them in a config command of their own.`);
     if (v === undefined) refuse(`${k} needs a value: write ${k}=<value>`);
     if (k === "name") {
       const name = v.normalize("NFC"), why = name && nameProblem(name);
@@ -2526,13 +2533,16 @@ function logbookConfig(dir, pairs) {
     } else if (k === "lint_offer") set.lint_offer = v === "never" ? v : v === "ask" ? undefined : refuse(`lint_offer is never or ask, not "${visible(v)}". Nothing changed.`);
     else if (k === "commit_email") set.commit_email = !v ? undefined : COMMIT_EMAIL.test(v) ? v : refuse(`commit_email is one email address with no space, quote or $, such as 12345+name@users.noreply.github.com, not "${visible(v)}". Nothing changed.`);
     else if (k === "commit_name") set.commit_name = !v.trim() ? undefined : COMMIT_NAME.test(v.trim()) ? v.trim() : refuse(`commit_name is 1 to 100 characters with no control character, single quote, < or >, not "${visible(v)}". Nothing changed.`);
-    else if (k === "start") set.start = v === START_SAGE_MODE ? v : v === "normal" ? undefined : refuse(`start is ${START_SAGE_MODE} or normal, not "${visible(v)}". Nothing changed.`);
+    else if (k === "docs_paths") {
+      const globs = globsOf(v).join(","), why = docsPathsProblem(globs);
+      set.docs_paths = why ? refuse(`docs_paths only adds to the documentation files (${DOCS_RULE}), and ${why}. Nothing changed.`) : globs || undefined;
+    } else if (k === "start") set.start = v === START_SAGE_MODE ? v : v === "normal" ? undefined : refuse(`start is ${START_SAGE_MODE} or normal, not "${visible(v)}". Nothing changed.`);
     else set.archived = v === "yes" ? true : v === "no" ? undefined : refuse(`archived is yes or no, not "${visible(v)}". Nothing changed.`);
   }
   const was = logbookJson(dir), next = { ...was, ...set };
   for (const k of Object.keys(set)) if (set[k] === undefined) delete next[k];
   swap(join(dir, "config.json"), JSON.stringify(next, null, 2) + "\n");
-  const line = `name=${visible(typeof next.name === "string" ? next.name : "")} archived=${next.archived === true ? "yes" : "no"} start=${next.start === START_SAGE_MODE ? START_SAGE_MODE : "normal"}${next.lint_offer === "never" ? " lint_offer=never" : ""}${next.commit_email ? ` commit_email=${visible(next.commit_email)}` : ""}${next.commit_name ? ` commit_name=${visible(next.commit_name)}` : ""}`;
+  const line = `name=${visible(typeof next.name === "string" ? next.name : "")} archived=${next.archived === true ? "yes" : "no"} start=${next.start === START_SAGE_MODE ? START_SAGE_MODE : "normal"}${next.lint_offer === "never" ? " lint_offer=never" : ""}${next.commit_email ? ` commit_email=${visible(next.commit_email)}` : ""}${next.commit_name ? ` commit_name=${visible(next.commit_name)}` : ""}${next.docs_paths ? ` docs_paths=${visible(next.docs_paths)}` : ""}`;
   return Object.hasOwn(set, "archived") ? [line, archiveChange(dir, was.archived === true, set.archived === true)].join("\n") : line;
 }
 function archiveChange(dir, was, archiving) {
