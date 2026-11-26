@@ -4,11 +4,13 @@ import { spawnSync as rawSpawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { keepReport } from "../plugins/sage/skills/sage/sage.mjs";
 import { backed } from "./verdict-backing.mjs";
 import { QUESTION } from "./fixtures/question-message.mjs";
+import { splitTest } from "./test-split.mjs";
+
+const test = splitTest(4, globalThis.LEAD_AGENT_PART);
 
 const at = (path) => fileURLToPath(new URL(path, import.meta.url));
 const LAUNCHER = [at("../plugins/sage/hooks/launcher.mjs"), "sage-hook.mjs"];
