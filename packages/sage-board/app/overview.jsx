@@ -4,7 +4,7 @@ import { useNow, when } from "./use-model.js";
 import { StateIcon } from "./icons.jsx";
 import { Sessions } from "./sessions.jsx";
 import { chiefSub, milestoneLink, ofChief, questionLink, taskLink } from "./task.jsx";
-import { FLAGGED, OBJECTS, UNKNOWN, chiefName, pickupLine } from "../../sage-core/state-words.mjs";
+import { FLAGGED, LOOK_AT_IT, OBJECTS, STOPPED_NO_REPORT, UNKNOWN, chiefName, pickupLine } from "../../sage-core/state-words.mjs";
 
 export const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
@@ -26,7 +26,7 @@ function Counts({ model, previous, now, chief }) {
   const links = { merged: `#tasks?group=state&sort=newest&since=${new Date(since).toISOString()}`, stuck: "#agents" };
   const items = [
     ["merged", after(tasks.filter(task => task.state === "merged").map(task => task.doneAt), since), "Merged", "tasks merged into main"],
-    ["stuck", model.stuck, FLAGGED[0].toUpperCase() + FLAGGED.slice(1), "runs of open tasks that failed in the last 24 hours and did not run again, or agents silent for 30 min or stopped"],
+    ["stuck", model.stuck, FLAGGED[0].toUpperCase() + FLAGGED.slice(1), `runs of open tasks that failed in the last 24 hours and did not run again, or agents flagged "${LOOK_AT_IT}" or "${STOPPED_NO_REPORT}"`],
     ["added", known ? after(tasks.map(task => task.addedAt), since) : null, "New tasks", !known ? `${UNKNOWN} · no task in the logbook has a time when it was added` : unknown ? "tasks added to the logbook; older tasks have no time" : "tasks added to the logbook"],
   ];
   const pickups = (model.pickups ?? []).filter(item => Date.parse(item.at) > since && (!chief || item.logbook === chief.logbook && (item.to === chief.id || item.sources.some(source => source.from === chief.id))));

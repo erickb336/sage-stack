@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildBoardModel, milestoneWord, releaseWord, renderBoardText, renderTaskText, taskWord } from "../packages/sage-core/index.mjs";
-import { FLAGS, KINDS, MARKS as MARKS_TABLE, OBJECTS, STEPS, URGENCY, WORDS, chiefName, prName, shown } from "../packages/sage-core/state-words.mjs";
+import { FLAGS, KINDS, MARKS as MARKS_TABLE, OBJECTS, STEPS, URGENCY, WORDS, chiefName, prName, runWord, shown } from "../packages/sage-core/state-words.mjs";
 import * as words from "../packages/sage-core/state-words.mjs";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -202,15 +202,16 @@ test("T1096: each primary object has its label, and each tool state and step giv
   const pairs = [...Object.values(OBJECTS).flatMap(object => Object.entries(object.states)), ...Object.entries(STEPS)];
   for (const [state, [word, flag, ...rest]] of pairs) assert.ok(WORDS.includes(word) && (flag === undefined || FLAGS.includes(flag)) && !rest.length, state);
   assert.deepEqual(Object.entries(OBJECTS.task.states).filter(([state]) => taskWord({ state }).word !== OBJECTS.task.states[state][0]), [], "the task map agrees with taskWord");
-  assert.deepEqual([shown(OBJECTS.agent.states.stuck), shown(OBJECTS.agent.states.failed), shown([])],
-    [{ word: "in progress", flag: "may be stuck", mark: "!", text: "in progress · may be stuck" }, { word: "stopped", flag: "failed", mark: "!", text: "stopped · failed" }, { word: "unknown", flag: null, mark: "◌", text: "unknown" }]);
+  assert.deepEqual([runWord("running", { level: "amber", text: "Look at it" }), runWord("work", { level: "calm", text: "Codex: activity unknown" }), shown(OBJECTS.agent.states.failed), shown([])],
+    [{ word: "in progress", flag: "Look at it", mark: "!", text: "in progress · Look at it" }, { word: "in progress", flag: "Codex: activity unknown", mark: "▶", text: "in progress · Codex: activity unknown" }, { word: "stopped", flag: "failed", mark: "!", text: "stopped · failed" }, { word: "unknown", flag: null, mark: "◌", text: "unknown" }]);
+  assert.deepEqual(Object.keys(OBJECTS.agent.states).filter(state => !["queued", "running", "done", "question", "failed", "blocked", "work", "wait"].includes(state)), [], "T1224: a flag is not an agent state");
   assert.deepEqual([prName(44), chiefName("C1", "claude"), chiefName("C2", null), chiefName(null, "codex")], ["PR 44", "Claude · C1", "C2", "Codex"]);
 });
 
 test("T1096, F-T1182-4: the guide's mark key and Agents page key show the table's marks and words, and the guide names no offer line", () => {
   const guide = readFileSync(new URL("../docs/guide/board.md", import.meta.url), "utf8");
   for (const word of WORDS) assert.ok(guide.includes(`| ${word} | ${MARKS_TABLE[word]} |`), word);
-  for (const state of ["work", "wait", "stuck", "long", "stop"]) { const { mark, text } = shown(OBJECTS.agent.states[state]); assert.ok(guide.includes(`| ${mark} ${text} |`), state); }
+  for (const [state, flag] of [["work"], ["wait"], ["work", { level: "red", text: "Stopped without a report" }], ["work", { level: "amber", text: "Look at it" }], ["work", { level: "calm", text: "Codex: activity unknown" }]]) { const { mark, text } = runWord(state, flag); assert.ok(guide.includes(`| ${mark} ${text} |`), text); }
   assert.ok(guide.includes(`\`${MARKS_TABLE.problem}\` is a problem: ${FLAGS.slice(0, -1).join(", ")} or ${FLAGS.at(-1)}.`) && guide.includes(`\`${MARKS_TABLE.unknown}\` is a state that the board does not know.`), "the two more marks");
   const render = readFileSync(new URL("../packages/sage-core/board-render.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(guide, /offer line|⇄/, "F-T1182-4: the guide names no offer line: the board shows none");

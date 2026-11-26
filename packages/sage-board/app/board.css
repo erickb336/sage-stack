@@ -161,8 +161,8 @@ header.top { position: sticky; top: 0; z-index: 20; min-height: 52px; display: f
 .row .step, .row .age { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row .age { text-align: right; }
 .row.ended .text { color: var(--muted); }
-.step.need { color: var(--need); }
-.step.fail, .step.stale, .step.blocked { color: var(--fail); }
+.step.need, .step.stale, .awhy.need { color: var(--need); }
+.step.fail, .step.lost, .step.blocked { color: var(--fail); }
 .step.run { color: var(--run); }
 .badge.warn { color: var(--need); border-color: var(--need); }
 .badge.word { justify-self: start; }
@@ -400,7 +400,7 @@ p.waits.never { color: var(--fail); }
 .track .gline { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--line); }
 .lbar { position: absolute; top: 9px; height: 8px; border-radius: 4px; background: var(--run); }
 .lbar.done { background: var(--done); }
-.lbar.failed, .lbar.look { background: var(--fail); }
+.lbar.failed { background: var(--fail); }
 .lbar.question { background: var(--need); }
 .lbar.queued { background: none; border: 1.5px dashed var(--need); }
 .legend .lbar { position: static; display: inline-block; width: 18px; }
@@ -418,7 +418,7 @@ p.waits.never { color: var(--fail); }
 @keyframes trace { to { stroke-dashoffset: -100; } }
 @media (prefers-reduced-motion: reduce) { .s-run .ar { stroke-dasharray: 75 25; } }
 .s-wait .ar { stroke: var(--wait); stroke-dasharray: 50 50; }
-.s-need .ar { stroke: var(--need); stroke-width: 2; }
+.s-need .ar, .s-look .ar { stroke: var(--need); stroke-width: 2; }
 .s-live .ar, .s-done .ar { stroke: var(--done); }
 .s-fail .ar { stroke: var(--fail); stroke-width: 2; }
 .s-queue .ar { stroke: var(--need); stroke-dasharray: 2.4 2.4; }
@@ -433,7 +433,7 @@ p.waits.never { color: var(--fail); }
 .bd { position: absolute; top: -5px; right: -5px; min-width: 15px; height: 15px; border-radius: 8px; font-size: 10px; font-weight: 700; display: grid; place-items: center; color: var(--card); }
 .s-fail .bd { background: var(--fail); }
 .s-done .bd { background: var(--done); }
-.s-need .bd { background: var(--need); }
+.s-need .bd, .s-look .bd { background: var(--need); }
 .cm { font-family: var(--mono); font-size: 12px; font-weight: 700; }
 .chief-h .tile { background: var(--text); border-color: var(--text); color: var(--card); }
 .chief-h .s-stop .tile { background: none; border-color: var(--muted); color: var(--muted); }

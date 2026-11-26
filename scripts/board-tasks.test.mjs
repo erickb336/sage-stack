@@ -182,8 +182,10 @@ test("T1062 F-T1062-13: the Agents page's 'need a look' counts the same runs as 
   const { sources } = world(t, { agents: true });
   const overview = boardOverview(modelOf(sources)), [book] = overview.agents;
   assert.deepEqual(book.runs.filter(run => run.look).map(run => [run.id, run.status, run.lead, run.why]),
-    [["R1", "failed", null, null], ["R30", "running", null, "no logbook write for 30 min"], ["R6", "running", "R30", "no logbook write for 30 min"], ["R27", "failed", "R25", null]],
-    "the failed run of the last 24 hours with no running lead, the lead's failed helper, and the Codex runs whose task has no logbook write for 30 min are all rows");
+    [["R1", "failed", null, null], ["R27", "failed", "R25", null]],
+    "the failed run of the last 24 hours with no running lead and the lead's failed helper are rows");
+  assert.deepEqual(book.runs.filter(run => ["R30", "R6"].includes(run.id)).map(run => [run.id, run.look, run.flag.text]), [["R30", false, "Codex: activity unknown"], ["R6", false, "Codex: activity unknown"]],
+    "T1224: the Codex runs with no logbook write for 30 min are not flagged: Codex sends no activity notes, so the board cannot tell");
   assert.deepEqual(book.runs.filter(run => !run.look && run.status === "failed"), [], "a run that does not need a look is not marked");
 });
 
@@ -208,8 +210,8 @@ test("T1062 F-T1062-32: failed runs travel as rows up to 20 for each lead and ea
   assert.equal(book.runs.filter(run => run.lead === "R20" && run.look).length, 0, "T1120 S3: R20's 433 failed qa helpers each have a later qa run (R24), so none is a problem");
   assert.equal(book.runs.filter(run => run.chief === "C2" && !run.lead && run.status === "failed").length, 20, "C2's newest 20 failed runs with no running lead");
   assert.deepEqual(book.failedMore, [{ lead: null, chief: "C2", count: 5 }]);
-  assert.equal(book.look, 4 + 25, "the page counts every failed run of an open task that did not run again; T1120 S3: the failed runs of merged T21 do not count");
-  assert.ok(JSON.stringify(book).length < 20_000, `the agents part of the stream stays small: ${JSON.stringify(book).length} B`);
+  assert.equal(book.look, 2 + 25, "the page counts every failed run of an open task that did not run again; T1120 S3: the failed runs of merged T21 do not count");
+  assert.ok(JSON.stringify(book).length < 21_000, `the agents part of the stream stays small: ${JSON.stringify(book).length} B (T1224: 1 kB more for the flag that each running row carries)`);
 });
 
 test("T1062 F-T1062-22: a helper counts for the chief of its running lead, so the top bar's count of each chief is the number of running rows in its box", t => {
@@ -319,4 +321,13 @@ test("T1083 (F-T1083-2): a passing report meets a line only in its RESULT or EVI
 test("T1083 (F-T1083-4): a budget reads thousands separators and k or M before tokens", () => {
   for (const [text, tokens] of [["About 1 hour and 1,000,000 tokens.", 1_000_000], ["7 M tokens", 7_000_000], ["400 k tokens", 400_000], ["1.5 M tokens", 1_500_000], ["12,000 tokens", 12_000]]) assert.equal(budgetOf(text).tokens, tokens, text);
   assert.equal(budgetOf("About 1 hour and 1,000,000 tokens.").ms, 3_600_000);
+});
+
+test("T1224 (F-T1224-8): the Tasks page colours a Look at it step amber, as a step that needs you, and a Stopped without a report step red", () => {
+  const css = readFileSync(join(ROOT, "packages/sage-board/app/board.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const colour = selector => [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, selectors]) => selectors.split(",").map(item => item.trim()).includes(selector))
+    .flatMap(([, , body]) => [...body.matchAll(/(?:^|;)\s*color\s*:\s*([^;]+)/g)].map(match => match[1].trim())).at(-1);
+  const step = status => colour(`.step.${status}`);
+  assert.deepEqual([step("stale"), step("lost")], [step("need"), step("fail")], "stale is the step status of Look at it, lost of Stopped without a report");
+  assert.notEqual(step("need"), step("fail"));
 });
