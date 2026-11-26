@@ -210,7 +210,7 @@ export function App() {
           {notice && <div className="banner fail" role="alert" data-part="too-big"><AlertIcon /><div>{notice}</div></div>}
           {model ? <><Banner model={model} link={link} lostAt={lostAt} now={now} own={page.own} />{unknown && old && !page.own && <p className="banner" role="status">This board shows no project {unknown}, so it opened {current.name}.</p>}
             {old && <ArchiveLayer all={all} current={page.own ? null : current} now={now} />}{page.hash === "overview" && current && <WelcomeBack key={`${current.key} ${current.welcome}`} project={current} model={model} now={now} />}{body}{page.hash === "overview" && <ArchiveFoot project={current} />}</>
-            : level && !notice && link === "connecting" ? (["task", "run"].includes(page.hash) ? body : <Loading hash={page.hash} />) : notice ? null : <NoData link={link} />}
+            : ["task", "run"].includes(page.hash) && (notice || link === "connecting") ? body : level && link === "connecting" ? (notice ? null : <Loading hash={page.hash} />) : notice ? null : <NoData link={link} />}
         </main>
       </div>
     </div>
