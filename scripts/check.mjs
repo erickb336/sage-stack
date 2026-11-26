@@ -227,6 +227,20 @@ for (const f of [...new Set([...testFiles, ...imported])].filter((f) => existsSy
 
 for (const f of unrunTestFiles(ROOT)) problems.push(`${f}: no test command runs it; add it to "test" or "test:browser" in package.json`);
 
+const npmTest = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).scripts.test;
+for (const body of readdirSync(join(ROOT, "scripts")).filter((f) => f.endsWith("-tests.mjs"))) {
+  const src = readFileSync(join(ROOT, "scripts", body), "utf8");
+  const [parts, global] = [Number(src.match(/^const PARTS = (\d+);$/m)?.[1]), src.match(/globalThis\.(\w+_PART)\b/)?.[1]];
+  if (!parts || !global) continue;
+  const name = body.replace(/-tests\.mjs$/, "");
+  const want = Array.from({ length: parts }, (_, k) => `scripts/${name}-${k + 1}.test.mjs`);
+  if (String(npmTest.match(new RegExp(`scripts/${name}-\\d+\\.test\\.mjs`, "g"))) !== String(want)) problems.push(`scripts/${body}: its PARTS = ${parts}, so the "test" script in package.json must list ${want.join(" ")}, each once`);
+  want.forEach((file, k) => {
+    const entry = `globalThis.${global} = ${k + 1};\nawait import("./${body}");\n`;
+    if (!existsSync(join(ROOT, file)) || readFileSync(join(ROOT, file), "utf8") !== entry) problems.push(`${file}: must be the two lines globalThis.${global} = ${k + 1}; and await import("./${body}"); so that part ${k + 1} of scripts/${body} runs`);
+  });
+}
+
 for (const dir of ["plugins/sage", "plugins/sage-codex"]) {
   for (const file of filesUnder(join(ROOT, dir))) {
     const rel = file.slice(ROOT.length + 1);
