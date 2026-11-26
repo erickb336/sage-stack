@@ -1,10 +1,10 @@
 import { readLocalGit } from "./local-git.mjs";
 
 const NAMES = ["readme", "changelog", "license", "contributing"];
-const TEXT = ["md", "txt", "rst", "adoc"], PICTURES = ["png", "jpg", "jpeg", "gif", "webp", "svg"];
+const PAGES = ["md", "rst", "adoc", "png", "jpg", "jpeg", "gif", "webp", "svg"], TEXT = ["md", "txt", "rst", "adoc"];
 const WIDE = ["x.mjs", "src/x.py", ".github/workflows/ci.yml"];
-const LINKS = ["120000", "160000"];
-export const DOCS_RULE = "a .md, .txt, .rst, .adoc or picture file under a docs folder, or a README, CHANGELOG, LICENSE or CONTRIBUTING file (with no extension or a text one), and in no dot folder";
+const NEVER = ["100755", "120000", "160000"];
+export const DOCS_RULE = "a .md, .rst, .adoc or picture file under a docs folder, or a README, CHANGELOG, LICENSE or CONTRIBUTING file with no extension or a .md, .txt, .rst or .adoc one; never an executable file, a symlink or a file in a dot folder";
 
 function globPattern(glob) {
   let out = "";
@@ -27,11 +27,11 @@ export function docsPathsProblem(text) {
 }
 
 function isDoc(path, globs) {
-  if (globs.some((glob) => glob.test(path))) return true;
   const folders = path.split("/"), name = folders.pop().toLowerCase(), dot = name.lastIndexOf(".");
   const ext = dot > 0 ? name.slice(dot + 1) : "", stem = dot > 0 ? name.slice(0, dot) : name;
   if (folders.some((folder) => folder.startsWith("."))) return false;
-  return (folders.includes("docs") && [...TEXT, ...PICTURES].includes(ext)) || (NAMES.includes(stem) && (dot < 0 || TEXT.includes(ext)));
+  if (globs.some((glob) => glob.test(path))) return true;
+  return (folders.includes("docs") && PAGES.includes(ext)) || (NAMES.includes(stem) && (dot < 0 || TEXT.includes(ext)));
 }
 
 function rawFiles(text) {
@@ -56,9 +56,9 @@ export function docsOnly(project, sha, docsPaths) {
     return null;
   }
   const globs = globsOf(docsPaths).map(globPattern);
-  const only = files.length > 0 && [...files, ...commits].every(([path, modes]) => !modes.some((mode) => LINKS.includes(mode)) && isDoc(path, globs));
+  const only = files.length > 0 && [...files, ...commits].every(([path, modes]) => !modes.some((mode) => NEVER.includes(mode)) && isDoc(path, globs));
   return { only, count: files.length, extra: globs.length > 0, sha };
 }
 
 export const docsNote = ({ sha, count, extra }) =>
-  `${sha.slice(0, 7)} is docs-only: ${count === 1 ? "the one file" : `each of the ${count} files`} that it changes since its merge base with origin/main is ${DOCS_RULE}${extra ? ", or matches the project's docs_paths" : ""}. So it needs checks-pass, and lint-pass when the project lints, and no review cycle.`;
+  `${sha.slice(0, 7)} is docs-only: ${count === 1 ? "the one file" : `each of the ${count} files`} that it changes since its merge base with origin/main is ${extra ? "a match of the project's docs_paths or " : ""}${DOCS_RULE}. So it needs checks-pass, and lint-pass when the project lints, and no review cycle.`;

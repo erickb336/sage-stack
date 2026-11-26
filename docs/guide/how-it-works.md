@@ -80,7 +80,7 @@ A tiny task's route is only the build: it has no review and no QA, so it has no 
 
 A **docs-only** pull request has no cycle either, whatever its size or risk flags. When each file that it changes is documentation, it merges after its checks pass, with no review and no QA. A later commit that changes another file brings the cycles back.
 
-Documentation is a Markdown, text or picture file under a `docs` folder, or a README, CHANGELOG, LICENSE or CONTRIBUTING file, outside dot folders such as `.github`. Code and config under `docs`, and skill, agent and principle files, are not documentation: skills, agents and principles steer agents. See [Docs-only pull requests](using-sage.md#docs-only-pull-requests).
+Documentation is a Markdown or picture file under a `docs` folder, or a README, CHANGELOG, LICENSE or CONTRIBUTING file, never executable and outside dot folders such as `.github`. Code, config and `.txt` files under `docs`, and skill, agent and principle files, are not documentation: skills, agents and principles steer agents. See [Docs-only pull requests](using-sage.md#docs-only-pull-requests).
 
 A risk flag adds the security review, and then a tiny task needs 2 clean cycles too. An arena adds the code review, and then a tiny task needs 1 clean cycle of that review, with no QA.
 

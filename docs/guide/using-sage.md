@@ -403,13 +403,13 @@ sage config commit_email=12345+name@users.noreply.github.com commit_name="Your N
 
 A pull request that changes only documentation merges after CI, with no review and no QA. Every other pull request keeps its clean cycles.
 
-- **Documentation:** a `.md`, `.txt`, `.rst` or `.adoc` page or a picture (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`) under a folder named `docs`, at any depth, and a file named README, CHANGELOG, LICENSE or CONTRIBUTING in any letter case, with no extension or one of those page extensions.
-- **Never documentation:** a file in a dot folder (such as `.github` or `.husky`), a symlink, a submodule, and code or config under `docs`, such as `docs/conf.py`, `app/docs/page.tsx` or an `.mdx` page. When in doubt, a file is not documentation: that costs one review cycle, not a merge of code with no review. Other Markdown, such as a skill, an agent file or a principle, is not documentation: it steers agents.
+- **Documentation:** a `.md`, `.rst` or `.adoc` page or a picture (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`) under a folder named `docs`, at any depth, and a file named README, CHANGELOG, LICENSE or CONTRIBUTING in any letter case, with no extension or a `.md`, `.txt`, `.rst` or `.adoc` extension.
+- **Never documentation:** a file in a dot folder (such as `.github` or `.husky`), an executable file, a symlink, a submodule, and code or config under `docs`, such as `docs/conf.py`, `docs/requirements.txt`, `app/docs/page.tsx` or an `.mdx` page. When in doubt, a file is not documentation: that costs one review cycle, not a merge of code with no review. Other Markdown, such as a skill, an agent file or a principle, is not documentation: it steers agents.
 - **The check:** the merge check reads from git the files that the head changes since its merge base with `origin/main`, and the files of each commit since that base, so a commit that a later commit or a merge undoes still counts, also when `origin/main` is old. A rename or a deletion counts by both paths, so a move from `src/` into `docs/` is not docs-only. When git cannot give the files, the full rules apply.
 - **What it needs:** checks-pass, and lint-pass when the project lints. Open findings still block. The merge check's message says that the head is docs-only and why.
 - **The lead** runs the merge check at the start of a cycle, and for a docs-only head it runs no review and no QA: it reports ready after CI.
 - **More paths:** ask the chief to add globs for one project, for example `sage config docs_paths=guides/**,**/*.adoc`. `*` matches within a folder and `**` across folders.
-- **Limits of the globs:** they only add to the list, and the config refuses globs that together match every file, such as `**`, `*,*/**` or `**/*.*`. `docs_paths=` alone removes them.
+- **Limits of the globs:** they only add to the list, and they never add a file of the "never documentation" list, such as `.github/workflows/ci.yml` for `.github/**`. The config refuses globs that together match every file, such as `**`, `*,*/**` or `**/*.*`. `docs_paths=` alone removes them.
 
 ## To update sage
 

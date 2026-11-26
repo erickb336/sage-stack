@@ -1,7 +1,7 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -61,7 +61,7 @@ function world(t, { size = "large", risk = ["--risk", "input"], origin = true } 
 
 test("T1239: a docs-only head of a large task with a risk flag merges on checks-pass alone, and the message says why", (t) => {
   const w = world(t);
-  const head = w.work({ "docs/guide.md": "how\n", "README.md": "more\n", "packages/x/docs/deep/page.txt": "deep\n", "plugins/sage/license": "MIT\n", "Changelog.rst": "1.0\n", "notes/CONTRIBUTING": "be kind\n" });
+  const head = w.work({ "docs/guide.md": "how\n", "README.md": "more\n", "packages/x/docs/deep/page.rst": "deep\n", "plugins/sage/license": "MIT\n", "Changelog.rst": "1.0\n", "notes/CONTRIBUTING": "be kind\n" });
   const before = w.refused(head);
   assert.match(before, /^sage: no verdicts recorded for [0-9a-f]{40}\. .* [0-9a-f]{7} is docs-only: each of the 6 files .* no review cycle\.$/, "the read form that the lead runs before any verdict names the head docs-only");
   w.checked(head);
@@ -122,7 +122,7 @@ test("T1239: docs_paths widens the documentation files of one project", (t) => {
   assert.equal(w.cli("config", "docs_paths=guides/**, **/*.adoc"), "name= archived=no start=normal docs_paths=guides/**,**/*.adoc");
   const said = w.check(head);
   assert.match(said, DOCS);
-  assert.match(said, /, or matches the project's docs_paths\./);
+  assert.match(said, / is a match of the project's docs_paths or a \.md, /);
   assert.equal(w.cli("config", "docs_paths="), "name= archived=no start=normal");
   assert.match(w.refused(head), /^sage: T1: 0 of 2 clean cycles on this SHA/, "an empty docs_paths removes the globs");
 });
@@ -174,7 +174,7 @@ test("T1239 F-T1239-2, F-T1239-4: under a docs folder only text and picture file
 });
 
 test("T1239: this repository's own documentation stays docs-only", (t) => {
-  const paths = ["docs/guide/using-sage.md", "docs/README.md", "docs/assets/hero-dark.svg", "docs/assets/board.png", "docs/assets/tour.gif", "README.md", "CONTRIBUTING.md", "CHANGELOG.md", "LICENSE", "plugins/sage/LICENSE", "principles/README.md", "packages/x/docs/deep/page.txt", "Changelog.rst", "notes/CONTRIBUTING"];
+  const paths = ["docs/guide/using-sage.md", "docs/README.md", "docs/assets/hero-dark.svg", "docs/assets/board.png", "docs/assets/tour.gif", "README.md", "CONTRIBUTING.md", "CHANGELOG.md", "LICENSE", "plugins/sage/LICENSE", "principles/README.md", "packages/x/docs/deep/page.rst", "Changelog.rst", "notes/CONTRIBUTING", "LICENSE.txt", "docs/README.txt"];
   assert.deepEqual(docsOnlyEachAlone(t, paths), Object.fromEntries(paths.map((path) => [path, true])));
 });
 
@@ -239,4 +239,33 @@ test("T1239 F-T1239-10, F-T1239-3: docs_paths refuses globs that together match 
   }
   assert.equal(w.cli("config", "docs_paths=*"), "name= archived=no start=normal docs_paths=*", "* alone matches only the top folder, so it stays allowed");
   assert.equal(w.cli("config", "docs_paths=guides/**,**/*.adoc"), "name= archived=no start=normal docs_paths=guides/**,**/*.adoc");
+});
+
+test("T1239 F-T1239-12: an executable file is never documentation, also a README, CHANGELOG, LICENSE or CONTRIBUTING name or a docs page", (t) => {
+  const r = repo(t), start = r.git("rev-parse", "HEAD");
+  const executable = (path, globs) => {
+    r.git("reset", "-q", "--hard", start);
+    assert.equal(docsOnly(r.project, r.work({ [path]: "x\n" }), globs).only, true, `${path} as a plain file is docs-only`);
+    chmodSync(join(r.project, path), 0o755);
+    return docsOnly(r.project, r.work({}), globs).only;
+  };
+  const paths = ["scripts/changelog", "bin/README", "LICENSE", "notes/CONTRIBUTING.md", "docs/guide.md", "README.md"];
+  assert.deepEqual(Object.fromEntries(paths.map((path) => [path, executable(path)])), Object.fromEntries(paths.map((path) => [path, false])));
+  assert.equal(executable("guides/run", "guides/**"), false, "a docs_paths glob admits no executable file");
+});
+
+test("T1239 F-T1239-13: under a docs folder a .txt file is not documentation; a README, CHANGELOG, LICENSE or CONTRIBUTING .txt file is", (t) => {
+  const paths = { "docs/CMakeLists.txt": false, "docs/requirements.txt": false, "packages/x/docs/deep/page.txt": false, "README.txt": true, "docs/LICENSE.txt": true, "notes/changelog.txt": true };
+  assert.deepEqual(docsOnlyEachAlone(t, Object.keys(paths)), paths);
+});
+
+test("T1239 F-T1239-16: no docs_paths glob admits a file in a dot folder", (t) => {
+  const r = repo(t), start = r.git("rev-parse", "HEAD");
+  const cases = [[".github/workflows/ci.yml", ".github/**"], [".github/workflows/ci.yml", ".*/**"], ["guides/.hooks/pre-commit.md", "guides/**"], [".husky/pre-push", "*/**"]];
+  for (const [path, globs] of cases) {
+    r.git("reset", "-q", "--hard", start);
+    assert.equal(docsOnly(r.project, r.work({ [path]: "x\n" }), globs)?.only, false, `docs_paths=${globs} makes ${path} docs-only`);
+  }
+  r.git("reset", "-q", "--hard", start);
+  assert.equal(docsOnly(r.project, r.work({ "guides/start.sh": "x\n" }), "guides/**").only, true, "the same kind of glob still admits a file outside dot folders");
 });
