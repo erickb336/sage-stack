@@ -78,8 +78,8 @@ export function runClock(started, now, lastActivity) {
   const minutes = Math.max(0, Math.floor((now - start) / 60000));
   if (minutes < 60) return { text: `${minutes} min`, stale: false };
   if (minutes < 24 * 60) return { text: `${Math.floor(minutes / 60)} h ${minutes % 60} min`, stale: false };
-  const last = Math.max(start, time(lastActivity) ?? start);
-  return now - last >= STALE_MS ? { text: `no news since ${dayMonth(last)}, so ask the chief to check it`, stale: true, since: dayMonth(last) } : { text: `since ${dayMonth(start)}`, stale: false };
+  const last = Math.max(start, time(lastActivity) ?? start), stale = now - last >= STALE_MS;
+  return { text: `since ${dayMonth(start)}`, stale, ...(stale && { since: dayMonth(last) }) };
 }
 
 const PHASE = {
@@ -113,8 +113,7 @@ function stepLine({ task, route, cycles, required, head, judged, reasons, proble
   const actor = list => and([...new Set(list.map(run => `the ${AGENT_WORD[run.role] ?? run.role}`))]);
   const ago = run => { const clock = run.clock.text; return /^\d/.test(clock) ? `${clock} ago` : clock.startsWith("since ") ? `on ${clock.slice(6)}` : "at a time that is not recorded"; };
   const runText = run => needsLook(run.flag) ? `For the ${AGENT_WORD[run.role] ?? run.role} (run ${run.id}), ${run.flag.why}${/[.?!]$/.test(run.flag.why) ? "" : "."}`
-    : run.clock.stale ? `No news from the ${AGENT_WORD[run.role] ?? run.role} (run ${run.id}) since ${run.clock.since}, so ask the chief to check it.`
-    : `The ${AGENT_WORD[run.role] ?? run.role} (${run.evidence?.data.provider ? `${run.evidence.data.provider}, ` : ""}run ${run.id}) is at work. It started ${ago(run)}.`;
+    : `The ${AGENT_WORD[run.role] ?? run.role} (${run.evidence?.data.provider ? `${run.evidence.data.provider}, ` : ""}run ${run.id}) is at work. It started ${ago(run)}.${run.flag ? ` ${cap(run.flag.why)}.` : ""}`;
   const queueText = run => `The ${AGENT_WORD[run.role] ?? run.role} (run ${run.id}) waits for an agent slot: place ${run.place} in the project's queue. It starts when a running agent ends.`;
   const heldAt = gate ? `Held at gate ${gate.id} (the question above).` : null;
   const status = who === "owner" ? "need" : problems.length ? "blocked" : failed.length ? "fail" : who === "agent" ? flagged.length ? partOfRun(flagged[0]) : live.length ? "run" : started ? "idle" : "wait" : who === "chief" ? "idle" : "done";

@@ -129,6 +129,15 @@ test("T1224: a Claude run with no news for a day gets Look at it; a hook note in
   assert.equal(flagOf(byRun.R2), "none", "a note 60 min ago is news");
 });
 
+test("T1224 (F-T1224-7): a run with no logbook change for a day but a fresh hook note is calm on the step, the chat task card and the chat board too", () => {
+  const model = buildBoardModel([claude([book("sample-abcdef", [run("R2", "qa", 1500)])], [slot("slot-2", ["project-sample", "role-sage_qa", "run-R2"], 60)])], { now: NOW });
+  const card = model.tasks[0], plain = text => text.replace(/\\/g, "");
+  assert.equal(flagOf(rows(model.agents)[0]), "none", "the Agents row is calm");
+  assert.deepEqual([card.loop.steps[1].status, card.loop.steps[1].detail], ["run", "The QA agent (run R2) is at work. It started on 17 Oct."]);
+  assert.doesNotMatch(plain(renderTaskText(card)), /no news|ask the chief/, "the chat task card");
+  assert.ok(plain(renderBoardText(model)).includes("Sample task T1. Building, since 17 Oct."), "the chat board's line");
+});
+
 test("T308, T1224: unreadable hook notes show every Claude run from the logbook, with no flag: the board cannot tell", () => {
   const model = agents(claude([book("sample-abcdef", [run("R1", "qa", 5)])], [], { problem: "EACCES" }));
   assert.deepEqual(rows(model).map(agent => [agent.runId, agent.state, flagOf(agent), agent.why]), [["R1", "work", "none", ""]]);
