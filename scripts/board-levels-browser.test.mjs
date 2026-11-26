@@ -1,7 +1,7 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { requireBrowser } from "./browser-prerequisite.mjs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -10,6 +10,8 @@ import * as claude from "../plugins/sage/skills/sage/sage.mjs";
 import { runBoardCli } from "../plugins/sage/board/cli.mjs";
 import { createBoardServer, loadBoardApp } from "../plugins/sage/board/server.mjs";
 import { TABLES } from "../packages/sage-core/logbook-fields.mjs";
+import { boardOverview, buildBoardModel, readBoardSources } from "../packages/sage-core/index.mjs";
+import { writeSampleLogbooks } from "./board-sample.mjs";
 import { writeTasksLogbook } from "./fixtures/board-app.mjs";
 import { QUESTION, pageQuestion } from "./fixtures/question-message.mjs";
 import { quietBoard } from "./fixtures/quiet-board.mjs";
@@ -121,6 +123,13 @@ for (const width of WIDTHS) {
     await decide.getByRole("heading", { name: "Approve design v1 of the receipt mail?" }).waitFor();
     assert.deepEqual(await decide.getByRole("button").allTextContents(), ["Approve (recommended)", "Approve with your words", "New version"]);
     assert.ok(await page.locator(".taskpage h1").boundingBox().then(box => box.y) < (await decide.boundingBox()).y, "the decision comes right under the title and the steps");
+    const preview = decide.locator(".viewer");
+    await preview.locator("iframe").waitFor();
+    assert.equal(await preview.locator("h2").textContent(), "Design · 1 version", "F-T1216-16: the decision shows the task's design");
+    assert.equal(await decide.evaluate(block => !!(block.querySelector(".viewer").compareDocumentPosition([...block.querySelectorAll("button")].find(button => button.textContent.startsWith("Approve"))) & Node.DOCUMENT_POSITION_FOLLOWING)), true, "F-T1216-16: the design comes before Approve");
+    const [seen, approve] = [await preview.boundingBox(), await decide.getByRole("button", { name: "Approve (recommended)" }).boundingBox()];
+    assert.ok(width < 760 ? seen.y + seen.height <= approve.y : seen.x + seen.width <= approve.x, "the design is above the choices on a phone, and on their left on a wide screen");
+    await shot(page, `design-ask-${width}`);
     await decide.getByRole("button", { name: "Approve with your words" }).click();
     await decide.getByRole("textbox").waitFor();
     await decide.getByRole("button", { name: "Cancel" }).click();
@@ -129,6 +138,8 @@ for (const width of WIDTHS) {
     assert.equal(clicks, 2, "J1: a design question takes two clicks");
     assert.deepEqual([w.answered("G2").via, w.answered("G2").answer], ["board", "Approve"]);
     assert.equal(await decide.getByRole("button", { name: "Undo" }).count(), 1);
+    await decide.locator(".viewer iframe").waitFor();
+    assert.equal(await decide.getByRole("link", { name: "Open the design and the full question" }).getAttribute("href"), `#question?key=${encodeURIComponent(w.key("G2"))}`, "F-T1216-29: the answered decision keeps the design and its link");
     await shot(page, `design-${width}`);
   });
 }
@@ -215,6 +226,94 @@ test("T1216: when the model is too big to send, each level shows the red note an
     await page.goto(`${origin}/app/${hash}`);
     await page.locator("[data-part=too-big]", { hasText: /^The board could not send its newest read/ }).waitFor();
     assert.equal(await page.getByText("The board is reading the logbooks").count(), 0, `${level}: no loading state under the note`);
+    assert.match(await page.locator("[data-part=too-big]").textContent(), /No read fit since this page opened, so the page has nothing to show yet\./, "F-T1216-34: no earlier read, so the note does not promise one");
+    assert.equal(await page.locator("header .live").textContent(), "No read to show", "F-T1216-34: the top bar does not say that it reads for ever");
     await shot(page, `${level}-big-1440`);
   }
+});
+
+test("F-T1216-24, F-T1216-33: the back link of a task page that a link opened goes up one level: its milestone, else its project", async t => {
+  const origin = await fixture(t), { page } = await newPage(t, 1440);
+  await page.goto(`${origin}/app/${LEVELS.l3}`);
+  const back = page.locator(".taskpage a.back");
+  await back.filter({ hasText: "Milestone 1" }).waitFor();
+  assert.deepEqual([await back.textContent(), await back.getAttribute("href")], ["‹ Milestone 1: Board redesign", `#milestone?key=${KEY("M1")}`]);
+  await back.click();
+  await page.locator("main h1", { hasText: "Milestone 1: Board redesign" }).waitFor();
+  assert.equal(await page.goto(`${origin}/app/#task?key=${KEY("T3")}`).then(() => back.filter({ hasText: "Milestone" }).textContent()), "‹ Milestone", "a level page in the history: the back link goes back to it");
+  await page.goto("about:blank");
+  await page.goto(`${origin}/app/#task?key=${KEY("T30")}`);
+  await page.locator(".taskpage h1", { hasText: "T30" }).waitFor();
+  assert.deepEqual([await back.textContent(), await back.getAttribute("href")], ["‹ sample-app", "#project?key=sample-app-abc123"], "a task in no milestone goes up to its project");
+  await shot(page, "back-1440");
+});
+
+test("F-T1216-31, F-T1216-32: a run link says when the board cannot read the runs table, and a link with no run says so", async t => {
+  const origin = await fixture(t, { damaged: true }), { page } = await newPage(t, 1440);
+  await page.goto(`${origin}/app/${LEVELS.l4}`);
+  await page.locator("main h1", { hasText: "The board cannot read this run now" }).waitFor();
+  assert.match(await page.locator("[data-part=failure]").last().textContent(), /^The board cannot read the runs table of this logbook, so it cannot show R30\./);
+  assert.equal(await page.getByText("This run is not in the logbook").count(), 0, "the run is not called missing");
+  await shot(page, "run-unread-1440");
+  const healthy = await fixture(t);
+  await page.goto(`${healthy}/app/#run?key=${KEY("T3")}`);
+  await page.locator("main h1", { hasText: "The link names no run" }).waitFor();
+  assert.equal(await page.locator("main").getByRole("link", { name: "Open the task" }).getAttribute("href"), `#task?key=${KEY("T3")}`);
+  assert.equal(await page.locator(".lv-crumb [aria-current=page]").textContent(), "Run");
+  await shot(page, "run-no-id-1440");
+});
+
+async function sample(t, { archivedGate = false } = {}) {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-levels-sample-"))), now = new Date().toISOString();
+  const sources = writeSampleLogbooks(join(dir, "sample"), { now }).map(({ id, label, path }) => ({ id, label, path }));
+  if (archivedGate) {
+    const book = join(dir, "sample", "codex", readdirSync(join(dir, "sample", "codex")).find(name => name.startsWith("old-site-")));
+    appendFileSync(join(book, "gates.tsv"), `${TABLES.gates.map(column => ({ id: "G1", task: "T3", question: "Sample: keep the old site up?", options: "yes|no", recommendation: "yes", at: new Date(Date.parse(now) - 60_000).toISOString() })[column] ?? "").join("\t")}\n`);
+  }
+  const server = quietBoard({ sources, port: 0, app: APP });
+  const { port } = await server.start();
+  await server.ready();
+  t.after(async () => { await server.close(); rmSync(dir, { recursive: true, force: true }); });
+  const view = boardOverview(buildBoardModel(readBoardSources(sources, { now: Date.parse(now) }), { now }));
+  const key = (id, project = "claude/sage-") => view.tasks.find(task => task.id === id && task.key.startsWith(project)).key;
+  return { origin: `http://127.0.0.1:${port}`, view, key, now };
+}
+
+test("F-T1216-21: a stopped or failed run with no report says that it stopped; only a run at work says it is at work", async t => {
+  const { origin, key } = await sample(t), { page } = await newPage(t, 1440);
+  const report = async (task, run) => {
+    await page.goto(`${origin}/app/#run?key=${encodeURIComponent(key(task))}&run=${run}`);
+    await page.locator("main h1", { hasText: run }).waitFor();
+    return page.locator("[data-part=report] p").first().textContent();
+  };
+  assert.equal(await report("T301", "R242"), "No report. The run stopped.", "R242 is running in the logbook, but its agent stopped with no report");
+  assert.equal(await page.locator("[data-part=facts] .big2").textContent(), "Stopped without a report");
+  await shot(page, "run-stopped-1440");
+  assert.equal(await report("T210", "R254"), "No report. The run stopped.", "R254 failed");
+  await shot(page, "run-failed-1440");
+  assert.equal(await report("T301", "R241"), "No report yet: the run is at work.");
+});
+
+test("F-T1216-17, F-T1216-22: a failed run shows the flag words of the model; a merge row names its next step and no ask time", async t => {
+  const { origin, key } = await sample(t), { page } = await newPage(t, 1440);
+  await page.goto(`${origin}/app/`);
+  const failed = page.locator(`[data-part=work] a[data-run="R254"][data-task="${key("T210")}"]`);
+  await failed.waitFor();
+  assert.deepEqual([await failed.locator(".fl").textContent(), await failed.locator(".fl").getAttribute("class")], ["failed", "fl red"]);
+  const merge = page.locator(`[data-part=needs] .lv-need`).filter({ has: page.locator(`a[href="#task?key=${encodeURIComponent(key("T12", "claude/order-chaser-"))}"]`) });
+  assert.match(await merge.locator(".q").textContent(), /PR 41/);
+  assert.equal(await merge.locator(".body .more").last().textContent(), "Next: merge it in the chief's chat. The chief runs the merge check first.");
+  assert.equal(await merge.locator(".meta").textContent(), "order-chaser", "no ask time for a row that is not a question");
+  await shot(page, "merge-row-1440");
+});
+
+test("F-T1216-18: the since line counts the questions and the flags of the rows below it, so an archived project counts in neither", async t => {
+  const { origin, view, now } = await sample(t, { archivedGate: true }), { page } = await newPage(t, 1440);
+  const archived = new Set(view.projects.filter(project => project.archived).map(project => project.key)), from = Date.parse(now) - 86_400_000;
+  assert.ok(view.needs.some(need => archived.has(need.project) && Date.parse(need.askedAt) > from), "the archived project has a new question, so the test can tell");
+  const asked = view.needs.filter(need => !archived.has(need.project) && Date.parse(need.askedAt) > from).length, flags = view.agents.filter(book => !archived.has(book.project)).reduce((n, book) => n + book.look, 0);
+  await page.goto(`${origin}/app/`);
+  await page.locator("[data-part=since]").waitFor();
+  assert.match(await page.locator("[data-part=since]").textContent(), new RegExp(` · ${asked} new questions? · ${flags} with a flag now`));
+  await shot(page, "since-1440");
 });

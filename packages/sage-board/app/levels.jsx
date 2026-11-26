@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { PairBox, PairNote, UndoButton, chiefLabel, markSeen, post, useAccess, useSeen } from "./actions.jsx";
+import { DesignPreview, PairBox, PairNote, UndoButton, chiefLabel, markSeen, post, useAccess, useSeen } from "./actions.jsx";
 import { Start, ago, plural } from "./overview.jsx";
 import { projectNamed } from "./projects.jsx";
 import { questionLink, runLink, taskLink } from "./task.jsx";
-import { DESIGN_OPTIONS, OBJECTS, WORDS_MAX } from "../../sage-core/state-words.mjs";
+import { DESIGN_OPTIONS, WORDS_MAX } from "../../sage-core/state-words.mjs";
 
 const q = encodeURIComponent;
 export const projectLink = key => `#project?key=${q(key)}`;
@@ -43,7 +43,7 @@ export function Crumb({ all, page }) {
   else if (place.loose && place.project) parts.push(["No milestone", looseLink(place.project.key)]);
   else if (place.level === "milestone") parts.push([KIND.milestone]);
   if (["task", "run"].includes(place.level)) parts.push([place.row?.title ?? KIND.task, place.row && taskLink(place.row.key)]);
-  if (place.level === "run") parts.push([place.run ?? KIND.run]);
+  if (place.level === "run") parts.push([place.run || KIND.run]);
   return (
     <nav className="crumb lv-crumb" aria-label="Where you are">
       {parts.map(([label, href], i) => i === parts.length - 1 ? <b key={i} aria-current="page">{label}</b> : <span key={i}><a href={href}>{label}</a><i aria-hidden="true">›</i></span>)}
@@ -95,10 +95,9 @@ function TaskRow({ row, meta, project, fresh, to, indent }) {
   );
 }
 
-export const flagOf = run => run.flag ?? (run.look ? { level: run.status === "failed" ? "red" : "amber", text: OBJECTS.agent.states[run.status === "running" ? run.state : run.status]?.at(-1) ?? run.status } : null);
 const Flag = ({ flag }) => <span className={`fl ${flag.level}`}>{flag.text}</span>;
 function RunRow({ run, project }) {
-  const flag = flagOf(run);
+  const { flag } = run;
   return (
     <a className="lv-row ind" href={runLink(run.task.key, run.id)} data-run={run.id} data-task={run.task.key}>
       <span className={run.status === "running" ? "mk m-work" : "mk"} aria-hidden="true" />
@@ -127,14 +126,18 @@ function Answer({ need, writes, archived }) {
   </>;
 }
 
-export function Decide({ need, answered, archived = false, now }) {
+const MERGE_NEXT = { merge: "Next: merge it in the chief's chat.", "merge-check": "Next: merge it in the chief's chat. The chief runs the merge check first.", "merge-refused": "Next: ask the chief in its chat to repair it." };
+const asked = (need, now) => need.askedAt ? `asked ${clock(need.askedAt, now)}` : need.gate ? "time not recorded" : null;
+const WithDesign = ({ need, at, theme, children }) => need.design ? <div className="two"><DesignPreview needKey={need.key} at={at} theme={theme} />{children}</div> : children;
+
+export function Decide({ need, answered, archived = false, now, theme }) {
   const writes = useAccess(), [said, setSaid] = useState(null), [busy, setBusy] = useState(false), [words, setWords] = useState(null);
   const done = answered ? { option: answered.answer, logbook: answered.logbook, gate: answered.gateId } : said?.ok ? { option: said.option, logbook: need.logbook, gate: need.gate } : null;
-  const question = answered ? answered.question : need.question;
+  const shown = answered ?? need, { key, question, design } = shown;
   if (done) return (
-    <section className="lv-decide done" data-decide={answered?.key ?? need.key}>
+    <section className="lv-decide done" data-decide={key}>
       <p className="lbl2">Answered</p><h2>{question}</h2>
-      <p className="lv-ans" role="status">You chose <b>{done.option}</b>. Recorded in the logbook. It waits for the chief to pick it up; you can undo until then. <UndoButton logbook={done.logbook} gate={done.gate} onDone={result => result.ok && setSaid(null)} /></p>
+      <WithDesign need={shown} at={now} theme={theme}><p className="lv-ans" role="status"><span>You chose <b>{done.option}</b>. Recorded in the logbook. It waits for the chief to pick it up; you can undo until then.</span> <UndoButton logbook={done.logbook} gate={done.gate} onDone={result => result.ok && setSaid(null)} /></p></WithDesign>
     </section>
   );
   const can = writes === "paired" && !archived && !busy;
@@ -154,13 +157,11 @@ export function Decide({ need, answered, archived = false, now }) {
     </div>;
   return (
     <section className="lv-decide" data-decide={need.key}>
-      <p className="lbl2">Needs you · {need.askedAt ? `asked ${clock(need.askedAt, now)}` : "time not recorded"}</p>
+      <p className="lbl2">{["Needs you", asked(need, now)].filter(Boolean).join(" · ")}</p>
       <h2>{need.question}</h2>
       {need.more.length > 0 && <p className="more">{need.more.join(" ")}</p>}
-      {need.design ? <div className="two">
-        <a className="lv-design" href={questionLink(need.key)}>Open the design and the full question</a>
-        <div><p className="faint">A design question has three fixed choices, so sage knows when you approve. Your words go with {DESIGN_OPTIONS[1]}.</p>{choices}</div>
-      </div> : choices}
+      {MERGE_NEXT[need.kind] && <p className="more">{MERGE_NEXT[need.kind]}</p>}
+      <WithDesign need={shown} at={now} theme={theme}>{design ? <div><p className="faint">A design question has three fixed choices, so sage knows when you approve. Your words go with {DESIGN_OPTIONS[1]}.</p>{choices}</div> : choices}</WithDesign>
       {said && !said.ok && <p className="refused" role="alert">Not recorded. {said.text}</p>}
       {need.gate && writes !== "paired" && <PairBox id={`pair-${need.gate}`} />}
     </section>
@@ -170,7 +171,7 @@ export function Decide({ need, answered, archived = false, now }) {
 function NeedRow({ need, all, byProject, fresh, now }) {
   const writes = useAccess(), project = all.projects.find(item => item.key === need.project), archived = !!project?.archived && need.project !== null;
   const link = need.task ? taskLink(need.task.key) : need.milestone ? milestoneLevelLink(need.milestone) : null;
-  const where = [byProject && project?.name, need.askedAt ? `asked ${clock(need.askedAt, now)}` : "time not recorded"].filter(Boolean).join(" · ");
+  const where = [byProject && project?.name, asked(need, now)].filter(Boolean).join(" · ");
   return (
     <div className="lv-need" data-need={need.key}>
       <Mark row="needs" />
@@ -179,6 +180,7 @@ function NeedRow({ need, all, byProject, fresh, now }) {
       <div className="body">
         {need.task && <p className="q">{need.question}</p>}
         {need.more.length > 0 && <p className="more">{need.more.join(" ")}</p>}
+        {MERGE_NEXT[need.kind] && <p className="more">{MERGE_NEXT[need.kind]}</p>}
         {need.gate && need.design ? <div className="lv-acts"><a className="btn primary" href={taskLink(need.task.key)}>Open the design to answer</a><span className="faint">A design answer needs its page: 3 fixed choices there.</span></div>
           : need.gate && need.options?.length ? <Answer need={need} writes={writes} archived={archived} />
           : link && <div className="lv-acts"><a className="lv-open" href={link}>Open</a></div>}
@@ -237,7 +239,7 @@ function WorkPart({ all, keys, rows, names, byProject, books }) {
       <div className="lv-list">{projects.map(project => {
         const own = all.levels.projects[project.key].work, mine = flagged.filter(item => item.project === project.key);
         const calm = books.filter(book => book.project === project.key).flatMap(book => book.runs.filter(run => run.status === "running" && run.flag && !run.look).map(run => run.flag.text));
-        const flags = [...new Set([...mine.map(item => flagOf(item.run).text), ...calm])];
+        const flags = [...new Set([...mine.map(item => item.run.flag?.text), ...calm].filter(Boolean))];
         return [
           <button type="button" key={project.key} className="lv-wp" aria-expanded={opened.has(project.key)} onClick={() => toggle(project.key)} data-work={project.key}>
             <Mark row="work" /><span className="tt">{project.name}</span>
@@ -284,11 +286,11 @@ function ListPart({ id, label, keys, rows, names, byProject, meta, fresh, all: e
   );
 }
 
-function Since({ all, since, previous, now }) {
+function Since({ all, live, needs, books, since, previous, now }) {
   const from = since ?? time(all.at) - DAY;
-  const merged = all.tasks.filter(row => row.state === "merged" && time(row.doneAt) > from).length;
-  const asked = all.needs.filter(need => time(need.askedAt) > from).length;
-  const flags = all.agents.reduce((n, book) => n + book.look, 0);
+  const merged = all.tasks.filter(row => live(row.project) && row.state === "merged" && time(row.doneAt) > from).length;
+  const asked = needs.filter(need => time(need.askedAt) > from).length;
+  const flags = books.reduce((n, book) => n + book.look, 0);
   return (
     <div className="lv-since" data-part="since">
       <span>{previous ? <>Since you looked at {clock(previous, now)}</> : "In the last 24 hours"}: <b>{merged} merged</b> · <b>{plural(asked, "new question")}</b> · <b>{flags} with a flag now</b></span>
@@ -357,7 +359,7 @@ export function LevelPage({ all, page, now }) {
       {head}
       <PairNote />
       <Unread projects={top ? all.projects.filter(item => !item.archived) : [project]} names={names} />
-      {top && <Since all={all} since={since} previous={previous} now={now} />}
+      {top && <Since all={all} live={live} needs={needs} books={books} since={since} previous={previous} now={now} />}
       <NeedsPart all={all} needs={needs} answered={answered} byProject={top} since={since} now={now} />
       <div className="lv-two">
         <WorkPart all={all} keys={scope.work} rows={rows} names={names} byProject={top} books={books} />

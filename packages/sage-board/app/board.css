@@ -734,8 +734,8 @@ table.sr { left: 0; top: 0; white-space: normal; }
 .lv-note.bad { background: var(--fail-fill); border-color: var(--fail); }
 .lv-decide, .lv-facts { border: 1px solid var(--line-2); border-left: 3px solid var(--need); border-radius: var(--r); padding: var(--s4) var(--s5); margin: var(--s4) 0 var(--s5); background: var(--card); display: grid; gap: var(--s2); }
 .lv-decide.done, .lv-facts.done { border-left-color: var(--done); }
-.lv-decide .two { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: var(--s5); align-items: start; }
-.lv-design { display: grid; place-items: center; min-height: 120px; padding: var(--s3); border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--card-2); text-align: center; }
+.lv-decide .two { display: grid; grid-template-columns: minmax(0, 3fr) minmax(220px, 2fr); gap: var(--s5); align-items: start; }
+.lv-decide .viewer iframe { height: 55vh; }
 .lv-words label { display: grid; gap: var(--s1); }
 .lv-words textarea { width: 100%; }
 .lv-facts { border-left-color: var(--line-2); }

@@ -10,7 +10,7 @@ import { Tasks } from "./tasks.jsx";
 import { Picker, Signal, projectNamed, projectOfKey, projectView } from "./projects.jsx";
 import { ArchiveFoot, ArchiveLayer, WelcomeBack } from "./archive.jsx";
 import { useModel, useNow, when } from "./use-model.js";
-import { Crumb, Decide, LEVELS, LevelPage, Loading, Tree, placeOf } from "./levels.jsx";
+import { Crumb, Decide, LEVELS, LevelPage, Loading, Tree, milestoneLevelLink, placeOf, projectLink } from "./levels.jsx";
 import { RunPage } from "./run.jsx";
 import { OBJECTS, runWord } from "../../sage-core/state-words.mjs";
 
@@ -85,7 +85,8 @@ function useTheme() {
 const dataAt = (model, link, lostAt) => link === "lost" && !model.stale ? lostAt : model.at;
 const age = (at, now) => `${when(at)}, ${ago(at, now)}`;
 
-function Status({ model, link, lostAt, now }) {
+function Status({ model, link, lostAt, now, notice }) {
+  if (notice && !model) return <span className="live bad" role="status"><span className="dot" />No read to show</span>;
   if (link === "connecting" && !model) return <span className="live" role="status"><span className="dot" />Reading the logbooks</span>;
   if (!model) return <span className="live bad" role="status"><span className="dot" />Cannot reach the board</span>;
   if (link === "lost") return <span className="live bad" role="status"><span className="dot" />Not updated since {age(dataAt(model, link, lostAt), now)} · trying again</span>;
@@ -159,14 +160,15 @@ export function App() {
   const running = model ? model.agents.reduce((n, book) => n + book.running, 0) : 0;
   const key = page.params.get("key") ?? "", place = all && level ? placeOf(all, page) : null;
   const welcome = page.hash === "overview" ? current : place?.level === "project" ? place.project : null;
+  const up = place?.milestone ? { name: place.milestone.title, href: milestoneLevelLink(place.milestone.key) } : place?.project ? { name: place.project.name, href: projectLink(place.project.key) } : null;
   const body = page.hash === "overview" ? <Overview model={model} shown={shown} chief={picked} /> : page.hash === "tasks" ? <Tasks model={model} params={page.params} chief={picked} />
     : page.hash === "pull-requests" ? <Pulls model={model} chief={picked} />
     : page.hash === "agents" ? <Agents model={model} chief={picked} />
     : page.hash === "stats" ? <Stats all={all} params={page.params} />
     : page.hash === "question" ? <QuestionView key={key} needKey={key} openId={page.params.get("open")} model={model} theme={theme} project={current} />
-    : page.hash === TASK.hash ? <TaskPage key={key} taskKey={key} tab={page.params.get("tab")} at={all?.at} from={history.state?.from}>
-      {all?.needs.filter(need => need.task?.key === key).map(need => <Decide key={need.key} need={need} archived={!!place?.project?.archived} now={all.at} />)}
-      {all?.answered.filter(item => item.task.key === key).map(item => <Decide key={item.key} answered={item} now={all.at} />)}
+    : page.hash === TASK.hash ? <TaskPage key={key} taskKey={key} tab={page.params.get("tab")} at={all?.at} from={history.state?.from} up={up}>
+      {all?.needs.filter(need => need.task?.key === key).map(need => <Decide key={need.key} need={need} archived={!!place?.project?.archived} now={all.at} theme={theme} />)}
+      {all?.answered.filter(item => item.task.key === key).map(item => <Decide key={item.key} answered={item} now={all.at} theme={theme} />)}
     </TaskPage>
     : page.hash === "run" ? <RunPage key={`${key} ${page.params.get("run")}`} taskKey={key} runId={page.params.get("run") ?? ""} all={all} />
     : <LevelPage all={all} page={page} now={now} />;
@@ -201,7 +203,7 @@ export function App() {
           {model && !level && !page.own && <Signal others={model.others} />}
           <span className="grow" />
           {model && !level && !page.own && <LimitCounts agents={model.agents} all={all.agents} />}
-          <Status model={model} link={link} lostAt={lostAt} now={now} />
+          <Status model={model} link={link} lostAt={lostAt} now={now} notice={notice} />
           <button type="button" className="theme" onClick={flip} aria-label={`Switch to the ${next} theme`} title={`Switch to the ${next} theme`}>
             {theme === "dark" ? <SunIcon /> : <MoonIcon />}
           </button>

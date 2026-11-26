@@ -223,7 +223,7 @@ const backName = from => {
   const [path, query] = from.split("?"), key = path === "task" && new URLSearchParams(query).get("key");
   return key ? `${OBJECTS.task.label} ${key.split("/").pop()}` : Object.hasOwn(BACK_NAMES, path) ? BACK_NAMES[path] : null;
 };
-export function TaskPage({ taskKey, tab: asked, at, from, children }) {
+export function TaskPage({ taskKey, tab: asked, at, from, up, children }) {
   const { data: task, problem } = useTask(taskKey, at);
   const [tab, setTab] = useState(TABS.find(name => name.toLowerCase() === asked) ?? TABS[0]);
   const heading = useRef(null), tabs = useRef([]);
@@ -240,7 +240,7 @@ export function TaskPage({ taskKey, tab: asked, at, from, children }) {
   const counts = task && { Artifacts: task.runs.length + (task.files.designs.versions || hasArena(task) ? 1 : 0) + task.files.recorded.length + task.artifacts.length + (task.files.pages?.length ?? 0) + task.files.kept.length, Log: task.log.length + task.logMore, Decisions: task.decisions.length };
   return (
     <article className="taskpage">
-      <a className="back" href={back ? `#${from}` : "#tasks"} onClick={event => { if (back && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); history.back(); } }}><span aria-hidden="true">‹ </span>{back ?? BACK_NAMES.tasks}</a>
+      <a className="back" href={back ? `#${from}` : up?.href ?? "#"} onClick={event => { if (back && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); history.back(); } }}><span aria-hidden="true">‹ </span>{back ?? up?.name ?? BACK_NAMES[""]}</a>
       <h1 ref={heading} tabIndex={-1}>{task ? controlsShown(task.title) : problem === "gone" ? "This task is not on the board" : problem ? "The board cannot read this task now" : "Reading the task"}{task && <span className="mono faint tid">{task.id}</span>}</h1>
       {problem && !task && <p className="none" role="alert">{problem === "gone" ? "The logbook has no task with this name. Go back and pick a task from a list." : problem === "read" ? "It tries again when the logbook changes." : problem}</p>}
       {problem && task && <p className="stale" role="status">{problem === "gone" ? "This task is no longer on the board. The page shows what it read last." : problem === "read" ? "The page could not refresh. It shows what it read last, and tries again when the logbook changes." : `${problem} The page shows what it read last.`}</p>}

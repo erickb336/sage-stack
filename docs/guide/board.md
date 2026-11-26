@@ -150,9 +150,10 @@ The address of the board opens **All projects**. The board has five levels, and 
 
 **The parts of a level, from the top:**
 
-- **Since you looked** (All projects only): for example "Since you looked at 07:10: 2 merged · 1 new question · 1 with a flag now", and "Mark seen". A new question or a new done task has a small dot. The time stays in this browser, as before; before your first visit, the line counts the last 24 hours.
+- **Since you looked** (All projects only): for example "Since you looked at 07:10: 2 merged · 1 new question · 1 with a flag now", and "Mark seen". A new question or a new done task has a small dot. The counts leave out archived projects, as the rows under them do; the time stays in this browser, and before your first visit the line counts the last 24 hours.
 - **Needs you**, full width, oldest first. A question with fixed choices shows its choices on its row: [in a paired browser](#act-from-the-board), one click answers it, through the same write as the question view. Undo takes it back until the chief picks it up.
 - **A design question** has no choice on its row: "Open the design to answer" opens its task, where its three choices are. Each row also has Open, which opens the question view with its full message.
+- **A merge** that waits for you names its next step, for example "Next: merge it in the chief's chat. The chief runs the merge check first." It has no button: the board does not merge.
 - **At work.** On All projects, one line for each project with its tasks, its agents and its flags, or "no flag"; a click opens the project's tasks in place. On a project or a milestone, one line for each task at work.
 - **A flag:** an agent with a flag, such as "Look at it", "Stopped without a report" or a failed run, gets its own row under At work, and a click opens its run.
 - **Progress:** each milestone with a bar and "5 of 9". On a project, "No milestone" counts its open tasks in no milestone. On a milestone, its own bar and when it is done.
@@ -161,16 +162,22 @@ The address of the board opens **All projects**. The board has five levels, and 
 
 A part with nothing in it is not a card: the parts fold into one line, for example "Here: no agent at work · nothing waits". Colour shows only the state of a row and a flag, and each colour has its own shape: a diamond needs you, a dot is at work, a ring waits, a check is done, a triangle or a square is a flag.
 
-**The task** opens with its title, its state and its steps, then the decision when the task needs you: the question with its choices, which answer at once. A design question shows a link to the design and the full question, and "Approve", "Approve with your words" and "New version"; "Approve with your words" opens a box for your words. Under it are the agents at work (a click opens a run), and the About, Artifacts, Log and Decisions tabs.
+**The task** opens with its title, its state and its steps, then the decision when the task needs you: the question with its choices, which answer at once. Under the decision are the agents at work (a click opens a run), and the About, Artifacts, Log and Decisions tabs.
+
+- **A design question** shows the design first, in a frame, with a link to the design and the full question; then "Approve", "Approve with your words" (which opens a box for your words) and "New version". The design stays after your answer. When the question names no design page and the task's pages folder has none, the decision says so.
+- **The back link** "‹" goes back to the page you came from. A task that a link opened goes up to its milestone, or to its project when it is in no milestone.
 
 **The run** opens with three facts: what happened (at work, a flag and why, failed, or done with its result), the last note of its agent, and what next. Then its report, its log (the agent's last actions, newest last) and its brief.
+
+- **No report:** a run that stopped or failed with no report says "No report. The run stopped."; only a run at work says "No report yet: the run is at work."
+- **No run:** a link that names no run says so and links to the task.
 
 **The states of a level.** Each level shows what it can:
 
 - **Loading:** "The board is reading the logbooks" while the board does its first read; a task or a run says "Reading the task" or "Reading the run".
 - **Empty:** All projects with no project shows the first steps. A level with nothing open shows its one fold line.
-- **Failure:** a red note names the project and the table that the board cannot read, and the rest of the page stays current. A task or a run that the board cannot read says so, and a run whose log cannot be read still shows what happened.
-- **Too big:** when the board's data is over its limit, a red note gives the size and the limit, and the page keeps the last data that fit.
+- **Failure:** a red note names the project and the table that the board cannot read, and the rest of the page stays current. A task or a run that the board cannot read says so, and a run whose log cannot be read still shows what happened. When the board cannot read a project's runs table, a run link says that, not that the run is missing.
+- **Too big:** when the board's data is over its limit, a red note gives the size and the limit, and the page keeps the last data that fit. A page that opened while no read fit says that it has nothing to show yet, and the top bar says "No read to show".
 
 **More.** The pages of the board before the levels stay under "More" in the side bar, until their parts move into the levels: the Overview (the chief chips, the sessions, the stopped chiefs and archive), Tasks, Agents, Pull requests and Stats. A project's level links to each of them for that project.
 
