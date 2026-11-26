@@ -173,15 +173,15 @@ test("old logbooks: finished tasks show in Done with their old label, a moved ro
   assert.deepEqual(session({}).projects.map(project => project.key), [`shared/${FOLDER}`], "a root that the board does not know is not read");
 });
 
-test("the hook notes of each provider root join the shared runs: no false may be stuck for a shared Claude run, and a Codex run shows from the logbook", t => {
+test("the hook notes of each provider root join the shared runs: no false flag for a shared Claude run, and a Codex run shows from the logbook", t => {
   const model = modelOf(world(t).sources);
   const lantern = model.agents.projects.find(project => project.name === "lantern");
   const all = lantern.agents.flatMap(agent => [agent, ...agent.children]);
   const agent = id => all.find(item => item.runId === id);
-  assert.deepEqual(["R420", "R407", "R412"].map(id => agent(id)?.state), ["work", "work", "unk"]);
+  assert.deepEqual(["R420", "R407", "R412"].map(id => agent(id)?.flag?.text ?? null), [null, null, "Codex: activity unknown"]);
   assert.deepEqual(model.agents.unmatched.map(item => item.run).sort(), ["R410", "R411", "R5"], "only the runs that no slot holds");
   assert.equal(agent("R412").provider, "codex");
-  assert.doesNotMatch(agent("R420").why ?? "", /may be stuck/);
+  assert.equal(agent("R420").why, "");
 });
 
 test("a lead slot's logbook mark, as the hook writes it for a linked project, equals the reader's name of the shared folder", t => {
@@ -317,8 +317,8 @@ test("F-T624-1: a slot joins the run of its own source when a legacy project run
   for (const mark of ["ok", "project-app", "role-sage_code-reviewer", "run-R3"]) writeFileSync(join(dir, mark), "");
   mkdirSync(join(claudeRoot, ".hooks", "helpers"));
   const agents = modelOf([{ id: "claude", label: "Claude", provider: "claude", path: claudeRoot }, { id: "codex", label: "Codex", provider: "codex", path: codexRoot }]).agents;
-  const rows = agents.projects.flatMap(project => project.agents).map(agent => [agent.key, agent.slot ? "slot" : agent.how, agent.state]).sort();
-  assert.deepEqual(rows, [["claude/app-aaaaaa/R3", "slot", "work"], ["codex/app-aaaaaa/R3", "logbook", "unk"]]);
+  const rows = agents.projects.flatMap(project => project.agents).map(agent => [agent.key, agent.slot ? "slot" : agent.how, agent.flag?.text ?? null]).sort();
+  assert.deepEqual(rows, [["claude/app-aaaaaa/R3", "slot", null], ["codex/app-aaaaaa/R3", "logbook", "Codex: activity unknown"]]);
   assert.deepEqual(agents.unmatched, []);
 });
 
@@ -341,8 +341,8 @@ test("F-T624-3: the in-session board reads its provider's hook notes for a share
   const w = world(t);
   const session = view.sessionSources(w.claudeRoot, w.shared, "claude");
   assert.equal(session[0].label, "Current provider", "the legacy label stays");
-  const state = sources => { const agents = modelOf(sources).agents.projects.flatMap(project => project.agents.flatMap(agent => [agent, ...agent.children])); return ["R410", "R411", "R412"].map(id => agents.find(agent => agent.runId === id)?.state); };
-  assert.deepEqual(state(session), ["stuck", "stuck", "unk"]);
+  const state = sources => { const agents = modelOf(sources).agents.projects.flatMap(project => project.agents.flatMap(agent => [agent, ...agent.children])); return ["R410", "R411", "R412"].map(id => agents.find(agent => agent.runId === id)?.flag?.text); };
+  assert.deepEqual(state(session), ["Look at it", "Look at it", "Codex: activity unknown"], "R410 and R411: no agent slot holds them");
   assert.deepEqual(state(session), state(w.sources), "the same as the server");
 });
 

@@ -433,8 +433,8 @@ test("R1075-1, R1071-1: a step runs now only while a run of the task runs; a gat
     "F-T1016-5: with no open gate, Next does not say that you approve every design");
   const stale = oneTask(task("T1", "building"), { runs: [{ id: "R5", task: "T1", role: "implementer", status: "running", started: "2026-10-05T08:00:00Z" }] });
   assert.deepEqual(line(stale)[1], "Build: stale");
-  assert.deepEqual(stale.loop.now, { needs: false, stale: true, text: "No news from the implementer since 5 Oct, so ask the chief to check it." });
-  assert.equal(stale.loop.steps[1].detail, "No news from the implementer (run R5) since 5 Oct, so ask the chief to check it.");
+  assert.deepEqual(stale.loop.now, { needs: false, stale: true, text: "Look at it. For the implementer (run R5), no news since 5 Oct, so ask the chief to check it." });
+  assert.equal(stale.loop.steps[1].detail, "For the implementer (run R5), no news since 5 Oct, so ask the chief to check it.");
   assert.deepEqual([stale.agents.map(agent => agent.stale), buildBoardModel([source("one", [task("T1", "building")], { runs: stale.runs })], { now }).counts.recordedAgents], [[true], 0], "a stale run is not an agent at work");
 });
 
@@ -482,7 +482,7 @@ test("T305: in review, the current cycle runs and its roles have words; the next
   const card = oneTask(task("T1", "reviewing", { pr: "12", risk: "auth", route: "build,code-review,security-review,qa" }), { ledger, runs }, records);
   assert.deepEqual(line(card), ["Plan: done", "Build: done", "Review 1 of 2: run", "Review 2 of 2: wait", "Merge: wait"]);
   assert.deepEqual(card.loop.steps[2].parts, [["checks", "done"], ["code review", "done"], ["security review", "run"], ["QA", "wait"]]);
-  assert.equal(card.loop.steps[2].detail, "On the last commit (aaaaaaa). The security reviewer (Codex, run R1) is at work. It started 25 min ago.");
+  assert.equal(card.loop.steps[2].detail, "On the last commit (aaaaaaa). The security reviewer (Codex, run R1) is at work. It started 25 min ago. Codex sends no activity notes yet.", "T1224: the Codex flag says why the board cannot flag it");
   assert.equal(card.loop.steps[3].detail, "A risk flag (auth) needs 2 clean cycles.");
   assert.deepEqual([card.loop.now.text, card.loop.next], ["The security reviewer is at work on review cycle 1 of 2.", "QA, then review cycle 2 of 2."]);
   const unknown = oneTask(task("T1", "reviewing", { pr: "12" }));
@@ -513,15 +513,29 @@ test("T305, R1071-2, R1076-3: an investigation shows Plan, Investigate, Evidence
   assert.deepEqual(line(oneTask(task("T1", "concluded", { size: "investigate", route }), evidence)), ["Plan: done", "Investigate: done", "Evidence review: done", "Conclude: done"]);
 });
 
-test("T305: a run's time is minutes or hours up to 24 h; after 24 h with no logbook change, the run may be stuck", async () => {
+test("T305: a run's time is minutes or hours up to 24 h; after 24 h it gives the start day, and with no logbook change it is stale: the no-news words come from the agent flag only (F-T1224-7)", async () => {
   const { runClock } = await import("../packages/sage-core/board-model.mjs");
   const at = Date.parse(now);
   assert.deepEqual(runClock("2026-10-08T19:20:00Z", at, null), { text: "40 min", stale: false });
   assert.deepEqual(runClock("2026-10-08T16:55:00Z", at, null), { text: "3 h 5 min", stale: false });
-  assert.deepEqual(runClock("2026-10-05T08:00:00Z", at, "2026-10-05T08:00:00Z"), { text: "no news since 5 Oct, so ask the chief to check it", stale: true, since: "5 Oct" });
+  assert.deepEqual(runClock("2026-10-05T08:00:00Z", at, "2026-10-05T08:00:00Z"), { text: "since 5 Oct", stale: true, since: "5 Oct" });
   assert.deepEqual(runClock("2026-10-05T08:00:00Z", at, "2026-10-08T12:00:00Z"), { text: "since 5 Oct", stale: false }, "a change in the last 24 h: not stale");
   const card = oneTask(task("T1", "building"), { runs: [{ id: "R5", task: "T1", role: "implementer", status: "running", started: "2026-10-05T08:00:00Z" }] });
-  assert.equal(card.runClocks.R5.text, "no news since 5 Oct, so ask the chief to check it", "F-T1096-9: one flag, may be stuck, and no second phrase");
+  assert.equal(card.runClocks.R5.text, "since 5 Oct", "F-T1224-7: a time only, no advice beside the flag");
+});
+
+test("T1224: the task loop and the chat card take a running run's flag from the one rule: Look at it for a Claude run with no news for a day, never for Codex", async () => {
+  const { renderTaskText } = await import("../packages/sage-core/board-render.mjs");
+  const quiet = { runs: [{ id: "R5", task: "T1", role: "implementer", status: "running", started: "2026-10-05T08:00:00Z" }] };
+  const claude = oneTask(task("T1", "building"), quiet);
+  assert.deepEqual([claude.loop.steps[1].status, claude.runs[0].flag.text], ["stale", "Look at it"]);
+  assert.match(renderTaskText(claude), /\nR5 .*· implementer · in progress · Look at it · since 5 Oct/);
+  assert.match(renderTaskText(claude), /\n! Build: in progress · Look at it · For the implementer \\\(run R5\\\), no news since 5 Oct, so ask the chief to check it/, "the step says the flag's words");
+  const codex = buildBoardModel([{ ...source("codex", [task("T1", "building")], quiet), provider: "codex" }], { now, landing: passes }).tasks[0];
+  assert.deepEqual([codex.loop.steps[1].status, codex.loop.steps[1].detail, codex.runs[0].flag.level, codex.runs[0].flag.text], ["run", "The implementer (run R5) is at work. It started on 5 Oct. Codex sends no activity notes yet; no news since 5 Oct.", "calm", "Codex: activity unknown"], "the step is in progress with no amber, and still says the fact");
+  assert.match(renderTaskText(codex), /\nR5 .*· implementer · in progress · Codex\\: activity unknown · since 5 Oct/, "the chat escapes the colon");
+  const fresh = oneTask(task("T1", "building"), { runs: [{ ...quiet.runs[0], started: "2026-10-08T19:00:00Z" }] });
+  assert.deepEqual([fresh.loop.steps[1].status, fresh.runs[0].flag], ["run", null], "a run with news today has no flag");
 });
 
 const twoSources = (claude, codex) => buildBoardModel([["claude", "Claude", claude], ["codex", "Codex", codex]].map(([id, provider, books]) => ({ id, label: id, provider, diagnostics: [], projects: books.map(({ name, tasks, ...rest }) => ({ key: `${id}/${name}`, name, diagnostics: [], warnings: [], tables: { tasks }, ...rest })) })), { now });

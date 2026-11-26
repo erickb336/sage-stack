@@ -1,6 +1,7 @@
 import { LAPSED, LINE, PRIORITIES, boardAnswer } from "./logbook-fields.mjs";
 import { milestoneName } from "./milestone-rules.mjs";
-import { AGENT_QUIET_MS, ROW_STATES, isOpen, rowState } from "./board-model.mjs";
+import { ROW_STATES, isOpen, rowState } from "./board-model.mjs";
+import { needsLook } from "./agent-flag.mjs";
 import { TEAM } from "./role-policy.mjs";
 import { runWord, taskWord } from "./state-words.mjs";
 import { measureTotals, runMeasure } from "./usage.mjs";
@@ -20,7 +21,6 @@ const STATE_ORDER = ["stuck", "lost", "active", "changing", "proposed", "done"];
 const stateRank = state => STATE_ORDER.includes(state) ? STATE_ORDER.indexOf(state) : STATE_ORDER.length;
 const number = id => Number(String(id).replace(/^\D+/, "")) || 0;
 
-const LOOK = ["lost", "stuck", "stop"];
 function everyAgent(agents) {
   const all = [], walk = agent => { all.push(agent); for (const child of agent.children ?? []) walk(child); };
   for (const project of agents?.projects ?? []) for (const agent of project.agents) walk(agent);
@@ -103,7 +103,6 @@ function taskRow(task, chiefs) {
 
 const LIVE = ["running", "queued"], HELPERS_MAX = 20;
 
-
 const retried = (task, run) => task.runs.some(other => other.role === run.role && time(other.started) > time(run.started));
 const failedDecision = (task, run) => (task.decisionRows ?? []).findLast(row => String(row.decision ?? "").startsWith(`${run.id} failed: `))?.decision.slice(`${run.id} failed: `.length) ?? null;
 export function runFailure(task, run, reportResult = () => null) {
@@ -117,8 +116,8 @@ function agentsOf(model, recent, agents, chiefs) {
   const look = [];
   const books = (model.agents?.limits ?? []).map(book => {
     const all = model.tasks.filter(task => task.project === book.key).flatMap(task => task.runs.map(run => {
-      const agent = run.status === "running" ? states.get(`${book.key}/${run.id}`) : null, state = run.status !== "running" ? null : agent?.state ?? (run.clock.stale ? "stuck" : "unk");
-      return { run, task, agent, state, look: run.status === "failed" ? !task.archived && !ENDED.includes(task.state) && recent(run.ended) && !retried(task, run) : LOOK.includes(state) };
+      const agent = run.status === "running" ? states.get(`${book.key}/${run.id}`) : null, flag = run.flag ?? null;
+      return { run, task, agent, flag, state: run.status !== "running" ? null : agent?.state ?? "work", look: run.status === "failed" ? !task.archived && !ENDED.includes(task.state) && recent(run.ended) && !retried(task, run) : needsLook(flag) };
     }));
     look.push(...all.filter(item => item.look));
     const leads = new Map(all.filter(({ run }) => run.role === "lead" && LIVE.includes(run.status)).map(item => [item.task.key, item.run]));
@@ -145,11 +144,11 @@ function agentsOf(model, recent, agents, chiefs) {
     const arenas = new Set(all.filter(item => arenaRun(item) && (LIVE.includes(item.run.status) || recent(item.run.ended))).map(item => item.task.key));
     const arena = all.filter(item => arenaRun(item) && arenas.has(item.task.key) && !LIVE.includes(item.run.status) && !item.look);
     const runs = [...new Set([...all.filter(item => LIVE.includes(item.run.status)), ...failed, ...ended, ...arena])].map(item => {
-      const { run, task, agent, state, look } = item;
+      const { run, task, flag, state, look } = item;
       return {
         id: run.id, role: run.role, status: run.status, chief: chiefOf(item), lead: leadOf(item)?.id ?? null, model: run.model || null, candidate: run.candidate || null,
-        task: { key: task.key, id: task.id, title: task.title }, started: iso(run.started), ended: iso(run.ended), ...runMeasure(run), place: run.place ?? null, look, state,
-        why: run.status === "failed" ? runFailure(task, run)?.text ?? null : agent?.why || (run.clock.stale ? run.clock.text : null),
+        task: { key: task.key, id: task.id, title: task.title }, started: iso(run.started), ended: iso(run.ended), ...runMeasure(run), place: run.place ?? null, look, state, ...(flag && { flag: { level: flag.level, text: flag.text } }),
+        why: run.status === "failed" ? runFailure(task, run)?.text ?? null : item.agent?.why || flag?.why || null,
         ...(endedOf.has(run.id) && { endedHelpers: endedOf.get(run.id).length }),
       };
     }).sort((a, b) => (time(a.started) ?? 0) - (time(b.started) ?? 0) || number(a.id) - number(b.id));
@@ -198,16 +197,9 @@ export function boardOverview(model) {
 
   const merged = tasks.filter(task => task.state === "merged" && recent(task.completedAt));
   const chiefs = (model.projects ?? []).flatMap(project => (project.chiefs ?? []).map(chief => ({ ...chief, project: project.key, logbook: chief.key.slice(0, chief.key.lastIndexOf("/")) })));
-  const lastWrite = agent => agent.how === "logbook" ? time(byKey.get(agent.task?.key)?.lastActivity) ?? time(agent.run?.started) : null;
-  const agents = everyAgent(model.agents).map(agent => {
-    const when = lastWrite(agent);
-    return when !== null && at - when >= AGENT_QUIET_MS ? { ...agent, state: "stuck", why: `no logbook write for ${Math.floor((at - when) / 60_000)} min` } : agent;
-  });
-  const lastWrites = agents.map(lastWrite).filter(when => when !== null);
-  const { books, look } = agentsOf(model, recent, agents, chiefs);
+  const { books, look } = agentsOf(model, recent, everyAgent(model.agents), chiefs);
   const leaving = [...merged.map(task => time(task.completedAt)), ...look.filter(item => item.run.status === "failed").map(item => time(item.run.ended))].map(when => when + DAY + 1)
-    .concat(chiefs.flatMap(chief => [time(chief.quietAt), time(chief.passOnAt)]).filter(when => when !== null))
-    .concat(lastWrites.filter(when => at - when < AGENT_QUIET_MS).map(when => when + AGENT_QUIET_MS));
+    .concat(chiefs.flatMap(chief => [time(chief.quietAt), time(chief.passOnAt)]).filter(when => when !== null));
 
   const rows = tasks.map(task => taskRow(task, chiefs)), designs = designRows(tasks);
   return {
@@ -288,7 +280,7 @@ export function taskPanel(model, key) {
   const task = model.tasks.find(item => item.key === key);
   if (!task) return null;
   const chiefs = (model.projects ?? []).flatMap(project => project.chiefs ?? []);
-  const log = logOf(task), waiting = new Set(task.reasons.map(reason => reason.gateId));
+  const log = logOf(task), waiting = new Set(task.reasons.map(reason => reason.gateId)), agents = new Map(everyAgent(model.agents).filter(agent => agent.task?.key === key).map(agent => [agent.runId, agent]));
   const steps = task.loop.steps.map(step => ({ key: step.key, label: step.label, status: step.status, detail: step.detail, parts: (step.parts ?? []).map(([name, status]) => ({ name, status })) }));
   return {
     ...taskRow(task, chiefs),
@@ -306,7 +298,7 @@ export function taskPanel(model, key) {
     decisions: [...(task.gateRows ?? [])].reverse().map(gate => ({ id: gate.id, question: firstLine(gate.question), answer: gate.answer || null, pending: boardAnswer(gate)?.answer ?? null, recommendation: gate.recommendation || null, waits: waiting.has(gate.id), at: iso(gate.at) })),
     artifacts: task.artifacts.map(record => ({ id: record.id, type: record.data.type, label: record.data.label, run: record.data.run ?? null, at: iso(record.observedAt),
       url: /^https:\/\//.test(record.data.url ?? "") ? record.data.url : null, path: record.data.path ?? null, verified: !!record.content?.verified })),
-    runs: task.runs.map(run => ({ id: run.id, role: run.role, status: run.status, started: iso(run.started), ended: iso(run.ended), ...runMeasure(run), place: run.place ?? null })),
+    runs: task.runs.map(run => ({ id: run.id, role: run.role, status: run.status, started: iso(run.started), ended: iso(run.ended), ...runMeasure(run), place: run.place ?? null, state: agents.get(run.id)?.state ?? null, flag: needsLook(run.flag) ? run.flag : null })),
     ...aboutOf(model, task),
   };
 }
