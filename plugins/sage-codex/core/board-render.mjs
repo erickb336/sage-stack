@@ -1,5 +1,6 @@
 import { LINE } from "./logbook-fields.mjs";
 import { ENDED } from "./milestone-rules.mjs";
+import { rowState } from "./board-model.mjs";
 import { isMoving } from "./board-overview.mjs";
 import { BOARD_PORT } from "./message.mjs";
 import { localTime } from "./move-text.mjs";
@@ -149,8 +150,8 @@ export function renderBoardText(model, { port = BOARD_PORT } = {}) {
       ...stopped.map(chief => (ref([chief.key, chief.id]), `- ${chief.named ? `The chief ${plain(chief.name)}` : `A ${chiefName(null, chief.provider) || "sage"} chief`} stopped at ${localTime(stoppedAt(chief)).time} with ${plural(chief.tasks, "open task")}. The next chief that works in this project picks ${chief.tasks === 1 ? "it" : "them"} up.`)),
     ];
     const shown = model.columns.flatMap(column => column.tasks).filter(mine);
-    const moving = shown.filter(task => isMoving(task) && !task.reasons.length).sort((a, b) => b.agents.some(agent => !agent.stale) - a.agents.some(agent => !agent.stale));
-    const done = shown.filter(task => task.column === "done" && task.completedAt && localTime(new Date(task.completedAt).toISOString()).date >= yesterday).sort((a, b) => b.completedAt - a.completedAt);
+    const moving = shown.filter(isMoving).sort((a, b) => b.agents.some(agent => !agent.stale) - a.agents.some(agent => !agent.stale));
+    const done = shown.filter(task => rowState(task) === "done" && task.completedAt && localTime(new Date(task.completedAt).toISOString()).date >= yesterday).sort((a, b) => b.completedAt - a.completedAt);
     const releases = (model.releases ?? []).filter(entry => mine(entry) && !entry.archived).flatMap(entry => entry.releases.filter(release => release.missing || !["done", "stopped"].includes(release.word)));
     const milestones = (model.milestones ?? []).filter(milestone => mine(milestone) && !milestone.archived && milestone.state !== "done" && !(milestone.state === "dropped" && !milestone.open));
     const lines = {
