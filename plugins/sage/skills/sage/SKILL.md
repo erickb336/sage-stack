@@ -29,7 +29,7 @@ Read `skills/sage/references/commands.md` for the full row of a command before y
 | Command | Does |
 | --- | --- |
 | `init` | Makes the project's logbook and its standing orders. |
-| `standing` · `standing add "<order>"` | Prints the standing orders as written, or adds one. |
+| `standing [--chief C<n>] [--all]` · `standing add\|retire\|chief` | Reads or changes the orders. |
 | `task add --title "<t>" --size tiny\|small\|large\|investigate [--risk auth,data,schema,money,secrets,input] [--add <blocks> --why "<reason>"] --priority P0\|P1\|P2\|P3 [--kind <kind>] [--waits <T,T>] [--milestone <M>]` | Frames a task and its route. |
 | `task <T> set priority=P0\|P1\|P2\|P3` · `task <T> set kind=<kind>\|none` | Sets the task's priority, or sets or clears (`none`) its kind, from the lists of `task add`. |
 | `task <T> set waits=<T,T>` · `waits=` (or `waits=none`) | Sets or clears the tasks that this task waits for. |

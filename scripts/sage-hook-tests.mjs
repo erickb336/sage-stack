@@ -1585,12 +1585,14 @@ const FORGERIES = [
   `${TOOL} logbook repair --accept-loss tasks`,
   `${TOOL} logbook repair --accept-change-loss yes`,
   `${TOOL} standing add never review`,
+  `${TOOL} standing retire 4 --why old`,
+  `${TOOL} standing chief 4`,
   `${TOOL} round T2`,
   `${TOOL} milestone propose --name x --goal y --pilot T2`,
   `${TOOL} task T2 set milestone=M1`,
   `${TOOL} newcommand T2`,
 ].map((args) => `node ${args} --project /p`);
-const READ_COMMANDS = (dir) => ["status", `merge-check --sha ${SHA}`, "standing", "logbook", "config"].map((args) => `node ${TOOL} ${args} --project ${dir}`).concat(`node ${TOOL} status --project=${dir}`, `node ${TOOL} standing`);
+const READ_COMMANDS = (dir) => ["status", `merge-check --sha ${SHA}`, "standing", "standing --all", "standing --chief C1", "logbook", "config"].map((args) => `node ${TOOL} ${args} --project ${dir}`).concat(`node ${TOOL} status --project=${dir}`, `node ${TOOL} standing`);
 
 for (const command of FORGERIES) {
   test(`an agent's "${command.replace(`node ${dirname(TOOL)}/`, "").replace(" --project /p", "")}" is refused, in sage mode and out of it; the chief's passes (T83)`, () => {
@@ -2373,7 +2375,7 @@ test("an agent never runs git stash in any form; the chief may, and git status a
   const s = session();
   s.send(prompt("sage mode"));
   for (const command of STASHES) {
-    assert.match(denied(s.send(bash(command, FEATURE, AGENT))) ?? "", /never runs git stash.*standing order 16.*git worktree add --detach <scratch> <sha>.*git show <sha>:<path>/, command);
+    assert.match(denied(s.send(bash(command, FEATURE, AGENT))) ?? "", /never runs git stash: every worktree of a repo shares one stash list, so another agent can pop or drop your work\. To test old code.*git worktree add --detach <scratch> <sha>.*git show <sha>:<path>/, command);
     expectPass(s.send(bash(command)), command.startsWith("sh -c"), `the chief: ${command}`);
     expectPass(s.send(bash(command, FEATURE, { agent_type: "sage:chief-of-staff" })), command.startsWith("sh -c"), `the chief as an agent type: ${command}`);
   }
