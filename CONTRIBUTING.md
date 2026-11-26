@@ -24,7 +24,7 @@ Edit only the sources. The build makes everything else, and `npm run check` fail
 | `packages/` (shared code, and each provider's hooks, agents and skills) | `instructions/core.md` (built from `preferences/` and `writing/`) |
 | `scripts/graphics.mjs` (draws the README's graphics) | `docs/assets/*.svg` (drawn by the script) |
 | `scripts/board-shots.mjs` (takes the board screenshots) | `docs/assets/board-*.png` and `learn-*.png` (taken by the script) |
-| `scripts/board-walkthrough.mjs` (records the board walkthrough) | `docs/assets/board-walkthrough-*.gif` (recorded by the script) |
+| `scripts/board-walkthrough.mjs` (records the board walkthrough and the tour) | `docs/assets/board-walkthrough-*.gif` and `board-tour.mp4` (recorded by the script) |
 
 To add a principle, add `principles/<name>.md`. A principle adapted from pstack has `source: pstack principle-<name>`, with the credit and the pstack version and commit that it was checked against (see [Credit](#credit)).
 
@@ -133,13 +133,20 @@ The README's board walkthrough, `docs/assets/board-walkthrough-dark.gif` and `bo
 npm run walkthrough
 ```
 
+The full tour of every board page, `docs/assets/board-tour.mp4`, comes from the same script. The README links it under the walkthrough. Make it again after a board change:
+
+```sh
+npm run tour
+```
+
 - It writes the sample logbook of the screenshots (`scripts/fixtures/board-app.mjs`) to a temporary folder and starts a board server on a free port, with the built app.
 - It pairs a Playwright browser at 1320 by 800 pixels and plays one fixed path of three scenes: the Overview, a zoom on Needs you, and a click that opens one task. The clip is about 9 s long and loops.
 - It records frame by frame, 20 frames a second: for each frame it sets the zoom, the cursor, the click ring, the caption and any fade, then takes one screenshot. So the clip does not depend on the speed of the machine, and the text stays sharp in a zoom.
-- Each frame carries a caption and a SAMPLE DATA label. ffmpeg puts a window frame around each frame, with the title "sage board · sample data".
+- ffmpeg puts a window frame around each frame: a title bar with a SAMPLE DATA label, and a caption band under the board. So the label and the caption never cover board text.
 - The board server of the walkthrough refuses every write, so the script never runs the state tool.
 - It stops when a frame shows the temporary folder, the home folder or the user name.
-- It needs ffmpeg 6 or later, to write the GIF: on PATH, or its path in `FFMPEG` (macOS: `brew install ffmpeg`; Debian or Ubuntu: `sudo apt-get install ffmpeg`).
+- The tour adds an archived sample project, and plays nine scenes in the dark theme: the Overview, zooms on Needs you and Sessions, then Tasks, one task, Agents, Pull requests, Stats and the Archive. It is about 53 s long, an H.264 MP4 of about 1.6 MB. A video in the repository does not play in a GitHub README, so the README links the file.
+- It needs ffmpeg 6 or later, to write the GIF and the MP4: on PATH, or its path in `FFMPEG` (macOS: `brew install ffmpeg`; Debian or Ubuntu: `sudo apt-get install ffmpeg`).
 - It uses Playwright's Chromium, or the browser in `--browser <path>` or `BOARD_BROWSER_PATH`. `--theme dark` or `--theme light` makes one GIF; `--frames <folder>` keeps the frames in a new or empty folder, to compare two runs.
 - Each GIF is about 5 MB. CI does not run it. Two runs make the same frames, except for the clock times on the board.
 

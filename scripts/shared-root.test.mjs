@@ -10,6 +10,7 @@ import { actorOptions, locate as claudeLocate, sage as claudeRun, sageRoot as cl
 import { tool } from "../plugins/sage-codex/skills/sage/sage.mjs";
 import { buildBoardModel, createStateTool, readBoardSources, renderBoardText, renderTaskText, sharedRoot } from "../packages/sage-core/index.mjs";
 import { githubRemote } from "../packages/sage-core/shared-root.mjs";
+import { QUESTION } from "./fixtures/question-message.mjs";
 
 const acting = (run, options) => (argv, env) => run([...argv, ...options(argv[argv.indexOf("--project") + 1], argv, { native: "test-chief" }, env)], env);
 const claudeSage = acting(claudeRun, actorOptions), codexSage = acting(tool.sage, tool.actorOptions);
@@ -163,7 +164,7 @@ test("no row: an existing project works as before, and no row or table appears f
 });
 
 for (const provider of ["claude", "codex"]) {
-  const gate = ["gate", "add", "T1", "--question", "Keep it?", "--options", "yes|no", "--recommend", "yes"];
+  const gate = ["gate", "add", "--message", QUESTION, "T1", "--question", "Keep it?", "--options", "yes|no", "--recommend", "yes"];
   const task = ["task", "add", "--title", "More", "--size", "tiny", "--priority", "P2"];
   const started = (t) => {
     const w = world(t), sage = w[provider];
@@ -210,7 +211,7 @@ test("T1152: a shared logbook gets no checkout.txt from normal writes of either 
   const dir = tool.storeDir(w.project, w.env);
   w.claude("task", "add", "--title", "From Claude", "--size", "tiny", "--priority", "P2");
   w.codex("task", "add", "--title", "From Codex", "--size", "tiny", "--priority", "P2");
-  w.codex("gate", "add", "T2", "--question", "Keep it?", "--options", "yes|no", "--recommend", "yes");
+  w.codex("gate", "add", "--message", QUESTION, "T2", "--question", "Keep it?", "--options", "yes|no", "--recommend", "yes");
   w.claude("standing", "add", "Keep the sample order.");
   assert.equal(dirname(dir), w.shared);
   assert.equal(lstatSync(join(dir, "checkout.txt"), { throwIfNoEntry: false }), undefined);
@@ -336,6 +337,84 @@ test("the link prompt of a new clone recommends by its GitHub remote: the same o
   git(lantern, "remote", "remove", "origin");
   assert.equal(prompts()[0], none.replace("this folder has none", `${lantern} has none`), "no remote at the logbook's checkout: link");
   assert.match(claudeSage(["link", "--to", folder, "--project", clone], w.env), /now uses the shared logbook/, "choice 1's command works");
+});
+
+let fakes = 0;
+function fakeGh(w, answers) {
+  const bin = join(w.base, `fake-gh-${++fakes}`), log = join(bin, "calls.log");
+  mkdirSync(bin);
+  writeFileSync(join(bin, "gh"), `#!${process.execPath}
+const fs = require("node:fs"), args = process.argv.slice(2), answers = ${JSON.stringify(answers)};
+fs.appendFileSync(${JSON.stringify(log)}, args.join(" ") + "\\n");
+const answer = answers[/^repos\\/(.+)$/.exec(args.find((arg) => arg.startsWith("repos/")) ?? "")?.[1]];
+if (answer === "sleep") setTimeout(() => fs.writeFileSync(${JSON.stringify(`${log}.slept`)}, ""), 30000);
+else if (args[0] === "api" && answer) process.stdout.write(JSON.stringify({ ...answer, private: false }));
+else process.exit(1);
+`, { mode: 0o755 });
+  return { env: { ...w.env, PATH: bin }, calls: () => (existsSync(log) ? readFileSync(log, "utf8") : ""), slept: () => existsSync(`${log}.slept`) };
+}
+
+test("T1207: a clone whose GitHub remote differs is told to link when GitHub says the repository was renamed, or, with no GitHub answer, when the newest checkout of the logbook is gone; else the fork question", (t) => {
+  const { w, lantern, clone, folder } = lanternWorld(t);
+  git(clone, "remote", "set-url", "origin", "https://github.com/sample-owner/lantern-stack");
+  const ask = (env, runs = [claudeSage, codexSage]) => runs.map((run) => refusalOf(() => run(["status", "--project", clone], env)));
+  const facts = `**This folder has no logbook yet:** ${clone}\n\nIt has the same first commit as the project lantern (logbook ${folder}, used by ${lantern}). Its GitHub remote is sample-owner/lantern-stack, not sample-owner/lantern`;
+  const link = (why) => `${facts}${why} sage does not guess, and nothing has changed.\n\n${NOTE}\n\nChoose one:\n1. **Link to lantern** (recommended). This folder uses the lantern logbook. Its tasks show in the one lantern project on the board, and its runs show "checkout lantern-b". No record is copied.\n2. **Start separate.** This folder gets a new, empty logbook, and the board shows it as another project. Choose this for a fork that is now its own project.\n\nReply 1 or 2.\n\nFor the chief: after the reply, run one command in ${clone}: for 1, sage link --to ${folder}; for 2, sage link --separate.`;
+  const fork = `${facts.replace("Its GitHub", "But its GitHub")}. So it is most likely a fork. sage does not guess, and nothing has changed.\n\n${NOTE}\n\nChoose one:\n1. **Start separate** (recommended). This folder gets a new, empty logbook, and the board shows it as another project.\n2. **Link to lantern.** This folder uses the lantern logbook, and its tasks show in the lantern project. Choose this only if the fork and lantern are one project to you.\n\nReply 1 or 2.\n\nFor the chief: after the reply, run one command in ${clone}: for 1, sage link --separate; for 2, sage link --to ${folder}.`;
+  const rows = w.table("bindings.tsv");
+
+  const renamed = fakeGh(w, { "sample-owner/lantern": { id: 7, full_name: "sample-owner/lantern-stack" }, "sample-owner/lantern-stack": { id: 7, full_name: "sample-owner/lantern-stack" } });
+  const told = link(", but GitHub says sample-owner/lantern is now sample-owner/lantern-stack. So it is most likely a second clone of lantern.");
+  assert.deepEqual(ask(renamed.env), [told, told], "one repository id for both names: a rename, so link (both providers)");
+  assert.match(renamed.calls(), /^api .*repos\/sample-owner\/lantern\n/m, "the fake gh answered, and no real gh ran");
+  assert.match(renamed.calls(), /^api .*repos\/sample-owner\/lantern-stack\n/m);
+
+  const two = fakeGh(w, { "sample-owner/lantern": { id: 7, full_name: "sample-owner/lantern" }, "sample-owner/lantern-stack": { id: 8, full_name: "sample-owner/lantern-stack" } });
+  assert.deepEqual(ask(two.env), [fork, fork], "two repository ids: a fork");
+  assert.match(two.calls(), /repos\/sample-owner\/lantern-stack/, "the fake gh answered");
+  const error = fakeGh(w, { "sample-owner/lantern-stack": { id: 7, full_name: "sample-owner/lantern-stack" } });
+  assert.deepEqual(ask(error.env), [fork, fork], "a gh error: the fork question");
+  assert.match(error.calls(), /repos\/sample-owner\/lantern/, "the fake gh was asked");
+  assert.deepEqual(ask({ ...w.env, PATH: join(w.base, "no-gh") }), [fork, fork], "no gh: the fork question");
+  const slow = fakeGh(w, { "sample-owner/lantern": "sleep", "sample-owner/lantern-stack": "sleep" });
+  assert.deepEqual(ask(slow.env, [claudeSage]), [fork], "a gh that does not answer in time: the fork question");
+  assert.match(slow.calls(), /repos\/sample-owner\/lantern/, "the fake gh was asked");
+  assert.equal(slow.slept(), false, "sage stopped gh before its 30 s of sleep ended");
+  assert.equal(w.table("bindings.tsv"), rows, "no row before the owner's answer");
+
+  const old = join(w.base, "lantern-old");
+  git(w.base, "clone", "-q", lantern, old);
+  claudeSage(["link", "--to", folder, "--project", old], w.env);
+  rmSync(old, { recursive: true });
+  const moved = w.table("bindings.tsv"), gone = link(`. But ${old} is gone, so this looks like that folder, moved here.`);
+  const noGh = { ...w.env, PATH: join(w.base, "no-gh") };
+  assert.deepEqual(ask(error.env), [gone, gone], "the newest row of the logbook names a gone folder, and gh gives an error: a move, so link");
+  assert.deepEqual(ask(noGh), [gone, gone], "the same with no gh");
+  assert.deepEqual(ask(slow.env, [claudeSage]), [gone], "the same when gh does not answer in time");
+  assert.deepEqual(ask(two.env), [fork, fork], "GitHub's answer decides before the gone folder: two repository ids give the fork question");
+  assert.deepEqual(ask(renamed.env), [told, told], "GitHub's answer decides before the gone folder: one repository id gives the rename");
+  assert.equal(w.table("bindings.tsv"), moved, "no row before the owner's answer");
+
+  const live = join(w.base, "lantern-new");
+  git(w.base, "clone", "-q", lantern, live);
+  claudeSage(["link", "--to", folder, "--project", live], w.env);
+  assert.deepEqual(ask(noGh), [fork, fork], "a live checkout linked after the gone one: the gone row does not count, so the fork question");
+  assert.match(claudeSage(["link", "--to", folder, "--project", clone], w.env), /now uses the shared logbook/, "choice 1's command works");
+});
+
+test("T1207: a gone checkout of the logbook does not make a fork look like a move when GitHub gives the two remotes two repository ids", (t) => {
+  const { w, lantern, clone, folder } = lanternWorld(t);
+  const old = join(w.base, "lantern-old");
+  git(w.base, "clone", "-q", lantern, old);
+  claudeSage(["link", "--to", folder, "--project", old], w.env);
+  rmSync(old, { recursive: true });
+  git(clone, "remote", "set-url", "origin", "https://github.com/evil-owner/lantern-fork");
+  const gh = fakeGh(w, { "sample-owner/lantern": { id: 7, full_name: "sample-owner/lantern" }, "evil-owner/lantern-fork": { id: 9, full_name: "evil-owner/lantern-fork" } });
+  const rows = w.table("bindings.tsv");
+  const fork = `**This folder has no logbook yet:** ${clone}\n\nIt has the same first commit as the project lantern (logbook ${folder}, used by ${lantern}). But its GitHub remote is evil-owner/lantern-fork, not sample-owner/lantern. So it is most likely a fork. sage does not guess, and nothing has changed.\n\n${NOTE}\n\nChoose one:\n1. **Start separate** (recommended). This folder gets a new, empty logbook, and the board shows it as another project.\n2. **Link to lantern.** This folder uses the lantern logbook, and its tasks show in the lantern project. Choose this only if the fork and lantern are one project to you.\n\nReply 1 or 2.\n\nFor the chief: after the reply, run one command in ${clone}: for 1, sage link --separate; for 2, sage link --to ${folder}.`;
+  assert.deepEqual([claudeSage, codexSage].map((run) => refusalOf(() => run(["status", "--project", clone], gh.env))), [fork, fork], "the fork question, with start separate recommended (both providers)");
+  assert.match(gh.calls(), /repos\/evil-owner\/lantern-fork/, "the fake gh was asked");
+  assert.equal(w.table("bindings.tsv"), rows, "no row before the owner's answer");
 });
 
 test("a row whose logbook is missing: the prompt offers the restore first, then separate or another project", (t) => {
@@ -1277,14 +1356,14 @@ test("the id floors of the move make nextId give the next number above both old 
   w.claude("init");
   w.claude("task", "add", "--title", "old claude task", "--size", "tiny", "--priority", "P2");
   w.claude("run", "add", "T1", "--role", "qa");
-  w.claude("gate", "add", "T1", "--question", "Go?", "--options", "yes|no", "--recommend", "yes");
+  w.claude("gate", "add", "--message", QUESTION, "T1", "--question", "Go?", "--options", "yes|no", "--recommend", "yes");
   const renumber = (root, map) => {
     for (const name of readdirSync(join(root, w.folder())).filter((n) => n.endsWith(".tsv"))) rewrite(join(root, w.folder(), name), (text) => text.replace(/(?<![A-Za-z0-9])(T|R|G)1(?![0-9])/g, (_, p) => map[p]));
   };
   renumber(w.claudeRoot, { T: "T644", R: "R2469", G: "G103" });
   w.codex("init");
   w.codex("task", "add", "--title", "old codex task", "--size", "tiny", "--priority", "P2");
-  w.codex("gate", "add", "T1", "--question", "Go?", "--options", "yes|no", "--recommend", "yes");
+  w.codex("gate", "add", "--message", QUESTION, "T1", "--question", "Go?", "--options", "yes|no", "--recommend", "yes");
   w.codex("log", "-", "M4 was planned", "--why", "a milestone id in a decision counts");
   renumber(w.codexRoot, { T: "T95", R: "R1", G: "G200" });
   const fresh = w.repo("fresh");
@@ -1301,7 +1380,7 @@ test("the id floors of the move make nextId give the next number above both old 
   assert.equal(floors.length, 4);
   assert.match(w.claude("task", "add", "--title", "new", "--size", "tiny", "--priority", "P2", "--project", fresh), /^T645 /);
   assert.match(w.claude("run", "add", "T645", "--role", "qa", "--project", fresh), /^R2470 /);
-  assert.match(w.claude("gate", "add", "T645", "--question", "Go?", "--options", "yes|no", "--recommend", "yes", "--project", fresh), /^G201 /);
+  assert.match(w.claude("gate", "add", "--message", QUESTION, "T645", "--question", "Go?", "--options", "yes|no", "--recommend", "yes", "--project", fresh), /^G201 /);
   const none = w.repo("none");
   w.claude("init", "--project", none);
   const empty = w.claudeTool.storeDir(none, w.env);
@@ -1317,7 +1396,7 @@ test("an older sage reads the floor rows as they are written: plain decision row
     ...["T644 is the task floor", "R2469 is the run floor", "G103 is the gate floor"].map((d) => `2026-11-03T00:00:00Z\t\t${d} of the move from claude\tthe move keeps every new id above the ids of the old logbooks`)].join("\n") + "\n");
   assert.match(w.claude("task", "add", "--title", "new", "--size", "tiny", "--priority", "P2"), /^T645 /);
   assert.match(w.claude("run", "add", "T645", "--role", "qa"), /^R2470 /);
-  assert.match(w.claude("gate", "add", "T645", "--question", "Go?", "--options", "yes|no", "--recommend", "yes"), /^G104 /);
+  assert.match(w.claude("gate", "add", "--message", QUESTION, "T645", "--question", "Go?", "--options", "yes|no", "--recommend", "yes"), /^G104 /);
 });
 
 test("waitingPlugins names each provider that is not at the move's contract, and an unused provider does not wait (T641)", (t) => {
@@ -1366,7 +1445,7 @@ function moveWorld(t) {
   w.claude("task", "add", "--title", "claude open", "--size", "small", "--priority", "P1", "--waits", "T1");
   w.claude("task", "add", "--title", "claude verified", "--size", "tiny", "--priority", "P2");
   w.claude("finding", "add", "T2", "--source", "sage", "--severity", "medium", "--summary", "a loose end");
-  w.claude("gate", "add", "T2", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes");
+  w.claude("gate", "add", "--message", QUESTION, "T2", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes");
   w.claude("standing", "add", "Claude order five.");
   setStates(claudeDir, { T1: "merged", T3: "verified" });
   w.codex("init");
@@ -1445,7 +1524,7 @@ test("the move takes the open tasks of both old logbooks into one shared logbook
   assert.equal(existsSync(dir), false, "the preview changes nothing");
   assert.equal(existsSync(join(w.shared, "moves")), false);
   assert.equal(w.claude("move", "--plan", plan), [
-    `G2 · move · plan ${plan}`,
+    `G2 open · move · plan ${plan}`,
     "Move the project project into one shared logbook?",
     "3 open tasks move with new numbers. 2 finished tasks stay, read-only.",
     "Hard to undo. No command undoes the move. Each old logbook keeps a backup copy of its task table, and I give you the steps to restore by hand.",
@@ -1510,7 +1589,7 @@ test("the move takes the open tasks of both old logbooks into one shared logbook
   assert.match(readFileSync(join(w.shared, "projects.tsv"), "utf8"), new RegExp(`\n${folder}\t\\S+\tinit\n`), "the shared root knows the new logbook");
   assert.deepEqual(readdirSync(join(w.shared, "moves")), [], "the plan and the asked plan are gone");
   assert.match(w.codex("task", "add", "--title", "after", "--size", "tiny", "--priority", "P2"), /^T7 /);
-  assert.match(w.claude("gate", "add", "--question", "Go?", "--options", "yes|no", "--recommend", "yes"), /^G4 /);
+  assert.match(w.claude("gate", "add", "--message", QUESTION, "--question", "Go?", "--options", "yes|no", "--recommend", "yes"), /^G4 /);
   assert.match(w.claude("status"), /T4/);
   const results = readBoardSources([{ id: "shared", path: w.shared }, { id: "claude", path: w.claudeRoot, provider: "claude" }, { id: "codex", path: w.codexRoot, provider: "codex" }]);
   const shared = results.find((r) => r.id === "shared");
@@ -1522,7 +1601,6 @@ test("the move takes the open tasks of both old logbooks into one shared logbook
   assert.deepEqual([card(`shared/${folder}/T4`).was, card(`shared/${folder}/T6`).was, card(`shared/${folder}/T7`).was, card(`claude/${folder}/T1`).was], ["was Claude T2", "was Codex T1", undefined, undefined]);
   assert.equal(card(`claude/${folder}/T1`).old.label, "Old · Claude · read-only");
   assert.equal(model.projects.length, 1, "one project");
-  assert.match(renderBoardText(model), /\*\*claude open\*\* T4 · was Claude T2 · /);
   assert.match(renderTaskText(card(`shared/${folder}/T6`)), /^\*\*codex open\*\* T6 · was Codex T1\n/);
 });
 
@@ -1572,7 +1650,7 @@ test("a move gate whose plan no longer matches the logbooks moves nothing and sa
   assert.equal(existsSync(join(w.claudeDir, "moved.json")) || existsSync(join(w.codexDir, "moved.json")), false);
   assert.equal(existsSync(join(w.shared, "moves", `${w.folder()}.json`)), false, "no plan is saved");
   assert.throws(() => w.claude("gate", "answer", id, "--option", "2"), /G2 has the answer "move" already, from the chat at \S+: the first answer wins, so this answer is not recorded\. To move later, run the preview again: sage move --preview\. Nothing changed\./);
-  assert.throws(() => w.claude("gate", "add", "--question", "move · plan 1234abcd", "--options", "a|b", "--recommend", "a"), /a question that starts with "move · plan" is a move gate, and only sage move --plan opens one/);
+  assert.throws(() => w.claude("gate", "add", "--message", QUESTION, "--question", "move · plan 1234abcd", "--options", "a|b", "--recommend", "a"), /a question that starts with "move · plan" is a move gate, and only sage move --plan opens one/);
   assert.throws(() => w.claude("move", "--plan", plan), new RegExp(`refused: plan ${plan} is not the plan of the logbooks now: the preview now gives plan [0-9a-f]{8}\\n  If plan ${plan} was typed by hand, check its 8 hex\\. If not, a logbook changed after the preview\\.\\nNothing changed\\. Show the owner the preview again`), "a gate opens only for the plan that the owner saw");
   const again = w.ask();
   assert.notEqual(again.plan, plan);
@@ -1641,8 +1719,6 @@ test("an adopted task moves with the task that adopted it: its old row gets that
   assert.deepEqual(rowsIn(join(w.codexDir, "tasks.tsv")).map((r) => [r.id, r.moved]), [["T1", "T4"], ["T2", ""]], "the adopted row names the task that adopted it (F7)");
   const moved = rowsIn(join(w.shared, w.folder(), "tasks.tsv"))[0], record = JSON.parse(moved.adoption);
   assert.deepEqual([moved.id, moved.branch, moved.pr, record.version, record.provider, record.task, record.pr, record.branch, record.from], ["T4", "sage/t1-shared", "7", 2, "claude", "T2", "7", "sage/t1-shared", v1]);
-  const version = /--version ([0-9a-f]{64})/.exec(refusalOf(() => w.claude("run", "add", "T4", "--role", "implementer", "--branch", "sage/t1-shared")))[1];
-  w.claude("claim", "T4", "--version", version);
   assert.match(w.claude("run", "add", "T4", "--role", "implementer", "--branch", "sage/t1-shared"), /^R1 /, "the branch of from is the moved task's own");
   assert.throws(() => w.claude("task", "T4", "set", "pr=8"), /T4's adoption keeps PR 7/);
 });
@@ -1760,7 +1836,7 @@ const boardOf = (w, options) => buildBoardModel(readBoardSources([{ id: "shared"
 test("an adopted task's open gate and finding move with the task that adopted it, and the plan and the end check count them (F-T640-18)", (t) => {
   const w = moveWorld(t);
   w.codex("finding", "add", "T1", "--source", "sage", "--severity", "low", "--summary", "codex loose end");
-  w.codex("gate", "add", "T1", "--question", "Codex T1 ready?", "--options", "yes|no", "--recommend", "yes");
+  w.codex("gate", "add", "--message", QUESTION, "T1", "--question", "Codex T1 ready?", "--options", "yes|no", "--recommend", "yes");
   setCells(w.claudeDir, "T2", { branch: "sage/t1-shared", pr: "7", adoption: JSON.stringify(adoptionV1(w.codexDir, w.project, "T1")) });
   const preview = w.claude("move", "--preview");
   assert.match(preview, /\nopen findings       1  new keys       1  new keys\nopen gates          1  G3             1  G4\n/);
@@ -1805,13 +1881,11 @@ test("a moved repair approval gate names the new task, so the owner's approve an
   w.codex("init");
   setStates(claudeDir, { T1: "merged" });
   setCells(claudeDir, "T2", { state: "held", hold: "round", round: "3" });
-  w.claude("gate", "add", "T2", "--question", "Approve one more repair round for T2 after 3 spent rounds and limit 3?", "--options", "approve|decline", "--recommend", "approve");
+  w.claude("gate", "add", "--message", QUESTION, "T2", "--question", "Approve one more repair round for T2 after 3 spent rounds and limit 3?", "--options", "approve|decline", "--recommend", "approve");
   w.claude("move", "--gate", askPlain(w));
   const dir = join(w.shared, w.folder()), moved = rowsIn(join(dir, "gates.tsv")).find((g) => g.options === "approve|decline");
   assert.deepEqual([moved.id, moved.task, moved.question], ["G3", "T3", "Approve one more repair round for T3 after 3 spent rounds and limit 3?"]);
   w.claude("gate", "answer", "G3", "--option", "1");
-  const version = /--version ([0-9a-f]{64})/.exec(refusalOf(() => w.claude("task", "T3", "set", "state=building", "approval=G3")))[1];
-  w.claude("claim", "T3", "--version", version);
   w.claude("task", "T3", "set", "state=building", "approval=G3");
   assert.equal(rowsIn(join(dir, "tasks.tsv"))[0].state, "building");
 });
@@ -1972,7 +2046,7 @@ test("a moved gate's question names the same finding after the move: a finding k
   w.claude("finding", "add", "T2", "--source", "sage", "--severity", "medium", "--summary", "two");
   w.claude("finding", "add", "T2", "--source", "sage", "--severity", "medium", "--summary", "three");
   w.claude("finding", "triage", "T2", "F-T2-1", "dismiss", "--reason", "not real");
-  w.claude("gate", "add", "T2", "--question", "Move F-T2-2 to a follow-up task? F-T2-1 is dismissed, and T2 keeps F-T2-3.", "--options", "move|keep", "--recommend", "move");
+  w.claude("gate", "add", "--message", QUESTION, "T2", "--question", "Move F-T2-2 to a follow-up task? F-T2-1 is dismissed, and T2 keeps F-T2-3.", "--options", "move|keep", "--recommend", "move");
   const asked = rowsIn(join(w.claudeDir, "gates.tsv")).at(-1).id;
   w.claude("gate", "answer", asked, "--option", "1");
   w.claude("move", "--gate", w.ask().id);
@@ -2046,8 +2120,8 @@ test("two tasks with the same finding key keep their own findings: round keys ma
     const [head, ...lines] = text.trimEnd().split("\n"), col = head.split("\t").indexOf("keys");
     return [head, ...lines.map((l) => { const c = l.split("\t"); if (c[0] === "T2" || c[0] === "T3") c[col] = "F1"; return c.join("\t"); })].join("\n") + "\n";
   });
-  w.claude("gate", "add", "T2", "--question", "Move F1 to a follow-up task?", "--options", "move|keep", "--recommend", "move");
-  w.claude("gate", "add", "T3", "--question", "Fix F1 in T3 now?", "--options", "fix|wait", "--recommend", "fix");
+  w.claude("gate", "add", "--message", QUESTION, "T2", "--question", "Move F1 to a follow-up task?", "--options", "move|keep", "--recommend", "move");
+  w.claude("gate", "add", "--message", QUESTION, "T3", "--question", "Fix F1 in T3 now?", "--options", "fix|wait", "--recommend", "fix");
   const row = { id: "G9", task: "", question: "F-T2-1 first, or F1?", options: "first|F1", recommendation: "first", default: "first", answer: "", at: "2026-11-03T00:00:00Z" };
   rewrite(join(w.claudeDir, "gates.tsv"), (text) => `${text.trimEnd()}\n${text.split("\n")[0].split("\t").map((c) => row[c] ?? "").join("\t")}\n`);
   w.claude("move", "--gate", w.ask().id);
@@ -2073,7 +2147,8 @@ test("the board shows a banner for 7 days after a move, with the map page by nam
   const at = rowsIn(join(w.shared, folder, "sources.tsv"))[0].at, after = (days) => boardOf(w, { now: new Date(Date.parse(at) + days * 86400000).toISOString() });
   const text = `3 open tasks have new numbers, and each card shows its old number. Finished tasks stay in Done as Old and read-only. The old-to-new map is move-map.html in the logbook folder ${folder}, on this Mac.`;
   const chat = renderBoardText(after(1));
-  assert.ok(chat.replaceAll("\\", "").includes(`⇢ project moved to one shared logbook on ${at.slice(0, 10)} ${at.slice(11, 16)} UTC. ${text}`));
+  const day = new Date(at), local = `${day.getDate()} ${day.toLocaleString("en", { month: "short" })}`;
+  assert.ok(chat.includes(`\nproject moved to one shared logbook on ${local}. ${text}\n`), chat);
   assert.equal(chat.includes(w.base), false, "no path of the Mac on the board");
   assert.equal(renderBoardText(after(8)).includes("moved to one shared logbook"), false, "gone after 7 days, as Done is");
 });
@@ -2160,8 +2235,6 @@ test("a task moved after a key of its repair round closed keeps that key, so its
   setStates(w.claudeDir, { T2: "reviewing" });
   w.claude("move", "--gate", w.ask().id);
   const moved = rowsIn(join(dir, "tasks.tsv")).find((r) => r.id === "T4");
-  const version = /--version ([0-9a-f]{64})/.exec(refusalOf(() => w.claude("round", "T4")))?.[1];
-  if (version) w.claude("claim", "T4", "--version", version);
   assert.deepEqual([moved.round, moved.keys], ["1", "F-T4-2,F-T4-1"], "the closed key F-T2-1 is F-T4-2, and the open F-T2-2 is F-T4-1");
   assert.match(w.claude("round", "T4"), /^T4 repairing · round 2 of \d+ · fix F-T4-1 /, "as before the move: F-T2-1 closed, so the round fixed one key");
   assert.equal(rowsIn(join(dir, "tasks.tsv")).find((r) => r.id === "T4").keys, "F-T4-1", "round 2 holds only the open key");
@@ -2181,8 +2254,6 @@ test("a repair of the decisions keeps a carried round key taken, so a finding af
   writeFileSync(join(dir, "decisions.tsv"), "");
   w.claude("logbook", "repair", "--accept-loss", "decisions");
   assert.ok(rowsIn(join(dir, "decisions.tsv")).some((d) => d.task === "T4" && d.decision === "F-T4-2 is a round key of T4 with no finding"));
-  const version = /--version ([0-9a-f]{64})/.exec(refusalOf(() => w.claude("round", "T4")))?.[1];
-  if (version) w.claude("claim", "T4", "--version", version);
   assert.match(w.claude("round", "T4"), /^T4 repairing · round 2 of \d+ · fix F-T4-1 /);
   assert.match(w.claude("finding", "add", "T4", "--source", "sage", "--severity", "low", "--summary", "new"), /^F-T4-3 /, "a new finding never takes the carried key F-T4-2");
 });
@@ -2193,7 +2264,7 @@ test("after a restore by hand, a new task or gate takes a number above the move'
   restoreByHand(w, plan);
   assert.match(w.claude("task", "add", "--title", "after the restore", "--size", "tiny", "--priority", "P2"), /^T7 /);
   assert.match(w.codex("task", "add", "--title", "after the restore", "--size", "tiny", "--priority", "P2"), /^T7 /);
-  assert.match(w.claude("gate", "add", "--question", "Go?", "--options", "yes|no", "--recommend", "yes"), /^G4 /);
+  assert.match(w.claude("gate", "add", "--message", QUESTION, "--question", "Go?", "--options", "yes|no", "--recommend", "yes"), /^G4 /);
   assert.deepEqual(rowsIn(join(w.codexDir, "decisions.tsv")).map((d) => d.decision).filter((d) => d !== "task added"), [`T6 is the task floor of the move to the shared logbook ${w.folder()}`, `G3 is the gate floor of the move to the shared logbook ${w.folder()}`]);
 });
 
@@ -2464,7 +2535,7 @@ test("the same --plan again shows the open gate and opens no second one, and an 
   assert.equal(w.claude("move", "--plan", plan), first, "the same gate text again");
   assert.equal(rowsIn(join(w.claudeDir, "gates.tsv")).filter((g) => g.question.startsWith("move · plan")).length, 1, "no second gate");
   const newer = w.planOf(w.claude("move", "--preview"));
-  assert.match(w.claude("move", "--plan", newer), /^G3 · move · plan /);
+  assert.match(w.claude("move", "--plan", newer), /^G3 open · move · plan /);
   w.claude("gate", "answer", "G2", "--option", "1");
   assert.equal(refusalOf(() => w.claude("move", "--gate", "G2")), `sage: refused: G2 is an older move gate: G3 asks about plan ${newer}, of a later preview. Nothing changed. Ask the owner to answer G3, then run sage move --gate G3.`);
   w.claude("gate", "answer", "G3", "--option", "1");
@@ -2473,7 +2544,7 @@ test("the same --plan again shows the open gate and opens no second one, and an 
 
 test("a move gate takes an id above the gates of every old logbook, so two chiefs' gates never share an id (F-T640-64, F-T640-65)", (t) => {
   const w = moveWorld(t);
-  w.codex("gate", "add", "--question", "Codex first?", "--options", "yes|no", "--recommend", "yes");
+  w.codex("gate", "add", "--message", QUESTION, "--question", "Codex first?", "--options", "yes|no", "--recommend", "yes");
   const claudeGate = /^(G\d+) /.exec(w.claude("move", "--plan", w.planOf(w.claude("move", "--preview"))))[1];
   const codexGate = /^(G\d+) /.exec(w.codex("move", "--plan", w.planOf(w.codex("move", "--preview"))))[1];
   assert.deepEqual([claudeGate, codexGate], ["G2", "G3"], "the Codex gate is above the Claude move gate G2");
@@ -2534,8 +2605,6 @@ function carriedWorld(t) {
 
 test("a repair of the decisions after round 2 started keeps the carried round key taken, from the task's adoption record (F-T648-7)", (t) => {
   const w = carriedWorld(t);
-  const version = /--version ([0-9a-f]{64})/.exec(refusalOf(() => w.claude("round", "T4")))?.[1];
-  if (version) w.claude("claim", "T4", "--version", version);
   assert.match(w.claude("round", "T4"), /^T4 repairing · round 2 of \d+ · fix F-T4-1 /);
   assert.equal(rowsIn(join(w.dir, "tasks.tsv")).find((r) => r.id === "T4").keys, "F-T4-1", "the carried key left the keys cell");
   writeFileSync(join(w.dir, "decisions.tsv"), "");

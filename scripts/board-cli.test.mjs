@@ -102,11 +102,12 @@ test("settings reads reject linked ancestors and service commands reject ignored
 
 
 test("standalone current-checkout board and task commands work without explicit project", t => {
-  const { dir, config } = fixture(t), cli = fileURLToPath(new URL("../packages/sage-board/cli.mjs", import.meta.url));
+  const { dir, root, config } = fixture(t), cli = fileURLToPath(new URL("../packages/sage-board/cli.mjs", import.meta.url));
+  createStateTool({ defaultRoot: () => root }).sage(["task", "T1", "set", "state=briefed", "--project", dir], { ...process.env, SAGE_HOME: root });
   for (const scope of ["this", "T1"]) {
     const result = spawnSync(process.execPath, [cli, "board", scope, "--config", config], { cwd: dir, env: process.env, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
-    assert.ok(result.stdout.includes("Sample CLI task"));
+    assert.ok(result.stdout.includes(scope === "this" ? "\n- Sample CLI task. Briefed.\n" : "Sample CLI task"), result.stdout);
     if (scope === "T1") assert.ok(result.stdout.includes("**Brief**"));
   }
 });

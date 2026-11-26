@@ -67,7 +67,7 @@ for (const f of agents) {
   for (const [, name] of m[2].matchAll(/`sage:([a-z-]+)`/g)) {
     if (!agents.includes(`${name}.md`) && !existsSync(join(skillsDir, name, "SKILL.md"))) problems.push(`agents/${f}: names sage:${name}, which is neither an agent nor a skill`);
   }
-  for (const skill of f === "chief-of-staff.md" ? ["dictionary"] : ["report", "dictionary"]) if (!new RegExp(`^  - sage:${skill}$`, "m").test(m[1])) problems.push(`agents/${f}: must preload sage:${skill}`);
+  if (f !== "chief-of-staff.md" && !/^  - sage:report$/m.test(m[1])) problems.push(`agents/${f}: must preload sage:report`);
   const preloaded = [...m[1].matchAll(/^  - sage:principle-(\S+)$/gm)].map(([, p]) => p).sort().join(", ");
   const mapped = [...(ROLE_PRINCIPLES[f.slice(0, -3)] ?? [])].sort().join(", ");
   if (preloaded !== mapped) problems.push(`agents/${f}: preloads the principles [${preloaded}], but ROLE_PRINCIPLES in packages/sage-core/roles.mjs gives [${mapped}]`);

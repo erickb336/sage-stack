@@ -4,7 +4,7 @@ The board is a view of your projects' logbooks, one project at a time: what need
 
 The board has two views:
 
-- **The board in the chat:** `show board` prints it as text. It needs no server and no scripts.
+- **The board in the chat:** `show board` prints a short digest as text: what needs you, what moves now, what was done since yesterday, and the milestones. It needs no server and no scripts.
 - **The board in the browser:** a local page on this Mac, at `http://127.0.0.1:43123/` (or the [port that you moved it to](#change-the-boards-port)). It needs scripts, and it reads the same logbooks.
 
 [Every phrase](using-sage.md#every-phrase) lists the board phrases with all the others. The [board service guide](../../packages/sage-board/README.md) gives the server's setup by hand and the login service.
@@ -19,7 +19,7 @@ The chat view shows the tasks in the project's logbook: its shared logbook, or e
 
 | Say | You see |
 | --- | --- |
-| `show board`, `sage board`, or `show board for this project` | The chat board for the current checkout, with each source kept separate, and the address of the board in the browser. |
+| `show board`, `sage board`, or `show board for this project` | The chat board for the current checkout, and the address of the board in the browser. |
 | `show board for all` or `sage board for all projects` | Tasks from all configured sources. |
 | `show board for sage-bot` or `sage board for sage-bot` | One named project: the name that the board shows (its display name, or its repository's name) or its folder's name, in any letter case. The Claude and the Codex logbook of one checkout are one project, so the name shows both. An ambiguous name (two clones) gives qualified project choices. |
 | `show board T197`, `sage board T197`, or `board T197` | Full task detail for the current project. An unknown task gives nearby IDs and opens no other task. |
@@ -33,16 +33,75 @@ Claude recognizes these phrases only at the start of your own message, outside q
 
 Codex recognizes the same phrases by the same rules. There, the board in the browser starts after you approve one prompt, as [The board in Codex](codex.md#the-board-in-codex) tells.
 
-The chat board groups the tasks in six sections:
+### The chat board
 
-- Backlog, Design, Building, In review, Ready to merge, and Done.
-- Done holds the merged and concluded tasks of the last seven days, when their completion date is recorded.
-- A section shows 5 tasks; the board in the browser shows all of them on its Tasks page.
-- A verified pull request is in Ready to merge only when sage's merge check passes on its last commit. The board does not check the pull request's head branch on GitHub.
+The chat board is a digest that you read at once. It answers one question: "Do I need to do something, and is the work moving?" The board in the browser is the place to look around.
+
+It has four parts, always in this order:
+
+1. **Needs you:** each open question, with its options and the chief's recommendation; each problem of a milestone or a logbook; and each chief that stopped with open tasks. 🔴 marks the part only when something waits for you.
+2. **Moving now:** each task past the backlog that does not wait for you, or that an agent works on, with what it does and how long its agent has run. A task that the chief must repair (for example, the merge check refuses its last commit) says so here.
+3. **Done since yesterday:** the tasks merged or concluded today or yesterday, newest first, with the local time.
+4. **Milestones:** one line for each release that is not done, then one line for each open milestone, with its count of merged tasks and its next task.
+
+Each part shows at most 6 tasks, then "And 4 more on the board". Then come:
+
+- **Quiet:** the count of the other projects that have nothing that moves or needs you.
+- **More:** the link to the board in the browser.
+- **Ref:** the last line. It keeps the ids of the tasks, questions (with their full key), milestones, chiefs and pull requests above it, for the chief. The text above it names things by their titles, not by their ids.
+
+Other rules of the digest:
+
+- It leaves out the backlog, the sessions, the pick-ups, the step lines, the priorities and the kinds. The browser shows them.
+- When two or more projects have work, each part groups its lines under the project's name, and the Ref line names the project too.
+- The head line gives the time in your local zone, and names the zone once.
+- Titles longer than 60 characters end at a word, with "…".
+- Agent text shows as plain text: it makes no link, no image and no HTML in the chat.
+
+A sample, with SAMPLE DATA:
+
+```text
+sage board · 10:43 UTC-05:00
+
+### 🔴 Needs you
+sage-stack
+- Pages link to the board only when it runs. The board cannot tell if autopilot is on, so review and merge its PR.
+- Pick the layout of the release notes. Which layout do the release notes use?
+  Options: 1 one page · 2 one page for each project.
+  Recommended: one page.
+
+sedalina
+- Choose the checkout layout. Checkout layout: A (one page) or B (three steps)?
+  Options: 1 A · 2 B.
+  Recommended: A.
+
+### Moving now
+sage-stack
+- Hook slots free themselves when a session dies, so that a… Building, 20 min.
+
+sedalina
+- Fix the cart total. Building, 1 h 15 min.
+
+### Done since yesterday
+sage-stack
+- Read-only roles cannot write into the agent folders. Merged at 09:40.
+
+### Milestones
+sage-stack
+- Board redesign: 1 of 4 merged. Next, Hook slots free themselves when a session dies, so that a…
+
+Quiet: 1 other project has nothing that moves or needs you.
+
+More: http://127.0.0.1:43123
+
+Ref: sage-stack T1205 PR 645 T1210 claude/sage-stack-aaaaaa/G236 T1204 T1199 PR 641 M7 · sedalina T88 claude/sedalina-bbbbbb/G62 T89
+```
+
+A verified pull request asks for your merge only when sage's merge check passes on its last commit. The board does not check the pull request's head branch on GitHub.
 
 ### The state words
 
-Each task, step, milestone and agent shows one of six state words, on both views. Each word has a mark, so it reads without colour too.
+Each task, step, milestone and agent shows one of six state words, in the browser and in the task detail of the chat (`show board T197`). Each word has a mark, so it reads without colour too.
 
 | Word | Mark | It means |
 | --- | --- | --- |
@@ -55,15 +114,15 @@ Each task, step, milestone and agent shows one of six state words, on both views
 
 The same words and marks show the steps of a task and the agents, from one table in sage's code. Two more marks:
 
-- `!` is a problem: failed, blocked, may be stuck, running long or run still open. The problem shows after the word, for example "in progress · may be stuck".
+- `!` is a problem: failed, blocked, Look at it or Stopped without a report. The problem shows after the word, for example "in progress · Look at it".
 - `◌` is a state that the board does not know. It reads "unknown".
 
 Two marks are not states:
 
 - `⊘` is a wait that is never met: the task that it waits for stopped, so this task cannot start. For example "⊘ Waits for T20 (pilot, stopped): it cannot start".
-- 🔴 starts the chat board's top line, before the count of items that need you.
+- 🔴 marks the chat board's Needs you part when something waits for you.
 
-Each kind tag (for example `◇ Design` or `⋈ Orchestration`) and the offer line (`⇄`) have marks of their own, which no state uses.
+Each kind tag (for example `◇ Design` or `⋈ Orchestration`) has a mark of its own, which no state uses.
 
 - A wait names the word of the task that it waits for, for example "Waits for T12 (in progress)".
 - A milestone's word comes from its breakdown: "needs you" while the breakdown waits for you, or when its pilot stopped; "stopped" when you dropped it. Else it comes from its tasks.
@@ -132,10 +191,16 @@ The address of the board opens the Overview. From the top:
 - **The top bar:** the [picker and the signal](#one-project-at-a-time), then the counts of agents and leads against this project's limits, for example "Agents 8 of 10 · C1 4 · C2 4 · 3 waiting" and "Leads 4 of 5". A count turns amber at its limit, and a click opens the Agents page.
 - **All projects:** with more than one project, "12 in progress in all projects" counts the running agents of every project. The board does not read Claude's total cap of agents for all projects, so it shows no limit for that count.
 - **The time and the theme:** "Live · read 10:56" gives the time of the last read. The board is dark until you choose the light theme with the switch, and it keeps your choice in this browser.
-- **The chief chips:** one chip for each chief, Claude and Codex alike, with a green dot for a live chief, a yellow dot for a chief that waits for your answer, a ring for a stopped chief, and "autopilot on" or "autopilot off". A click on a chip shows only that chief's work, on each page; "All chiefs" shows all again. In a window narrower than 760 px, the chips fold into one chip with each chief's id and dot; a tap shows them all.
+- **The chief chips:** one chip for each chief, Claude and Codex alike, with a green dot for a live chief, a yellow dot for a quiet chief or a chief that waits for your answer, a ring for a stopped chief, and "autopilot on" or "autopilot off". A click on a chip shows only that chief's work, on each page; "All chiefs" shows all again. In a window narrower than 760 px, the chips fold into one chip with each chief's id and dot; a tap shows them all.
+- **Sessions:** one row for each sage session (chief) of the project, Claude and Codex alike, with its dot and its state word:
+  - **live**, with its start time, its tasks and its agents, for example "Claude · C3 · since 21:07" and "14 tasks · 3 agents". "program not confirmed" says that sage did not yet see the session's program in two actions 1 min apart: the session then passes on only when it exits, or after 8 h with no action.
+  - **quiet**: no action for 30 min or more and no agent at work. It shows when its tasks pass on, for example "passes on at 17:10", 8 h after its last action. A quiet session with an open question of yours keeps its tasks.
+  - **stopped**, after 8 h with no action, or **ended**, after a clean exit or the off phrase, with the time and its runs that the logbook still shows as running: "1 run lost".
+  - **The last pick-up** of the last 7 days, at the end of the row. The session that took the work says "picked up 146 tasks at 15:59", with "1 run lost" when a run of the stopped session was running. The stopped session says "passed on to C3 at 15:59".
 - **Needs you:** each open question and each problem, oldest first, with its chief, its task and when it was asked. A click on a question opens the [question view](#the-question-view-and-the-reader).
 - **Milestones:** each milestone by the top priority of its open tasks, with its state word, its goal, its progress bar ("2 of 9 merged") and its pilot. A click opens the Tasks page with only that milestone's tasks; "Show all tasks" shows the rest again.
-- **Since you looked**, or **In the last 24 hours** on the first visit in a browser, or **In the last 7 days** after a longer absence: the tasks merged, the runs "with a problem flag", and the tasks added. A run has a problem flag when its agent is silent for 30 minutes or stopped, or when it failed in the last 24 hours, its task is still open, and no later run of the same role started. A click on "Merged" opens those tasks on the Tasks page, newest first; a click on "With a problem flag" opens the Agents page, which uses the same label.
+- **Since you looked**, or **In the last 24 hours** on the first visit in a browser, or **In the last 7 days** after a longer absence: the tasks merged, the runs "with a problem flag", and the tasks added. A run has a problem flag when its agent has the flag "Look at it" or "Stopped without a report" (see [the Agents page](#the-agents-page)), or when it failed in the last 24 hours, its task is still open, and no later run of the same role started. A click on "Merged" opens those tasks on the Tasks page, newest first; a click on "With a problem flag" opens the Agents page, which uses the same label.
+  - **Pick-ups**: one line for each pick-up in the same time, with its time, the session that took the work, the count of tasks from each source and the lost runs by id. For example "20 Nov, 15:59 · Claude · C3 picked up 146 tasks: 69 from Claude · C1, 2 from Codex · C2 and 75 with no owning chief · no run lost".
 
 When the board has no project yet, the Overview shows one card, "Start your first task", with the three first steps: start a chief in the project, ask for a change, and come back to the board. A project that has a chief but no task yet shows the same card, with the first step marked done.
 
@@ -200,11 +265,19 @@ A click on a card's title, on "About" or on an agent opens the task page. A run 
 
 | State | Shown when |
 | --- | --- |
-| ▶ in progress | The hook saw the agent in the last 30 min. A Codex run also shows this word: the logbook says that it runs. Codex sends no activity notes yet, so the row has no last activity, no helpers and no cap. |
+| ▶ in progress | The logbook says that the run runs. |
 | ⧗ waiting | A lead has at least one helper that still runs. |
-| ! in progress · may be stuck | No hook activity for 30 min or more, and no running helper. Or the logbook says that the run runs, and no agent slot holds it (the hook frees a slot after 60 min with no activity). |
-| ! in progress · running long | The time running is more than 2 times the median of the same role's ended runs in this project. It needs 5 ended runs. |
-| ! stopped · run still open | The hook saw the helper stop, but the logbook still says that the run runs. The chief must end the run. |
+
+A flag is not a state: it shows after the state, and one rule in sage's code gives it on every page and in the chat board. Most rows have no flag. The board finds each run's flag once, and the task's step, its Now line and the chat show that same flag: the step shows the worst flag of its runs, and the Now line names each flagged run and the reason.
+
+The chat view of one task (`show board T197`) reads only that task's logbook, not the hook's notes. So there a run shows only the flags that the logbook gives: "Stopped without a report" when the run's chief stopped, and "Look at it" when the run has no news for a day.
+
+| Flag | Shown when |
+| --- | --- |
+| ! in progress · Stopped without a report | The hook saw the agent's process end, but the logbook still says that the run runs, and no report came. Or the session of the run's chief stopped or ended. No agent works on it: the chief must end the run. |
+| ! in progress · Look at it | A Claude agent wrote no hook note for 15 min, and its run is past the usual top length of its step: 9 of 10 done runs of the same role in this project took no longer. Both facts must hold, and the rule needs 5 done runs. A lead whose helpers run gets no flag for its quiet. |
+| ! in progress · Look at it | The logbook says that a Claude run runs, but no agent slot holds it (the hook frees a slot after 60 min with no activity). Or the run has no news for a day: no logbook change and no hook note. |
+| ▶ in progress · Codex: activity unknown | A Codex run. Codex sends no activity notes yet, so the board cannot tell a quiet agent from a working one. The row never gets the amber flag, and it has no last activity, no helpers and no cap. |
 
 The page reads files only: the logbooks, the hook's agent slots and helper notes (by name and time, not their content) and the limits in `config.json`. It runs no command and reads no process list. To join a slot to its run, the hook marks each agent slot with the run id from the first line of the agent's brief ("Run R12 · task T3").
 
@@ -290,6 +363,7 @@ With a paired browser, you act from the Overview:
 | Action | Clicks from the Overview | What it writes |
 | --- | --- | --- |
 | Answer a question in Needs you | 1 to open it with its full context (the question message that the chief kept), then pick and Send | `gate answer --via board`. The chief that owns the question applies the answer at its next step. |
+| Approve a design with your words | 1 to open the design question, then pick Approve with your words, type your words in the field under the answers (or in the answer bar, when a file is open in a narrow window), and Send | `gate answer --via board --option 2 --other-hex <your words>`, at most 1,000 characters ([A design question](using-sage.md#a-design-question)). |
 | Undo a board answer | 1: Undo, under "Answered · waits for the chief" | `gate undo`, until the chief picks the answer up. |
 | Rename a chief | 2: the chief's menu (▾), then Rename | `chief name`. An empty name clears your name. |
 | Show only one chief's work | 1: the chief's chip. "All chiefs" shows all again | Nothing: the filter holds on each page, in this browser tab. |
@@ -366,23 +440,22 @@ In the browser, each task shows its owning chief as a chip with its id and provi
 
 | Line | Where in the chat | What it says |
 | --- | --- | --- |
-| `Owning chief: Claude · C1` | The task view | The owning chief and its provider. A task with no owning chief says `Unclaimed`: the chief that unclaimed it can claim it back; another chief needs your takeover gate. |
-| `Offered to Codex · C2. It waits for R407 to end, then Codex · C2 accepts.` | Under the task's line, and in the task view | An open offer, while a run of the task runs. |
-| `Hand T320 from Claude · C1 to Codex · C2? R410 and R411 end as failed.` | Needs you | An open takeover gate, with its options and recommendation: `approve, when you know that Claude · C1 stopped`, or after an accept `approve, because Claude · C1 offered T320 to Codex · C2`. |
-| `The owning chief, Codex · C2, may have stopped: R412 shows no change for over 24 h.` | Needs you | A running run of the owning chief has no change in the task's rows for over 24 h. Ask any chief to open a takeover gate. |
+| `Owning chief: Claude · C1` | The task view | The owning chief and its provider. A task with no owning chief says `Unclaimed`: the next pick-up of another chief takes it (a moved task that no chief claimed, only a chief of its own provider). The chief that unclaimed it gets it back only through your takeover gate. |
+| `Hand this task from Claude · C1 to Codex · C2? 2 of its runs end as failed.` | Needs you | An open takeover gate, with its options and recommendation: `approve, when you know that Claude · C1 stopped`. The Ref line keeps the task, the question's key and the PR. |
+| `The owning chief, Codex · C2, may have stopped: its run shows no change for over 24 h.` | Needs you | A running run of the owning chief has no change in the task's rows for over 24 h. Ask any chief to open a takeover gate. |
 | `R407 Claude · qa · checkout lantern · in progress` | The runs of the task view | The provider of each run, from the run's chief in `chiefs.tsv`, and the folder of the checkout that the run started from: its name only, never its path. A run with no chief stands in as `Unknown`. |
 | `checkout lantern (gone)` | The same | That folder is not on this Mac now, or it is a file or a folder with no Git checkout. When it is the folder of the branch's newest writer run, one line under the runs names the folder and the run, and the next review step stops until the folder is back. |
 | `checkout lantern (not checked)` | The same | The board checks at most 64 checkout folders of a logbook, so it did not check this one. |
 | `checkout lantern \#2` | The same | Two linked checkouts have the folder name lantern. The number is the link order, and it never moves to another folder. |
-| `was Claude T640` | The task's line and the task view | A task that [the move](using-sage.md#move-an-existing-project) took to the shared logbook, with its old provider and number. |
-| `⇢ sage moved to one shared logbook on 2026-11-03 15:44 UTC.` | The top of the chat board | The project moved in the last 7 days. The line names the map page of old and new numbers, `move-map.html`, and the logbook folder that holds it. It shows no path. |
-| `Old · Claude · read-only` | The task's line in Done, and the task view | A finished task that stayed in its old logbook when the project moved. Its number belongs to the old logbook, and an open gate of it is not in Needs you. |
+| `was Claude T640` | The task view, and the task's card in the browser | A task that [the move](using-sage.md#move-an-existing-project) took to the shared logbook, with its old provider and number. |
+| `sage moved to one shared logbook on 3 Nov.` | The top of the chat board | The project moved in the last 7 days. The line names the map page of old and new numbers, `move-map.html`, and the logbook folder that holds it. It shows no path. |
+| `Old · Claude · read-only` | The task view, and the task's card in the browser | A finished task that stayed in its old logbook when the project moved. Its number belongs to the old logbook, and an open gate of it is not in Needs you. |
 | `The logbook is changing` | The top of the chat board | The board read the logbook 3 times, and it changed during each read. Ask for the board again. The board in the browser keeps its last good read and reads again soon. |
 | `Logbook note: …` | The end of the chat board | A row of `sources.tsv` or `bindings.tsv` that the board does not use, for example `A checkout named harbor-new is linked to this logbook, but it has no first commit in common with it.` The board stays live. |
 
 - **Names and links:** the board takes a shared project's checkout from its row in `bindings.tsv`, so the name and the PR links come from that checkout's GitHub remote.
 - **Old logbooks:** the move lists them in `sources.tsv`. The board reads a folder of that list only when it is a logbook folder directly under a Claude or Codex root, not a link, with the move's mark `moved.json`, and its row names that root's provider. Each old logbook shows once, in its shared project.
-- **Agents:** a run of a shared logbook joins its agent slot in its provider's root. So a Claude run with a slot shows as at work, not as "may be stuck".
+- **Agents:** a run of a shared logbook joins its agent slot in its provider's root. So a Claude run with a slot shows as at work, with no "Look at it" flag.
 - **"Show board" in a session:** the chat board finds a shared project from its checkout, a worktree, a subfolder or another linked clone. A clone with no row does not find a shared project by its folder's name: link it first.
 
 <!-- The old anchor stays, so that older links to it still work. -->

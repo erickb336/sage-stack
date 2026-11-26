@@ -1,8 +1,7 @@
 import { taskLink } from "./task.jsx";
-import { MARKS, OBJECTS, runWord, shown } from "../../sage-core/state-words.mjs";
+import { MARKS, runWord } from "../../sage-core/state-words.mjs";
 
 const MIN = 60_000;
-const STATE = Object.fromEntries(["stuck", "stop", "long", "wait", "work", "unk"].map(key => [key, shown(OBJECTS.agent.states[key]).text]));
 const ORDINAL = ["th", "st", "nd", "rd"];
 export const ordinal = n => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : ORDINAL[n % 10] ?? "th"}`;
 export const clock = at => Number.isFinite(Date.parse(at)) ? new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "a time not recorded";
@@ -12,6 +11,8 @@ export function span(ms) {
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
 }
 export const tokens = n => n === null || n === undefined ? "tokens not recorded" : n < 1000 ? `${n}` : n < 1e6 ? `${Math.round(n / 1000)} k` : `${(n / 1e6).toFixed(2).replace(/\.?0+$/, "")} M`;
+export const runTokens = run => run.weighted != null ? `${tokens(run.weighted)} weighted` : run.own != null ? `${tokens(run.own)} ${run.provider} own count` : run.peak != null ? `peak context ${tokens(run.peak)}` : null;
+export const otherCounts = m => [m.peak == null ? null : `largest peak context ${tokens(m.peak)}`, ...Object.entries(m.providers ?? {}).map(([p, o]) => `${p} own count ${tokens(o.tokens)} in ${o.counted} run${o.counted === 1 ? "" : "s"}, not added in`)].filter(Boolean).join(" · ");
 export const age = (run, now) => span((run.ended ? Date.parse(run.ended) : now) - Date.parse(run.started));
 const GLYPHS = {
   lead: <><circle cx="7" cy="5.5" r="2" /><circle cx="7" cy="18.5" r="2" /><circle cx="17" cy="7.5" r="2" /><path d="M7 7.5v9M17 9.5c0 4.2-4.6 4.6-8.6 7.4" /></>,
@@ -28,8 +29,9 @@ const GLYPHS = {
 };
 const OTHER = <><circle cx="12" cy="12" r="7.5" /><path d="M12 8.5v4M12 15.5v.1" /></>;
 export const Glyph = ({ role }) => <svg className="gl" viewBox="0 0 24 24" aria-hidden="true">{GLYPHS[role] ?? OTHER}</svg>;
-export const ringOf = run => run.status === "queued" ? "queue" : run.status === "running" ? run.look ? "fail" : run.state === "wait" ? "wait" : "run" : run.status === "done" ? "done" : run.status === "question" ? "need" : "fail";
-const MARK = { fail: MARKS.problem, done: MARKS.done, need: MARKS["needs you"] };
+const LEVEL = { red: "fail", amber: "look" };
+export const ringOf = run => run.status === "queued" ? "queue" : run.status === "running" ? LEVEL[run.flag?.level] ?? (run.state === "wait" ? "wait" : "run") : run.status === "done" ? "done" : run.status === "question" ? "need" : "fail";
+const MARK = { fail: MARKS.problem, look: MARKS.problem, done: MARKS.done, need: MARKS["needs you"] };
 
 export function Ring({ ring, children, label, small = false }) {
   return (
@@ -41,22 +43,22 @@ export function Ring({ ring, children, label, small = false }) {
   );
 }
 
-export const stateText = run => run.status === "queued" ? `${runWord("queued").text} · ${ordinal(run.place ?? 0)} in the queue` : run.status !== "running" ? runWord(run.status).text : STATE[run.state] ?? STATE.unk;
-const badgeOf = run => run.status === "queued" ? "queued" : run.status !== "running" ? run.status === "done" ? "done" : run.status === "question" ? "needs-you" : "failed" : run.look ? "look" : "running";
+export const stateText = run => run.status === "queued" ? `${runWord("queued").text} · ${ordinal(run.place ?? 0)} in the queue` : run.status !== "running" ? runWord(run.status).text : runWord(run.state === "wait" ? "wait" : "work", run.flag).text;
+const badgeOf = run => run.status === "queued" ? "queued" : run.status !== "running" ? run.status === "done" ? "done" : run.status === "question" ? "needs-you" : "failed" : run.flag?.level === "red" ? "look" : run.flag?.level === "amber" ? "need" : "running";
 export const StateBadge = ({ run }) => <span className={`badge ${badgeOf(run)}`} title={run.status === "running" ? run.why ?? undefined : undefined}>{stateText(run)}</span>;
 
 export const AgentRing = ({ run, now, small }) => <Ring ring={ringOf(run)} small={small} label={small ? undefined : `${run.role}, ${stateText(run)}${run.status === "queued" ? "" : `, ${age(run, now)}`}`}><Glyph role={run.role} /></Ring>;
 export function AgentTile({ run, now, task = false }) {
-  const queued = run.status === "queued", failed = run.status === "failed", note = failed ? `Reason: ${run.why ?? "No reason recorded."}` : !queued && run.why && (run.look || run.state === "long") && run.why;
+  const queued = run.status === "queued", failed = run.status === "failed", note = failed ? `Reason: ${run.why ?? "No reason recorded."}` : !queued && run.flag && run.flag.level !== "calm" && run.why;
   return (
     <a className={`ag${queued ? " queued" : run.status === "running" ? "" : " ended"}`} href={taskLink(run.task.key)} data-task={run.task.key} data-run={run.id}>
       <AgentRing run={run} now={now} />
       <span className="ag-b">
         <span className="r1"><b className="rw">{run.role}</b><span className="mono faint rid">{task && `${run.task.id} · `}{run.id}</span></span>
-        <span className="r2"><StateBadge run={run} /><span className="num">{queued ? `waits ${age(run, now)}` : `${age(run, now)}${run.tokens === null || run.tokens === undefined ? "" : ` · ${tokens(run.tokens)}`}`}</span></span>
+        <span className="r2"><StateBadge run={run} /><span className="num">{queued ? `waits ${age(run, now)}` : `${age(run, now)}${runTokens(run) ? ` · ${runTokens(run)}` : ""}`}</span></span>
         {task && <span className="tline">{run.task.id} · {run.task.title}</span>}
         {queued ? <span className="mdl">queued {clock(run.started)} · {ordinal(run.place ?? 0)} in line</span> : <span className="mdl">{run.model ?? "model not recorded"}</span>}
-        {note && <span className={`awhy${run.look || failed ? " look" : ""}`}>{note}</span>}
+        {note && <span className={`awhy${failed || run.flag?.level === "red" ? " look" : run.flag?.level === "amber" ? " need" : ""}`}>{note}</span>}
       </span>
     </a>
   );

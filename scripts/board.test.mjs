@@ -7,6 +7,7 @@ import { basename, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { mergeCheck, storeDir } from "../plugins/sage/skills/sage/sage.mjs";
+import { QUESTION } from "./fixtures/question-message.mjs";
 
 const FIXTURE = fileURLToPath(new URL("./fixtures/board/home", import.meta.url));
 const TOOL = fileURLToPath(new URL("../plugins/sage/skills/sage/sage.mjs", import.meta.url));
@@ -131,7 +132,8 @@ test("G68: the hook's command holds only ASCII, and the CLI decodes the name to 
   assert.match(run, /^It starts the local board server .* Then run: node \S+ board --name-hex e697a5e69cace8aa9e --project '\/work\/sage' --view chat$/);
   assert.match(run.slice(run.indexOf(" board ")), /^[ -~]+$/);
   const out = execFileSync("node", [TOOL, "board", "--name-hex", "e697a5e69cace8aa9e", "--project", w.sage, "--view", "chat"], { encoding: "utf8", env: { ...process.env, ...w.env } });
-  assert.match(out, /^\*\*Sample\\: bot follow-up\*\* T2 · needs you · Current provider · 日本語\\$/m, out);
+  assert.ok(out.includes("\n- Sample: bot follow-up. Sample: which channel first?\n"), out);
+  assert.ok(out.endsWith(`\nRef: T2 current/${basename(storeDir(join(w.dir, "日本語"), w.env))}/G1\n`), "the gate key names the logbook of 日本語");
   assert.doesNotMatch(out, /中文/, out);
   const bad = spawnSync("node", [TOOL, "board", "--name-hex", "e697z", "--project", w.sage], { encoding: "utf8", env: { ...process.env, ...w.env } });
   assert.notEqual(bad.status, 0);
@@ -174,7 +176,7 @@ function twoProjects() {
     execFileSync("git", ["init", "-q", path]);
     sage(path, "init");
     sage(path, "task", "add", "--priority", "P2", "--title", `${name} task`, "--size", "tiny");
-    sage(path, "gate", "add", "T1", "--question", `${name}: give the bot access?`, "--options", "yes|no access", "--recommend", "yes");
+    sage(path, "gate", "add", "--message", QUESTION, "T1", "--question", `${name}: give the bot access?`, "--options", "yes|no access", "--recommend", "yes");
     return path;
   });
   const hook = (prompt, cwd) => {
@@ -213,7 +215,7 @@ test("T72-S6-OPTIONSHELL: an option with $(…) or a quote never goes into the n
   const w = twoProjects();
   const marker = join(w.dir, "X");
   const evil = `keep $(touch ${marker}) it`;
-  w.sage(w.beta, "gate", "add", "T1", "--question", "beta: which?", "--options", `say "hi|${evil}|\`touch ${marker}\``, "--recommend", "1");
+  w.sage(w.beta, "gate", "add", "--message", QUESTION, "T1", "--question", "beta: which?", "--options", `say "hi|${evil}|\`touch ${marker}\``, "--recommend", "1");
   const note = w.hook("show board for beta", w.alpha);
   for (const bad of ["$(", "touch", '"hi', "`"]) assert.ok(!note.includes(bad), `the note holds ${bad}`);
   assert.match(note, /full source\/project\/gate key/);

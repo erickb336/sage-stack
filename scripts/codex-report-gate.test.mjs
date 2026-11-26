@@ -334,7 +334,8 @@ test("T947: a review or QA child's medium or high finding carries a proof that t
     ["- K1 medium a.js:1 an empty name saves a row", /^sage: K1 is medium and has no proof line\./],
     ["- K1 high a.js:1 a crash\n  proof: npm test", /^sage: K1's proof has no saw line\./],
     ["- K1 medium a page\n  proof: screenshot /tmp/r40/a.png", /^sage: K1's proof has no steps line\./],
-    ["- K1 medium a.js:1 a stuck job\n  proof: kill 1\n  saw: done", /^sage: K1's proof "kill 1" is refused: an agent never reads or signals the real process list/],
+    ["- K1 medium a.js:1 a stuck job\n  proof: kill 1\n  saw: done", /^sage: K1's proof "kill 1" is refused: an agent never signals or controls a real process/],
+    ["- K1 medium a.js:1 a stuck job\n  proof: /bin/ps -ax\n  saw: node", /^sage: K1's proof "\/bin\/ps -ax" is refused: a proof never reads the real process list, so "\/bin\/ps" is refused: the proof check reruns the proof/],
     ["- K1 medium a.js:1 a bad file\n  proof: npm test > out.txt\n  saw: not ok 1", /^sage: K1's proof "npm test > out\.txt" is refused: it writes outside the scratch folder\./],
     ["- K1 low a.js:1 a nit\n- K2 medium a.js:2 a bad value", /^sage: K2 is medium and has no proof line\./],
     ...["git reset --hard", "git clean -fdx", "git -C /Users/x/repo log", "npm test && git branch -D claude/t12", "git worktree add /tmp/w HEAD"].map((proof) =>
@@ -668,8 +669,8 @@ test("T954: at its stop, a Codex run's own token total from its session record b
     assert.match(r.usage_evidence, /^the record of thread 01a1b6ff-0000-7000-8000-000000000954, read at SubagentStop$/);
     assert.equal(r.usage_interface, "collaboration-tools", "the declared interface stays the run's basis");
   }
-  assert.match(ok("status"), /about 52k tokens · 2 measured, 0 unavailable, 0 legacy-unrecorded/);
-  assert.match(ok("board", "T12", "--view", "task"), new RegExp(`${lead} [^\\n]*· lead · done · [^\\n]*· tokens 25811\\n${qa} [^\\n]*· qa · done · [^\\n]*· tokens 25811`));
+  assert.match(ok("status"), /about 0k weighted tokens · codex own count 52k · 2 measured, 0 unavailable, 0 legacy-unrecorded/);
+  assert.match(ok("board", "T12", "--view", "task"), new RegExp(`${lead} [^\\n]*· lead · done · [^\\n]*· 25811 tokens, codex own count\\n${qa} [^\\n]*· qa · done · [^\\n]*· 25811 tokens, codex own count`));
   const blocked = add("lead"), file = record("lead", blocked);
   gate(stop({ agent_transcript_path: file, cwd: project, last_assistant_message: FULL }));
   writeFileSync(file, readFileSync(file, "utf8") + JSON.stringify({ ...recordLines()[5], payload: { ...recordLines()[5].payload, thread_token_usage: { ...recordLines()[5].payload.thread_token_usage, total_tokens: 30000 } } }) + "\n");

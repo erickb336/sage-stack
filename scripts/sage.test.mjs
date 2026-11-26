@@ -8,10 +8,11 @@ import { hostname, tmpdir, uptime } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { keepReport } from "../plugins/sage/skills/sage/sage.mjs";
+import { keepReport, keepSpend } from "../plugins/sage/skills/sage/sage.mjs";
 import { startsInSageMode } from "../plugins/sage/core/index.mjs";
 import { BACKER, backed, linkFinding, reportFor } from "./verdict-backing.mjs";
 import { TABLES } from "../packages/sage-core/logbook-fields.mjs";
+import { QUESTION, pageQuestion } from "./fixtures/question-message.mjs";
 
 const LIB = new URL("../plugins/sage/skills/sage/sage.mjs", import.meta.url).href;
 const TOOL = fileURLToPath(LIB);
@@ -65,7 +66,7 @@ function store(home = mkdtempSync(join(tmpdir(), "sage-home-")), name = "sage-pr
     assert.equal(r.status, 1, `sage ${args.join(" ")} should be refused, printed: ${r.stdout}`);
     return r.stderr.trim();
   };
-  return { home, project, pids, run, go, ok, no, keep: (fields) => keepReport(project, fields, env()), dir: ok("init").replace(/^\S+ /, "") };
+  return { home, project, pids, run, go, ok, no, keep: (fields) => keepReport(project, fields, env()), spend: (run, weighted) => keepSpend(project, { run, spend: { input: 1, cache_write: 2, cache_read: 3, output: 4, weighted } }, env()), dir: ok("init").replace(/^\S+ /, "") };
 }
 
 const enlist = (home, name) => appendFileSync(join(home, "projects.tsv"), `${name}\t2000-01-01T00:00:00Z\tinit\n`);
@@ -605,9 +606,8 @@ test("T584: a large arena is a design arena: candidates, a judge's page, the PE,
   s.ok("run", "add", "T1", "--role", "pe");
   s.ok("run", "done", "R4", "--status", "done", "--tokens", "1");
   s.ok("task", "T1", "set", "state=awaiting-you");
-  s.ok("gate", "add", "T1", "--question", "Approve the design at R3-final.html?", "--options", "approve|change", "--recommend", "approve");
-  s.ok("gate", "answer", "G1", "--option", "1");
-  s.ok("task", "T1", "set", "state=briefed");
+  s.ok("gate", "add", "--message", pageQuestion("T1", "R3-final.html"), "T1", "--design", "R3-final.html", "--question", "Approve the design at R3-final.html?", "--recommend", "1");
+  assert.match(s.ok("gate", "answer", "G1", "--option", "1"), / · T1 awaiting-you → briefed · copied 1 page to designs\/T1\/G1$/, "the owner's approval moves the task on");
   s.ok("task", "T1", "set", "branch=sage/t1");
   s.ok("run", "add", "T1", "--role", "lead");
   assert.match(s.ok("run", "add", "T1", "--role", "implementer", "--branch", "sage/t1"), /^R6 running · implementer on T1 · sage\/t1 /);
@@ -888,16 +888,14 @@ test("T266-LEAD-RACE: lead runs started at once by separate processes keep the l
   assert.equal(rows(s.dir, "runs").filter((r) => r.task === "T11").length, 1);
 });
 
-test("T266-LEAD-SHOWN: status counts a lead run like any run, and the board shows it with its role", () => {
+test("T266-LEAD-SHOWN: status counts a lead run like any run, and the chat board shows its task as moving (T1217)", () => {
   const s = store();
   s.ok("task", "add", "--priority", "P2", "--title", "t", "--size", "small");
   s.ok("run", "add", "T1", "--role", "lead");
   s.ok("run", "add", "T1", "--role", "implementer", "--branch", "claude/t1");
-  assert.match(s.ok("status"), /^agents {2}2 runs · 2 running · about 0k tokens · 0 measured, 0 unavailable, 0 legacy-unrecorded$/m);
+  assert.match(s.ok("status"), /^agents {2}2 runs · 2 running · about 0k weighted tokens · 0 measured, 0 unavailable, 0 legacy-unrecorded$/m);
   const board = s.ok("board", "this");
-  assert.match(board, /· 2 agents at work ·/, board);
-  assert.match(board, /^.* · lead at work\\$/m, board);
-  assert.match(board, /^.* · implementer at work\\$/m, board);
+  assert.match(board, /\n### Moving now\n- t\. Not briefed yet, an agent at work, \d+ min\.\n/, board);
 });
 
 test("T266-MAX-AGENTS: the default max_agents is 10, one lead and its 9 children, and a value in config.json still wins", async () => {
@@ -1386,7 +1384,7 @@ test("T294 F-T294-5: a moved finding that comes back on its task under its old k
   assert.equal(s.ok("merge-check", "--sha", SHA), MERGES);
 });
 
-const KEY_STAYS = (k) => `sage: ${k} is a fix of T1's current round, so it stays on T1: it is fixed in a round, or dismissed with a reason. It moves to a follow-up task only after the owner chose the first option of a gate of T1 whose question names ${k}: sage gate add T1 --question "Move ${k} to a follow-up task?" --options "move|keep" --recommend <move or keep>.`;
+const KEY_STAYS = (k) => `sage: ${k} is a fix of T1's current round, so it stays on T1: it is fixed in a round, or dismissed with a reason. It moves to a follow-up task only after the owner chose the first option of a gate of T1 whose question names ${k}: sage gate add T1 --question "Move ${k} to a follow-up task?" --options "move|keep" --recommend <move or keep> --message <the question message file>.`;
 
 test("F-T301-40: an open fix of the current round never moves, at any severity, also after the move back to reviewing; a new finding of the round still moves", () => {
   const s = store();
@@ -1421,11 +1419,11 @@ test("F-T301-65: a fix key of the round moves only after the owner chose the fir
     }
     const move = () => s.run("finding", "move", "T1", "F-T1-1", "--to", "Export later");
     assert.equal(s.no("finding", "move", "T1", "F-T1-1", "--to", "Export later"), KEY_STAYS("F-T1-1"), `${state}: no gate`);
-    s.ok("gate", "add", "T1", "--question", "Move F-T1-1 to a follow-up task?", "--options", "move|keep", "--recommend", "move");
+    s.ok("gate", "add", "--message", QUESTION, "T1", "--question", "Move F-T1-1 to a follow-up task?", "--options", "move|keep", "--recommend", "move");
     assert.notEqual(move().status, 0, `${state}: the gate is not answered`);
-    s.ok("gate", "add", "T2", "--question", "Move F-T1-1 to a follow-up task?", "--options", "move|keep", "--recommend", "move");
-    s.ok("gate", "add", "T1", "--question", "Move F-T1-10 to a follow-up task?", "--options", "move|keep", "--recommend", "move");
-    s.ok("gate", "add", "T1", "--question", "Move F-T1-1 now?", "--options", "keep|move", "--recommend", "keep");
+    s.ok("gate", "add", "--message", QUESTION, "T2", "--question", "Move F-T1-1 to a follow-up task?", "--options", "move|keep", "--recommend", "move");
+    s.ok("gate", "add", "--message", QUESTION, "T1", "--question", "Move F-T1-10 to a follow-up task?", "--options", "move|keep", "--recommend", "move");
+    s.ok("gate", "add", "--message", QUESTION, "T1", "--question", "Move F-T1-1 now?", "--options", "keep|move", "--recommend", "keep");
     for (const [g, n] of [["G2", "1"], ["G3", "1"], ["G4", "2"]]) s.ok("gate", "answer", g, "--option", n);
     assert.notEqual(move().status, 0, `${state}: no answered gate of T1 names F-T1-1 with its first option`);
     s.ok("gate", "answer", "G1", "--option", "1");
@@ -1489,7 +1487,7 @@ test("config, gates, standing orders and status", () => {
   assert.match(s.no("config", "cap.Ramen=5"), /config takes/, "a project's name is its slug");
   assert.match(s.no("config", "cap.ramen-finder=0"), /cap\.ramen-finder must be a whole number of 1 or more: with 0, no sage agent could start for that project/);
   s.ok("task", "add", "--priority", "P2", "--title", "Export trips", "--size", "large");
-  assert.equal(s.ok("gate", "add", "T1", "--question", "Include deleted trips?", "--options", "yes|no", "--recommend", "no", "--default", "no"), "G1 open · Include deleted trips?");
+  assert.equal(s.ok("gate", "add", "--message", QUESTION, "T1", "--question", "Include deleted trips?", "--options", "yes|no", "--recommend", "no", "--default", "no"), "G1 open · Include deleted trips?");
   assert.match(s.ok("standing", "add", "Use pnpm, not npm."), /standing order 5 added/);
   assert.match(s.ok("standing"), /5\. Use pnpm, not npm\./);
   const lines = s.ok("status").split("\n");
@@ -1999,9 +1997,9 @@ test("ids after a gap are new: a lost row never gives its id again, and a new fi
   s.ok("run", "add", "T2", "--role", "qa");
   lose("runs", 0, "R1");
   assert.match(s.ok("run", "add", "T2", "--role", "qa"), /^R3 running/);
-  for (const q of ["a?", "b?"]) s.ok("gate", "add", "T2", "--question", q, "--options", "yes|no", "--recommend", "no");
+  for (const q of ["a?", "b?"]) s.ok("gate", "add", "--message", QUESTION, "T2", "--question", q, "--options", "yes|no", "--recommend", "no");
   lose("gates", 0, "G1");
-  assert.match(s.ok("gate", "add", "T2", "--question", "c?", "--options", "yes|no", "--recommend", "no"), /^G3 open/);
+  assert.match(s.ok("gate", "add", "--message", QUESTION, "T2", "--question", "c?", "--options", "yes|no", "--recommend", "no"), /^G3 open/);
   finding(s, "T2", "--source", "qa", "--severity", "low", "--summary", "first");
   finding(s, "T2", "--source", "qa", "--severity", "low", "--summary", "second");
   s.ok("finding", "triage", "T2", "F-T2-2", "dismiss", "--reason", "by design");
@@ -2440,10 +2438,10 @@ test("QA-4: an id never comes back while a row of the logbook still names it", (
   s.ok("finding", "add", "T2", "--key", "F-T2-1", "--severity", "medium", "--summary", "first, worse");
   lose("findings", 1, "F-T2-1");
   assert.equal(finding(s, "T2", "--source", "qa", "--severity", "low", "--summary", "second"), "F-T2-2 open · low · T2");
-  s.ok("gate", "add", "T2", "--question", "a?", "--options", "yes|no", "--recommend", "no");
+  s.ok("gate", "add", "--message", QUESTION, "T2", "--question", "a?", "--options", "yes|no", "--recommend", "no");
   s.ok("log", "T2", "G1 was answered by phone", "--why", "the user was away");
   lose("gates", 0, "G1");
-  assert.match(s.ok("gate", "add", "T2", "--question", "b?", "--options", "yes|no", "--recommend", "no"), /^G2 open/);
+  assert.match(s.ok("gate", "add", "--message", QUESTION, "T2", "--question", "b?", "--options", "yes|no", "--recommend", "no"), /^G2 open/);
   lose("tasks", 0, "T2");
   assert.match(s.ok("task", "add", "--priority", "P2", "--title", "c", "--size", "small"), /^T3 framed/);
 });
@@ -2492,7 +2490,7 @@ test("unknown-columns: a logbook that a newer sage wrote refuses every write com
   s.ok("task", "add", "--priority", "P2", "--title", "b", "--size", "small");
   toReviewing(s, "T1");
   finding(s, "T1", "--source", "qa", "--severity", "medium", "--summary", "slow");
-  s.ok("gate", "add", "T1", "--question", "q?", "--options", "yes|no", "--recommend", "no");
+  s.ok("gate", "add", "--message", QUESTION, "T1", "--question", "q?", "--options", "yes|no", "--recommend", "no");
   s.ok("run", "add", "T1", "--role", "qa");
   s.ok("verdict", "T1", "--sha", SHA, "--kind", "checks-pass");
   const tasks = join(s.dir, "tasks.tsv");
@@ -2512,7 +2510,7 @@ test("unknown-columns: a logbook that a newer sage wrote refuses every write com
     ["finding", "triage", "T1", "F-T1-1", "fix"],
     ["finding", "close", "T1", "F-T1-1"],
     ["verdict", "T1", "--sha", SHA, "--kind", "review-clean"],
-    ["gate", "add", "T1", "--question", "q2?", "--options", "a|b", "--recommend", "a"],
+    ["gate", "add", "--message", QUESTION, "T1", "--question", "q2?", "--options", "a|b", "--recommend", "a"],
     ["gate", "answer", "G1", "--option", "2"],
     ["log", "T1", "x", "--why", "y"],
   ];
@@ -2811,7 +2809,7 @@ test("F-R65-3: no control character reaches the terminal: a cell keeps none, a p
 test("T72-S6-OPTIONSHELL: gate answer takes an option by its number and records it exactly as stored; no text goes on the command line", () => {
   const s = store();
   s.ok("task", "add", "--priority", "P2", "--title", "t", "--size", "tiny");
-  s.ok("gate", "add", "T1", "--question", "Ship it?", "--options", "yes|keep $(touch X) it|No  access / later", "--recommend", "yes");
+  s.ok("gate", "add", "--message", QUESTION, "T1", "--question", "Ship it?", "--options", "yes|keep $(touch X) it|No  access / later", "--recommend", "yes");
   const before = snapshot(s.dir);
   const how = "sage: gate answer G1 takes --option <n>, the number of one of its options (1 to 3), or --other-hex <hex>, the owner's own words as the hex of their UTF-8 bytes (0-9 and a-f). Nothing changed.";
   for (const args of [["yes"], ["--option", "4"], ["--option", "0"], ["--option", "yes"], ["--option", "1", "--other-hex", "6f6b"], []]) assert.equal(s.no("gate", "answer", "G1", ...args), how, args.join(" "));
@@ -2824,7 +2822,7 @@ test("T72-S6-OPTIONSHELL: gate answer takes an option by its number and records 
 test("T72-S7-HEREDOC: gate answer --other-hex records the owner's own words exactly, marked as other, and runs none of them", () => {
   const s = store();
   s.ok("task", "add", "--priority", "P2", "--title", "t", "--size", "tiny");
-  s.ok("gate", "add", "T1", "--question", "Defaults?", "--options", "accept|review each", "--recommend", "accept");
+  s.ok("gate", "add", "--message", QUESTION, "T1", "--question", "Defaults?", "--options", "accept|review each", "--recommend", "accept");
   const cwd = mkdtempSync(join(tmpdir(), "sage-words-"));
   const words = "Keep logs\nSAGE_WORDS\ntouch PWNED\n$(touch X) `touch Y` 'q' \"dq\" ü";
   const hex = Buffer.from(words, "utf8").toString("hex");
@@ -2840,7 +2838,7 @@ test("T72-S7-HEREDOC: gate answer --other-hex records the owner's own words exac
 test("T72-S7-HEREDOC: gate answer refuses --other-hex that is not the hex of UTF-8 text, or only spaces, and changes nothing", () => {
   const s = store();
   s.ok("task", "add", "--priority", "P2", "--title", "t", "--size", "tiny");
-  s.ok("gate", "add", "T1", "--question", "Defaults?", "--options", "accept|review each", "--recommend", "accept");
+  s.ok("gate", "add", "--message", QUESTION, "T1", "--question", "Defaults?", "--options", "accept|review each", "--recommend", "accept");
   const before = snapshot(s.dir);
   const how = "sage: gate answer G1 takes --option <n>, the number of one of its options (1 to 2), or --other-hex <hex>, the owner's own words as the hex of their UTF-8 bytes (0-9 and a-f). Nothing changed.";
   for (const bad of ["", "6f6", "6g6b", "6F6B", "6f 6b", "ff", "c328"]) assert.equal(s.no("gate", "answer", "G1", `--other-hex=${bad}`), how, bad);
@@ -2851,7 +2849,7 @@ test("T72-S7-HEREDOC: gate answer refuses --other-hex that is not the hex of UTF
 test("T72-Q6-RECOMMEND: gate add takes a recommendation and a default among the options, by text or number, and refuses options that look the same", () => {
   const s = store();
   s.ok("task", "add", "--priority", "P2", "--title", "t", "--size", "tiny");
-  const add = (...args) => ["gate", "add", "T1", "--question", "q?", ...args];
+  const add = (...args) => ["gate", "add", "--message", QUESTION, "T1", "--question", "q?", ...args];
   assert.equal(s.no(...add("--options", "yes|no", "--recommend", "maybe")), 'sage: --recommend is one of the options, by its text or its number (1 to 2): "yes", "no".');
   assert.equal(s.no(...add("--options", "yes|no", "--recommend", "yes", "--default", "3")), 'sage: --default is one of the options, by its text or its number (1 to 2): "yes", "no".');
   assert.equal(s.no(...add("--options", "Keep|keep", "--recommend", "1")), 'sage: two options look the same: "keep" and "Keep". Make them differ in more than case.');
@@ -2875,7 +2873,7 @@ test("T72-Q6-CHECKOUT: init and task add name the project's main checkout in che
 test("F-R64-2: a table that is a link to nothing refuses a write before any change", () => {
   const s = store();
   s.ok("task", "add", "--priority", "P2", "--title", "t6", "--size", "tiny");
-  s.ok("gate", "add", "T1", "--question", "q?", "--options", "y|n", "--recommend", "y");
+  s.ok("gate", "add", "--message", QUESTION, "T1", "--question", "q?", "--options", "y|n", "--recommend", "y");
   const decisions = join(s.dir, "decisions.tsv");
   rmSync(decisions);
   symlinkSync(join(s.home, "nothing-here"), decisions);
@@ -3340,6 +3338,7 @@ test("T346: sage stats gives each task's review runs, tokens, tokens after round
   byHand(s.dir, "tasks", 0, "T3", (c) => Object.assign(c, { 8: "x" }));
   s.ok("run", "add", "T1", "--role", "qa");
   s.ok("run", "done", "R6", "--status", "done", "--tokens", "1500000");
+  for (const [run, weighted] of [["R1", 1000], ["R2", 500], ["R6", 1500000]]) s.spend(run, weighted);
   s.ok("run", "add", "T2", "--role", "qa");
   s.ok("run", "done", "R7", "--status", "blocked", "--tokens", "7000");
   s.ok("finding", "add", "T1", "--source", "code-reviewer", "--severity", "medium", "--summary", "a", "--run", "R1", "--class", "state-edge");
@@ -3352,17 +3351,17 @@ test("T346: sage stats gives each task's review runs, tokens, tokens after round
   const files = () => readdirSync(s.dir).filter((f) => f.endsWith(".tsv") || f.endsWith(".md")).map((f) => [f, readFileSync(join(s.dir, f), "utf8")]);
   const before = files();
   assert.equal(s.ok("stats"), [
-    "Tokens in thousands (k), of done runs only. A round is one repair of findings; after round 0 counts the runs of round 1 and later. A cycle is one set of reviews and QA on one head commit.",
-    "total · 3 tasks · 6 review runs (1 done without tokens) · 1502k tokens · 1500k after round 0 · 1 rounds · 6 findings",
+    "Tokens in thousands (k), of done runs only. Weighted is the run's summed usage over all its API calls, weighted by price, from its transcript; a run without one has no weighted count. Peak context is the largest context of one API call, the count that run done --tokens records. A provider's own count is its own measure, never added to weighted. A round is one repair of findings; after round 0 counts the runs of round 1 and later. A cycle is one set of reviews and QA on one head commit.",
+    "total · 3 tasks · 6 review runs (2 done without a weighted count) · 1502k weighted · 1500k after round 0 · peak context 1500k · 1 rounds · 6 findings",
     "",
-    "| Task | Review runs | Review tokens | After round 0 | Rounds | Findings by role | Findings by cycle | Usage |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- |",
-    "| T1 | 3 | 1502k | 1500k | 1 | code-reviewer: 1 · qa: 2 | cycle 1: 1 · cycle 2: 1 · none: 1 | 3 measured, 0 unavailable, 0 legacy-unrecorded |",
-    "| T2 | 3 | 0k | 0k | 0 | __proto__: 1 · a\\|b: 1 · constructor: 1 | none: 3 | partial measured total; 1 measured, 0 unavailable, 1 legacy-unrecorded |",
-    "| T3 | 0 | 0k | 0k | invalid | none | none | 0 measured, 0 unavailable, 0 legacy-unrecorded |",
+    "| Task | Review runs | Weighted | After round 0 | Peak context | Rounds | Findings by role | Findings by cycle | Usage |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| T1 | 3 | 1502k | 1500k | 1500k | 1 | code-reviewer: 1 · qa: 2 | cycle 1: 1 · cycle 2: 1 · none: 1 | 3 measured, 0 unavailable, 0 legacy-unrecorded |",
+    "| T2 | 3 | 0k | 0k | 0k | 0 | __proto__: 1 · a\\|b: 1 · constructor: 1 | none: 3 | partial measured total; 1 measured, 0 unavailable, 1 legacy-unrecorded |",
+    "| T3 | 0 | 0k | 0k | none | invalid | none | none | 0 measured, 0 unavailable, 0 legacy-unrecorded |",
     "", "usage total · partial measured total; 4 measured, 0 unavailable, 1 legacy-unrecorded", "Partial totals do not establish which task cost less.",
   ].join("\n"));
-  assert.equal(s.ok("stats", "--task", "T1").split("\n").slice(1).join("\n"), "total · 1 tasks · 3 review runs (0 done without tokens) · 1502k tokens · 1500k after round 0 · 1 rounds · 3 findings\n\n| Task | Review runs | Review tokens | After round 0 | Rounds | Findings by role | Findings by cycle | Usage |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| T1 | 3 | 1502k | 1500k | 1 | code-reviewer: 1 · qa: 2 | cycle 1: 1 · cycle 2: 1 · none: 1 | 3 measured, 0 unavailable, 0 legacy-unrecorded |\n\nusage total · 3 measured, 0 unavailable, 0 legacy-unrecorded");
+  assert.equal(s.ok("stats", "--task", "T1").split("\n").slice(1).join("\n"), "total · 1 tasks · 3 review runs (0 done without a weighted count) · 1502k weighted · 1500k after round 0 · peak context 1500k · 1 rounds · 3 findings\n\n| Task | Review runs | Weighted | After round 0 | Peak context | Rounds | Findings by role | Findings by cycle | Usage |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| T1 | 3 | 1502k | 1500k | 1500k | 1 | code-reviewer: 1 · qa: 2 | cycle 1: 1 · cycle 2: 1 · none: 1 | 3 measured, 0 unavailable, 0 legacy-unrecorded |\n\nusage total · 3 measured, 0 unavailable, 0 legacy-unrecorded");
   assert.deepEqual(files(), before, "stats writes no table and no status.md");
   assert.equal(s.no("stats", "--task", "T9"), "sage: no task T9. The latest: T1, T2, T3.");
   assert.match(s.no("stats", "--since", "2026-10-01"), /^sage: stats takes no --since\./);
@@ -3375,35 +3374,49 @@ test("T346: sage stats on a logbook with no review runs says so, and how its dat
   assert.equal(s.ok("stats"), "No review runs yet.\nData starts when a review or QA run ends with run done <R> --status done --tokens <n>, and its findings name it with finding add --run <R>.");
 });
 
+test("T1193: status sums each run's weighted spend, never its peak context, and counts the runs without one", () => {
+  const s = store();
+  s.ok("task", "add", "--priority", "P2", "--title", "a", "--size", "small");
+  for (const [tokens, weighted] of [["900000", 3000], ["800000", 4500], ["700000", undefined]]) {
+    const run = s.ok("run", "add", "T1", "--role", "qa").split(" ")[0];
+    s.ok("run", "done", run, "--status", "done", "--tokens", tokens);
+    if (weighted) s.spend(run, weighted);
+  }
+  const out = s.ok("status");
+  assert.match(out, /^agents {2}3 runs · 0 running · about 8k weighted tokens \(1 done without a weighted count\) · 3 measured/m);
+  assert.match(out, /^usage T1 · 7500 weighted tokens \(1 done without a weighted count\) · 3 measured/m);
+});
+
 test("T346: sage stats shows findings with no review runs, and review runs with no findings", () => {
   const s = store();
   s.ok("task", "add", "--priority", "P2", "--title", "a", "--size", "small");
   s.ok("finding", "add", "T1", "--source", "checks", "--severity", "medium", "--summary", "the checks fail");
-  assert.equal(s.ok("stats").split("\n").slice(1).join("\n"), "total · 1 tasks · 0 review runs (0 done without tokens) · 0k tokens · 0k after round 0 · 0 rounds · 1 findings\n\n| Task | Review runs | Review tokens | After round 0 | Rounds | Findings by role | Findings by cycle | Usage |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| T1 | 0 | 0k | 0k | 0 | checks: 1 | none: 1 | 0 measured, 0 unavailable, 0 legacy-unrecorded |\n\nusage total · 0 measured, 0 unavailable, 0 legacy-unrecorded");
+  assert.equal(s.ok("stats").split("\n").slice(1).join("\n"), "total · 1 tasks · 0 review runs (0 done without a weighted count) · 0k weighted · 0k after round 0 · peak context none · 0 rounds · 1 findings\n\n| Task | Review runs | Weighted | After round 0 | Peak context | Rounds | Findings by role | Findings by cycle | Usage |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| T1 | 0 | 0k | 0k | none | 0 | checks: 1 | none: 1 | 0 measured, 0 unavailable, 0 legacy-unrecorded |\n\nusage total · 0 measured, 0 unavailable, 0 legacy-unrecorded");
   const r = store();
   r.ok("task", "add", "--priority", "P2", "--title", "a", "--size", "small");
   r.ok("run", "add", "T1", "--role", "qa");
-  assert.equal(r.ok("stats").split("\n")[1], "total · 1 tasks · 1 review runs (0 done without tokens) · 0k tokens · 0k after round 0 · 0 rounds · 0 findings");
+  assert.equal(r.ok("stats").split("\n")[1], "total · 1 tasks · 1 review runs (0 done without a weighted count) · 0k weighted · 0k after round 0 · peak context none · 0 rounds · 0 findings");
 });
 
-test("T346: sage stats sorts by review tokens, counts a tokens cell of 1 to 12 digits only, and shows the top 50 tasks with a line for the rest", () => {
+test("T346: sage stats sorts by weighted review tokens, counts a tokens cell of 1 to 12 digits only as peak context, and shows the top 50 tasks with a line for the rest", () => {
   const s = store();
   for (const [task, tokens] of [["T1", "2000"], ["T2", "9000"], ["T3", "5000"]]) {
     s.ok("task", "add", "--priority", "P2", "--title", task, "--size", "small");
     const run = s.ok("run", "add", task, "--role", "qa").split(" ")[0];
-    s.ok("run", "done", run, "--status", "done", "--tokens", tokens);
+    s.ok("run", "done", run, "--status", "done", "--tokens", "1");
+    s.spend(run, Number(tokens));
   }
   s.ok("run", "add", "T1", "--role", "qa");
   byHand(s.dir, "runs", 0, "R4", (c) => Object.assign(c, { 6: "done", 7: "9".repeat(400) }));
   const table = (out) => out.split("\n").filter((l) => /^\| T\d/.test(l)).map((l) => l.split(" | ").slice(0, 3).join(" | "));
   assert.deepEqual(table(s.ok("stats")), ["| T2 | 1 | 9k", "| T3 | 1 | 5k", "| T1 | 2 | 2k"], "largest review tokens first, not the logbook's order");
-  assert.equal(s.ok("stats").split("\n")[1], "total · 3 tasks · 4 review runs (1 done without tokens) · 16k tokens · 0k after round 0 · 0 rounds · 0 findings");
+  assert.equal(s.ok("stats").split("\n")[1], "total · 3 tasks · 4 review runs (1 done without a weighted count) · 16k weighted · 0k after round 0 · peak context 0k · 0 rounds · 0 findings");
   const add = (table, from, rowsOf) => appendFileSync(join(s.dir, `${table}.tsv`), "\n" + rowsOf(readFileSync(join(s.dir, `${table}.tsv`), "utf8").split("\n").find((l) => l.startsWith(`${from}\t`))).join("\n"));
   const ids = Array.from({ length: 49 }, (_, i) => i + 4);
   add("tasks", "T3", (line) => ids.map((n) => line.replace(/^T3\t/, `T${n}\t`)));
-  add("runs", "R3", (line) => ids.map((n) => line.replace(/^R3\tT3\t/, `R${n + 1}\tT${n}\t`).replace(/\t5000\t/, `\t${n * 1000}\t`)));
+  add("runs", "R3", (line) => ids.map((n) => line.replace(/^R3\tT3\t/, `R${n + 1}\tT${n}\t`).replace(/\t5000$/, `\t${n * 1000}`)));
   const out = s.ok("stats").split("\n");
-  assert.equal(out[1], `total · 52 tasks · 53 review runs (1 done without tokens) · ${16 + (4 + 52) * 49 / 2}k tokens · 0k after round 0 · 0 rounds · 0 findings`, "the total counts every task, also those not shown");
+  assert.equal(out[1], `total · 52 tasks · 53 review runs (1 done without a weighted count) · ${16 + (4 + 52) * 49 / 2}k weighted · 0k after round 0 · peak context 0k · 0 rounds · 0 findings`, "the total counts every task, also those not shown");
   assert.deepEqual(table(out.join("\n")).slice(0, 2), ["| T52 | 1 | 52k", "| T51 | 1 | 51k"]);
   assert.equal(table(out.join("\n")).length, 50);
   assert.deepEqual(out.slice(-3), [out.at(-3), "", "2 more tasks not shown; use --task <T>"], "a blank line ends the table before the line after it");
@@ -3665,12 +3678,12 @@ test("R1124-2: the merge check of dense waits in one merge is linear: 60 tasks, 
   assert.match(child.stdout, /^60 tasks have verdicts on a1b2c3d or belong to PR 5, and each must pass: /);
   const { mergeCheck } = await import(LIB);
   const t = process.cpuUsage();
-  const { ok } = mergeCheck(SHA, { SAGE_HOME: s.home }, { pr: "5", project: s.project });
+  const { ok } = mergeCheck(SHA, { SAGE_HOME: s.home, HOME: s.home, PATH: process.env.PATH }, { pr: "5", project: s.project });
   const { user, system } = process.cpuUsage(t);
   assert.equal(ok, true);
   assert.ok((user + system) / 1000 < 1000, `60 dense tasks: ${((user + system) / 1000).toFixed(1)} ms of CPU time (timing-ok: CPU time, a bound about 100 times the linear check's, and an exponential one takes minutes)`);
   write((id) => (id === "T1" ? "abandoned" : "verified"));
-  const { ok: after, reason } = mergeCheck(SHA, { SAGE_HOME: s.home }, { pr: "5", project: s.project });
+  const { ok: after, reason } = mergeCheck(SHA, { SAGE_HOME: s.home, HOME: s.home, PATH: process.env.PATH }, { pr: "5", project: s.project });
   assert.equal(after, false);
   assert.match(reason, /; 59 fail\. /);
 });
@@ -3801,7 +3814,7 @@ test("T337: a milestone's state comes from its breakdown gate's answer: proposed
   const s = store();
   for (const title of ["Read the Codex hooks", "Port the state tool", "Show it on the board"]) s.ok("task", "add", "--priority", "P2", "--title", title, "--size", "small");
   s.ok("task", "T3", "set", "waits=T2");
-  assert.equal(s.ok("milestone", "propose", "--name", "Codex support", "--goal", "Sage runs in Codex as well as in Claude Code", "--pilot", "T1", "--tasks", "T2,T3"), `M1 proposed · pilot T1 · tasks T2, T3 · G1 open: ${ASK} Until the owner approves, no task of M1 builds.`);
+  assert.equal(s.ok("milestone", "propose", "--name", "Codex support", "--goal", "Sage runs in Codex as well as in Claude Code", "--pilot", "T1", "--tasks", "T2,T3"), `M1 proposed · pilot T1 · tasks T2, T3\nG1 open · ${ASK} Until the owner approves, no task of M1 builds.`);
   const { at, ...gate } = rows(s.dir, "gates")[0];
   assert.deepEqual(gate, { id: "G1", task: "T1", question: Q("Approve milestone M1? No task builds before you approve.", "Name: Codex support", "Goal: Sage runs in Codex as well as in Claude Code", "Pilot, runs first:", "  T1: Read the Codex hooks", "Then, each after T1:", "  T2: Port the state tool", "  T3 [waits for T2]: Show it on the board"), options: "approve|change|drop", recommendation: "approve", default: "", answer: "" });
   assert.deepEqual(rows(s.dir, "tasks").map((t) => t.milestone), ["M1", "M1", "M1"]);
@@ -3811,13 +3824,13 @@ test("T337: a milestone's state comes from its breakdown gate's answer: proposed
   s.ok("task", "add", "--priority", "P2", "--title", "Four", "--size", "small", "--milestone", "M1");
   assert.equal(milestonesLine(s), "milestone M1 · in progress · pilot T1: 0 of 4 merged · you asked for changes (G1): the chief revises the breakdown · name: Codex support");
   assert.match(s.no("run", "add", "T2", "--role", "lead"), / The owner asked for changes to the breakdown of M1: propose it again \(sage milestone propose M1, with --name, --goal or --pilot when they change\), and the owner answers the new gate\.$/);
-  assert.equal(s.ok("milestone", "propose", "M1", "--goal", "Codex runs every sage step."), `M1 proposed (round 2) · pilot T1 · tasks T2, T3, T4 · G2 open: ${ASK} Until the owner approves, no task of M1 builds.`);
+  assert.equal(s.ok("milestone", "propose", "M1", "--goal", "Codex runs every sage step."), `M1 proposed (round 2) · pilot T1 · tasks T2, T3, T4\nG2 open · ${ASK} Until the owner approves, no task of M1 builds.`);
   assert.equal(rows(s.dir, "gates")[1].question, Q("Approve milestone M1 (round 2)? No task builds before you approve.", "Name: Codex support", "Goal: Codex runs every sage step.", "Pilot, runs first:", "  T1: Read the Codex hooks", "Then, each after T1:", "  T2: Port the state tool", "  T3 [waits for T2]: Show it on the board", "  T4: Four"));
   assert.equal(lastDecision(s).decision, "M1 proposed again with gate G2, round 2");
   assert.equal(milestonesLine(s), "milestone M1 · needs you · pilot T1: 0 of 4 merged · breakdown waits for you (G2) · name: Codex support");
   s.ok("gate", "answer", "G2", "--other-hex", Buffer.from("leave out the board", "utf8").toString("hex"));
   assert.equal(milestonesLine(s), "milestone M1 · in progress · pilot T1: 0 of 4 merged · you asked for changes (G2): the chief revises the breakdown · name: Codex support");
-  assert.match(s.ok("milestone", "propose", "M1", "--tasks", "T2 T4"), /^M1 proposed \(round 3\) · pilot T1 · tasks T2, T4 · G3 open/);
+  assert.match(s.ok("milestone", "propose", "M1", "--tasks", "T2 T4"), /^M1 proposed \(round 3\) · pilot T1 · tasks T2, T4\nG3 open/);
   assert.deepEqual(trail(s.dir).slice(-2).map((d) => [d.task, d.decision]), [["T3", "milestone M1 → none"], ["T1", "M1 proposed again with gate G3, round 3"]]);
   s.ok("gate", "answer", "G3", "--option", "1");
   assert.equal(milestonesLine(s), "milestone M1 · not started · pilot T1: 0 of 3 merged · name: Codex support", "active, with nothing started");
@@ -3858,8 +3871,8 @@ test("R1208-3: a milestone's state reads only from a breakdown gate on its pilot
   const s = store();
   for (const title of ["Pilot", "Two"]) s.ok("task", "add", "--priority", "P2", "--title", title, "--size", "small");
   propose(s, "T1", "Codex support", "T2");
-  s.ok("gate", "add", "T2", "--question", "Approve?", "--options", "approve|change|drop", "--recommend", "approve");
-  s.ok("gate", "add", "T1", "--question", "Ship it?", "--options", "approve|no", "--recommend", "approve");
+  s.ok("gate", "add", "--message", QUESTION, "T2", "--question", "Approve?", "--options", "approve|change|drop", "--recommend", "approve");
+  s.ok("gate", "add", "--message", QUESTION, "T1", "--question", "Ship it?", "--options", "approve|no", "--recommend", "approve");
   for (const g of ["G2", "G3"]) {
     s.ok("gate", "answer", g, "--option", "1");
     byHand(s.dir, "milestones", 0, "M1", (cells) => cells.with(4, g));
@@ -3923,10 +3936,10 @@ test("R1208-1: a breakdown gate answers once, so no second answer undoes a drop;
   assert.match(s.no("gate", "answer", "G1", "--other-hex", Buffer.from("go", "utf8").toString("hex")), breakdownOnce("G1", "drop"));
   assert.deepEqual(["gates", "decisions"].map((t) => readFileSync(join(s.dir, `${t}.tsv`), "utf8")), before, "a refusal writes nothing");
   assert.equal(milestonesLine(s), "milestone M1 · stopped · dropped: 2 tasks still in it, take each out with milestone=none · name: Codex support");
-  s.ok("gate", "add", "T2", "--question", "Which name?", "--options", "short|long", "--recommend", "short");
+  s.ok("gate", "add", "--message", QUESTION, "T2", "--question", "Which name?", "--options", "short|long", "--recommend", "short");
   s.ok("gate", "answer", "G2", "--option", "1");
   assert.match(s.no("gate", "answer", "G2", "--option", "2"), /^sage: G2 has the answer "short" already, from the chat at \S+: the first answer wins, so this answer is not recorded\. Nothing changed\.$/, "a gate that is not a breakdown gate answers once too, by the first-answer rule");
-  s.ok("gate", "add", "T1", "--question", "Ship the logo?", "--options", "approve|change|drop", "--recommend", "approve");
+  s.ok("gate", "add", "--message", QUESTION, "T1", "--question", "Ship the logo?", "--options", "approve|change|drop", "--recommend", "approve");
   s.ok("gate", "answer", "G3", "--option", "3");
   s.ok("log", "T1", "M1 proposed again with gate G3, round 2", "--why", "milestone propose");
   assert.match(s.no("gate", "answer", "G3", "--option", "2"), /^sage: G3 has the answer "drop" already, from the chat at \S+: the first answer wins, so this answer is not recorded\. Nothing changed\.$/, "a logged row makes no breakdown gate: the refusal is the first-answer rule's");
@@ -4015,7 +4028,7 @@ test("T337: the pilot stays in its milestone until a new pilot is proposed; no t
   assert.deepEqual(["tasks", "decisions"].map((t) => readFileSync(join(s.dir, `${t}.tsv`), "utf8")), before, "a refusal writes nothing");
   s.ok("gate", "answer", "G1", "--option", "2");
   assert.equal(s.no("task", "T2", "set", "milestone=none"), stays("T2", "G1"));
-  assert.match(s.ok("milestone", "propose", "M1", "--pilot", "T2"), /^M1 proposed \(round 2\) · pilot T2 · tasks T1 · G2 open: /);
+  assert.match(s.ok("milestone", "propose", "M1", "--pilot", "T2"), /^M1 proposed \(round 2\) · pilot T2 · tasks T1\nG2 open · /);
   assert.equal(lastDecision(s).decision, "M1 proposed again with gate G2, round 2");
   assert.deepEqual(rows(s.dir, "tasks").map((t) => t.milestone), ["M1", "M1", "", ""], "the old pilot stays in the milestone");
   assert.equal(s.no("task", "T1", "set", "milestone=none"), stays("T1", "G2"), "the old pilot stays too until the owner answers");
@@ -4023,7 +4036,7 @@ test("T337: the pilot stays in its milestone until a new pilot is proposed; no t
   assert.equal(s.ok("task", "T1", "set", "milestone=none"), "T1 framed · small · round 0 · route build,code-review,qa · P2 · leaves M1 after the owner approved its breakdown: no new gate, so tell the owner");
   assert.deepEqual(lastDecision(s), { at: lastDecision(s).at, task: "T1", decision: "milestone M1 → none", why: "task set; after the breakdown approval" });
   stateIs(s, "T2", "abandoned");
-  assert.match(s.ok("milestone", "propose", "M1", "--pilot", "T4", "--tasks", "none"), /^M1 proposed \(round 3\) · pilot T4 · tasks T2 · G3 open: /, "the abandoned old pilot stays in the milestone (R1219-1)");
+  assert.match(s.ok("milestone", "propose", "M1", "--pilot", "T4", "--tasks", "none"), /^M1 proposed \(round 3\) · pilot T4 · tasks T2\nG3 open · /, "the abandoned old pilot stays in the milestone (R1219-1)");
   s.ok("gate", "answer", "G3", "--option", "3");
   assert.equal(s.no("task", "T1", "set", "milestone=M1"), `sage: the owner dropped M1 (gate G3), so it takes no task. Propose a new milestone (sage milestone propose --name <name> --goal <goal> --pilot <T> --tasks <T,T>).${nothing}`);
   assert.equal(s.no("run", "add", "T4", "--role", "lead"), "sage: T4 waits for the breakdown of M1 (dropped, gate G3), so it takes no lead run. Its design and PE may run. The owner dropped M1, so its breakdown is never approved: take T4 out of it (sage task T4 set milestone=none), or ask the owner.", "no clause says it starts after an approval that never comes");
@@ -4150,7 +4163,7 @@ test("R1209-4: after its pilot is abandoned, a milestone is stuck until a new pi
   assert.equal(s.no("milestone", "propose", "M1", "--pilot", "T2"), "sage: these waits make a loop: T2, T1, T2. T1 waits for T2 as the pilot of M1: each task of a milestone waits for its pilot. A loop never ends, so sage refuses it. T2 waits for the old pilot T1: clear that wait first (sage task T2 set waits=none). Nothing changed.");
   assert.deepEqual(["tasks", "gates", "decisions"].map((t) => readFileSync(join(s.dir, `${t}.tsv`), "utf8")), before, "a refusal writes nothing");
   s.ok("task", "T2", "set", "waits=none");
-  assert.match(s.ok("milestone", "propose", "M1", "--pilot", "T2"), /^M1 proposed \(round 2\) · pilot T2 · tasks T1, T3 · G2 open: /);
+  assert.match(s.ok("milestone", "propose", "M1", "--pilot", "T2"), /^M1 proposed \(round 2\) · pilot T2 · tasks T1, T3\nG2 open · /);
   assert.equal(rows(s.dir, "gates")[1].question, Q("Approve milestone M1 (round 2)? No task builds before you approve.", "Name: Codex support", "Goal: Codex runs sage too.", "Pilot, runs first:", "  T2: Port the state tool", "Then, each after T2:", "  T1 [abandoned]: Read the Codex hooks", "  T3: Show it on the board"));
   s.ok("gate", "answer", "G2", "--option", "1");
   assert.equal(milestonesLine(s), "milestone M1 · in progress · pilot T2: 0 of 3 merged · T1 abandoned · name: Codex support");
@@ -4191,9 +4204,9 @@ test("R1225-2: a milestone id that only the milestones table names is never give
   s.ok("task", "add", "--priority", "P2", "--title", "Pilot", "--size", "small");
   propose(s);
   byHand(s.dir, "milestones", 0, "M1", (cells) => cells.with(0, "M9"));
-  assert.equal(s.ok("gate", "add", "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes"), "G2 open · Ship it?", "M9 does not count as G9");
+  assert.equal(s.ok("gate", "add", "--message", QUESTION, "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes"), "G2 open · Ship it?", "M9 does not count as G9");
   s.ok("task", "add", "--priority", "P2", "--title", "Next", "--size", "small");
-  assert.match(propose(s, "T2", "Board support"), /^M10 proposed · pilot T2 · no other task · G3 open: /, "M9 counts: only the milestones row names it");
+  assert.match(propose(s, "T2", "Board support"), /^M10 proposed · pilot T2 · no other task\nG3 open · /, "M9 counts: only the milestones row names it");
 });
 
 test("T337: a lead run of a task that waits prints the report of the last lead or investigate run of each task that it waits for, for the brief", () => {
@@ -4301,9 +4314,9 @@ test("R1240-2: every breakdown gate answers once by its own question, also a rep
   assert.match(s.ok("milestone", "propose", "M1"), /^M1 proposed \(round 4\) · /, "the round counts the gates, not the lost decision rows");
   assert.match(rows(s.dir, "gates")[3].question, /^Approve milestone M1 \(round 4\)\? /);
   before = snapshot(s.dir);
-  for (const question of ["Approve milestone M1? Yes.", "APPROVE  Milestone m2", "Ａpprove milestone M3", "Approve program PG1? Yes.", "approve  PROGRAM x"]) assert.equal(s.no("gate", "add", "T2", "--question", question, "--options", "approve|change|drop", "--recommend", "approve"), 'sage: a question that starts with "Approve milestone" or "Approve program" is a breakdown gate, and only milestone propose opens one. Ask it in other words.', question);
+  for (const question of ["Approve milestone M1? Yes.", "APPROVE  Milestone m2", "Ａpprove milestone M3", "Approve program PG1? Yes.", "approve  PROGRAM x"]) assert.equal(s.no("gate", "add", "--message", QUESTION, "T2", "--question", question, "--options", "approve|change|drop", "--recommend", "approve"), 'sage: a question that starts with "Approve milestone" or "Approve program" is a breakdown gate, and only milestone propose opens one. Ask it in other words.', question);
   assert.deepEqual(snapshot(s.dir), before, "a refusal writes nothing");
-  assert.equal(s.ok("gate", "add", "T2", "--question", "Approve the logo?", "--options", "yes|no", "--recommend", "yes"), "G5 open · Approve the logo?");
+  assert.equal(s.ok("gate", "add", "--message", QUESTION, "T2", "--question", "Approve the logo?", "--options", "yes|no", "--recommend", "yes"), "G5 open · Approve the logo?");
 });
 
 test("R1246-2: after a stop between the milestones write and the gates write, the same propose finishes the milestone", () => {
@@ -4312,7 +4325,7 @@ test("R1246-2: after a stop between the milestones write and the gates write, th
     for (const title of ["Pilot", "Two"]) s.ok("task", "add", "--priority", "P2", "--title", title, "--size", "small");
     const args = ["milestone", "propose", "--name", "Codex support", "--goal", "Codex runs sage too.", "--pilot", "T1", "--tasks", "T2"];
     stopAt(s, table, ...args);
-    assert.equal(s.ok(...args), `M1 proposed · pilot T1 · tasks T2 · G2 open: ${ASK} Until the owner approves, no task of M1 builds.`, table);
+    assert.equal(s.ok(...args), `M1 proposed · pilot T1 · tasks T2\nG2 open · ${ASK} Until the owner approves, no task of M1 builds.`, table);
     assert.deepEqual(rows(s.dir, "milestones").map((p) => [p.id, p.gate]), [["M1", "G2"]], table);
     assert.deepEqual(rows(s.dir, "tasks").map((t) => t.milestone), ["M1", "M1"], table);
     assert.match(rows(s.dir, "gates")[0].question, /^Approve milestone M1\? /, `${table}: round 1, as no gate of M1 was written`);
@@ -4328,7 +4341,7 @@ test("R1219-1, R1222-2: a new proposal says its round and no list of changes, an
   s.ok("gate", "answer", "G1", "--option", "1");
   stateIs(s, "T1", "merged");
   assert.equal(milestonesLine(s), "milestone M1 · in progress · pilot T1: 1 of 3 merged · name: Codex support");
-  assert.match(s.ok("milestone", "propose", "M1", "--pilot", "T2", "--tasks", "T4"), /^M1 proposed \(round 2\) · pilot T2 · tasks T1, T4 · G2 open: /);
+  assert.match(s.ok("milestone", "propose", "M1", "--pilot", "T2", "--tasks", "T4"), /^M1 proposed \(round 2\) · pilot T2 · tasks T1, T4\nG2 open · /);
   assert.equal(rows(s.dir, "gates")[1].question, Q("Approve milestone M1 (round 2)? No task builds before you approve.", "Name: Codex support", "Goal: Codex runs sage too.", "Pilot, runs first:", "  T2: Port the state tool", "Then, each after T2:", "  T1 [merged]: Read the Codex hooks", "  T4: Write the docs"));
   assert.equal(lastDecision(s).decision, "M1 proposed again with gate G2, round 2");
   assert.deepEqual(rows(s.dir, "tasks").map((t) => t.milestone), ["M1", "M1", "", "M1"]);
@@ -4356,11 +4369,11 @@ test("T337: milestone ids are M<n>, apart from gate ids, and a lost milestone's 
   const s = store();
   for (const title of ["One", "Two", "Three"]) s.ok("task", "add", "--priority", "P2", "--title", title, "--size", "small");
   propose(s, "T1", "First");
-  assert.match(propose(s, "T2", "Second"), /^M2 proposed · pilot T2 · no other task · G2 open/);
+  assert.match(propose(s, "T2", "Second"), /^M2 proposed · pilot T2 · no other task\nG2 open/);
   for (const [table, keep] of [["milestones", (l) => !l.startsWith("M2\t")], ["decisions", (l) => !l.includes("\tM2 ")]]) {
     writeFileSync(join(s.dir, `${table}.tsv`), readFileSync(join(s.dir, `${table}.tsv`), "utf8").split("\n").filter(keep).join("\n") + "\n");
   }
-  assert.match(propose(s, "T3", "Third"), /^M3 proposed · pilot T3 · no other task · G3 open/, "T2 still names M2, so M2 is not given again");
+  assert.match(propose(s, "T3", "Third"), /^M3 proposed · pilot T3 · no other task\nG3 open/, "T2 still names M2, so M2 is not given again");
 });
 
 test("R1203-1, R1203-2: an id that only a milestone's pilot or gate cell, or a task's waits cell, still names is never given again, so a lost gate never sets the milestone", () => {
@@ -4372,7 +4385,7 @@ test("R1203-1, R1203-2: an id that only a milestone's pilot or gate cell, or a t
   byHand(s.dir, "decisions", 1, "T2", () => null);
   assert.deepEqual(rows(s.dir, "milestones").map((p) => [p.id, p.pilot, p.gate]), [["M1", "T2", "G1"]], "only the milestone row names T2 and G1");
   assert.match(s.ok("task", "add", "--priority", "P2", "--title", "New", "--size", "small"), /^T3 framed/, "T2 is not given again (IDS.milestones pilot)");
-  assert.equal(s.ok("gate", "add", "T1", "--question", "Approve?", "--options", "approve|change|drop", "--recommend", "approve"), "G2 open · Approve?", "G1 is not given again (IDS.milestones gate)");
+  assert.equal(s.ok("gate", "add", "--message", QUESTION, "T1", "--question", "Approve?", "--options", "approve|change|drop", "--recommend", "approve"), "G2 open · Approve?", "G1 is not given again (IDS.milestones gate)");
   s.ok("gate", "answer", "G2", "--option", "1");
   assert.match(s.no("run", "add", "T1", "--role", "lead"), /^sage: T1 waits for the breakdown of M1 \(its breakdown gate G1 is not in the logbook\)/, "the milestone does not turn active");
   s.ok("task", "add", "--priority", "P2", "--title", "Up", "--size", "small");
@@ -4479,7 +4492,7 @@ test("T948: config start=sage-mode starts each new session of the project in sag
   assert.deepEqual(JSON.parse(readFileSync(own, "utf8")), { archived: true }, "normal removes the key");
   assert.equal(starts(), false);
   assert.equal(s.no("config", "start=on"), 'sage: start is sage-mode or normal, not "on". Nothing changed.');
-  assert.equal(s.no("config", "start=sage-mode", "max_leads=2"), 'sage: "max_leads" is a key for all projects, and name=, archived=, start=, lint_offer=, commit_email= and commit_name= are keys of one logbook: set them in a config command of their own.');
+  assert.equal(s.no("config", "start=sage-mode", "max_leads=2"), 'sage: "max_leads" is a key for all projects, and name=, archived=, start=, lint_offer=, commit_email=, commit_name= and docs_paths= are keys of one logbook: set them in a config command of their own.');
   for (const text of ['{"start":"on"}', '{"start":true}', "[1]", "not json"]) {
     writeFileSync(own, text);
     assert.equal(starts(), false, `${text}: a bad file is a normal start`);
@@ -4503,7 +4516,7 @@ test("T314: config refuses a name that is too long, empty of text, spaced at an 
   assert.equal(s.no("config", "name= seacc"), 'sage: the name " seacc" has a space at its start or end, or two spaces together. Nothing changed.');
   assert.equal(s.no("config", "name=sea  cc"), 'sage: the name "sea  cc" has a space at its start or end, or two spaces together. Nothing changed.');
   assert.equal(s.no("config", "archived=true"), 'sage: archived is yes or no, not "true". Nothing changed.');
-  assert.equal(s.no("config", "name=x", "arena=2"), 'sage: "arena" is a key for all projects, and name=, archived=, start=, lint_offer=, commit_email= and commit_name= are keys of one logbook: set them in a config command of their own.');
+  assert.equal(s.no("config", "name=x", "arena=2"), 'sage: "arena" is a key for all projects, and name=, archived=, start=, lint_offer=, commit_email=, commit_name= and docs_paths= are keys of one logbook: set them in a config command of their own.');
   assert.equal(s.no("config", "name"), "sage: name needs a value: write name=<value>");
   assert.equal(existsSync(own), false, "no refusal wrote the file");
   writeFileSync(own, "[1]");
@@ -4720,7 +4733,7 @@ test("T40: each agent role gets its model by task size; run add prints it and re
   o.ok("task", "add", "--priority", "P2", "--title", "t", "--size", "small");
   const file = join(o.dir, "runs.tsv");
   writeFileSync(file, "id\ttask\trole\tround\tcandidate\tbranch\tstatus\ttokens\treport\tstarted\tended\nR1\tT1\timplementer\t0\t\tb/1\tdone\t900\t\t2026-10-01T00:00:00Z\t2026-10-01T01:00:00Z\n");
-  assert.match(o.ok("status"), /agents  1 runs · 0 running · about 1k tokens/);
+  assert.match(o.ok("status"), /agents  1 runs · 0 running · about 0k weighted tokens \(1 done without a weighted count\)/);
   assert.equal(o.ok("run", "add", "T1", "--role", "qa"), "R2 running · qa on T1 · model sonnet");
   const [head, ...lines] = readFileSync(file, "utf8").trim().split("\n");
   assert.equal(head, "id\ttask\trole\tround\tcandidate\tbranch\tstatus\ttokens\treport\tstarted\tended\tmodel\tusage_provider\tusage_interface\tusage_capability\tusage_binding\tusage_reason\tusage_basis\tusage_status\tusage_source\tusage_evidence");
@@ -5325,7 +5338,7 @@ function approveRound(s) {
   const task = rows(s.dir, "tasks")[0];
   const max = Number(/max_rounds=(\d+)/.exec(s.ok("config"))[1]);
   const question = `Approve one more repair round for T1 after ${task.round} spent rounds and limit ${max + Number(task.extra || 0)}?`;
-  const gate = s.ok("gate", "add", "T1", "--question", question, "--options", "approve|decline", "--recommend", "approve").split(" ")[0];
+  const gate = s.ok("gate", "add", "--message", QUESTION, "T1", "--question", question, "--options", "approve|decline", "--recommend", "approve").split(" ")[0];
   s.ok("gate", "answer", gate, "--option", "1");
   return `approval=${gate}`;
 }
@@ -5548,7 +5561,7 @@ test("R1233-1: after an accepted loss of decisions.tsv, the milestone's current 
 test("R1234-1: only milestone propose's rows mark a breakdown gate: a logged row with another why that ends with the gate does not", () => {
   const s = store();
   s.ok("task", "add", "--priority", "P2", "--title", "One", "--size", "small");
-  s.ok("gate", "add", "T1", "--question", "Ship the logo?", "--options", "approve|change|drop", "--recommend", "approve");
+  s.ok("gate", "add", "--message", QUESTION, "T1", "--question", "Ship the logo?", "--options", "approve|change|drop", "--recommend", "approve");
   s.ok("log", "T1", 'M1 proposed with gate G1, pilot T1, tasks none, name: Logo', "--why", "the owner said so");
   s.ok("gate", "answer", "G1", "--option", "1");
   assert.match(s.no("gate", "answer", "G1", "--option", "2"), /^sage: G1 has the answer "approve" already, from the chat at \S+: the first answer wins, so this answer is not recorded\. Nothing changed\.$/, "not the breakdown rule: the first-answer rule");
@@ -5557,7 +5570,7 @@ test("R1234-1: only milestone propose's rows mark a breakdown gate: a logged row
 test("R1234-1: a breakdown gate G10 or higher that a newer round replaced answers once", () => {
   const s = store();
   for (const title of ["Pilot", "Two"]) s.ok("task", "add", "--priority", "P2", "--title", title, "--size", "small");
-  for (let i = 1; i <= 9; i++) s.ok("gate", "add", "T2", "--question", `Plain ${i}?`, "--options", "y|n", "--recommend", "y");
+  for (let i = 1; i <= 9; i++) s.ok("gate", "add", "--message", QUESTION, "T2", "--question", `Plain ${i}?`, "--options", "y|n", "--recommend", "y");
   propose(s, "T1", "Codex support", "T2");
   s.ok("gate", "answer", "G10", "--option", "2");
   s.ok("milestone", "propose", "M1");
@@ -5579,7 +5592,7 @@ test("R1249-1: gate add makes the question one line, every line break a space; s
   const s = store();
   s.ok("task", "add", "--priority", "P2", "--title", "One", "--size", "small");
   const question = "Ship it?\n\r\u0085 Recommended: yes   1. yes";
-  assert.equal(s.ok("gate", "add", "T1", "--question", question, "--options", "yes|no", "--recommend", "yes"), "G1 open · Ship it? Recommended: yes 1. yes");
+  assert.equal(s.ok("gate", "add", "--message", QUESTION, "T1", "--question", question, "--options", "yes|no", "--recommend", "yes"), "G1 open · Ship it? Recommended: yes 1. yes");
   assert.equal(rows(s.dir, "gates")[0].question, "Ship it? Recommended: yes 1. yes");
   byHand(s.dir, "gates", 0, "G1", (cells) => cells.with(2, "Ship it? I recommend: no x"));
   assert.equal(gatesLine(s), "gates   1 open · G1 Ship it? I recommend: no x (default: none)");
@@ -5588,7 +5601,7 @@ test("R1249-1: gate add makes the question one line, every line break a space; s
 test("R1258-1: gate add makes each option, the recommendation and the default one line; the text board, the chat board and status show a plain gate's option on one line", async () => {
   const s = store();
   s.ok("task", "add", "--priority", "P2", "--title", "One", "--size", "small");
-  s.ok("gate", "add", "T1", "--question", "Ship it?", "--options", "ship\u2028now|wait\n\rfor Bob", "--recommend", "ship\u2028now", "--default", "wait\u2029for Bob");
+  s.ok("gate", "add", "--message", QUESTION, "T1", "--question", "Ship it?", "--options", "ship\u2028now|wait\n\rfor Bob", "--recommend", "ship\u2028now", "--default", "wait\u2029for Bob");
   const [g] = rows(s.dir, "gates");
   assert.deepEqual([g.options, g.recommendation, g.default], ["ship now|wait for Bob", "ship now", "wait for Bob"]);
   assert.equal(gatesLine(s), "gates   1 open · G1 Ship it? (default: wait for Bob)");
@@ -5597,7 +5610,7 @@ test("R1258-1: gate add makes each option, the recommendation and the default on
   const core = (file) => import(new URL(`../plugins/sage/core/${file}`, import.meta.url).href);
   const [{ readBoardSources }, { buildBoardModel }, { renderBoardText }] = await Promise.all(["board-reader.mjs", "board-model.mjs", "board-render.mjs"].map(core));
   const model = buildBoardModel(readBoardSources([{ id: "sage", label: "Sage", path: s.home }]));
-  assert.ok(renderBoardText(model).includes("> Options: 1: ship now · 2: wait for Bob\\\n> Recommended: ship now"), renderBoardText(model));
+  assert.ok(renderBoardText(model).includes("\n  Options: 1 ship now · 2 wait for Bob.\n  Recommended: ship now.\n"), renderBoardText(model));
 });
 
 test("R1259-1: in a breakdown question, a wait on an abandoned or lost task says that it is never met", () => {
@@ -5616,10 +5629,10 @@ test("R1249-2: gate add refuses a question that reads as a breakdown gate's firs
   s.ok("task", "add", "--priority", "P2", "--title", "One", "--size", "small");
   const before = snapshot(s.dir);
   for (const question of ["͏Approve milestone M1? Yes.", "⠀Approve milestone M1? Yes.", "⠀Approve program PG1? Yes."]) {
-    assert.equal(s.no("gate", "add", "T1", "--question", question, "--options", "approve|change|drop", "--recommend", "approve"), 'sage: a question that starts with "Approve milestone" or "Approve program" is a breakdown gate, and only milestone propose opens one. Ask it in other words.', JSON.stringify(question));
+    assert.equal(s.no("gate", "add", "--message", QUESTION, "T1", "--question", question, "--options", "approve|change|drop", "--recommend", "approve"), 'sage: a question that starts with "Approve milestone" or "Approve program" is a breakdown gate, and only milestone propose opens one. Ask it in other words.', JSON.stringify(question));
   }
   assert.deepEqual(snapshot(s.dir), before, "a refusal writes nothing");
-  assert.equal(s.ok("gate", "add", "T1", "--question", "Approve the milestones page?", "--options", "yes|no", "--recommend", "yes"), "G1 open · Approve the milestones page?");
+  assert.equal(s.ok("gate", "add", "--message", QUESTION, "T1", "--question", "Approve the milestones page?", "--options", "yes|no", "--recommend", "yes"), "G1 open · Approve the milestones page?");
 });
 
 test("R1249-3, R1248-3: a task's tag comes after its id and before a colon, so a title cannot pass for a tag; a wait on the pilot shows no tag; status shows a breakdown gate's first line and its count of tasks", () => {
@@ -5641,7 +5654,7 @@ test("T233 Q1: status marks a breakdown gate from data only: a gate that copies 
   const s = store();
   for (const title of ["Pilot", "Two"]) s.ok("task", "add", "--priority", "P2", "--title", title, "--size", "small");
   propose(s, "T1", "Codex support", "T2");
-  s.ok("gate", "add", "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes");
+  s.ok("gate", "add", "--message", QUESTION, "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes");
   const copy = rows(s.dir, "gates")[0].question;
   byHand(s.dir, "gates", 0, "G2", (cells) => cells.with(2, copy).with(3, "approve|change|drop"));
   assert.equal(gatesLine(s), "gates   2 open · G1 Approve milestone M1? No task builds before you approve. (breakdown, 2 tasks) (default: none) · G2 " + copy.replaceAll(" ", " ") + " (default: none)");
@@ -5687,7 +5700,7 @@ test("R1249-4: after an accepted loss of gates.tsv, a dropped milestone stays dr
   r.ok("gate", "answer", "G1", "--option", "2");
   writeFileSync(join(r.dir, "gates.tsv"), "");
   r.ok("logbook", "repair", "--accept-loss", "gates");
-  assert.match(r.ok("milestone", "propose", "M1"), /^M1 proposed · pilot T1 · tasks T2 · G2 open: /);
+  assert.match(r.ok("milestone", "propose", "M1"), /^M1 proposed · pilot T1 · tasks T2\nG2 open · /);
 });
 
 test("R1255-1: the refusal for a lost breakdown gate names milestone propose as the fix for the pilot, and milestone=none for another task", () => {
@@ -5697,7 +5710,7 @@ test("R1255-1: the refusal for a lost breakdown gate names milestone propose as 
   byHand(s.dir, "gates", 0, "G1", () => null);
   assert.match(s.no("run", "add", "T1", "--role", "lead"), / The breakdown of M1 is never approved: propose it again \(sage milestone propose M1\), or ask the owner\.$/);
   assert.match(s.no("run", "add", "T2", "--role", "lead"), / never approved: take T2 out of it \(sage task T2 set milestone=none\), or ask the owner\.$/);
-  assert.match(s.ok("milestone", "propose", "M1"), /^M1 proposed · pilot T1 · tasks T2 · G2 open: /, "the named fix works");
+  assert.match(s.ok("milestone", "propose", "M1"), /^M1 proposed · pilot T1 · tasks T2\nG2 open · /, "the named fix works");
 });
 
 test("R1255-2, R1248-3: a propose that finishes after a stop writes the decision row of each task that the stopped write put in the milestone, and says its round", () => {
@@ -5882,7 +5895,7 @@ test("R1279-2: after a loss of gates.tsv, only a row of the owner's answer reads
   writeFileSync(join(s.dir, "gates.tsv"), "");
   s.ok("logbook", "repair", "--accept-loss", "gates");
   assert.match(s.ok("task", "T2"), / · waits the breakdown of M1 \(its breakdown gate G1 is not in the logbook\) · /);
-  assert.match(s.ok("milestone", "propose", "M1"), /^M1 proposed · pilot T1 · tasks T2 · G2 open: /, "a dropped milestone refuses this");
+  assert.match(s.ok("milestone", "propose", "M1"), /^M1 proposed · pilot T1 · tasks T2\nG2 open · /, "a dropped milestone refuses this");
   const d = store();
   for (const title of ["Pilot", "Two"]) d.ok("task", "add", "--priority", "P2", "--title", title, "--size", "small");
   propose(d, "T1", "Codex support", "T2");
@@ -5897,7 +5910,7 @@ test("R1279-2: after a loss of gates.tsv, only a row of the owner's answer reads
 test("R1270-1: only a question that starts with the breakdown words is a breakdown gate: a plain gate with them inside answers by the first-answer rule and shows on one line; a list mark or a symbol before them does not hide them", () => {
   const s = store();
   s.ok("task", "add", "--priority", "P2", "--title", "One", "--size", "small");
-  assert.equal(s.ok("gate", "add", "T1", "--question", "Do you Approve milestone M1 now?", "--options", "yes|no", "--recommend", "yes"), "G1 open · Do you Approve milestone M1 now?");
+  assert.equal(s.ok("gate", "add", "--message", QUESTION, "T1", "--question", "Do you Approve milestone M1 now?", "--options", "yes|no", "--recommend", "yes"), "G1 open · Do you Approve milestone M1 now?");
   byHand(s.dir, "gates", 0, "G1", (cells) => cells.with(2, "Do you Approve milestone M1 now? Name: x"));
   assert.equal(gatesLine(s), "gates   1 open · G1 Do you Approve milestone M1 now? Name: x (default: none)");
   s.ok("gate", "answer", "G1", "--option", "1");
@@ -5905,7 +5918,7 @@ test("R1270-1: only a question that starts with the breakdown words is a breakdo
   assert.equal(rows(s.dir, "gates")[0].answer, "yes");
   const before = snapshot(s.dir);
   for (const question of ["- Approve milestone M1?", "• Approve milestone M1?", "• Approve program PG1?"]) {
-    assert.equal(s.no("gate", "add", "T1", "--question", question, "--options", "approve|change|drop", "--recommend", "approve"), 'sage: a question that starts with "Approve milestone" or "Approve program" is a breakdown gate, and only milestone propose opens one. Ask it in other words.', question);
+    assert.equal(s.no("gate", "add", "--message", QUESTION, "T1", "--question", question, "--options", "approve|change|drop", "--recommend", "approve"), 'sage: a question that starts with "Approve milestone" or "Approve program" is a breakdown gate, and only milestone propose opens one. Ask it in other words.', question);
   }
   assert.deepEqual(snapshot(s.dir), before, "a refusal writes nothing");
 });

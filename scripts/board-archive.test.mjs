@@ -11,6 +11,8 @@ import { tool as codex } from "../plugins/sage-codex/skills/sage/sage.mjs";
 import { runBoardCli } from "../plugins/sage/board/cli.mjs";
 import { createBoardServer, loadBoardApp } from "../plugins/sage/board/server.mjs";
 import { ownerWrite, writeInWorker } from "../plugins/sage/board/writes.mjs";
+import { QUESTION } from "./fixtures/question-message.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
 const gitEnv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
@@ -70,9 +72,10 @@ async function world(t) {
   for (const dir of Object.values(dirs)) assert.ok(existsSync(join(dir, "tasks.tsv")), `${dir} is a logbook`);
   const config = join(base, "home", ".config", "sage-board", "board.json");
   const sources = [{ id: "claude", label: "Claude", provider: "claude", path: join(env.CLAUDE_CONFIG_DIR, "sage") }, { id: "codex", label: "Codex", provider: "codex", path: join(env.CODEX_HOME, "sage") }, { id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }];
-  const server = createBoardServer({ sources, port: 0, app: APP, settleReads: [], stateDir: join(base, "home", ".config", "sage-board", "state"), pairCommand: "node /sample/board/cli.mjs board --pair" });
+  const server = quietBoard({ sources, port: 0, app: APP, stateDir: join(base, "home", ".config", "sage-board", "state"), pairCommand: "node /sample/board/cli.mjs board --pair" }, { create: createBoardServer });
   t.after(() => server.close());
   const { port } = await server.start();
+  await server.ready();
   await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify(sources)], { output: () => {}, env });
   const origin = `http://127.0.0.1:${port}`, headers = { Origin: origin, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" };
   return { base, env, own, inClaude, port, config, headers, dirs, sources, checkouts: { lantern, harbor, meadow } };
@@ -257,7 +260,7 @@ test("F-T1137-2: a provider logbook without checkout.txt is refused with its tru
 
 test("T1152: a Claude or Codex logbook without checkout.txt can be archived on the board after one normal write of the chief", async t => {
   const w = await world(t), headers = await pair(w), inCodex = { ...w.own, SAGE_HOME: join(w.env.CODEX_HOME, "sage") };
-  const gate = project => ["gate", "add", "T1", "--question", "Keep the sample format?", "--options", "keep|drop", "--recommend", "keep", "--project", project];
+  const gate = project => ["gate", "add", "--message", QUESTION, "T1", "--question", "Keep the sample format?", "--options", "keep|drop", "--recommend", "keep", "--project", project];
   for (const [name, sage, env] of [["harbor", claude.sage, w.inClaude], ["meadow", codex.sage, inCodex]]) {
     rmSync(join(w.dirs[name], "checkout.txt"));
     const key = projectOf(await until(w, all => projectOf(all, name), `the board shows ${name}`), name).key;
@@ -271,7 +274,7 @@ test("T1152: a Claude or Codex logbook without checkout.txt can be archived on t
 
 test("F-T1137-12: the server records no answer or other write for an archived project, and records it again after Restore", async t => {
   const w = await world(t), headers = await pair(w);
-  claude.sage(["gate", "add", "T1", "--question", "Keep the sample format?", "--options", "keep|drop", "--recommend", "keep", "--project", w.checkouts.lantern, "--chief", "C1"], w.own);
+  claude.sage(["gate", "add", "--message", QUESTION, "T1", "--question", "Keep the sample format?", "--options", "keep|drop", "--recommend", "keep", "--project", w.checkouts.lantern, "--chief", "C1"], w.own);
   let all = await until(w, all => all.needs?.some(need => need.gate === "G1" && need.digest), "the board shows G1");
   const key = projectOf(all, "lantern").key, need = all.needs.find(item => item.gate === "G1");
   const body = { logbook: need.logbook, gate: "G1", option: 1, digest: need.digest };
@@ -304,9 +307,10 @@ test("F-T1159-35: an Archive and a Restore sent at once, as from two tabs, run o
     steps.push(`${job.argv[1]} ends`);
     return done;
   };
-  const second = createBoardServer({ sources: w.sources, port: 0, app: APP, settleReads: [], stateDir: join(w.base, "home", ".config", "sage-board", "state"), pairCommand: "node /sample/board/cli.mjs board --pair", write });
+  const second = quietBoard({ sources: w.sources, port: 0, app: APP, stateDir: join(w.base, "home", ".config", "sage-board", "state"), pairCommand: "node /sample/board/cli.mjs board --pair", write }, { create: createBoardServer });
   t.after(() => second.close());
   const { port } = await second.start(), tab = { ...headers, Origin: `http://127.0.0.1:${port}` };
+  await second.ready();
   await until({ port }, all => projectOf(all, "meadow")?.books.length === 2, "the second server shows two logbooks");
   const [archived, restored] = await Promise.all([call(port, "/api/archive", { headers: tab, body: { project: key } }), call(port, "/api/restore", { headers: tab, body: { project: key } })]);
   assert.deepEqual([archived.status, restored.status], [200, 200], `${archived.text} ${restored.text}`);

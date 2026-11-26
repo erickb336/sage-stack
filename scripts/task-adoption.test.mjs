@@ -7,6 +7,7 @@ import { join, dirname } from 'node:path';
 import { test } from 'node:test';
 import { createStateTool } from '../packages/sage-core/state.mjs';
 import { reportFor } from './verdict-backing.mjs';
+import { QUESTION } from "./fixtures/question-message.mjs";
 
 const SHA = '1'.repeat(40), BRANCH = 'sage/t536-adopt', OVERLAP = 'codex/t95-x';
 const tool = createStateTool({ defaultRoot: env => env.SAGE_HOME });
@@ -19,7 +20,7 @@ function fixture(t, sourceTask = 'T536', branch = BRANCH) {
   const project = join(root, 'project'); mkdirSync(project);
   const bin = join(root, 'bin'); mkdirSync(bin);
   const fake = join(bin, 'gh');
-  writeFileSync(fake, `#!${process.execPath}\nif (process.argv[2] === '--fake-proof') { console.log('FAKE_adoption_gh'); } else if (process.argv.slice(2).join(' ') === 'pr view 362 --json headRefName,isCrossRepository') { console.log(JSON.stringify({headRefName:'${branch}',isCrossRepository:false})); } else { process.exit(1); }\n`);
+  writeFileSync(fake, `#!${process.execPath}\nif (process.argv[2] === '--fake-proof') { console.log('FAKE_adoption_gh'); } else if (process.argv.slice(2).join(' ') === 'pr view 362 --json headRefName,isCrossRepository') { console.log(JSON.stringify({headRefName:'${branch}',isCrossRepository:false})); } else { process.exit(require('child_process').spawnSync(${JSON.stringify(join(import.meta.dirname, 'fixtures', 'fake-gh', 'gh'))}, process.argv.slice(2), { stdio: 'inherit' }).status); }\n`);
   chmodSync(fake, 0o755);
   assert.equal(spawnSync(fake, ['--fake-proof'], { encoding: 'utf8' }).stdout.trim(), 'FAKE_adoption_gh');
   const sourceEnv = { ...process.env, SAGE_HOME: join(root, 'claude', 'sage') };
@@ -99,7 +100,7 @@ test('T48: one explicit approval grants adopted round five, never round six', t 
   assert.match(s.no('task', 'T1', 'set', 'state=building'), /approval/);
   assert.deepEqual(s.bytes(s.dest), before);
   const question = 'Approve one more repair round for T1 after 4 spent rounds and limit 3?';
-  s.ok('gate', 'add', 'T1', '--question', question, '--options', 'approve|decline', '--recommend', 'approve');
+  s.ok('gate', 'add', '--message', QUESTION, 'T1', '--question', question, '--options', 'approve|decline', '--recommend', 'approve');
   before = s.bytes(s.dest);
   assert.match(s.no('task', 'T1', 'set', 'state=building', 'approval=G1'), /approval/);
   assert.deepEqual(s.bytes(s.dest), before);
@@ -141,7 +142,7 @@ test('T48: invalid approvals refuse the whole update; legacy allowances still co
     ['T1', 'Please continue', 'approve|decline', '1'],
     ['T1', question, 'yes|no', '1'],
   ]) {
-    const gate = s.ok('gate', 'add', task, '--question', text, '--options', options, '--recommend', options.split('|')[0]).split(' ')[0];
+    const gate = s.ok('gate', 'add', '--message', QUESTION, task, '--question', text, '--options', options, '--recommend', options.split('|')[0]).split(' ')[0];
     s.ok('gate', 'answer', gate, '--option', answer);
     const before = snapshot(s.dest);
     assert.match(s.no('task', 'T1', 'set', 'title=Must not change', 'state=briefed', `approval=${gate}`), /approval/);

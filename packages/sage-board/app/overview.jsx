@@ -2,8 +2,9 @@ import { useState } from "react";
 import { CopyCommand, GiveBox, PairBox, PairNote, UndoButton, chiefLabel, useAccess, useSeen } from "./actions.jsx";
 import { useNow, when } from "./use-model.js";
 import { StateIcon } from "./icons.jsx";
+import { Sessions } from "./sessions.jsx";
 import { chiefSub, milestoneLink, ofChief, questionLink, taskLink } from "./task.jsx";
-import { FLAGGED, OBJECTS, UNKNOWN, chiefName } from "../../sage-core/state-words.mjs";
+import { FLAGGED, LOOK_AT_IT, OBJECTS, STOPPED_NO_REPORT, UNKNOWN, chiefName, pickupLine } from "../../sage-core/state-words.mjs";
 
 export const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
@@ -25,9 +26,10 @@ function Counts({ model, previous, now, chief }) {
   const links = { merged: `#tasks?group=state&sort=newest&since=${new Date(since).toISOString()}`, stuck: "#agents" };
   const items = [
     ["merged", after(tasks.filter(task => task.state === "merged").map(task => task.doneAt), since), "Merged", "tasks merged into main"],
-    ["stuck", model.stuck, FLAGGED[0].toUpperCase() + FLAGGED.slice(1), "runs of open tasks that failed in the last 24 hours and did not run again, or agents silent for 30 min or stopped"],
+    ["stuck", model.stuck, FLAGGED[0].toUpperCase() + FLAGGED.slice(1), `runs of open tasks that failed in the last 24 hours and did not run again, or agents flagged "${LOOK_AT_IT}" or "${STOPPED_NO_REPORT}"`],
     ["added", known ? after(tasks.map(task => task.addedAt), since) : null, "New tasks", !known ? `${UNKNOWN} · no task in the logbook has a time when it was added` : unknown ? "tasks added to the logbook; older tasks have no time" : "tasks added to the logbook"],
   ];
+  const pickups = (model.pickups ?? []).filter(item => Date.parse(item.at) > since && (!chief || item.logbook === chief.logbook && (item.to === chief.id || item.sources.some(source => source.from === chief.id))));
   return (
     <section className="counts" aria-labelledby="counts-h">
       <h2 id="counts-h">{old ? <>In the last 7 days <span className="hint">· you last looked more than 7 days ago, and the board keeps 7 days</span></> : previous ? <>Since you looked <span className="hint">· you left the board at {when(previous)}, {ago(previous, now)}</span></> : "In the last 24 hours"}</h2>
@@ -40,6 +42,10 @@ function Counts({ model, previous, now, chief }) {
           </div>
         ))}
       </div>
+      {pickups.length > 0 && <div aria-labelledby="pickups-h">
+        <h3 id="pickups-h" className="lbl">Pick-ups</h3>
+        <ul className="owned">{pickups.map(item => <li key={item.key} data-pickup={item.key}>{pickupLine(item, when)}</li>)}</ul>
+      </div>}
     </section>
   );
 }
@@ -98,7 +104,7 @@ function Stopped({ model, shown }) {
             <span className="bullet stopped" aria-hidden="true" />
             <div>
               <p className="q">{chiefName(chief.id, chief.provider)} · {chiefSub(chief)}</p>
-              <p className="meta"><span>stopped: no event since {chief.heartbeat ? new Date(chief.heartbeat).toLocaleString([], { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short", hourCycle: "h23" }) : "a time not recorded"} and no running agent</span><span>nothing moves on its own</span></p>
+              <p className="meta"><span>stopped: no event since {chief.heartbeat ? new Date(chief.heartbeat).toLocaleString([], { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short", hourCycle: "h23" }) : "a time not recorded"} and no running agent</span><span>{chief.passedOn ? `its work passed on to ${chief.passedOn.to} at ${when(chief.passedOn.at)}` : "nothing moves on its own"}</span></p>
               {tasks.length ? <ul className="owned">{tasks.map(task => {
                 const need = model.needs.find(item => item.takeover && item.task?.key === task.key), answered = model.answered.find(item => item.takeover && item.task.key === task.key);
                 return (
@@ -129,7 +135,7 @@ function NeedsYou({ model, shown, now }) {
         <h2 id="needs-h">Needs you</h2>
         {needs.length > 0 && (model.archived ? <span className="badge">{needs.length} {needs.length === 1 ? "waits" : "wait"}</span> : <span className="badge need" aria-label={`${needs.length} open`}>{needs.length}</span>)}
         <span className="grow" />
-        <span className="hint">Oldest first · {model.archived ? "the project is archived: answers wait until Restore" : writes === "paired" ? "open a question to answer it here" : "answer in the chief's chat, or pair this browser"}</span>
+        <span className="hint">Oldest first{model.archived ? " · the project is archived: answers wait until Restore" : writes === "paired" ? " · open a question to answer it here" : writes === "unpaired" ? " · answer in the chief's chat, or pair this browser" : ""}</span>
       </div>
       {needs.length
         ? <ul className="needs">{needs.map(need => <NeedRow key={need.key} need={need} now={now} archived={model.archived && need.project !== null} />)}</ul>
@@ -228,7 +234,10 @@ export function Overview({ model, shown, chief }) {
       <PairNote />
       <PairBox />
       <div className="grid">
-        <NeedsYou model={model} shown={shown} now={now} />
+        <div className="stack">
+          <NeedsYou model={model} shown={shown} now={now} />
+          <Sessions chiefs={model.chiefs} now={now} />
+        </div>
         <Milestones milestones={model.milestones} hiddenDone={model.hiddenDone} />
       </div>
       <Counts model={model} previous={previous} now={now} chief={chief} />

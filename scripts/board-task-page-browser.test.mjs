@@ -6,9 +6,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
+import { loadBoardApp } from "../packages/sage-board/server.mjs";
 import { ABOUT, writeTasksLogbook } from "./fixtures/board-app.mjs";
 import { measureContrast } from "./fixtures/contrast.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const chromium = requireBrowser();
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -24,8 +25,9 @@ async function board(t) {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-task-page-")), saved = process.env.SAGE_WORKTREES;
   process.env.SAGE_WORKTREES = join(dir, "worktrees");
   writeTasksLogbook(join(dir, "logbooks"), join(dir, "worktrees"), new Date().toISOString(), { agents: true, chiefCases: true, about: true, prs: true });
-  const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port: 0, app: APP, settleReads: [] });
+  const server = quietBoard({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port: 0, app: APP });
   const { port } = await server.start();
+  await server.ready();
   t.after(async () => { await server.close(); if (saved === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = saved; rmSync(dir, { recursive: true, force: true }); });
   return `http://127.0.0.1:${port}`;
 }
@@ -93,7 +95,7 @@ test("T1083: the task page shows each part from the logbook and the brief, in on
   await aboutPart(page, "Criteria").getByText("Who checked each line").click();
   assert.equal(await aboutPart(page, "Criteria").locator(".who li").textContent(), `${ABOUT.criteria[0]} · R45`);
   assert.match(await aboutPart(page, "Status").locator("p.now").textContent(), /^In progress: .*\. Next: /);
-  assert.match(await aboutPart(page, "Cost").textContent(), /^Cost\d+ runsAgent time: .+ of 2 h \(\d+ %\)Tokens: 2\d\d k of 1\.5 M \(\d+ %\)$/);
+  assert.match(await aboutPart(page, "Cost").textContent(), /^Cost\d+ runsAgent time: .+ of 2 h \(\d+ %\)Weighted tokens: 2\.75 M of 1\.5 M \(\d+ %\)largest peak context 210 k$/);
   assert.deepEqual(await page.locator(".links > *").allTextContents(), ["Brief R20", "Reports · 1", "Pull request · none yet", "Milestone"]);
   await page.getByRole("tab", { name: /Log/ }).click();
   assert.match(page.url(), /&tab=log$/);
@@ -138,7 +140,7 @@ test("T1083 F-T1083-7, F-T1083-10: the Status trail uses the route's step words,
   const base = await board(t), trail = page => aboutPart(page, "Status").locator(".trail li").allTextContents();
   const open = await openPage(t, base, "T2", "Sample chief records");
   assert.deepEqual(await trail(open), ["build (now)", "reviews (not started)", "QA (not started)"], "route build,code-review,qa: no Plan and no Merge");
-  assert.match(await open.locator(".facts-line").first().textContent(), /Run by Claude · C1 \(chief in progress\)/, "an open task names the chief's state as the chief's");
+  assert.match(await open.locator(".facts-line").first().textContent(), /Run by Claude · C1 \(chief active\)/, "F-T1168-8: an open task says that its chief is active, not \"chief in progress\"");
   const merged = await openPage(t, base, "T1", "Sample pinned bundle");
   assert.deepEqual(await trail(merged), ["build ✓ (done)", "reviews ✓ (done)", "QA ✓ (done)"]);
   assert.equal(await merged.locator(".facts-line").first().textContent(), "doneP1 · small · Run by Claude · C1", "a merged task shows one state, done, and no chief activity");
@@ -154,7 +156,7 @@ test("T1083: a field with no data says unknown and why, never a blank", async t 
   const base = await board(t);
   const cases = [
     ["T40", "Sample crash fix", { Goal: "unknown · The logbook keeps no brief of R25: sage keeps briefs only for newer runs.", Criteria: "unknown · The logbook keeps no brief of R25: sage keeps briefs only for newer runs." }, /of an unknown budget: the brief is not read/],
-    ["T4", "Sample queue", { Goal: "unknown · No agent has run on this task yet, so there is no brief.", Criteria: "unknown · No agent has run on this task yet, so there is no brief." }, /Agent time: unknown · no run of this task has a start timeTokens: unknown · no run of this task recorded its tokens/],
+    ["T4", "Sample queue", { Goal: "unknown · No agent has run on this task yet, so there is no brief.", Criteria: "unknown · No agent has run on this task yet, so there is no brief." }, /Agent time: unknown · no run of this task has a start timeWeighted tokens: unknown · no run of this task has a weighted count/],
   ];
   for (const [id, title, parts, cost] of cases) {
     const { page, problems } = await open(t, base, taskPage(id));

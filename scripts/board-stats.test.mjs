@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildBoardModel } from "../packages/sage-core/board-model.mjs";
 import { boardStats } from "../packages/sage-core/board-stats.mjs";
-import { boardOverview } from "../packages/sage-core/board-overview.mjs";
+import { boardOverview, taskPanel } from "../packages/sage-core/board-overview.mjs";
 
 const NOW = "2026-11-13T12:00:00.000Z";
 const WEEKS_MONDAY_21_SEP_TO_9_NOV = ["2026-09-21", "2026-09-28", "2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26", "2026-11-02", "2026-11-09"];
 const task = (id, state, extra = {}) => ({ id, title: `Sample ${id}`, size: "small", risk: "", route: "build,code-review,qa", state, branch: "", pr: "", round: "0", keys: "", ...extra });
-const run = (id, taskId, started, ended, tokens = "") => ({ id, task: taskId, role: "implementer", round: "0", status: ended ? "done" : "running", tokens, started, ended: ended ?? "" });
+const run = (id, taskId, started, ended, weighted = "", extra = {}) => ({ id, task: taskId, role: "implementer", round: "0", status: ended ? "done" : "running", tokens: "", spend_weighted: weighted, started, ended: ended ?? "", ...extra });
 const merged = (taskId, at) => ({ at, task: taskId, decision: "state merged", why: "sample" });
 const book = (label, name, display, tables, diagnostics = []) => ({ key: `${label}/${name}`, source: label, name, checkout: `/sample/${display}`, displayName: display, diagnostics, warnings: [], tables, observations: { version: 1, records: [] } });
 const source = (label, projects, diagnostics = []) => ({ id: label, label, provider: null, config: {}, diagnostics, hooks: { present: false, slots: [], helpers: [], problem: null }, projects });
@@ -38,7 +38,7 @@ const sample = () => model(source("claude", [book("claude", "alpha-aaaaaa", "alp
 test("T1138: Stats for all projects counts merges, agent time and tokens of the last 8 weeks, and open tasks and questions now", () => {
   const stats = boardStats(sample());
   assert.deepEqual(stats.weeks, WEEKS_MONDAY_21_SEP_TO_9_NOV);
-  assert.deepEqual(stats.total, { merged: 3, undated: 0, open: 4, needs: 1, hours: 6.5, tokens: 53000, runs: 4, noTokens: 1, noTime: 0, rounds: 2 },
+  assert.deepEqual(stats.total, { merged: 3, undated: 0, open: 4, needs: 1, hours: 6.5, tokens: 53000, runs: 4, measure: { weighted: 53000, counted: 3, uncounted: 1, peak: null, providers: {} }, noTime: 0, rounds: 2 },
     "T3 and R4 are older than 8 weeks; R6 ended 1 s before the first week; R5 still runs; R2 has no token count");
   assert.deepEqual(stats.perWeek, { merged: [0, 1, 0, 0, 0, 0, 0, 2], hours: [0, 1, 0, 0, 0, 0, 0, 5.5], tokens: [0, 1000, 0, 0, 0, 0, 0, 52000] });
   assert.deepEqual(stats.open, [{ word: "not started", count: 1 }, { word: "waiting", count: 0 }, { word: "needs you", count: 1 }, { word: "in progress", count: 2 }]);
@@ -119,4 +119,36 @@ test("T1159 F-T1159-57: the need-you tile counts questions and merges only, so a
   };
   assert.deepEqual([needs(), needs("runs"), needs("decisions")], [1, 1, 1], "the one question G1 of T6");
   assert.equal(needs("gates"), 0, "with no readable gates the board knows no question, and the gap banner says so");
+});
+
+test("F-T1168-2, F-T1168-3: a milestone whose gates or tasks table cannot be read adds no need to the need-you tile", () => {
+  const MILESTONE = { ...ALPHA, tasks: ALPHA.tasks.map(row => row.id === "T4" ? { ...row, milestone: "M1" } : row), milestones: [{ id: "M1", name: "Sample", goal: "g", pilot: "T4", gate: "G2", state: "proposed", at: "" }],
+    gates: [...ALPHA.gates, { id: "G2", task: "T4", question: "Approve milestone M1 (Sample)?", options: "approve|change|drop", recommendation: "approve", default: "approve", answer: "", at: "2026-11-13T10:00:00Z" }] };
+  const read = (...names) => {
+    const tables = { ...MILESTONE };
+    for (const name of names) tables[name] = undefined;
+    const board = model(source("claude", [book("claude", "alpha-aaaaaa", "alpha", tables, names.map(name => `${name}: EACCES`))]));
+    return { needs: boardStats(board).total.needs, kinds: board.milestoneNeeds.map(need => need.kind) };
+  };
+  assert.deepEqual(read(), { needs: 2, kinds: [] }, "the questions G1 of T6 and G2 of T4");
+  assert.deepEqual(read("gates"), { needs: 0, kinds: ["unread", "logbook"] }, "the board shows the problem, and counts no question that it cannot read");
+  assert.deepEqual(read("tasks"), { needs: 0, kinds: ["unread", "logbook"] }, "with no readable tasks the board knows no task that waits for you");
+});
+
+test("T1193: Stats count the weighted tokens of the transcripts, keep an old row's count as its peak context, and keep a provider's own count apart", () => {
+  const at = "2026-11-12T10:00:00Z", done = "2026-11-12T11:00:00Z";
+  const runs = [
+    run("R1", "T1", at, done, "800000", { tokens: "190000" }),
+    run("R2", "T1", at, done, "", { tokens: "310727" }),
+    run("R3", "T1", at, done, "", { tokens: "52000", usage_provider: "codex" }),
+    run("R4", "T1", at, done, "", { tokens: "", usage_provider: "codex" }),
+  ];
+  const built = model(source("claude", [book("claude", "gamma-cccccc", "gamma", table({ tasks: [task("T1", "building")], runs }))]));
+  const stats = boardStats(built);
+  assert.equal(stats.total.tokens, 800000, "only the weighted count is added; the old count and the provider's own count are not");
+  assert.deepEqual(stats.total.measure, { weighted: 800000, counted: 1, uncounted: 1, peak: 310727, providers: { codex: { tokens: 52000, counted: 1, uncounted: 1 } } });
+  assert.deepEqual(stats.perWeek.tokens.at(-1), 800000);
+  const panel = taskPanel(built, built.tasks[0].key);
+  assert.deepEqual(panel.runs.map(r => [r.weighted, r.peak, r.provider, r.own]), [[800000, 190000, null, null], [null, 310727, null, null], [null, null, "codex", 52000], [null, null, "codex", null]]);
+  assert.deepEqual([panel.cost.weighted, panel.cost.counted, panel.cost.peak, panel.cost.providers.codex.tokens], [800000, 1, 310727, 52000]);
 });

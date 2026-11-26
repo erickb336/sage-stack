@@ -191,7 +191,7 @@ test("T1057: a sage without the admitted column refuses to write runs.tsv from t
   const plugin = join(w.base, "older");
   cpSync(fileURLToPath(new URL("../plugins/sage-codex", import.meta.url)), plugin, { recursive: true });
   const state = join(plugin, "core/state.mjs"), source = readFileSync(state, "utf8");
-  const older = source.replace("runs: [CHIEF_COLUMN, CHECKOUT_COLUMN, ADMITTED_COLUMN, \"failure\"],", "runs: [CHIEF_COLUMN, CHECKOUT_COLUMN, \"failure\"],");
+  const older = source.replace("runs: [CHIEF_COLUMN, CHECKOUT_COLUMN, ADMITTED_COLUMN, \"failure\", ...SPEND_FIELDS],", "runs: [CHIEF_COLUMN, CHECKOUT_COLUMN, \"failure\", ...SPEND_FIELDS],");
   assert.notEqual(older, source, "the fixture removes the column");
   writeFileSync(state, older);
   const { tool: old } = await import(pathToFileURL(join(plugin, "skills/sage/sage.mjs")).href);

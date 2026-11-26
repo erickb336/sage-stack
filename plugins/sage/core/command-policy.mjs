@@ -32,10 +32,20 @@ export function ghApiMethod(args) {
   }
   return String(method ?? (payload ? "POST" : "GET")).toUpperCase();
 }
+const WAYS = [
+  [/levels deep/, "Run the inner command as a command of its own."],
+  [/heredoc with no delimiter/, "Give each heredoc a delimiter word, for example cat <<'EOF', and end its body with a line of that word alone."],
+  [/command directories/, "Change the folder once, with one cd to a literal path, or give each command its folder (git -C <path>, or absolute paths)."],
+  [/wrapper option|sudo option|runner option|option has no value/, "Run the program without the wrapper, or give the wrapper only options that the hook knows, each with its value."],
+  [/redirection with no target/, "Give each redirection a target."],
+  [/\bcase\b/, "End each case with esac, and give each case pattern one word."],
+  [/an open "\("/, "Close each ( with a )."],
+  [/"\)" with no "\("/, "Remove each ) that has no (."],
+];
 export const unreadable = (error, what) => {
   const cause = String(error?.message ?? error);
-  const way = /nested more than/.test(cause) ? "Run the inner command as a command of its own." : "Close each quote, substitution and heredoc.";
-  return `the hook cannot read this command (${cause}), so it refuses it. ${way} Its text names ${what}.`;
+  const way = WAYS.find(([form]) => form.test(cause))?.[1] ?? "Close each quote, substitution and heredoc.";
+  return `the hook cannot read this command (${cause}), so it refuses it. ${way}${what ? ` Its text names ${what}.` : ""}`;
 };
 export function createCommandPolicy({ prPattern = PR } = {}) {
   const CANNOT = `merge only with ${MERGE_FORM}, as a command of its own: not after or inside another command, and not with another flag.`;

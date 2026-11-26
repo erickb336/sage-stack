@@ -1,7 +1,7 @@
 import "./test-env.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import fs, { chmodSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, truncateSync, unlinkSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { syncBuiltinESMExports } from "node:module";
@@ -68,6 +68,7 @@ async function fixture(t, more = {}) {
   const server = createBoardServer({ sources: [{ id: "sample", path: source, label: "Sample" }], port: 0, app: loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", import.meta.url))), ...more });
   t.after(async () => { await server.close(); if (before === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = before; rmSync(base, { recursive: true, force: true }); });
   const { port } = await server.start();
+  await server.ready();
   return { base, root, port, t1: join(root, LOGBOOK, "pages", "T1") };
 }
 
@@ -371,25 +372,31 @@ test("T1116: a person's click on a Markdown page's link opens the page in the re
 });
 
 test("T1159 F-T1159-24: a copy of the board without its Markdown renderer opens a Markdown page as its file, and the index links the file", async (t) => {
-  const f = await fixture(t, { markdown: null }), page = `/pages/${LOGBOOK}/T1/notes.md`;
+  const f = await fixture(t, { reader: false }), page = `/pages/${LOGBOOK}/T1/notes.md`;
   writeFileSync(join(f.t1, "notes.md"), "# SAMPLE notes\n");
   const r = await get(f, page, { headers: DOCUMENT });
   assert.deepEqual([r.status, r.headers["content-type"], r.body], [200, "text/plain; charset=utf-8", "# SAMPLE notes\n"], "no 303 to a reader that would answer 503");
   assert.match((await get(f, `/pages/${LOGBOOK}/T1/`)).body, new RegExp(`<a href="/pages/${LOGBOOK}/T1/notes\\.md">notes\\.md</a>`), "the index links the file itself");
 });
 
-test("a message's Page block prints the board's link, and the link opens the page on the board", async (t) => {
-  const { sage, folder, name, port } = await messageSandbox(t);
+test("T1208: a message's Page block gives the board's link first when the board answers, and the link opens the page; when the board does not answer, the path comes first with a line that says so", async (t) => {
+  const { sage, folder, name, port, server } = await messageSandbox(t);
   writeFileSync(join(folder, "research.html"), "<!DOCTYPE html><title>SAMPLE</title><p>SAMPLE research page</p>");
   const question = JSON.parse(readFileSync(join(HERE, "fixtures", "messages", "02-question.json"), "utf8"));
   const msg = { ...question, blocks: question.blocks.map((b) => (b.t === "page" ? { ...b, task: "T1", file: "research.html" } : b)) };
-  const r = sage("message", "T1", "--json", JSON.stringify(msg));
-  assert.equal(r.status, 0, r.out);
-  const link = new RegExp(`\\nPage · Showing visuals in every app\\n  (http://127\\.0\\.0\\.1:43123/pages/${name}/T1/research\\.html)\\n  ${folder.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/research\\.html$`).exec(r.out)?.[1];
-  assert.ok(link, r.out);
-  const opened = await get({ port }, new URL(link).pathname);
+  const path = join(folder, "research.html"), url = `http://127.0.0.1:${port}/pages/${name}/T1/research.html`;
+  const up = await sage("message", "T1", "--json", JSON.stringify(msg));
+  assert.equal(up.status, 0, up.out);
+  assert.ok(up.out.endsWith(`\nPage · Showing visuals in every app\n  ${url}\n  ${path}`), up.out);
+  const opened = await get({ port }, new URL(url).pathname);
   assert.equal(opened.status, 200);
   assert.match(opened.body, /SAMPLE research page/);
+  await server.close();
+  assert.equal((await get({ port }, "/").catch((error) => ({ error: error.code }))).error, "ECONNREFUSED", "the board is down");
+  const down = await sage("message", "T1", "--json", JSON.stringify(msg));
+  assert.equal(down.status, 0, down.out);
+  const ensure = `node ${fileURLToPath(new URL("../plugins/sage/board/cli.mjs", import.meta.url))} board --ensure`;
+  assert.ok(down.out.endsWith(`\nPage · Showing visuals in every app\n  ${path}\n  The board does not answer now; open the file, or start the board with \`${ensure}\`.\n  ${url}`), down.out);
 });
 
 test("the message command, the index and the board agree on every file: a link that the command prints or the index lists opens", async (t) => {
@@ -405,7 +412,7 @@ test("the message command, the index and the board agree on every file: a link t
   mkdirSync(join(folder, "real"));
   writeFileSync(join(folder, "real", "in.html"), "<p>SAMPLE</p>");
   symlinkSync(join(folder, "real"), join(folder, "via"));
-  assert.equal(sage("task", "add", "--priority", "P2", "--title", "t2", "--size", "small").status, 0);
+  assert.equal((await sage("task", "add", "--priority", "P2", "--title", "t2", "--size", "small")).status, 0);
   mkdirSync(elsewhere);
   writeFileSync(join(elsewhere, "x.html"), "<p>SAMPLE</p>");
   symlinkSync(elsewhere, t2);
@@ -416,14 +423,14 @@ test("the message command, the index and the board agree on every file: a link t
   const served = [];
   for (const [task, file] of [["T1", "research.html"], ["T1", "sub/ok.txt"], ["T1", "v1..v2.html"], ["T1", "notes..md"], ["T1", "locked.html"], ["T1", "hard.html"],
     ["T1", "link.html"], ["T1", "via/in.html"], ["T2", "x.html"]]) {
-    const command = message(task, file), status = (await get({ port }, `/pages/${name}/${task}/${file}`)).status;
+    const command = await message(task, file), status = (await get({ port }, `/pages/${name}/${task}/${file}`)).status;
     assert.equal(command.status === 0, status === 200, `${task}/${file}: the command ${command.status === 0 ? "accepts" : "refuses"} it, and the board answers ${status}\n${command.out}`);
     assert.equal(index[task].includes(file), status === 200, `${task}/${file}: the index ${index[task].includes(file) ? "lists" : "leaves out"} it, and the board answers ${status}`);
     if (status === 200) served.push(`${task}/${file}`);
   }
   assert.deepEqual(served, ["T1/research.html", "T1/sub/ok.txt"]);
   const design = JSON.parse(readFileSync(join(HERE, "fixtures", "messages", "07-design.json"), "utf8"));
-  const own = sage("message", "T2", "--json", JSON.stringify({ ...design, blocks: design.blocks.filter((b) => b.t !== "page") }));
+  const own = await sage("message", "T2", "--json", JSON.stringify({ ...design, blocks: design.blocks.filter((b) => b.t !== "page") }));
   assert.equal(own.status, 1, own.out);
   assert.match(own.out, /is a link, or the pages folder or the logbook folder above it is one/);
   assert.deepEqual(readdirSync(elsewhere), ["x.html"], "nothing written through the link");
@@ -437,10 +444,10 @@ async function messageSandbox(t) {
   const project = join(base, "project");
   execFileSync("git", ["init", "-q", "-b", "main", project]);
   execFileSync("git", ["-C", project, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "start"]);
-  const sage = (...args) => { const r = spawnSync("node", [TOOL, ...args, "--project", project], { encoding: "utf8", env, timeout: 60_000 }); return { status: r.status, out: (r.stdout + r.stderr).trim() }; };
-  assert.equal(sage("init").status, 0);
-  assert.equal(sage("task", "add", "--priority", "P2", "--title", "t", "--size", "small").status, 0);
-  const folder = sage("pages", "T1").out, name = basename(dirname(dirname(folder)));
+  const sage = (...args) => new Promise((done) => execFile("node", [TOOL, ...args, "--project", project], { encoding: "utf8", env, timeout: 60_000 }, (error, stdout, stderr) => done({ status: error ? error.code : 0, out: (stdout + stderr).trim() })));
+  assert.equal((await sage("init")).status, 0);
+  assert.equal((await sage("task", "add", "--priority", "P2", "--title", "t", "--size", "small")).status, 0);
+  const folder = (await sage("pages", "T1")).out, name = basename(dirname(dirname(folder)));
   const book = readdirSync(base, { recursive: true }).map((path) => join(base, path)).find((path) => basename(path) === name && !path.includes(`${join(base, "worktrees")}`));
   assert.ok(book, "the sandbox's logbook");
   const before = process.env.SAGE_WORKTREES;
@@ -448,5 +455,8 @@ async function messageSandbox(t) {
   const server = createBoardServer({ sources: [{ id: "sample", path: dirname(book) }], port: 0 });
   t.after(async () => { await server.close(); if (before === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = before; });
   const { port } = await server.start();
-  return { base, sage, folder, name, port };
+  await server.ready();
+  mkdirSync(join(env.HOME, ".config", "sage-board"), { recursive: true });
+  writeFileSync(join(env.HOME, ".config", "sage-board", "board.port"), `${port}\n`);
+  return { base, sage, folder, name, port, server };
 }

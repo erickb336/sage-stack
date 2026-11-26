@@ -11,16 +11,15 @@ const onTask = (task) => ({ kind: "task", task });
 export function writerClass(cmd, [sub, id] = []) {
   switch (cmd) {
     case "task": return sub === "add" ? NEW : id === "set" ? onTask(sub) : READ;
-    case "claim": case "accept": return NEW;
-    case "offer": case "unclaim": return onTask(sub);
-    case "release": return TASK.test(sub ?? "") ? onTask(sub) : sub === "add" ? ANY : READ;
-    case "cancel": return { ...onTask(sub), recipient: true };
+    case "unclaim": return onTask(sub);
+    case "pickup": return ANY;
+    case "release": return sub === "add" ? ANY : READ;
     case "task-adopt": case "round": case "verdict": case "lint": return onTask(sub);
-    case "finding": return onTask(id);
+    case "finding": return sub === "show" ? READ : onTask(id);
     case "milestone": case "program": return id === "set" ? ANY : { kind: "milestone" };
     case "run": return sub === "add" ? onTask(id) : sub === "done" ? { kind: "task", run: id } : sub === "usage" ? ANY : READ;
     case "gate": return ["answer", "undo", "give"].includes(sub) ? OWNER : sub === "replace" ? ANY : sub === "add" ? (id === undefined ? ANY : onTask(id)) : READ;
-    case "log": return TASK.test(sub ?? "") ? onTask(sub) : ANY;
+    case "log": return id === undefined ? READ : TASK.test(sub ?? "") ? onTask(sub) : ANY;
     case "observe": return { ...ANY, task: sub };
     case "pages": return id === "record" ? { ...ANY, task: sub } : READ;
     case "standing": return sub === "add" ? ANY : READ;
@@ -35,7 +34,7 @@ export function writerClass(cmd, [sub, id] = []) {
   }
 }
 
-export const chiefOnly = (cmd, [sub] = []) => ["claim", "offer", "cancel", "accept", "unclaim"].includes(cmd) || (cmd === "release" && TASK.test(sub ?? "")) || (cmd === "gate" && sub === "replace");
+export const chiefOnly = (cmd, [sub] = []) => ["unclaim", "pickup"].includes(cmd) || (cmd === "gate" && sub === "replace");
 
 export function offerOf(task) {
   try {
@@ -49,7 +48,7 @@ export function offerOf(task) {
 export const replaceQuestion = ({ from, to, task, pr, title, runs, label, released, moved, fresh, offered }) => {
   const what = `${task}${pr ? ` and PR ${pr}` : ""}`;
   const ask = from ? `Hand ${what} from ${label(from)} to ${label(to)}?` : `Hand ${what} to ${label(to)}? ${task} has no owning chief${released ? `: ${label(released)} unclaimed it last` : moved ? `: it came in the move from the ${moved} logbook` : ""}.`;
-  const approve = [`${to} owns ${task}.`, runs.length ? "Each of those runs ends as failed, and work that it did not report may be lost." : "", from ? `${from} can no longer write ${task}.` : "", "The answer clears an open offer.",
+  const approve = [`${to} owns ${task}.`, runs.length ? "Each of those runs ends as failed, and work that it did not report may be lost." : "", from ? `${from} can no longer write ${task}.` : "",
     `The branch keeps its name${pr ? `, and PR ${pr} keeps its number` : ""}.`, fresh ? `The verdicts stay, and ${to} runs one fresh cycle on its head before it merges.` : "The verdicts on its head still count."].filter(Boolean).join(" ");
   const decline = offered ? `${from} stays the owning chief, and ${OFFER_ENDS(to)}` : `nothing changes, and ${from ? `${from} stays the owning chief` : `${task} stays with no owning chief`}`;
   return `${ask} Runs that end as failed: ${runs.map((r) => `${r.id} (${r.role})`).join(", ") || "none"}. Approve: ${approve} Decline: ${decline}. Title of ${task}: ${title}`;
@@ -87,12 +86,14 @@ export function createChiefs({ now, provider, readRegular, refuse, rowsOf, sheet
     return rows;
   }
   const rowOf = (dir, native) => chiefs(dir).find((r) => r.provider === provider && r.native === native);
-  function chiefRow(dir, native) {
+  function chiefRow(dir, native, chief, from) {
     if (!provider || !NATIVE.test(native ?? "")) refuse("sage has no session identity for this chief, so it cannot name the chief of this write. Nothing changed.");
     const rows = chiefs(dir), found = rowOf(dir, native);
     if (found) return found;
-    const row = { id: `C${Math.max(0, ...rows.map((r) => Number(r.id.slice(1)))) + 1}`, provider, native, at: now() };
-    swap(join(dir, "chiefs.tsv"), `${[COLUMNS, ...[...rows, row].map((r) => COLUMNS.map((c) => r[c]))].map((cells) => cells.join("\t")).join("\n")}\n`);
+    const old = chief === undefined ? undefined : rows.find((r) => r.id === chief && r.provider === provider && r.native === from);
+    if (chief !== undefined && !old) return undefined;
+    const row = old ? { ...old, native } : { id: `C${Math.max(0, ...rows.map((r) => Number(r.id.slice(1)))) + 1}`, provider, native, at: now() };
+    swap(join(dir, "chiefs.tsv"), `${[COLUMNS, ...(old ? rows.map((r) => (r === old ? row : r)) : [...rows, row]).map((r) => COLUMNS.map((c) => r[c]))].map((cells) => cells.join("\t")).join("\n")}\n`);
     return row;
   }
   return { chiefs, chiefRow, rowOf };

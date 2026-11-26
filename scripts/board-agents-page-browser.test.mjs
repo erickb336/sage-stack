@@ -7,9 +7,10 @@ import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { startPairing } from "../packages/sage-board/access.mjs";
-import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
+import { loadBoardApp } from "../packages/sage-board/server.mjs";
 import { HOSTILE_TEXT, writeTasksLogbook } from "./fixtures/board-app.mjs";
 import { measureContrast } from "./fixtures/contrast.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const chromium = requireBrowser();
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -37,8 +38,9 @@ async function open(t, options = {}, { path = "/app/", theme = "dark", width = 1
   }
   const stateDir = seen === undefined ? null : join(dir, "state");
   if (stateDir) mkdirSync(stateDir, { mode: 0o700 });
-  const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port: 0, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair" });
+  const server = quietBoard({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port: 0, app: APP, stateDir, pairCommand: "node /sample/board/cli.mjs board --pair" });
   const { port } = await server.start();
+  await server.ready();
   const base = `http://127.0.0.1:${port}`;
   const context = await browser.newContext({ viewport: { width, height: 1000 }, colorScheme: theme, reducedMotion: "reduce" });
   t.after(async () => { await context.close(); await server.close(); if (saved === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = saved; rmSync(dir, { recursive: true, force: true }); });
@@ -71,16 +73,16 @@ test("T1062: J4 is one click from the Overview: the top bar counts open the Agen
   await counts.first().click(); clicks++;
   await page.locator("main h1", { hasText: "Agents" }).waitFor();
   assert.equal(clicks, 1, "J4: one click from the Overview");
-  assert.deepEqual(await page.locator(".agents-kpis .kpi").allTextContents(), ["agents in progress7 of 20", "leads4 of 5", "waiting3", "! with a problem flag4"], "2 failed runs, and the Codex runs R30 and R6 with no logbook write for 30 min");
+  assert.deepEqual(await page.locator(".agents-kpis .kpi").allTextContents(), ["agents in progress7 of 20", "leads4 of 5", "waiting3", "! with a problem flag2"], "T1224: the 2 failed runs; the Codex runs R30 and R6 say Codex: activity unknown, which is not a problem");
   assert.deepEqual(await page.locator("section.chief-box h2").allTextContents(), ["Claude · C1", "Codex · C2", "Claude · C3"], "every chief, Claude and Codex alike");
   assert.deepEqual(await box(page, "C1").locator(".acard-h .sub .mono").allTextContents(), ["lead · R25", "lead · R20"], "the oldest lead first");
   const r20 = box(page, "C1").locator("section.acard", { has: page.locator('[data-run="R20"]') });
   assert.deepEqual(await r20.locator("a.ag .r1").allTextContents(), ["code-reviewerR22", "security-reviewerR23"], "a lead's running helpers; the ended one is collapsed");
   assert.match(await r20.locator(".acard-f").textContent(), /^Lead's own work: 1 h 1\d min · opus2 in progress · 1 waiting · 4 helpers$/);
-  assert.match(await r20.locator(".acard-h").textContent(), /^Sample chief recordslead · R20 in progress · Build1 h 1\d min210 k tok · with helpersAbout ›$/, "the tokens of the lead and its helpers: R21 has 210 k");
+  assert.match(await r20.locator(".acard-h").textContent(), /^Sample chief recordslead · R20 in progress · Build1 h 1\d min2\.4 M weighted · with helpersAbout ›$/, "the tokens of the lead and its helpers: R21 has 2.4 M weighted");
   assert.equal(await r20.locator("button.more-ended").textContent(), "Show 1 ended helper");
   await r20.getByRole("button", { name: "Show 1 ended helper" }).click();
-  assert.match(await r20.locator("a.ag.ended").textContent(), /^✓implementerR21done38 min · 210 ksonnet$/);
+  assert.match(await r20.locator("a.ag.ended").textContent(), /^✓implementerR21done38 min · 2\.4 M weightedsonnet$/);
   assert.deepEqual(await box(page, "C2").locator(".acard.own a.ag .r1").allTextContents(), ["designerR31"], "a chief's own run with no lead");
   assert.deepEqual(await box(page, "C1").locator(".queue a.ag").evaluateAll(rows => rows.map(row => row.dataset.run + " " + row.querySelector(".mdl").textContent.split(" · ")[1])), ["R24 1st in line", "R33 3rd in line"]);
   assert.match(await box(page, "C2").locator(".queue a.ag").textContent(), /^leadT30 · R32waiting · 2nd in the queuewaits 1 minT30 · Sample crash reportsqueued \d\d:\d\d · 2nd in line$/);
@@ -90,7 +92,7 @@ test("T1062: J4 is one click from the Overview: the top bar counts open the Agen
   assert.deepEqual(await page.locator(".timeline .lane-group").first().locator(".lane-l").evaluateAll(lanes => lanes.map(lane => lane.textContent)),
     ["lead R25", "implementer R26", "ux-reviewer R27", "lead R20", "implementer R21", "code-reviewer R22", "security-reviewer R23", "qa R24", "implementer R33"]);
   assert.equal(await page.locator(".timeline .lbar.queued").count() - 1, 3, "a dashed bar for each queued run, and one in the legend");
-  assert.deepEqual(await page.locator(".timeline .legend li").allTextContents(), ["in progress", "done", "needs you", "stopped · failed", "in progress · may be stuck, or stopped · run still open", "waiting"], "F-T1096-7: the legend uses the table's words");
+  assert.deepEqual(await page.locator(".timeline .legend li").allTextContents(), ["in progress", "done", "needs you, or in progress · Look at it", "stopped · failed, or in progress · Stopped without a report", "waiting"], "F-T1096-7, T1224: the legend uses the table's words and the flag's colours");
   await shoot(page, "agents-dark.png");
   assert.deepEqual(requests.filter(url => !url.startsWith(`${base}/`)), [], "no request outside 127.0.0.1");
   assert.deepEqual(problems, [], "no script error and no CSP refusal");
@@ -240,7 +242,7 @@ test("F-T1062-26, F-T1062-29: in a paired browser, the Overview's Stuck counts t
     await page.locator("header.top a.limit").first().click();
     await page.locator("main h1", { hasText: "Agents" }).waitFor();
     const look = await page.locator('.agents-kpis .kpi[data-count="look"] .n').textContent();
-    assert.deepEqual([stuck, look], ["4", "4"], `last look ${seen} min ago: R97 failed 2 days ago and R98 ends after now, so neither counts on either page`);
+    assert.deepEqual([stuck, look], ["2", "2"], `last look ${seen} min ago: R97 failed 2 days ago and R98 ends after now, so neither counts on either page`);
     assert.deepEqual(problems, []);
   }
 });
@@ -258,10 +260,12 @@ test("F-T1062-22, F-T1062-24, F-T1062-32: each chief's count is the same in the 
   assert.equal(await r20.locator(".acard-h .badge.look").count(), 0, "T1120 S3: each of the 30 failed qa helpers has a later qa run (R24), so none has a problem flag");
   assert.equal(await r20.locator("p.more-done").count(), 0, "no failed helper hides behind 'more'");
   const long = page.locator('a.ag[data-run="R22"] .badge');
-  assert.deepEqual([await long.textContent(), await long.getAttribute("class")], ["in progress · running long", "badge running"], "running long is calm: it does not need a look");
-  assert.equal(await page.locator('a.ag[data-run="R22"] .awhy').getAttribute("class"), "awhy", "and so is its note");
+  assert.deepEqual([await long.textContent(), await long.getAttribute("class")], ["in progress", "badge running"], "T1224: R22 runs past its usual length, but the board has no hook note of it, so it has no flag");
+  assert.equal(await page.locator('a.ag[data-run="R22"] .awhy').count(), 0, "and no note");
+  const codex = box(page, "C2").locator("section.acard", { has: page.locator('[data-run="R30"]') }).locator(".acard-h .sub .badge").first();
+  assert.deepEqual([await codex.textContent(), await codex.getAttribute("class")], ["in progress · Codex: activity unknown", "badge running"], "T1224: the Codex lead says that its activity is unknown, with no problem colour");
   const looks = await page.locator('.agents-kpis .kpi[data-count="look"] .n').textContent();
-  assert.equal(Number(looks), 4 + 1, "the base 4 and R38; T1120 S3: not the 30 failed helpers that ran again");
+  assert.equal(Number(looks), 2 + 1, "the base 2 and R38; T1120 S3: not the 30 failed helpers that ran again");
   const marked = await page.locator("main [data-run]").evaluateAll(list => list.filter(mark => /\b(look|failed)\b/.test((mark.closest(".acard-h") ?? mark).querySelector(".badge").className)).length);
   assert.equal(marked, Number(looks), "each counted row, and nothing else, has the look colour");
   await shoot(page, "agents-round2-dark.png");

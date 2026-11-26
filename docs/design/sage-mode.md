@@ -191,7 +191,7 @@ A candidate's branch never merges. Candidate branches and pages stay until you d
 | How many? | N = 3 by default, at most 5. Each candidate costs a full design or build |
 | How are the candidates different? | The chief gives each one an angle, for example "fewest taps", "most control", "reuse existing screens". N copies of one prompt give N similar answers |
 | What does the judge return? | A score per candidate against each rubric line, the base, each graft with its source, what it rejected, and the check of the final version |
-| For a design, who decides? | The arena judge makes the final version, and the PE checks it. You then keep, change or drop it, as in every design round |
+| For a design, who decides? | The arena judge makes the final version, and the PE checks it. You then answer its design question: Approve, Approve with your words or New version, as in every design round |
 | Why is this safe now? | Orchestrator removed best-of copies (ORC-025) because they caused many edge-case bugs in the app's state. Here a candidate is only a branch and a report, and nothing else depends on it |
 
 <a id="life"></a>
@@ -203,7 +203,8 @@ stateDiagram-v2
   [*] --> framed
   framed --> designing: needs a design
   designing --> awaiting_you: design ready
-  awaiting_you --> briefed: you keep it
+  awaiting_you --> briefed: a design question, answered Approve or Approve with your words
+  awaiting_you --> designing: a design question, answered New version
   framed --> briefed: no design needed
   briefed --> building
   building --> held: product question
@@ -230,6 +231,8 @@ stateDiagram-v2
   pr_ready --> merged: you merge
   merged --> [*]
 ```
+
+A task moves from awaiting_you to briefed only on your approval of its design: the state tool refuses the move when the task's latest design question has no Approve or Approve with your words answer. The chief asks it as a design question (`sage gate add <T> --design <page or folder>`), and your answer moves the task: an approval to briefed, New version back to designing. An approval also copies the design into the logbook ([A design question](../guide/using-sage.md#a-design-question)).
 
 A new commit after "verified" voids the verdicts, and the task goes back to reviewing. A `findings`, `qa-fail` or `checks-fail` verdict also returns a verified task to reviewing, with its reason in the decision trail.
 
@@ -258,7 +261,8 @@ erDiagram
 | Standing orders | Numbered lines, one rule each: models, concurrency cap, autopilot lanes, forbidden paths | `standing.md` | The chief, through the state tool |
 | Task | id, title, size, risk flags, route, state, branch, worktree, PR, head SHA, round | `tasks.tsv` | The state tool |
 | Brief | The template fields ([next section](#brief)) | `briefs/<task>-<round>.md` | The chief |
-| Run and report | role, model, tokens, status, report path | `runs.tsv`, `reports/` | The state tool, from the agent's report |
+| Run and report | role, model, peak context (`tokens`), status, report path | `runs.tsv`, `reports/` | The state tool, from the agent's report |
+| Real token use | input, cache write, cache read and output tokens, and their weighted total (`spend_*` columns; a Codex run keeps its own thread total in `tokens`) | `runs.tsv` | The Claude hook, from the agent's transcript at its stop |
 | Finding | key (it carries across rounds), source, severity, location, triage, reason | `findings.tsv` | The state tool |
 | Verdict | task, PR, head SHA, kind (checks-pass, checks-fail, review-clean, security-clean, ux-clean, qa-pass, qa-fail, findings, evidence-clean; lint-pass and lint-fail, which only `lint` writes), cycle, by which run | `ledger.tsv` | The state tool |
 | Gate and decision | question, options, recommendation, default on no answer, your answer | `gates.md`, `decisions.tsv` | The chief, and you |
@@ -445,7 +449,7 @@ Chief   T2: an empty search still crashed. Fixed in 4787c81.
 sage · ramen-finder · 14:32
 tasks   2 · verified 1 · repairing 1
 gates   1 open · G-3 lint rule, default no
-agents  11 runs · about 410k tokens
+agents  11 runs · about 410k weighted tokens
 ```
 
 ### ledger.tsv (sample)

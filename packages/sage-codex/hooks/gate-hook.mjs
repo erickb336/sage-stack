@@ -5,7 +5,7 @@ import { accessSync, constants, existsSync, linkSync, mkdirSync, readdirSync, re
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AGENT_GH, agentCommandProblem, agentGh, commitIdentity, boardCommandProblem, boardPathProblem, chiefEditDenied, commandWrites, createCommandPolicy, createPushPolicy, ghRuns, leadStopped as coreLeadStopped, logbookWrite, PR, programName, programsRun, pullRequestHead, readModeFile, roleEditDenied, sharedRoot, shellCommands, shellWriteEvidence, TEAM } from "sage-core";
+import { AGENT_GH, agentCommandProblem, agentGh, commitIdentity, boardCommandProblem, boardPathProblem, chiefEditDenied, commandWritePart, commandWrites, createCommandPolicy, createPushPolicy, ghRuns, leadStopped as coreLeadStopped, logbookWrite, PR, programName, programsRun, pullRequestHead, readModeFile, readOnlyPlace, roleEditDenied, sharedRoot, shellCommands, shellWriteEvidence, TEAM } from "sage-core";
 import { modeFile, readMode, tool } from "../skills/sage/sage.mjs";
 import { verificationOptions } from "../skills/sage/verify-install.mjs";
 import { privateDirectory, readState } from "./hook-state.mjs";
@@ -18,7 +18,7 @@ import { autopilotSwitch, dispatchBinding, NEW_ON, readRecord, RECORD_RANGE, REC
 import { markFile } from "./start-mark.mjs";
 import { launcherFolder, versionsFolder } from "./launch.mjs";
 import { ASK_INSTALL } from "./entries.mjs";
-import { CHIEF_SHELL, chiefShellProblem, READ_ONLY_SHELL_WAY, TEMP } from "sage-core";
+import { CHIEF_SHELL, chiefFileProblem, chiefShellProblem, READ_ONLY_SHELL_WAY, readOnlyShell, TEMP } from "sage-core";
 import { mergeCommand, permitFile, permitFolder } from "../skills/sage/merge.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -30,7 +30,6 @@ const pushes = createPushPolicy();
 const UNREADABLE = "sage: the hook could not read this tool call, so it refuses it. Codex may have changed its hook input: update the sage plugin, or tell the user.";
 const CODEX_FOLDER = "sage: no agent changes files under a .codex folder, because Codex reads its project settings there. Ask the user to make this change.";
 const CODEX_SETTINGS = "sage: no agent writes Codex's config file, its hooks.json, sage's hook launcher (sage-hooks), the sage plugin's folder or its installed versions (plugins/cache/sage/sage) from the shell, because sage's hooks and their trust are there. Ask the user to make this change.";
-const CHIEF = 'sage: sage mode is on, so the chief does not change files. Brief an implementer to make this change. The user ends sage mode with the message "sage mode off", alone.';
 const OWNER_MERGE = "sage: in Codex, only sage's merge command merges, on autopilot, as the chief's instructions say. Without autopilot, the owner merges the pull request in GitHub";
 const LOGBOOK_WRITE = (word) => `sage: no agent writes, moves or removes a logbook file from the shell: ${JSON.stringify(word)} is in the Codex sage folder or the shared root, or holds one. Use the sage MCP tools for the logbook.`;
 const LOGBOOK_PATCH = (path) => `sage: no patch changes a logbook file: ${JSON.stringify(path)} is in the Codex sage folder or the shared root. Use the sage MCP tools for the logbook.`;
@@ -216,6 +215,7 @@ function wordsOf(command, cwd, env) {
 
 const codexHome = (env) => resolve(env.CODEX_HOME ?? join(homedir(), ".codex"));
 const sageRoot = (env) => dirname(dirname(modeDirectory(env)));
+const logbookRoots = (env) => { try { return [sageRoot(env), sharedRoot(env)]; } catch { return undefined; } };
 const logbookWord = (command, env, cwd) => {
   try { return logbookWrite(command, cwd, [sageRoot(env), sharedRoot(env)], env.HOME || homedir()); } catch { return undefined; }
 };
@@ -256,8 +256,7 @@ export function codexRuns(command, cwd = "/", env = process.env) {
 }
 const runsPatch = (command, cwd, env) => { try { return programsRun(command, cwd, env.PATH ?? "").some((p) => PATCH_NAME.test(programName(p.word))); } catch { return true; } };
 
-const STATE_READS = new Map([["status", null], ["merge-check", null], ["logbook", "repair"], ["standing", "add"], ["pages", "record"]]);
-const readsOnly = ([command, ...rest]) => STATE_READS.has(command) && !rest.includes(STATE_READS.get(command));
+const PROJECT_BOUND_READS = new Set(["task", "config"]);
 const STATE_SCRIPT = /(?:^|\/)(?:skills\/sage\/sage\.mjs|mcp\/state-server\.mjs)$/;
 const LITERAL_WORD = /(?:[A-Za-z0-9_./,:=+-]|'[^'\r\n]*'|"[^"$`\\\r\n]*")+/;
 const LITERAL_COMMAND = new RegExp(`^[ \\t]*${LITERAL_WORD.source}(?:[ \\t]+${LITERAL_WORD.source})*[ \\t]*$`);
@@ -300,8 +299,7 @@ export function stateToolWrites(command, cwd = "/", env = process.env) {
     const file = real(script) ?? script;
     if (!own.has(file) && !STATE_SCRIPT.test(file) && !STATE_SCRIPT.test(script)) continue;
     if (/state-server\.mjs$/.test(file) || /state-server\.mjs$/.test(script)) return true;
-    const words = args.filter((word) => !word.startsWith("-"));
-    if (!readsOnly(words)) return true;
+    if (!tool.readsOnly(args) || PROJECT_BOUND_READS.has(args[0])) return true;
   }
   return false;
 }
@@ -543,7 +541,10 @@ export async function gate(input, { mode = readMode, check = checkMerge, env = p
       return deny("sage: this patch reaches protected storage or has unverified checkout paths");
     }
     const { sage } = mode(f, env);
-    if (!thread.child) return chiefEditDenied({ sage, chief: true }) ? deny(CHIEF) : undefined;
+    if (!thread.child) {
+      const why = chiefEditDenied({ sage, chief: true }) ? paths.map((path) => chiefFileProblem(path, f.cwd, env)).find(Boolean) : undefined;
+      return why ? deny(`sage: ${why}`) : undefined;
+    }
     const why = childChange(thread, sage);
     return why ? refuse(thread, why) : undefined;
   }
@@ -566,7 +567,11 @@ export async function gate(input, { mode = readMode, check = checkMerge, env = p
   if (thread.child) {
     const knownThread = thread.codex || thread.parts?.length;
     if (stateToolWrites(f.command, f.cwd, env) && !(knownThread && scopedStateRead(f.command, f.cwd, env))) return refuse(thread, recordsAsLead(thread) ? LEAD_SHELL : CHILD_LOGBOOK);
-    const why = commandWrites(f.command, f.cwd, TEMP, { readOnly: true }) || runsPatch(f.command, f.cwd, env) ? childChange(thread, mode(f, env).sage, READ_ONLY_SHELL_WAY) : undefined;
+    const change = childChange(thread, mode(f, env).sage, READ_ONLY_SHELL_WAY), role = thread.parts && !thread.codex ? taskRole(thread.parts.findLast(sageName) ?? "") : null;
+    const roots = role && change === READ_ONLY(role, READ_ONLY_SHELL_WAY) ? logbookRoots(env) : undefined;
+    const place = roots ? readOnlyPlace(roots, env, { "the Claude config folder": env.CLAUDE_CONFIG_DIR, "the Codex config folder": env.CODEX_HOME }) : { readOnly: true };
+    const write = change ? commandWritePart(f.command, f.cwd, TEMP, place) ?? (runsPatch(f.command, f.cwd, env) ? { part: f.command } : undefined) : undefined;
+    const why = write === undefined ? undefined : roots ? `sage: ${readOnlyShell(role, write)}` : change;
     if (why) return refuse(thread, why);
     const identity = () => { try { return commitIdentity(tool.storeDir(f.cwd, env)); } catch { return undefined; } };
     const agent = underSage(thread) !== false || mode(f, env).sage ? agentCommandProblem(f.command, f.cwd, env.PATH ?? "", { identity }) : undefined;

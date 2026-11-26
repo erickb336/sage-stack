@@ -104,7 +104,7 @@ Four exceptions can interrupt you again:
 
 - An irreversible action always gets its own yes.
 - A new fact that changes an earlier answer can bring the question back.
-- A large task's design goes to you after the PE check. It waits for your approval when it changes what you see or data that you keep. An internal shape goes ahead as recommended when you do not answer.
+- A large task's design goes to you after the PE check, as a design question. It waits for your approval ([A design question](#a-design-question)).
 - An escalation: the work finds something that the chief cannot decide alone. For example:
   - The task is held or needs a new plan.
   - An agent stops at a new product question.
@@ -137,6 +137,23 @@ A design check reads the page before you get it:
 - It names each missing part, and it fails on a page with no diagram, tabs or hidden parts, code above "Under the hood", invented data that is not labelled sample, or fewer than 2 web links (`http` or `https`) to the prior art in "How it works".
 - The designer and the arena judge run it, and the chief runs it again before it sends you the design.
 - The format and the check are in `core/references/design-format.md` and `core/design-page.mjs` in the plugin's folder.
+
+### A design question
+
+When a design waits for your approval, the chief asks a design question. It has three fixed choices:
+
+| Choice | What happens |
+| --- | --- |
+| Approve | sage keeps a copy of the design in the logbook, and the build starts. |
+| Approve with your words | The same, and your words go with the approval, as one answer: `Approve with your words: <your words>`. The build follows them. |
+| New version | The designer makes a new version, and the chief asks you again. Nothing is copied. |
+
+- **Your words.** On the board, pick choice 2 and type your words (at most 1,000 characters) under it. In the chat, pick choice 2, and the chief asks you for the words.
+- **The copy.** At the chief's pickup of an approval, sage copies the design's pages to `designs/<task>/<question>/` in the logbook, with a manifest: the answer, the time, and each file's size and sha256. A cleanup of the pages folder keeps it.
+- **Copy limits.** Plain files only, with no link, at most 200 pages and 30 MiB.
+- **Files left out.** sage copies only pages, at most 4 levels down in the pages folder, and it follows no link. The chief's output and the manifest name each file that it leaves out, and why: not a page, a link, or too deep.
+- **Not copied.** When the design is gone or too big, your answer still counts. The chief's output and the logbook's decisions say "not copied" and why.
+- **No other way to the build.** A design task moves from waiting for you to the build only on an approval of its latest design question.
 
 ### Prior art
 
@@ -193,7 +210,9 @@ Until then, you can take a board answer back. An answer in the chat or on a card
 | `sage gate answer <G> ... --via board --seen <digest>` | The board in the browser, for your paired browser. The digest names the question and the options that you saw. | Refused when the question changed after you read it. |
 | `node <board folder>/cli.mjs board --ensure --link --project <chat folder>` | The chief, when you send `show board`. The hooks refuse `--link` from an agent. | The board's address with a one-time pairing link and the chat's project. One click on it opens the board on that project and pairs the browser, within 10 minutes ([Act from the board](board.md#act-from-the-board)). |
 | `node <board folder>/cli.mjs board --pair` | You, in Terminal, once for each browser, when no chat is open. It refuses input that is not a terminal, and the hooks refuse it from an agent. | A one-time code for the board in the browser. After you type it there, the browser can answer, undo, rename a chief and give a task to another chief ([Act from the board](board.md#act-from-the-board)). |
-| `sage gate add <T> ... --message <file>` | The chief, when it parks a question. The file is the JSON of the question's message. | The gate keeps the whole message as `gates/G<n>.json` in the logbook, after the message check, so that the board can show the full question. |
+| `sage gate add <T> ... --message <file>` | The chief, when it parks a question: every gate that the chief opens needs it. The file is the JSON of the question's message. When the task's pages folder holds a page, the message names the main page with a Page block (`{ "t": "page", "title", "task", "file" }`), which may name another task's page. | The gate keeps the whole message as `gates/G<n>.json` in the logbook, after the message check, so that the board can show the full question and link the page. A gate without a message, or without a Page block on a task with pages, is refused with the fix. |
+| `sage gate add <T> --design <page or folder> ... --message <file>` | The chief, when a design waits for your approval. The design is a page or a folder of pages in the task's pages folder. | A design question with three fixed choices: Approve, Approve with your words and New version ([A design question](#a-design-question)). It is refused when sage cannot copy the design. |
+| `sage gate answer <G> --option 2 --other-hex <hex>` | The chief, after you pick Approve with your words and give the words in the chat; or the board, with the words that you type under the choice. | The answer is `Approve with your words: <your words>`. Choice 2 with no words, or words with another choice, is refused. Words have at most 1,000 characters. |
 | `sage gate add <T> ... --run R<n>` | The chief, when a run of the task asked the question, for example a designer or PE run. | The gate keeps the run, so that the board can show the question beside that run's report. A run of another task is refused. With no `--run`, the board takes the newest designer, PE or investigate run of the task. |
 
 - **Who picks up a board answer.** The chief that owns the question's task now, also after a takeover; the chief that opened a question with no task, such as the lint offer; or the receiving chief of a takeover gate. Its hook reads your answer at its next step, applies it, records the pickup and tells the chief what it did.
@@ -260,6 +279,8 @@ The value goes into the project's logbook, so it holds for every chief of the pr
 A lead runs up to 9 helpers, but never more than the project's cap allows: with a lower cap, or a second lead in the project, it runs fewer. The chief starts a second lead only when the cap has room for it and its helpers.
 
 A tiny task has no review and no QA in its route, so its lead runs only the implementer. A task with no review or QA in its route has no cycle: it needs only checks-pass. A risk flag, an arena or an added review puts a review in the route, and then the task needs its clean cycles like any other task.
+
+A docs-only pull request needs no cycle, whatever its size or risk flags: see [Docs-only pull requests](#docs-only-pull-requests).
 
 | A finding of a helper | What the lead does |
 | --- | --- |
@@ -377,6 +398,18 @@ sage config commit_email=12345+name@users.noreply.github.com commit_name="Your N
 - In Claude and Codex, the hook then refuses an agent's `git commit`, `merge`, `pull`, `cherry-pick`, `revert`, `am`, `rebase` or `commit-tree` without that identity before the subcommand: `git -c user.name='Your Name' -c user.email=12345+name@users.noreply.github.com commit ...`. The refusal prints this form with the project's values.
 - Without the setting, the hook checks no commit identity. `commit_email=` alone removes it.
 - The chief's own commits, a git alias and an identity from an exported variable are not checked.
+
+## Docs-only pull requests
+
+A pull request that changes only documentation merges after CI, with no review and no QA. Every other pull request keeps its clean cycles.
+
+- **Documentation:** a `.md`, `.rst` or `.adoc` page or a picture (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`) under a folder named `docs`, at any depth, and a file named README, CHANGELOG, LICENSE or CONTRIBUTING in any letter case, with no extension or a `.md`, `.txt`, `.rst` or `.adoc` extension.
+- **Never documentation:** a file in a dot folder (such as `.github` or `.husky`), an executable file, a symlink, a submodule, and code or config under `docs`, such as `docs/conf.py`, `docs/requirements.txt`, `app/docs/page.tsx` or an `.mdx` page. When in doubt, a file is not documentation: that costs one review cycle, not a merge of code with no review. Other Markdown, such as a skill, an agent file or a principle, is not documentation: it steers agents.
+- **The check:** the merge check reads from git the files that the head changes since its merge base with `origin/main`, and the files of each commit since that base, so a commit that a later commit or a merge undoes still counts, also when `origin/main` is old. A rename or a deletion counts by both paths, so a move from `src/` into `docs/` is not docs-only. When git cannot give the files, the full rules apply.
+- **What it needs:** checks-pass, and lint-pass when the project lints. Open findings still block. The merge check's message says that the head is docs-only and why.
+- **The lead** runs the merge check at the start of a cycle, and for a docs-only head it runs no review and no QA: it reports ready after CI.
+- **More paths:** ask the chief to add globs for one project, for example `sage config docs_paths=guides/**,**/*.adoc`. `*` matches within a folder and `**` across folders.
+- **Limits of the globs:** they only add to the list, and they never add a file of the "never documentation" list, such as `.github/workflows/ci.yml` for `.github/**`. The config refuses globs that together match every file, such as `**`, `*,*/**` or `**/*.*`. `docs_paths=` alone removes them.
 
 ## To update sage
 
@@ -582,10 +615,16 @@ When a command stops in a new clone, or in a folder with a wrong link, the chief
 
 | The command stops because | Your options |
 | --- | --- |
-| This folder has no row, but it has the first commit of a shared logbook | Link to that project (for a second clone), or start separate (for a fork that is now its own project). The recommendation follows the GitHub remote: the same remote recommends the link, another remote (a fork) recommends separate, and no remote recommends the link. When two shared logbooks have that first commit, the one with the same remote is recommended. |
+| This folder has no row, but it has the first commit of a shared logbook | Link to that project (for a second clone), or start separate (for a fork that is now its own project). The recommendation follows the GitHub remote: the same remote or no remote recommends the link, and another remote (a fork) recommends separate, except in the cases under this table. When two shared logbooks have that first commit, the one with the same remote is recommended. |
 | This folder's row names another project's logbook | Start separate, or link to another project by its name |
 | This folder's row names a logbook that is missing | Restore the folder from a copy, start separate, or link to another project |
 | This folder is a shallow clone, and the shared root has a logbook | Fetch its full history (recommended), or start separate. A shallow clone's first commit is its newest one, so sage cannot tell which project it is a clone of. |
+
+For another remote, sage first asks GitHub with `gh api`, for 3 seconds at most:
+
+- One repository id for both remotes (a renamed repository) recommends the link. The text says "GitHub says <old> is now <new>".
+- Two repository ids recommend separate, as for a fork.
+- When GitHub gives no answer (no gh, an error, or no answer in 3 seconds), sage looks at the newest row of that logbook. When its folder is gone, sage recommends the link, because this folder looks like that folder, moved. A gone folder in an older row does not count: a live checkout was linked after it.
 
 When sage cannot read a GitHub remote, the text names the folder that has none. A remote URL with a user name or a token in it counts as its repository; the text never shows the token. The last line of each text starts with "For the chief:": it is the command that the chief runs after your reply.
 
@@ -615,20 +654,21 @@ A moved folder with no Git commits, or that is no Git repository, has no first c
 **One chief owns each task.** A task's `chief` column names its owning chief, and `task add` gives the task to the chief that adds it. An existing project shows no change: only a shared logbook has this column and `chiefs.tsv`.
 
 - Each chief has a row in `chiefs.tsv`, with its provider and its session. Sage mode adds the row when it turns on, also for a chief that only reads.
-- Each chief's own hook keeps `live/C<n>.json` in the logbook: its checkout, sage mode, autopilot and the time. It writes the file at most once a minute, and at once when sage mode or autopilot changes. The board shows a chief as stopped when that time is over 30 minutes old and the chief has no running run, other than a run that the board shows with no news for over 24 hours.
+- Each chief's own hook keeps `live/C<n>.json` in the logbook: its checkout, sage mode, autopilot and the time. It writes the file at most once a minute, and at once when sage mode or autopilot changes.
+- The board shows a chief as quiet when that time is over 30 minutes old and the chief has no running run. It shows a chief as stopped only by the pick-up rules below: the session ended, its program is surely gone, or 8 h passed with no action, no running run and no open question of yours.
 - A chief with an open question of yours is not stopped: the board shows that it waits for you. A stopped chief shows no sage mode and no autopilot state.
 - A chief with no live file, or with a time more than 5 minutes in the future, shows unknown values: the board does not know its sage mode, its autopilot or whether it stopped.
 - The board in the browser shows each chief as a chip under its top bar, by its default name, "provider · folder · start time". The folder part has at most 30 characters, and when two chiefs have the same name, each name ends with its chief id.
 - To give a chief your own name, rename it on the board (the chief's menu, then Rename), or ask the chief in the chat, for example "name C2 Night shift". Either runs the state tool's `chief name C<n> <name>`, and the same command with no name clears your name.
 - A name has 1 to 60 characters, with no space at its start or end and no two spaces together. It has no tab, line break or other control, format or hidden character, and at least one visible character. A bad entry in `chief-names.json` hides only that chief's name: the board shows its default name and a warning.
 - A resume keeps the session, so it is the same chief.
-- Claude's `/clear` starts a new session, so it is a new chief. To go on with its tasks, the new chief opens a takeover gate, and you answer it.
+- Claude's `/clear` keeps the chief: Claude's two clear signs (the end of the old session and the start of the new one in the same program) link the new session to the same chief, and sage mode stays on. Autopilot does not carry over: say its phrase again. A Codex `/new` makes a new chief.
 
 | Who | Writes |
 | --- | --- |
-| The owning chief | Its own task: `task <T> set`, `round`, `run add`, `run done`, `finding add`, `triage`, `close`, `move`, `verdict`, `gate add <T>`, `milestone propose` for its pilot and each of its tasks, `log <T>`, `offer`, `cancel` and `unclaim`. |
+| The owning chief | Its own task: `task <T> set`, `round`, `run add`, `run done`, `finding add`, `triage`, `close`, `move`, `verdict`, `gate add <T>`, `milestone propose` for its pilot and each of its tasks, `log <T>` and `unclaim`. |
 | A lead | What the chief of its lead run may write, on the task of that run only, while that run runs. |
-| Any chief | `task add`, `claim`, `accept` or `cancel` (a decline) of an offer that names it, `gate add` with no task, `gate replace`, `init`, `standing add`, `config`, `log -`, `pages <T> record`, `observe`, `run usage`, `release add` and `milestone <M> set release=`. |
+| Any chief | `task add`, `pickup`, `gate add` with no task, `gate replace`, `init`, `standing add`, `config`, `log -`, `pages <T> record`, `observe`, `run usage`, `release add` and `milestone <M> set release=`. |
 | You | `gate answer`, in your own words, from either provider, `gate undo`, `gate give`, each form of `logbook repair` (`--accept-loss`, `--accept-change-loss`, or both), `projects rebuild` and `chief name`: each is your act and names no chief, so the line that sage prints works in your terminal. |
 | A stop hook | The report and the end of the run of its own slot, so no report is lost. |
 | A push hook | After a push of a task's branch, in either provider: the `files` record of each open task on that branch, as `observe <T> files` writes it (the paths that the branch changes against origin/main, at most 500). A failure never stops the push. The board model marks two open tasks of different chiefs that change one file as "may conflict": a warning, never a wait. |
@@ -643,39 +683,50 @@ A moved folder with no Git commits, or that is no Git repository, has no first c
 | --- | --- |
 | The task belongs to another chief | The write refuses, names the owning chief and changes nothing, on every path. To take the task, a chief opens a takeover gate for you. |
 | A push of a branch that a live task of another chief uses | The hook refuses `git push`, also from the chief's agents, and names the owning chief and the takeover gate. A task uses its `branch=` and the branch of each of its runs. A branch that no task uses, or that only an ended task uses, takes the push. |
-| The task has no owning chief | The write refuses and prints the claim that works for that chief. A Claude chief runs `sage claim <T> --version <version> --chief C<n>`. A Codex chief calls the `claim` tool with the task and that version. |
-| A chief abandons a task that has no owning chief | Any chief may do it, with a reason, and needs no claim and no takeover gate: `sage task <T> set state=abandoned --why "<reason>" --chief C<n>`, or `task_set` with that state alone and `why` in Codex. The task keeps no chief, and the decision row keeps the reason and the chief. A change of any other field still needs the claim. |
-| The task changed before the claim, or another chief claimed it first | The claim refuses and changes nothing. |
-| Another chief unclaimed the task last, or the move brought it from the other provider's logbook | The claim refuses, changes nothing and names the takeover gate. The chief that unclaimed a task claims it back, and after the move each chief claims the tasks that its own provider started. |
+| The task has no owning chief | The next write of a chief picks it up first (see below), so the write goes on. Two chiefs do not pick it up, and their write refuses and names the takeover gate: the chief that unclaimed the task, and, for a task that came in the move and that no chief claimed, a chief of the other provider. |
+| A chief abandons a task that it unclaimed | It may do it, with a reason, and needs no takeover gate: `sage task <T> set state=abandoned --why "<reason>" --chief C<n>`, or `task_set` with that state alone and `why` in Codex. The task keeps no chief, and the decision row keeps the reason and the chief. |
 | `task-adopt` in a shared logbook | It refuses: after the move, the other provider's tasks are in the logbook already. An old, separate logbook keeps `task-adopt` as before. |
 
-**Hand a task to another chief.** You decide each change of owning chief away from another chief, in either direction between Claude and Codex: it ends in your answer to a takeover gate. To start one, tell either chief to take over a task, and answer the gate in either chat.
+**Pick-up: the work of a stopped session passes on.** Before each write of a chief, the state tool picks up, in one locked write, the work of each session that surely stopped, and each task with no owning chief. You get one line in the chat, and no question.
 
-A Claude chief adds `--chief C<n>` to each command below. A Codex chief calls the tool of the same name: `offer`, `cancel`, `accept`, `unclaim` or `gate_replace`.
+| A session is stopped when | Example |
+| --- | --- |
+| It ended cleanly | You exited Claude, or you said the off phrase in it. After the off phrase, the program still runs, so the session stays live until no agent of it runs. |
+| Its program is surely gone | Sage saw the same program in two actions at least 1 min apart, on this Mac, and that program no longer runs. |
+| 8 h with no action, no agent at work and no open gate of its own | A closed Codex desktop thread: the app stays open, so only this rule passes its work on. |
+
+- A live or quiet session keeps all its work. Only you move it, with your answer to a takeover gate.
+- The pick-up takes the stopped session's open tasks, its running and queued runs, and its open gates. A running run ends as failed, with "lost: its session stopped at <time>"; a queued run stays queued for the new chief. Each open offer of an older sage ends.
+- It writes one decision row for each source, with a typed `handover` cell: `from`, `to`, `fromProvider`, `toProvider`, `reason`, `since`, `tasks`, `lost`, `queued` and `gates`. The board reads it.
+- The first live session that writes picks up; the logbook lock decides a race, and the second one picks up nothing.
+- A pick-up that stops half way finishes at the next write, from the saved change.
+- The chief tells you in one line what passed to it, and starts each lost run again at once, within the agent limit. The places of a stopped session's agents stop counting at once.
+- A task picked up from the other provider needs one fresh cycle before it merges. Autopilot stays with each session: a picked-up task merges only under the picking session's own autopilot.
+- `sage pickup --chief C<n>`, or the `pickup` tool in Codex, runs the same step alone and prints what passed, or "nothing to pick up".
+
+**Hand a task to another chief.** A live chief keeps its work. To move a task away from a live chief, in either direction between Claude and Codex, tell either chief to take it over, and answer the takeover gate in either chat.
+
+The commands claim, offer, cancel and accept are gone: the pick-up and your give question do their jobs.
+
+A Claude chief adds `--chief C<n>` to each command below. A Codex chief calls the tool of the same name: `unclaim` or `gate_replace`.
 
 | Command | Who and when | Result |
 | --- | --- | --- |
-| `sage offer <T> --to C<n>` | The owning chief. The task has no open offer. | The offer names one other chief. The owning chief stays, and active runs go on. |
-| `sage cancel <T> --offer <id>` | The owning chief, with the exact open offer. The chief that the offer names runs the same command to decline it. Active runs do not stop it. | The offer clears, and it never becomes valid again. After a decline, the line says that the recipient declined, and the owning chief keeps the task. |
-| `sage accept <T> --offer <id> --version <version>` | The chief that the offer names, with the exact open offer and the current version. The task has no active or unknown run. | A takeover gate for you, from the owning chief to that chief. Approve gives that chief the task, and decline ends the offer. A second accept prints the open gate and opens no other. |
-| `sage unclaim <T>` | The owning chief. The task has no open offer and no active or unknown run. | The task has no owning chief. Only that chief claims it back; another chief takes it through a takeover gate. Its work and reports stay. |
+| `sage unclaim <T>` | The owning chief. The task has no active or unknown run. | The task has no owning chief, and the next pick-up of another chief takes it. The chief that unclaimed it gets it back only through a takeover gate. Its work and reports stay. |
 | `sage gate give <T> --to C<n>` | You, or the chief when you ask: your act, so it names no chief. | The same takeover gate as `gate replace`, to the one chief that you name. The receiving chief applies your answer. In Codex, the `gate_give` tool. |
-| `sage gate replace <T> --to C<n>` | Any chief: for a task of another chief, for a task with no owning chief that it may not claim, or for an owning chief that stopped. | The takeover gate for you, with the options approve and decline, or the gate that is open already for the same task and chiefs. It asks "Hand T331 and PR 92 from C2 (codex) to C1 (claude)?", names each run that will end as failed, with its role, and the task's title. It says what each answer does, and that the branch keeps its name, the PR its number and the verdicts stay. |
+| `sage gate replace <T> --to C<n>` | Any chief: for a task of another, live chief, or for a task that it unclaimed itself. | The takeover gate for you, with the options approve and decline, or the gate that is open already for the same task and chiefs. It asks "Hand T331 and PR 92 from C2 (codex) to C1 (claude)?", names each run that will end as failed, with its role, and the task's title. It says what each answer does, and that the branch keeps its name, the PR its number and the verdicts stay. |
 
-- `offer` and `task <T>` print the offer's id and the version that `accept` needs. A Codex chief runs that read in its shell, with the CLI of the installed plugin: `node ~/.codex/plugins/cache/sage/sage/<version>/skills/sage/sage.mjs task <T> --project <project>`. It only reads the logbook, so it runs in Codex's sandbox.
-- An accept or an unclaim that waits for a run names the takeover gate too: a run of unknown status may never end, and only a takeover ends it.
-- A run that ends does not advance a transfer: the recipient still accepts. A transfer changes no run: each run keeps the chief that dispatched it.
-- Sage cannot see that a chief ended, so a stopped chief stays the owning chief until you answer. A takeover gate is the only way to take a task with no consent from its chief.
-- You answer a takeover gate as you answer any gate, and only once. The answer approve does one write: it sets the chief, clears an open offer and ends each named run as failed. A gate of an older sage has the options replace and keep, and still answers: replace does the same write.
+- An unclaim that waits for a run names the takeover gate too: a run of unknown status may never end, and only a takeover ends it.
+- A transfer changes no run: each run keeps the chief that dispatched it.
+- You answer a takeover gate as you answer any gate, and only once. The answer approve does one write: it sets the chief, ends each named run as failed, and writes the typed `handover` cell. A gate of an older sage has the options replace and keep, and still answers: replace does the same write.
 - The branch keeps its name, and the PR keeps its number.
 - When another worktree of the repository holds the branch, the answer's line names it. Below it, one safe command that frees it, with its files kept, stands alone on a line, with the path quoted for the shell: `git -C '<worktree>' switch --detach`. Then the new chief checks out the branch in its own worktree.
 - Sage never prints `--force`. For a worktree path with a control character, it prints no command.
-- One ledger: a verdict counts on its commit, whichever chief recorded it. A Codex chief that took a Claude task counts the Claude cycles, and merges as for any Codex task: with autopilot on, it merges itself; with autopilot off, you merge in GitHub.
-- A Claude chief that took a task from a Codex chief runs one Claude cycle of reviews and QA on the head first, records each verdict, then merges with `gh pr merge`. That cycle counts only the verdicts of review and QA runs that started after your answer. The gate's question says so, and the board shows the task in review until that cycle.
+- One ledger: a verdict counts on its commit, whichever chief recorded it.
+- A chief that took a task from a chief of the other provider, by your answer or by a pick-up, runs one cycle of reviews and QA on the head first, records each verdict, then merges. That cycle counts only the verdicts of review and QA runs that started after the hand-over. The merge check reads the typed `handover` cell, not the gate's text, and the board shows the task in review until that cycle.
 - A move between two chiefs of one provider needs no new cycle.
 - `merge-check --chief C<n>` judges for that chief, as the hook does: a live task of another chief refuses. A Codex chief's `merge_check` passes its chief by itself.
 - Decline, or your own words, change nothing, and the line says so: the task keeps its chief, no run ended, and the gate is spent. To change the chief later, a chief opens a new gate.
-- One exception: a decline of a gate that an accept opened also ends the offer, in the same write. Its question says so. The board then shows no offer line, so the recipient does not accept again at once.
 - A chief never answers a takeover gate by itself: only your answer counts. This rule is an instruction, not a check. No code ties the answer to your message, as for other gates.
 - A takeover gate refuses your answer approve when the owning chief changed, or when a new run started after it opened. Answer decline, and the chief opens a new gate.
 - The replaced chief gets a refusal that names the new owning chief, also for `gh pr merge`. Its lead writes nothing, because the lead run ended.
@@ -706,7 +757,7 @@ The move takes the open work of a project's Claude and Codex logbooks into one s
 | Command | Does |
 | --- | --- |
 | `sage move --preview` | Reads and changes nothing. It prints what moves by provider with the new numbers, what stays, the next numbers, the checks and the plan: a fingerprint of everything that the move would write. |
-| `sage move --plan <plan>` | Opens the move gate, if the logbooks still give that plan. Its first line is `G<n> · move · plan <plan>`. |
+| `sage move --plan <plan>` | Opens the move gate, if the logbooks still give that plan. Its first line is `G<n> open · move · plan <plan>`. |
 | `sage move --gate <G>` | Moves, after your answer. It checks the plan again, then prints each step, the end check by table and by provider, the map page, the backup copies and the restore steps. |
 
 The move gate is your act, so the move names no chief. In Codex, the chief uses the `move` tool of the sage MCP server, with the same three forms.
@@ -789,7 +840,7 @@ After a restore, the old move gate moves nothing: to move again, ask the chief f
 | A second push to a blank repository is refused | The first push made the task's branch the default branch. The chief creates main, then runs `gh repo edit github.com/<owner>/<repo> --default-branch main`. Both commands ask you, and the hook refuses the move past 20 commits on the default branch, 5 branches or 3 open pull requests. |
 | No pull request opens | Check that `gh` is installed and logged in (`gh auth status`), and that the project has a GitHub remote. Without a remote, the work stops at a verified branch. |
 | A task waits and nothing moves | Send `show board`. An open question under "Needs you" holds the task until you answer. A task of a milestone waits for your approval of the breakdown, then for its pilot. |
-| A pull request does not merge | A merge needs its clean cycles on the exact head commit. A new commit starts again from cycle 1, except a clean merge of main that keeps the pull request's own change the same and passes CI. |
+| A pull request does not merge | A merge needs its clean cycles on the exact head commit. A new commit starts again from cycle 1, except a clean merge of main that keeps the pull request's own change the same and passes CI. When a pull request merged into main after the last CI changed one of the same files, the merge check names the files and that pull request: merge main into the branch and wait for CI on the new head. |
 | The board line says that the server is not running | The line says why: for example a busy port, or an older board server on the port. See the [board service guide](../../packages/sage-board/README.md). |
 | `board --install --login-file` refuses | It needs a `node` command on PATH that does not change at an upgrade. Put a `node` link to your Node in a folder that you own and that is on PATH (for example `~/.local/bin/node`), then run the install again. |
 

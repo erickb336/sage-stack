@@ -1,9 +1,11 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { execFileSync as rawExecFileSync, spawn, spawnSync as rawSpawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { chmodSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { createHash, randomUUID } from "node:crypto";
+import { appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+import { hostname, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { test as nodeTest } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -12,6 +14,8 @@ import { keepReport } from "../plugins/sage/skills/sage/sage.mjs";
 import { backed } from "./verdict-backing.mjs";
 import { REPORT_FIELDS } from "../packages/sage-core/report.mjs";
 import { readReport } from "../packages/sage-core/report-reader.mjs";
+import { QUESTION } from "./fixtures/question-message.mjs";
+import { chiefPlaces } from "./fixtures/chief-places.mjs";
 
 const CALL_MS = 60_000;
 const bounded = (options = {}) => ({ timeout: CALL_MS, killSignal: "SIGKILL", ...options });
@@ -141,7 +145,7 @@ test("sage mode makes the session the chief of staff, and only subagents may cha
   assert.match(on, /The state tool: node \S+\/skills\/sage\/sage\.mjs <command> --project <path>\. Each shell call starts fresh, so write this full command every time/);
   assert.match(on, /Load these skills now: sage:sage, sage:principle-never-block-on-the-human/);
   assert.doesNotMatch(on, /^(?:name: chief-of-staff|skills:)$/m, "the agent's frontmatter is left out");
-  assert.match(denied(s.send(edit())), /Give this change to a sage:implementer/);
+  assert.match(denied(s.send(edit())), /Brief an implementer to make this change/);
   assert.equal(s.send(edit({ agent_id: "a1", agent_type: "sage:implementer" })), undefined, "an implementer may edit");
   assert.equal(s.send(prompt("also add CSV export")), undefined, "the instructions come once");
   s.send({ hook_event_name: "PostCompact" });
@@ -152,7 +156,7 @@ test("sage mode makes the session the chief of staff, and only subagents may cha
 
 test("a session that starts as the chief-of-staff agent is in sage mode without the phrase", () => {
   const s = session();
-  assert.match(denied(s.send(edit({ agent_type: "sage:chief-of-staff" }))), /you do not change files yourself/);
+  assert.match(denied(s.send(edit({ agent_type: "sage:chief-of-staff" }))), /the chief does not change files outside its scratch places/);
 });
 
 test("T398: in a session that starts as the chief, the off phrase holds until the on phrase", () => {
@@ -160,7 +164,7 @@ test("T398: in a session that starts as the chief, the off phrase holds until th
   const chief = { agent_type: "sage:chief-of-staff" };
   const fileTools = fileToolsOf(chief);
   assert.match(context(s.send({ ...prompt("what is open?"), ...chief })), /# Chief of staff/, "sage mode is on at the first event");
-  for (const call of fileTools) assert.match(denied(s.send(call)) ?? "", /you do not change files yourself/, `${call.tool_name} is refused while on`);
+  for (const call of fileTools) assert.match(denied(s.send(call)) ?? "", /the chief does not change files outside its scratch places/, `${call.tool_name} is refused while on`);
   assert.match(context(s.send({ ...prompt("sage mode off"), ...chief })), /sage mode is off/);
   for (const call of fileTools) assert.equal(s.send(call), undefined, `the chief may use ${call.tool_name} after the off phrase`);
   assert.equal(s.send({ ...prompt("fix the typo"), ...chief }), undefined, "no chief text at the next prompt");
@@ -168,7 +172,7 @@ test("T398: in a session that starts as the chief, the off phrase holds until th
   assert.equal(s.send({ ...prompt("and the next one"), ...chief }), undefined, "nor after a compaction");
   assert.equal(s.send(edit(chief)), undefined, "sage mode stays off");
   assert.match(context(s.send({ ...prompt("sage mode"), ...chief })), /# Chief of staff/, "the on phrase turns it on again");
-  for (const call of fileTools) assert.match(denied(s.send(call)) ?? "", /you do not change files yourself/, `${call.tool_name} is refused again`);
+  for (const call of fileTools) assert.match(denied(s.send(call)) ?? "", /the chief does not change files outside its scratch places/, `${call.tool_name} is refused again`);
 });
 
 test("T948: a project whose logbook has start=sage-mode starts each new session in sage mode, and the off phrase holds", () => {
@@ -179,7 +183,7 @@ test("T948: a project whose logbook has start=sage-mode starts each new session 
   assert.equal(s.send(edit(at("s0"))), undefined);
   s.sage("config", "start=sage-mode");
   assert.match(context(s.send({ ...prompt("what is open?"), ...at("s1") })), /# Chief of staff/, "a new session is on at its first prompt");
-  assert.match(denied(s.send(edit(at("s1")))), /Give this change to a sage:implementer/);
+  assert.match(denied(s.send(edit(at("s1")))), /Brief an implementer to make this change/);
   assert.match(context(s.send({ ...prompt("sage mode off"), ...at("s1") })), /sage mode is off/);
   assert.equal(s.send(edit(at("s1"))), undefined, "the off phrase holds for the rest of the session");
   assert.equal(s.send({ ...prompt("fix the typo"), ...at("s1") }), undefined, "no chief text after the off phrase");
@@ -193,7 +197,7 @@ test("T948: a project whose logbook has start=sage-mode starts each new session 
 test("T398 F-R1517-1: when the hook cannot read or save its state, it refuses the chief's file tools (fail closed)", () => {
   const chief = { agent_type: "sage:chief-of-staff" };
   const refusedAll = (s, why, ms) => {
-    for (const call of fileToolsOf(chief)) assert.match(denied(s.sendRaw(call, ms)) ?? "", /could not check|you do not change files yourself/, `${why}: ${call.tool_name}`);
+    for (const call of fileToolsOf(chief)) assert.match(denied(s.sendRaw(call, ms)) ?? "", /could not check|the chief does not change files outside its scratch places/, `${why}: ${call.tool_name}`);
   };
   const file = join(mkdtempSync(join(tmpdir(), "sage-file-")), "not-a-folder");
   writeFileSync(file, "");
@@ -235,7 +239,7 @@ test("T398 F-R1516-2: an off value that the owner's off phrase did not set does 
     const s = session();
     mkdirSync(join(s.dir, "state"));
     writeFileSync(join(s.dir, "state", "s1.json"), JSON.stringify({ sage: value, given: true }));
-    for (const call of fileToolsOf(chief)) assert.match(denied(s.send(call)) ?? "", /you do not change files yourself/, `sage ${JSON.stringify(value)}: ${call.tool_name}`);
+    for (const call of fileToolsOf(chief)) assert.match(denied(s.send(call)) ?? "", /the chief does not change files outside its scratch places/, `sage ${JSON.stringify(value)}: ${call.tool_name}`);
   }
 });
 
@@ -305,7 +309,7 @@ test("T347: in sage mode the chief writes only Markdown files of its own memory 
   assert.equal(write("Edit", join(memory, "MEMORY.md")), undefined, "the index");
   assert.equal(write("MultiEdit", join(memory, "MEMORY.md")), undefined);
   assert.equal(write("Write", join(config, "projects", "new", "memory", "a.md")), undefined, "a memory folder that does not exist yet");
-  const refused = /you do not change files yourself/;
+  const refused = /the chief does not change files outside its scratch places/;
   assert.match(write("Write", join(root, "app", "README.md")), refused, "the project");
   assert.match(write("Write", join(root, "other", "projects", "-x-workspace-app", "memory", "a.md")), refused, "another config folder");
   assert.match(write("Write", join(memory, "a.txt")), refused, "not Markdown");
@@ -713,6 +717,7 @@ const FAKE_GH = (() => {
     `#!/usr/bin/env node
 const fs = require("fs");
 const args = process.argv.slice(2);
+if (args[0] === "api" && String(args[1]).startsWith("repos/{owner}/{repo}/")) process.exit(require("child_process").spawnSync(${JSON.stringify(fileURLToPath(new URL("fixtures/fake-gh/gh", import.meta.url)))}, args, { stdio: "inherit" }).status);
 if (args[0] === "pr" && args[1] === "view") {
   const head = process.env.FAKE_PR_HEAD ?? "claude/t1";
   if (head === "fail") process.exit(1);
@@ -965,7 +970,7 @@ test("a push command that the hook cannot read is refused with what to do (F-R90
   const s = session();
   s.send(prompt("sage mode"));
   assert.match(denied(s.send(bash("git push origin 'feat"))) ?? "", /^sage: the hook cannot read this command \(an open quote\), so it refuses it\. Close each quote, substitution and heredoc\. Its text names a push\. Push only with git \[-C <dir>\] push/);
-  assert.match(denied(s.send(bash("echo 'it"))) ?? "", CHIEF_SHELL, "a command with no push is not the push rule's: the chief's write rule refuses a line that it cannot read (T960)");
+  assert.equal(denied(s.send(bash("echo 'it"))), "sage: the hook cannot read this command (an open quote), so it refuses it. Close each quote, substitution and heredoc.", "a command with no push is not the push rule's: the chief's write rule refuses a line that it cannot read (T960), with its cause and way (F-T1210-14)");
 });
 
 test("a merge needs autopilot on, the checked head SHA, and its clean cycles in the ledger", () => {
@@ -1391,7 +1396,7 @@ test("T670-MERGETEXT: the word merge in a program's text, or a local git merge-t
     "for n in 447 452; do b=$(gh pr view $n --json headRefName -q .headRefName); git -C /x merge-tree --write-tree origin/main origin/$b; done",
     "gh pr checks 41 && if git merge-base --is-ancestor a b; then echo behind; fi",
   ];
-  for (const s of [off, on]) for (const command of text) expectPass(s.send(bash(command)), /node -e|python3 -c/.test(command), command);
+  for (const s of [off, on]) for (const command of text) expectPass(s.send(bash(command)), /node -e/.test(command), command);
 });
 
 test("T670-KEEP-MERGES: any other merge form, and a merge as a real command, also in a loop, a chain, bash -c, sh -c or eval, is still refused", () => {
@@ -1514,7 +1519,7 @@ test("a refusal says merge check, and escapes the control characters of its reas
 test("1 MB of padding in an agent's text cannot time out the hook: its time grows in line with the text", async () => {
   const { handle } = await import("../plugins/sage/hooks/sage-hook.mjs");
   const AP = "auto" + "pilot";
-  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {} };
+  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {}, handback() {} };
   const cases = (size) => {
     const pad = (unit) => unit.repeat(Math.ceil(size / unit.length)).slice(0, size);
     const stops = [];
@@ -1587,7 +1592,7 @@ const FORGERIES = [
   `${TOOL} task T2 set milestone=M1`,
   `${TOOL} newcommand T2`,
 ].map((args) => `node ${args} --project /p`);
-const READ_COMMANDS = (dir) => ["status", `merge-check --sha ${SHA}`, "standing", "logbook", "config", "status --project=x", `standing --project ${dir}`].map((args) => `node ${TOOL} ${args} --project ${dir}`);
+const READ_COMMANDS = (dir) => ["status", `merge-check --sha ${SHA}`, "standing", "logbook", "config"].map((args) => `node ${TOOL} ${args} --project ${dir}`).concat(`node ${TOOL} status --project=${dir}`, `node ${TOOL} standing`);
 
 for (const command of FORGERIES) {
   test(`an agent's "${command.replace(`node ${dirname(TOOL)}/`, "").replace(" --project /p", "")}" is refused, in sage mode and out of it; the chief's passes (T83)`, () => {
@@ -2057,9 +2062,9 @@ const expectPass = (answer, chiefWrite, message) => (chiefWrite ? assert.match(d
 const SHELL_WRITES = ["sed -i '' 's/a/b/' README.md", "sed -i.bak s/a/b/ src/app.js", "echo x > README.md", "printf x >> notes.txt",
   "cp README.md README.bak", "mv src/a.js src/b.js", "rm -rf src", "rm README.md", "touch new.txt", "npm test 2>&1 | tee test.log",
   `echo x > ${FEATURE}/notes.txt`,
-  "echo x > $TMPDIR/out.txt",
-  `cp README.md ${SCRATCH}/copy.md`, `sed -i '' s/a/b/ ${SCRATCH}/copy.md`,
+  "echo x > $OUTDIR/out.txt",
   `node -e "require('fs').writeFileSync('a.txt', 'x')"`, "git diff --output=out.patch"];
+const SCRATCH_WRITES = [`cp README.md ${SCRATCH}/copy.md`, `sed -i '' s/a/b/ ${SCRATCH}/copy.md`, `D=${SCRATCH}/d; mkdir -p $D && echo x > "$D/out.txt"`];
 const CHIEF_SCRATCH_WRITES = [`cp README.md ${SCRATCH}/copy.md`, `printf x | tee ${SCRATCH}/out.txt`];
 const SHELL_READS = ["npm test", "node --test scripts/sage-hook-1.test.mjs", `npm test > ${SCRATCH}/out.txt 2>&1`,
   `cat > ${SCRATCH}/probe.mjs <<'EOF'\nconsole.log(1)\nEOF`, `node ${SCRATCH}/probe.mjs`, `cd ${SCRATCH} && echo x > out.txt`,
@@ -2072,15 +2077,20 @@ test("T933: in sage mode a reviewer, QA, the PE and the lead change no files fro
   for (const role of READ_ONLY_ROLES) {
     const who = { agent_id: `ro-${role}`, agent_type: `sage:${role}` };
     for (const command of SHELL_WRITES) {
-      assert.match(denied(s.send(bash(command, FEATURE, who))) ?? "", new RegExp(`the ${role} agent changes no files, also not from the shell.*write form.*Report the finding instead.*scratch folder`), `${role}: ${command}`);
+      assert.match(denied(s.send(bash(command, FEATURE, who))) ?? "", new RegExp(`the ${role} agent changes no file in the project, the logbook or the agent's settings, also not from the shell.*write form.*Report the finding instead.*scratch folder`), `${role}: ${command}`);
     }
     for (const command of SHELL_READS) assert.equal(s.send(bash(command, FEATURE, who)), undefined, `${role}: ${command}`);
+    for (const command of SCRATCH_WRITES) {
+      const why = denied(s.send(bash(command, FEATURE, who)));
+      if (role === "lead") assert.match(why ?? "", /the lead agent changes no file/, `the lead keeps the temp-only rule: ${command}`);
+      else assert.equal(why, undefined, `${role}: ${command}`);
+    }
   }
   const qa = { agent_id: "ro-qa", agent_type: "Sage:QA" };
   for (const name of ["Monitor", "PowerShell", "mcp__terminal__run_in_terminal"]) {
-    assert.match(denied(s.send(tool(name, { command: "rm -rf src", description: "d" }, { cwd: FEATURE, ...qa }))) ?? "", /the qa agent changes no files/, name);
+    assert.match(denied(s.send(tool(name, { command: "rm -rf src", description: "d" }, { cwd: FEATURE, ...qa }))) ?? "", /the qa agent changes no file in the project, the logbook or the agent's settings, also not from the shell/, name);
   }
-  assert.match(denied(s.send(bash("rm -rf src", FEATURE, { agent_id: "x1", agent_type: "sage:researcher" }))) ?? "", /the researcher agent changes no files/);
+  assert.match(denied(s.send(bash("rm -rf src", FEATURE, { agent_id: "x1", agent_type: "sage:researcher" }))) ?? "", /the researcher agent changes no file in the project, the logbook or the agent's settings, also not from the shell/);
 });
 
 const WORKTREE_ROOT = "/sage-t932-not-created/worktrees";
@@ -2102,9 +2112,9 @@ test("T932: in sage mode the investigate and evidence-review agents change no pr
   const investigate = { agent_id: "inv-1", agent_type: "sage:investigate" }, evidence = { agent_id: "ev-1", agent_type: "sage:evidence-review" };
   for (const [role, who] of [["investigate", investigate], ["evidence-review", evidence]]) {
     for (const command of SHELL_WRITES) {
-      assert.match(denied(s.send(bash(command, FEATURE, who))) ?? "", new RegExp(`the ${role} agent changes no files, also not from the shell.*write form`), `${role}: ${command}`);
+      assert.match(denied(s.send(bash(command, FEATURE, who))) ?? "", new RegExp(`the ${role} agent changes no file in the project, the logbook or the agent's settings, also not from the shell.*write form`), `${role}: ${command}`);
     }
-    for (const command of SHELL_READS) assert.equal(s.send(bash(command, FEATURE, who)), undefined, `${role}: ${command}`);
+    for (const command of [...SHELL_READS, ...SCRATCH_WRITES]) assert.equal(s.send(bash(command, FEATURE, who)), undefined, `${role}: ${command}`);
     for (const event of fileWrites(join(FEATURE, "README.md"), who)) {
       assert.match(denied(s.send(event)) ?? "", new RegExp(`^sage: in sage mode, the ${role} agent changes no project files, so its ${event.tool_name} of "[^"]+" is refused\\. (?:Report the finding instead|The investigate agent writes only its pages)`), `${role}: ${event.tool_name}`);
     }
@@ -2117,12 +2127,13 @@ test("T932: in sage mode the investigate and evidence-review agents change no pr
   }
   const beside = join(dirname(dirname(pages)), "R1-t1", "src", "a.js");
   for (const event of fileWrites(beside, investigate)) assert.match(denied(s.send(event)) ?? "", /the investigate agent changes no project files.*writes only its pages, in the task's pages folder/, `investigate: ${event.tool_name} beside the pages folder`);
-  for (const command of [`echo x > ${beside}`, `cp README.md ${pages}/copy.md`, `echo x > ${pages}/../../R1-t1/a.js`]) {
-    assert.match(denied(s.send(bash(command, FEATURE, investigate))) ?? "", /the investigate agent changes no files.*writes only its pages/, `investigate: ${command}`);
+  for (const command of [`echo x > ${beside}`, `echo x > ${pages}/../../R1-t1/a.js`, `rm -rf ${dirname(pages)}`, `cp README.md ${dirname(dirname(pages))}/copy.md`]) {
+    assert.match(denied(s.send(bash(command, FEATURE, investigate))) ?? "", /the investigate agent changes no file in the project, the logbook or the agent's settings.*the sage worktrees folder.*writes only its pages/, `investigate: ${command}`);
   }
+  assert.equal(denied(s.send(bash(`cp README.md ${pages}/copy.md`, FEATURE, investigate))), undefined, "investigate: a copy into its pages folder (T1153)");
   assert.match(denied(s.send(tool("NotebookEdit", { file_path: join(pages, "a.ipynb"), notebook_path: join(FEATURE, "a.ipynb"), new_source: "x" }, { cwd: FEATURE, ...investigate }))) ?? "", /the investigate agent changes no project files, so its NotebookEdit of "[^"]+" is refused/);
   assert.match(denied(s.send(tool("Write", { content: "x" }, { cwd: FEATURE, ...investigate }))) ?? "", /the investigate agent changes no project files, so its Write of "" is refused/, "no path");
-  assert.match(denied(s.send(bash(`echo x > ${pages}/review.md`, FEATURE, evidence))) ?? "", /the evidence-review agent changes no files.*Report the finding instead/);
+  assert.match(denied(s.send(bash(`echo x > ${pages}/review.md`, FEATURE, evidence))) ?? "", /the evidence-review agent changes no file in the project, the logbook or the agent's settings, also not from the shell.*Report the finding instead/, "the pages folder is no open folder for the evidence review");
   assert.match(denied(s.send(fileWrites(join(pages, "review.md"), evidence)[0])) ?? "", /the evidence-review agent changes no project files.*Report the finding instead/);
   assert.equal(denied(s.send(fileWrites(join(FEATURE, "README.md"), { agent_id: "imp-1", agent_type: "sage:implementer" })[0])), undefined, "the implementer");
   const off = session();
@@ -2161,13 +2172,15 @@ test("T947: a review's or QA's medium or high finding carries a proof that the p
     ["- K1 medium a.js:1 an empty name saves a row", /^sage: K1 is medium and has no proof line\./],
     ["- K1 high a.js:1 a crash\n  proof: npm test", /^sage: K1's proof has no saw line\./],
     ["- K1 medium a page\n  proof: screenshot /tmp/r40/a.png", /^sage: K1's proof has no steps line\./],
-    ["- K1 medium a.js:1 a stuck job\n  proof: kill 1\n  saw: done", /^sage: K1's proof "kill 1" is refused: an agent never reads or signals the real process list/],
+    ["- K1 medium a.js:1 a stuck job\n  proof: kill 1\n  saw: done", /^sage: K1's proof "kill 1" is refused: an agent never signals or controls a real process/],
     ["- K1 medium a.js:1 a bad file\n  proof: npm test > out.txt\n  saw: not ok 1", /^sage: K1's proof "npm test > out\.txt" is refused: it writes outside the scratch folder\./],
     ["- K1 low a.js:1 a nit\n- K2 medium a.js:2 a bad value", /^sage: K2 is medium and has no proof line\./],
     ...["git reset --hard", "git clean -fdx", "git -C /Users/x/repo log", "npm test && git branch -D claude/t12", "git worktree add /tmp/w HEAD"].map((proof) =>
       [`- K1 medium a.js:1 a bad value\n  proof: ${proof}\n  saw: not ok 1`, /^sage: K1's proof ".*" is refused: a proof runs git only to read its own working copy: git status, log, show, diff, rev-parse, ls-files, grep, cat-file, blame, with no -C, -c, --git-dir, --work-tree or --output\./]),
     ["- K1 medium a.js:1 a bad value\n  proof: node -e \"console.log(1)\"\n  saw: 1", /^sage: K1's proof "node -e \\"console\.log\(1\)\\"" is refused: it runs inline code \(such as node -e or sh -c\), which the gate cannot check: put the script in a file in your scratch folder, and run that file\./],
     ["- K1 medium a.js:1 a bad file\n  proof: `npm test > out.txt`\n  saw: not ok 1", /^sage: K1's proof "npm test > out\.txt" is refused: it writes outside the scratch folder\./],
+    ...["uv run python -c x", "poetry run python -c x", "bundle exec ruby -e x", "pnpm exec node -e x", "arch -arm64 node -e x", "xcrun python3 -c x"].map((proof) =>
+      [`- K1 medium a.js:1 a bad value\n  proof: ${proof}\n  saw: 1`, /^sage: K1's proof ".*" is refused: it runs inline code \(such as node -e or sh -c\)/]),
   ]) {
     for (const type of ["sage:code-reviewer", "sage:security-reviewer", "sage:ux-reviewer", "sage:qa"]) {
       const first = stop(type, report("FINDINGS", `\n${finding}`));
@@ -2233,7 +2246,7 @@ test("T933: the writers, the chief, other agents and every agent outside sage mo
 test("T960: in sage mode the chief runs no shell write form, as in Codex; reads, git, gh, the state tool and scratch output run; outside sage mode it writes", () => {
   const s = session(), off = session();
   s.send(prompt("sage mode"));
-  const writes = [...SHELL_WRITES.filter((command) => !CHIEF_SCRATCH_WRITES.includes(command)), "cat > notes.md <<'EOF'\nhi\nEOF", "printf x | tee notes.txt",
+  const writes = [...SHELL_WRITES.filter((command) => !CHIEF_SCRATCH_WRITES.includes(command)), `sed -i '' s/a/b/ ${SCRATCH}/copy.md`, "cat > notes.md <<'EOF'\nhi\nEOF", "printf x | tee notes.txt",
     "gh repo clone acme/site", "gh run download 5", "gh codespace cp remote:a.txt a.txt", "gh extension install acme/gh-x"];
   for (const command of writes) {
     const why = denied(s.send(bash(command))) ?? "";
@@ -2250,11 +2263,11 @@ test("T936: in sage mode a reviewer's git that changes the checkout is refused a
   const s = session();
   s.send(prompt("sage mode"));
   const reviewer = { agent_id: "t936-cr", agent_type: "sage:code-reviewer" }, implementer = { agent_id: "t936-imp", agent_type: "sage:implementer" };
-  for (const command of ["git reset --hard", "git checkout -- .", "git commit -am 'a fix'", "git add -A", "git clean -fd", "git restore .", "git branch -D claude/t1", "git config user.email a@b.example", "git apply fix.patch", "git worktree add /sage-t936-not-created/wt claude/t1", `awk '{print > "out.txt"}' a.txt`]) {
-    assert.match(denied(s.send(bash(command, FEATURE, reviewer))) ?? "", /the code-reviewer agent changes no files, also not from the shell.*a git command that changes the checkout.*git worktree add --detach \/tmp\/<run>\/head <sha>/, command);
+  for (const command of ["git reset --hard", "git checkout -- .", "git commit -am 'a fix'", "git add -A", "git clean -fd", "git restore .", "git branch -D claude/t1", "git config user.email a@b.example", "git apply fix.patch", "git worktree add .claude/worktrees/x claude/t1", `awk '{print > "out.txt"}' a.txt`]) {
+    assert.match(denied(s.send(bash(command, FEATURE, reviewer))) ?? "", /the code-reviewer agent changes no file in the project, the logbook or the agent's settings, also not from the shell.*a git command that changes the checkout.*git worktree add --detach \/tmp\/<run>\/head <sha>/, command);
     assert.equal(s.send(bash(command, FEATURE, implementer)), undefined, `the implementer: ${command}`);
   }
-  for (const command of [`git worktree add --detach ${SCRATCH}/head HEAD`, `git -C ${SCRATCH}/head reset --hard HEAD~1`, `cd ${SCRATCH} && git -C head checkout main`, "git fetch origin", "git apply --check fix.patch", `chmod +x ${SCRATCH}/ps`]) {
+  for (const command of ["git worktree add /sage-t936-not-created/wt claude/t1", `git worktree add --detach ${SCRATCH}/head HEAD`, `git -C ${SCRATCH}/head reset --hard HEAD~1`, `cd ${SCRATCH} && git -C head checkout main`, "git fetch origin", "git apply --check fix.patch", `chmod +x ${SCRATCH}/ps`]) {
     assert.equal(s.send(bash(command, FEATURE, reviewer)), undefined, command);
   }
   for (const command of [`node ${TOOL} log T1 "rm of the old files" --why rm`, `node ${TOOL} log - "tee the log" --why "cp, mv and rm"`, "npm install", "man tee", "git checkout main"]) {
@@ -2293,6 +2306,25 @@ test("F-T807-1: in sage mode the chief's rm -rf of a live worktree in the sage w
   assert.match(denied(s.send(bash(`git worktree remove --force ${live}`))) ?? "", /^sage: sage mode is on, so the chief does not throw away uncommitted work: /, "--force");
 });
 
+test("T1240: in sage mode the chief's Write and Edit write where its shell writes: the temp folder and the sage worktrees folder, and nowhere else", () => {
+  const sessions = new Map(), table = chiefPlaces(), wrong = [];
+  for (const row of table.rows) {
+    const key = JSON.stringify(row.env);
+    if (!sessions.has(key)) { const s = session(row.env); s.send(prompt("sage mode")); sessions.set(key, s); }
+    const s = sessions.get(key), { path } = row, at = { cwd: table.project };
+    const answers = { Write: denied(s.send(tool("Write", { file_path: path, content: "x" }, at))), Edit: denied(s.send(tool("Edit", { file_path: path, old_string: "a", new_string: "b" }, at))), shell: denied(s.send(bash(`printf x > ${path}`, table.project))) };
+    for (const [how, why] of Object.entries(answers)) {
+      const right = row.scratch ? why === undefined : (row.worktree ? /does not change a git work tree in the sage worktrees folder/ : /^sage: /).test(why ?? "");
+      if (!right) wrong.push(`${row.name} (${how}): ${why === undefined ? "passes" : why.slice(0, 70)}`);
+    }
+  }
+  assert.deepEqual(wrong, [], "each row: Write, Edit and the shell give the row's answer");
+  const s = sessions.get(JSON.stringify(table.rows[0].env));
+  assert.match(denied(s.send(tool("Write", { file_path: join(table.project, "README.md"), content: "x" }, { cwd: table.project }))) ?? "", /^sage: sage mode is on, so the chief does not change files outside its scratch places: the temp folder and the sage worktrees folder/, "the refusal names the scratch places");
+  assert.match(denied(s.send(tool("NotebookEdit", { notebook_path: join(table.project, "a.ipynb"), file_path: join(tmpdir(), "a.ipynb"), new_source: "x" }, { cwd: table.project }))) ?? "", /^sage: /, "NotebookEdit: each path field counts");
+  assert.match(denied(s.send(tool("Write", { file_path: join(tmpdir(), "a.md"), content: "x" }, { cwd: table.project, agent_id: "c1", agent_type: "sage:chief-of-staff" }))) ?? "", /you are a chief agent, so you do not change files yourself/, "a chief subagent stays refused");
+});
+
 test("T968: in sage mode the chief's git that throws away uncommitted work is refused in the project and runs in a scratch worktree; a reviewer's git runs in its own", () => {
   const s = session(), off = session();
   s.send(prompt("sage mode"));
@@ -2313,7 +2345,7 @@ test("T968: in sage mode the chief's git that throws away uncommitted work is re
   const reviewer = { agent_id: "t968-cr", agent_type: "sage:code-reviewer" };
   for (const command of ["git checkout main", "git checkout -- .", "git reset --hard HEAD"]) {
     assert.equal(denied(s.send(bash(command, wt, reviewer))), undefined, `the reviewer in its worktree: ${command}`);
-    assert.match(denied(s.send(bash(command, FEATURE, reviewer))) ?? "", /the code-reviewer agent changes no files, also not from the shell/, `the reviewer in the project: ${command}`);
+    assert.match(denied(s.send(bash(command, FEATURE, reviewer))) ?? "", /the code-reviewer agent changes no file in the project, the logbook or the agent's settings, also not from the shell/, `the reviewer in the project: ${command}`);
   }
 });
 
@@ -2323,7 +2355,7 @@ test("T931: in sage mode a lead's state-tool command and a reviewer's reads pass
   const lead = { agent_id: "t931-lead", agent_type: "sage:lead" }, reviewer = { agent_id: "t931-cr", agent_type: "sage:code-reviewer" };
   assert.equal(s.send(bash(`node ${TOOL} standing --project ${FEATURE}`, FEATURE, lead)), undefined, "the lead's state-tool command");
   for (const command of ["git log --oneline -5", `npm test > ${SCRATCH}/out.txt 2>&1`]) assert.equal(s.send(bash(command, FEATURE, reviewer)), undefined, command);
-  assert.match(denied(s.send(bash("echo x > README.md", FEATURE, reviewer))) ?? "", /the code-reviewer agent changes no files, also not from the shell/);
+  assert.match(denied(s.send(bash("echo x > README.md", FEATURE, reviewer))) ?? "", /the code-reviewer agent changes no file in the project, the logbook or the agent's settings, also not from the shell/);
 });
 
 const SYSTEM_PATH = { PATH: `${dirname(process.execPath)}:/usr/bin:/bin` };
@@ -2355,20 +2387,22 @@ test("an agent never runs git stash in any form; the chief may, and git status a
   }
 });
 
-test("an agent never lists or signals the real processes: ps, pgrep, kill and pkill pass only as fakes in the temp folder", () => {
+test("an agent never signals the real processes: kill, pkill, killall, top and launchctl pass only as fakes in the temp folder; lsof, pgrep and ps look (G233)", () => {
   const s = session(SYSTEM_PATH);
   s.send(prompt("sage mode"));
-  const real = ["ps -U me", "pgrep -fl node", "pkill -f node", "kill 12345", "/bin/ps -ax", "/bin/kill -9 1", "/usr/bin/pgrep node", "/usr/bin/pkill node", "killall node", "lsof -i :8080", "top -l 1", "sudo kill 1", "xargs kill", `${FAKES}/real-ps`, `PATH=${FAKES}/links:$PATH ps`, `bash -c "ps -ax"`, "find . -name x -exec kill {} ;", `PATH=${FAKES}:$PATH kill 1`,
+  const real = ["pkill -f node", "kill 12345", "/bin/kill -9 1", "/usr/bin/pkill node", "killall node", "top -l 1", "sudo kill 1", "xargs kill", `bash -c "kill 1"`, "find . -name x -exec kill {} ;", `PATH=${FAKES}:$PATH kill 1`,
     "launchctl list", "/bin/launchctl bootout gui/501/x"];
+  const looks = ["ps -U me", "pgrep -fl node", "/bin/ps -ax", "/usr/bin/pgrep node", "lsof -i :8080", `${FAKES}/real-ps`, `PATH=${FAKES}/links:$PATH ps`, `bash -c "ps -ax"`, "lsof -t -i :5173 | head -1"];
+  for (const command of looks) assert.equal(s.send(bash(command, FEATURE, AGENT)), undefined, `a look (G233): ${command}`);
   for (const command of real) {
-    assert.match(denied(s.send(bash(command, FEATURE, AGENT))) ?? "", /never reads or signals the real process list \(standing order 14\).*fake ps.*Sat Jan  1 00:00:00 2000/, command);
+    assert.match(denied(s.send(bash(command, FEATURE, AGENT))) ?? "", /never signals or controls a real process.*only looks at the processes, with lsof, pgrep or ps.*standing order 14.*fake ps.*Sat Jan  1 00:00:00 2000/, command);
     expectPass(s.send(bash(command)), /^bash -c|^find /.test(command), `the chief: ${command}`);
   }
   const fakes = [`PATH=${FAKES}:$PATH ps -o lstart= -p 1`, `export PATH=${FAKES}:$PATH; ps -ax`, `PATH=${FAKES}:$PATH pgrep -fl node`, `PATH=${FAKES}:$PATH pkill -f node`, `${FAKES}/ps -ax`, `${FAKES}/kill 1`, `PATH=${FAKES}:$PATH env kill 1`, `cd ${FAKES} && ./pkill node`, `${FAKES}/launchctl list`];
   for (const command of fakes) assert.equal(s.send(bash(command, FEATURE, AGENT)), undefined, command);
-  assert.match(denied(s.send(tool("Monitor", { command: "ps -ax", description: "d" }, { cwd: FEATURE, ...AGENT }))) ?? "", /standing order 14/);
+  assert.match(denied(s.send(tool("Monitor", { command: "kill 1", description: "d" }, { cwd: FEATURE, ...AGENT }))) ?? "", /standing order 14/);
   assert.match(denied(s.send(tool("PowerShell", { command: "Get-Process" }, { cwd: FEATURE, ...AGENT }))) ?? "", /standing order 14/);
-  assert.match(denied(s.send(tool("mcp__terminal__run_in_terminal", { command: "pgrep node" }, { cwd: FEATURE, ...AGENT }))) ?? "", /standing order 14/);
+  assert.match(denied(s.send(tool("mcp__terminal__run_in_terminal", { command: "pkill node" }, { cwd: FEATURE, ...AGENT }))) ?? "", /standing order 14/);
   assert.equal(s.send(bash("npm test", FEATURE, AGENT)), undefined, "other commands pass");
 });
 
@@ -2376,24 +2410,24 @@ test("a process program is refused after a shell keyword, inside a shell's -c te
   const s = session(SYSTEM_PATH);
   s.send(prompt("sage mode"));
   const hidden = [
-    "while pgrep -f vite >/dev/null; do sleep 1; done",
-    "if pgrep -f vite; then echo up; fi",
+    "while pkill -0 -f vite >/dev/null; do sleep 1; done",
+    "if pkill -0 -f vite; then echo up; fi",
     "for p in 1 2; do kill $p; done",
-    "until ! lsof -i :5173; do sleep 1; done",
-    "! ps",
-    "{ ps; }",
-    "if true; then :; elif ps; then :; else kill 1; fi",
-    "while true; do pgrep -fl vite; sleep 1; done",
-    "function f { ps; }",
-    "sh -c ps",
-    'bash -c "lsof"',
-    "eval ps",
-    "sudo -u root ps",
+    "until ! killall -0 node; do sleep 1; done",
+    "! top",
+    "{ top; }",
+    "if true; then :; elif top; then :; else kill 1; fi",
+    "while true; do pkill -0 vite; sleep 1; done",
+    "function f { top; }",
+    "sh -c top",
+    'bash -c "killall"',
+    "eval top",
+    "sudo -u root top",
     "xargs -I {} kill {}",
-    "env -u X ps",
+    "env -u X top",
     "timeout -s TERM 60 pkill node",
     "nice -n 5 top -l 1",
-    ...(existsSync("/bin/PS") ? ["PS -ax"] : []),
+    ...(existsSync("/bin/KILL") ? ["KILL 1"] : []),
   ];
   for (const command of hidden) {
     assert.match(denied(s.send(bash(command, FEATURE, AGENT))) ?? "", /standing order 14.*To stop your own server or background job, run it as a background task and stop that task\./, command);
@@ -2423,7 +2457,7 @@ test("the rule holds for any subagent in sage mode and for a sage agent, not for
   assert.match(denied(s.send(bash("git stash", FEATURE, AGENT))) ?? "", /git stash/, "a sage agent, also outside sage mode");
   assert.equal(s.send(bash("git stash", FEATURE, { agent_id: "e1", agent_type: "Explore" })), undefined, "another agent outside sage mode");
   s.send(prompt("sage mode"));
-  assert.match(denied(s.send(bash("ps -ax", FEATURE, { agent_id: "e1", agent_type: "Explore" }))) ?? "", /standing order 14/, "any subagent in sage mode");
+  assert.match(denied(s.send(bash("kill 1", FEATURE, { agent_id: "e1", agent_type: "Explore" }))) ?? "", /standing order 14/, "any subagent in sage mode");
 });
 
 const AGENT_PATH = SYSTEM_PATH.PATH;
@@ -2437,7 +2471,7 @@ test("R454-N1: fuser, pidof, htop and kill-port or fkill through npx, npm exec, 
 });
 
 test("R454-N2: a redirection before or against the program does not hide it, and is not read as the program", async () => {
-  const refused = ["ps>/tmp/out", "2>/dev/null ps -ax", ">/dev/null kill 1", "ps</dev/null", "&>/dev/null pgrep node", "{fd}>/dev/null lsof -i :3000", "kill 1 2>&1", "ps 2>&1 | head", 'bash <<< "kill 1"'];
+  const refused = ["top>/tmp/out", "2>/dev/null top -l 1", ">/dev/null kill 1", "top</dev/null", "&>/dev/null pkill node", "{fd}>/dev/null killall node", "kill 1 2>&1", "top 2>&1 | head", 'bash <<< "kill 1"'];
   for (const command of refused) assert.match((await refusal(command)) ?? "", /standing order 14/, command);
   const pass = ["npm test 2>&1 | tail -20", "echo ps > notes.txt", "node build.mjs >/tmp/ps 2>&1", "cat < ps", "git log >/tmp/kill"];
   for (const command of pass) assert.equal(await refusal(command), undefined, command);
@@ -2446,13 +2480,13 @@ test("R454-N2: a redirection before or against the program does not hide it, and
 test("R454-N6: a script's arguments and a case pattern are not programs; a shell's -c text and stdin still are", async () => {
   const pass = ["bash ./x.sh kill", "sh scripts/run.sh ps top", "bash -c 'echo $0' kill", "case $1 in\n top) echo top;;\n ps|kill) echo other;;\nesac", "case x in (top) :;; esac", "bash x.sh <<EOF\nps\nEOF", 'x=$(case $1 in top) echo t;; esac); echo "$x"'];
   for (const command of pass) assert.equal(await refusal(command), undefined, JSON.stringify(command));
-  const refused = ["case $1 in\n a) ps;;\nesac", "case x in (a) kill 1;; esac", "case x in a) :;& b) top;;& esac", "case x in a) :;; esac | top", "x=$(case a in a) :;; esac); top", 'bash -lc "ps"', "bash -c ps x", "bash <<EOF\nps\nEOF", "bash -s <<EOF\nkill 1\nEOF", "eval kill 1", "pwsh -Command Get-Process"];
+  const refused = ["case $1 in\n a) top;;\nesac", "case x in (a) kill 1;; esac", "case x in a) :;& b) top;;& esac", "case x in a) :;; esac | top", "x=$(case a in a) :;; esac); top", 'bash -lc "top"', "bash -c top x", "bash <<EOF\ntop\nEOF", "bash -s <<EOF\nkill 1\nEOF", "eval kill 1", "pwsh -Command Get-Process"];
   for (const command of refused) assert.match((await refusal(command)) ?? "", /standing order 14/, JSON.stringify(command));
 });
 
 test("R454-N5: 1 MB of git words that the hook cannot read takes under 2 s of CPU time, and still refuses a stash", async () => {
   const { handle, agentProblem } = await import("../plugins/sage/hooks/sage-hook.mjs");
-  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {} };
+  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {}, handback() {} };
   const MB = "git ".repeat(1 << 18);
   const cpu = (command) => {
     let ms = Infinity;
@@ -2512,7 +2546,7 @@ test("R466-CASESUB: the arms of a case inside a subshell or a group are commands
     assert.match(denied(s.send(bash(command))) ?? "", TO_MAIN, command);
   }
   assert.match(denied(s.send(bash("(case x in (*) gh pr merge 1 --admin;; esac)"))) ?? "", CANNOT);
-  for (const command of ["(case x in (a) ps -ax;; esac)", "{ case x in (a) ps;; esac; }", "(case x in (a) (case y in (b) kill 1;; esac);; esac)"]) {
+  for (const command of ["(case x in (a) top -l 1;; esac)", "{ case x in (a) top;; esac; }", "(case x in (a) (case y in (b) kill 1;; esac);; esac)"]) {
     assert.match(denied(s.send(bash(command, FEATURE, AGENT))) ?? "", /standing order 14/, command);
   }
   assert.equal(s.send(bash("(case x in (top) echo top;; esac)", FEATURE, AGENT)), undefined, "a pattern is still not a program");
@@ -2527,7 +2561,7 @@ test("R466-PROCSUB: a process substitution is read as commands of its own, not a
   assert.equal(withGh.send(bash("comm <(git branch) <(git branch -r); git push origin t100-x")), undefined);
   assert.match(denied(s.send(bash("diff <(git push origin main) x"))) ?? "", TO_MAIN);
   assert.equal(await refusal("diff <(sort a) <(sort b) | grep kill"), undefined);
-  for (const command of ["diff <(ps) x", "tee >(kill 1) < f", "cat <(echo $(ps))"]) assert.match((await refusal(command)) ?? "", /standing order 14/, command);
+  for (const command of ["diff <(top) x", "tee >(kill 1) < f", "cat <(echo $(top))"]) assert.match((await refusal(command)) ?? "", /standing order 14/, command);
 });
 
 test("R466-FAILCLOSED: a line the reader cannot read, or text nested past 3 levels, is refused when it names what a rule guards", async () => {
@@ -2535,17 +2569,18 @@ test("R466-FAILCLOSED: a line the reader cannot read, or text nested past 3 leve
   s.send(prompt("sage mode"));
   const unreadable = ["(case x in a) %", "( %", "case x in a) %", "x=$(case x in a) %)", "(case x in a) % )", "case x in (% x) :;; esac"];
   for (const command of unreadable) {
-    const lead = /^(?:sage: )?the hook cannot read this command \([^)]+\), so it refuses it\. Close each quote, substitution and heredoc\. Its text names /;
+    const lead = /^(?:sage: )?the hook cannot read this command \([^)]+\), so it refuses it\. (?:Close each \( with a \)|End each case with esac, and give each case pattern one word)\. Its text names /;
     assert.match(denied(s.send(bash(command.replace("%", "git push origin main")))) ?? "", new RegExp(`${lead.source}a push\\. Push only with`), command);
     assert.match(denied(s.send(bash(command.replace("%", "gh pr merge 1")))) ?? "", new RegExp(`${lead.source}a merge\\. Merge only with gh pr merge <n>`), command);
-    assert.match((await refusal(command.replace("%", "ps"))) ?? "", new RegExp(`${lead.source}a process program \\("ps"\\)\\. An agent never reads or signals the real process list \\(standing order 14\\)`), command);
+    assert.match((await refusal(command.replace("%", "kill 1"))) ?? "", new RegExp(`${lead.source}a process program \\("kill"\\)\\. An agent never signals or controls a real process`), command);
+    assert.equal(await refusal(command.replace("%", "ps")), undefined, `a look names nothing that a rule guards (G233): ${command}`);
     assert.match((await refusal(command.replace("%", "gh pr view 1"))) ?? "", new RegExp(`${lead.source}gh\\. An agent runs only these gh commands`), command);
     assert.match((await refusal(command.replace("%", "git stash"))) ?? "", new RegExp(`${lead.source}git stash\\. An agent never runs git stash`), command);
     assert.equal(await refusal(command.replace("%", "ls")), undefined, `names nothing that a rule guards: ${command}`);
   }
-  assert.match((await refusal("bash -c \"bash -c \\\"bash -c 'bash -c ps'\\\"\"")) ?? "", /^the hook cannot read this command \(commands nested more than 3 levels deep\), so it refuses it\. Run the inner command as a command of its own\. Its text names a process program \("ps"\)\. An agent never reads or signals the real process list \(standing order 14\)/);
-  assert.doesNotMatch((await refusal("bash -c \"bash -c \\\"bash -c 'ps'\\\"\"")) ?? "", /cannot (?:be )?read/, "3 levels are read");
-  assert.match((await refusal("bash -c \"bash -c \\\"bash -c 'ps'\\\"\"")) ?? "", /standing order 14/, "3 levels are read");
+  assert.match((await refusal("bash -c \"bash -c \\\"bash -c 'bash -c kill'\\\"\"")) ?? "", /^the hook cannot read this command \(commands nested 4 levels deep; the hook reads 3 levels, such as bash -c in bash -c in bash -c\), so it refuses it\. Run the inner command as a command of its own\. Its text names a process program \("kill"\)\. An agent never signals or controls a real process/);
+  assert.doesNotMatch((await refusal("bash -c \"bash -c \\\"bash -c 'kill'\\\"\"")) ?? "", /cannot (?:be )?read/, "3 levels are read");
+  assert.match((await refusal("bash -c \"bash -c \\\"bash -c 'kill'\\\"\"")) ?? "", /standing order 14/, "3 levels are read");
   assert.equal(await refusal("bash -c \"bash -c \\\"bash -c 'bash -c ls'\\\"\""), undefined);
 });
 
@@ -2972,14 +3007,14 @@ const T910_LIMITS = new Set([
 
 test("R466-REGRESSION, T815: every command that main's reader denies for the main session is still denied, but the documented limits", async () => {
   const { handle } = await import("../plugins/sage/hooks/sage-hook.mjs");
-  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {} };
+  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {}, handback() {} };
   const allowed = MAIN_DENIES.filter((command) => !/^sage: (?!sage mode is on, so the chief does not change files, also not from the shell: )/.test(denied(handle(bash(command), { sage: true, autopilot: false }, slots)) ?? ""));
   assert.deepEqual(allowed, MAIN_DENIES.filter((command) => MAIN_LIMITS.has(command) || T909_LIMITS.has(command) || T910_LIMITS.has(command)));
 });
 
 test("T216: the board note's two commands pass the hook for the chief, as the note gives them", async () => {
   const { handle } = await import("../plugins/sage/hooks/sage-hook.mjs");
-  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {} };
+  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {}, handback() {} };
   for (const ask of ["show board", "show board for all", "show board for sage"]) {
     const note = context(handle({ ...prompt(ask), session_id: "s1", cwd: FEATURE }, { sage: true, given: true }, slots));
     const ensure = note.match(/First run, as a command of its own: (.+)$/m)?.[1];
@@ -2998,7 +3033,7 @@ test("T216: the board note's two commands pass the hook for the chief, as the no
 
 test("T229, T1059: the board config rule refuses the ordinary shapes, the board's state folder and board --pair, and allows repository paths and searches (table)", async () => {
   const { handle } = await import("../plugins/sage/hooks/sage-hook.mjs");
-  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {} };
+  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {}, handback() {} };
   const BOARD = fileURLToPath(new URL("../plugins/sage/board/cli.mjs", import.meta.url));
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-rule-"))), home = join(dir, "home"), folder = join(home, ".config", "sage-board"), config = join(folder, "board.json");
   mkdirSync(folder, { recursive: true }); writeFileSync(config, "{}\n"); writeFileSync(join(folder, "board.log"), "log\n");
@@ -3098,7 +3133,7 @@ test("T229, T1059: the board config rule refuses the ordinary shapes, the board'
 
 test("T1079: the board port rule refuses board --port from an agent, and lets the chief and a session outside sage mode run it", async () => {
   const { handle } = await import("../plugins/sage/hooks/sage-hook.mjs");
-  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {} };
+  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {}, handback() {} };
   const BOARD = fileURLToPath(new URL("../plugins/sage/board/cli.mjs", import.meta.url));
   const MOVE = "the board port rule (T1079): no agent runs board --port. It moves the owner's board to another port: it stops the board, changes the board config and starts the board again. The owner runs it in Terminal, or asks the chief to run it; give the owner the command, and do not run it.";
   const moves = [`node ${BOARD} board --port 43124`, `node ${BOARD} board --port 43124 --config /tmp/x/board.json`, "npm run board -- --port 43124", `cd /tmp && node ${BOARD} board --port=43124`];
@@ -3116,7 +3151,7 @@ test("T1079: the board port rule refuses board --port from an agent, and lets th
 
 test("T1125: the board pairing rule refuses board --ensure --link from an agent, in and outside sage mode, and lets the chief and a session outside sage mode run it", async () => {
   const { handle } = await import("../plugins/sage/hooks/sage-hook.mjs");
-  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {} };
+  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {}, handback() {} };
   const BOARD = fileURLToPath(new URL("../plugins/sage/board/cli.mjs", import.meta.url));
   const PAIR = /^sage: the board pairing rule \(T1059, T1125\): no agent runs board --pair, and only the chief runs board --ensure --link\./;
   const links = [`node ${BOARD} board --ensure --link`, `node ${BOARD} board --link --ensure --config /tmp/x/board.json`, "npm run board -- --ensure --link", `cd /tmp && node ${BOARD} board --ensure --link=1`];
@@ -3144,7 +3179,7 @@ test("F-T229-17: the board rule is fast on a word of many variable and ? pieces"
       assert.equal(r.status, 0, r.stderr);
     }
     const { handle } = await import("../plugins/sage/hooks/sage-hook.mjs");
-    const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {} };
+    const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {}, handback() {} };
     process.env.HOME = home;
     for (const [word, config] of words) {
       const start = performance.now();
@@ -3198,7 +3233,7 @@ const PATH_WORK_CHILD = `
   const hook = process.argv[1];
   process.argv[1] = undefined;
   const { handle } = await import(hook);
-  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {} };
+  const slots = { bind() {}, release() {}, drop() {}, touch() {}, reconcile() {}, handback() {} };
   const out = {};
   for (const { who, event, state } of calls) {
     const size = JSON.stringify(event.tool_input).length + 1;
@@ -3323,7 +3358,7 @@ test("T72-C5-STATECMD: with the plugin in a folder with a space, the read-only b
   const env = { ...process.env, HOME: join(dir, "home"), SAGE_HOME: join(dir, "root"), SAGE_HOOKS_STATE: undefined };
   const project = join(dir, "app");
   execFileSync("git", ["init", "-q", project]);
-  for (const args of [["init"], ["task", "add", "--priority", "P2", "--title", "t", "--size", "tiny"], ["gate", "add", "T1", "--question", "q?", "--options", "yes|no", "--recommend", "yes"]])
+  for (const args of [["init"], ["task", "add", "--priority", "P2", "--title", "t", "--size", "tiny"], ["gate", "add", "--message", QUESTION, "T1", "--question", "q?", "--options", "yes|no", "--recommend", "yes"]])
     execFileSync("node", [tool, ...args, "--project", project], { env });
   const r = spawnSync("node", [join(dir, "my plugins", "sage", "hooks", "sage-hook.mjs")], { input: JSON.stringify({ session_id: "s1", cwd: project, ...prompt("show board") }), encoding: "utf8", env });
   assert.equal(r.status, 0, r.stderr);
@@ -3334,8 +3369,8 @@ test("T72-C5-STATECMD: with the plugin in a folder with a space, the read-only b
   assert.ok(!lines.some(line => line.includes("gate answer")));
   const shown = spawnSync("node", [tool, "board", "this", "--project", project, "--view", "chat"], { encoding: "utf8", env });
   assert.equal(shown.status, 0, shown.stderr);
-  assert.match(shown.stdout, /G1/);
-  assert.ok(shown.stdout.includes("G1 · q?"));
+  assert.ok(shown.stdout.includes("\n- t. q?\n  Options: 1 yes · 2 no.\n"), shown.stdout);
+  assert.match(shown.stdout, /\nRef: T1 current\/app-[0-9a-f]{6}\/G1\n$/, "the gate key is on the Ref line (T1217)");
   const answered = spawnSync("node", [tool, "gate", "answer", "G1", "--option", "2", "--project", project], { encoding: "utf8", env });
   assert.equal(answered.status, 0, answered.stderr);
   assert.equal(answered.stdout, "G1 answered · no\n");
@@ -3373,7 +3408,7 @@ test("T94: when the state tool does not load, the hook still keeps its state und
   };
   assert.match(context(send(prompt("sage mode"))), /sage mode is on/);
   assert.equal(JSON.parse(readFileSync(join(dir, "root", ".hooks", "s1.json"), "utf8")).sage, true, "the state file is in <SAGE_HOME>/.hooks");
-  assert.match(denied(send(edit())) ?? "", /Give this change to a sage:implementer/, "the next event reads the state back");
+  assert.match(denied(send(edit())) ?? "", /Brief an implementer to make this change/, "the next event reads the state back");
   assert.match(denied(send(bash("git push origin main"))) ?? "", TO_MAIN);
   assert.match(denied(send(bash(MERGE))) ?? "", /autopilot is off/);
   assert.equal(send(bash("git status")), undefined, "a plain command goes through");
@@ -3408,7 +3443,7 @@ test("T94: an old hook state file in the temp folder is ignored, not trusted", (
   assert.equal(s.send(edit()), undefined, "sage mode is not on: the old file does not turn it on");
   s.send(prompt("sage mode"));
   assert.match(denied(s.send(bash(MERGE))) ?? "", /autopilot is off/, "autopilot is not on: the old file does not turn it on");
-  assert.match(denied(s.send(edit())) ?? "", /Give this change to a sage:implementer/, "the hook's own state still works");
+  assert.match(denied(s.send(edit())) ?? "", /Brief an implementer to make this change/, "the hook's own state still works");
 });
 
 test("N1-KEYWORD: a state-tool write behind a shell keyword or a wrapper with an option value is refused; a read in a loop passes (T83)", () => {
@@ -3475,7 +3510,7 @@ test("T670-KEEP-WRITES: uniq IN OUT, an operand that can expand, xargs uniq or a
     assert.match(denied(s.send(bash(command, FEATURE, AGENT))) ?? "", LOGBOOK_SHELL, `agent: ${command}`);
     assert.match(denied(s.send(bash(command))) ?? "", /the chief never writes, moves or removes a logbook file/, `chief: ${command}`);
   }
-  for (const command of ["cp x tasks.ts[v:w]", "cp x ledger.ts?", "python3 -c 'f = open(\"tasks.tsv\")'", `ls ${root}/p | xargs uniq`]) {
+  for (const command of ["cp x tasks.ts[v:w]", "cp x ledger.ts?", "python3 -c 'f = open(\"tasks.tsv\", \"w\")'", `ls ${root}/p | xargs uniq`]) {
     assert.match(denied(s.send(bash(command))) ?? "", CHIEF_SHELL, `${command}: the chief's write rule (T960), not the logbook rule`);
   }
 });
@@ -3485,19 +3520,21 @@ test("T670-SLICE: a jq slice (.headSha[0:8]) or a Python slice (s[i:j], sha[:8])
   s.send(prompt("sage mode"));
   for (const command of [
     "gh pr list --json number,headSha | jq -r '.[].headSha[0:8]' | tee heads.txt",
-    "python3 -c 'import sys; s = sys.stdin.read(); i, j = 0, 8; print(s[i:j])'",
     "python3 -c 'sha = \"abc\"; print(sha[:8])' > short.txt",
   ]) assert.match(denied(s.send(bash(command))) ?? "", CHIEF_SHELL, `${command}: the chief's write rule (T960), not the logbook rule`);
+  const read = "python3 -c 'import sys; s = sys.stdin.read(); i, j = 0, 8; print(s[i:j])'";
+  assert.equal(denied(s.send(bash(read))), undefined, `${read}: a python3 -c read passes (T1210), and the slice names no logbook file`);
 });
 
-test("T670-ROOTVAR, T815: SAGE_HOME set from a variable or to a scratch path passes: an assignment is no write", () => {
+test("T670-ROOTVAR, T815, F-T1210-17: SAGE_HOME set from a variable or to a scratch path passes: an assignment is no write, and the chief's write through a variable set to the scratch folder passes", () => {
   const s = session();
   s.send(prompt("sage mode"));
   const scratch = realpathSync(mkdtempSync(join(tmpdir(), "sage-scratch-")));
   for (const command of [`S=${scratch}; SAGE_HOME=$S/home/sage node --test a.test.mjs > $S/out.txt 2>&1`, `SAGE_HOME=${scratch}/home/sage node --test a.test.mjs > ${scratch}/out.txt 2>&1`]) {
     assert.equal(denied(s.send(bash(command, FEATURE, AGENT))), undefined, `agent: ${command}`);
-    expectPass(s.send(bash(command)), command.includes("> $S/"), `chief: ${command}`);
+    expectPass(s.send(bash(command)), false, `chief: ${command}`);
   }
+  expectPass(s.send(bash(`S=${FEATURE}; echo x > $S/out.txt`)), true, "chief: a variable set to the project's checkout");
 });
 
 test("R5-DOLLARQUOTE, T815: a test log with echo exit=$? passes; a pattern that names the sage root is a limit, but its literal part still counts", () => {
@@ -3532,13 +3569,13 @@ test("F-T815-14: a long word keeps its start and its end, so the root part shows
     assert.ok(shown.includes(root.slice(0, 40)), "the start of the root shows");
   }
   const agent = denied(s.send(bash(`echo x > ${root}/p/a.tsv`, FEATURE, AGENT))) ?? "";
-  assert.match(agent, /\[--project <path>\] \(config without a key=value\)\./);
+  assert.match(agent, /\[--project <path>\] \(config without a key=value, and no other option\)\./);
   assert.doesNotMatch(agent, /with config with no/);
 });
 
 test("F-T815-17, F-T815-6: command -v and -V run nothing; gh api with a bundled -iX reads its method", async () => {
   for (const command of ["command -v gh", "command -V ps", "command -v ps && echo found", "command -pv kill"]) assert.equal(await refusal(command), undefined, command);
-  assert.match((await refusal("command ps aux")) ?? "", /standing order 14/, "command <program> runs it");
+  assert.match((await refusal("command kill 1")) ?? "", /standing order 14/, "command <program> runs it");
   assert.match((await refusal("command gh pr close 1")) ?? "", /"gh pr close" is not one of them/);
   for (const [command, method] of [["gh api -iXDELETE repos/o/r/git/refs/heads/x", "DELETE"], ["gh api -iX DELETE repos/o/r/git/refs/heads/x", "DELETE"], ["gh api -iX POST repos/o/r/issues", "POST"]]) {
     assert.match((await refusal(command)) ?? "", new RegExp(`"gh api ${method}" is not one of them`), command);
@@ -3603,7 +3640,7 @@ test("T529: a reviewer writes a fake with \"$*\", a heredoc with braces, and run
     `printf '%s\\n' 'kill -9 1' 'sage.mjs verdict T1' > ${own}/more.txt`,
   ];
   for (const command of allowed) assert.equal(denied(s.send(bash(command, FEATURE, reviewer))), undefined, command);
-  assert.match(denied(s.send(bash(`node -e 'const {spawnSync}=require("node:child_process"); console.log(spawnSync("${own}/bin/gh", ["x"]).status)'`, FEATURE, reviewer))) ?? "", /the code-reviewer agent changes no files, also not from the shell/);
+  assert.match(denied(s.send(bash(`node -e 'const {spawnSync}=require("node:child_process"); console.log(spawnSync("${own}/bin/gh", ["x"]).status)'`, FEATURE, reviewer))) ?? "", /the code-reviewer agent changes no file in the project, the logbook or the agent's settings, also not from the shell/);
   for (const role of ["sage:security-reviewer", "sage:ux-reviewer", "sage:qa"]) {
     const n = role.length;
     const other = scratchSession(), who = other.agent(`a${n}`, role, `Run R${n} · task T521`);
@@ -3686,7 +3723,7 @@ test("Q3-N1WORD, T815: every run of the state tool's write is refused wherever t
   for (const command of cases) {
     const answer = denied(s.send(bash(command, FEATURE, AGENT))) ?? "";
     assert.match(answer, ONLY_CHIEF, command);
-    assert.match(answer, /node <path to skills\/sage\/sage\.mjs> (?:<status, merge-check, logbook, standing or config>|status \(or merge-check, logbook, standing, config\))/, command);
+    assert.match(answer, /node <path to skills\/sage\/sage\.mjs> (?:<status, merge-check, logbook, standing, config, task <T>, pages <T>, log <T>, finding show <T> <key> or help>|status \(or merge-check, logbook, standing, config, task <T>, pages <T>, log <T>, finding show <T> <key>, help\))/, command);
   }
   assert.equal(denied(s.send(bash(`python3 -c "import json; print(len(open('${path}').read()))"`, FEATURE, AGENT))), undefined, "a read of the tool's source");
 });
@@ -4042,6 +4079,30 @@ test("T181: exact identity includes the raw session and refuses malformed nonmai
   assert.equal(s.send(nested("sage:qa", "free-a", { session_id: "a/b" })), undefined);
 });
 
+const LOCK_AGE_MS = 30_000;
+const ageLock = (lock, ageMs) => {
+  const at = new Date(Date.now() - ageMs);
+  utimesSync(lock, at, at);
+  return lock;
+};
+const leftLock = (s, ageMs) => {
+  const lock = join(s.vars.SAGE_HOOKS_STATE, "slots.lock");
+  mkdirSync(lock, { recursive: true });
+  return ageLock(lock, ageMs);
+};
+const lockFolders = (s) => readdirSync(s.vars.SAGE_HOOKS_STATE).filter((name) => name.startsWith("slots.lock")).sort();
+const ownerFile = (folder, owner) => {
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(join(folder, `${randomUUID()}.json`), JSON.stringify({ host: hostname(), at: Date.now(), ...owner }));
+  return folder;
+};
+const heldLock = (s) => ownerFile(join(s.vars.SAGE_HOOKS_STATE, "slots.lock"), { pid: process.pid });
+const endedPid = () => {
+  const child = spawnSync(process.execPath, ["-e", ""]);
+  assert.equal(child.status, 0, "the child ran and ended");
+  return child.pid;
+};
+
 test("T181: partial higher slots and a held mutation lock cannot admit excess children", () => {
   const s = nestedSession();
   const dir = join(s.vars.SAGE_HOOKS_STATE, "slots"), partial = join(dir, "slot-20");
@@ -4055,11 +4116,265 @@ test("T181: partial higher slots and a held mutation lock cannot admit excess ch
   rmSync(partial, { recursive: true });
   assert.equal(s.send(nested("sage:qa", "p-3")), undefined, "a refused admission is not a completed call");
   const before = readdirSync(dir).sort();
-  mkdirSync(join(s.vars.SAGE_HOOKS_STATE, "slots.lock"));
+  const lock = leftLock(s, 0);
   assert.equal(s.send({ hook_event_name: "SubagentStop", agent_id: "unfinished", agent_type: "sage:qa", last_assistant_message: "incomplete" })?.decision, "block", "a storage lock cannot bypass the report gate");
-  assert.match(denied(s.send(nested("sage:qa", "locked"))) ?? "", /agent-slot lock is busy/);
+  ageLock(lock, 0);
+  assert.match(denied(s.send(nested("sage:qa", "locked"))) ?? "", /agent-slot lock is busy/, "a lock younger than the age limit is held, however long the steps before took");
   assert.deepEqual(readdirSync(dir).sort(), before);
-  rmSync(join(s.vars.SAGE_HOOKS_STATE, "slots.lock"), { recursive: true });
+  rmSync(lock, { recursive: true });
+});
+
+const childRunsSlotTransactions = (slots, inside, count = 1) => `
+  import { existsSync, writeFileSync, unlinkSync, appendFileSync } from "node:fs";
+  const { slotsFor } = await import(${JSON.stringify(pathToFileURL(HOOK).href)});
+  const slots = slotsFor(${JSON.stringify(slots)}, "lock-child");
+  const marker = ${JSON.stringify(join(slots, "..", "inside"))};
+  const inside = ${inside};
+  for (let n = 0; n < ${count}; n++) {
+    try { slots.reconcile({ filter: () => { inside(marker, n); return []; } }); appendFileSync(marker + ".done", "x"); }
+    catch (error) { appendFileSync(marker + ".refused", String(error.message) + "\\n"); }
+  }
+`;
+const runChild = (code) => spawnSync(process.execPath, ["--input-type=module", "-e", code], { encoding: "utf8" });
+const lockFolder = (state) => join(state, "slots.lock");
+const leftovers = (state) => readdirSync(state).filter(name => name.startsWith("slots.lock"));
+
+test("Stale slot lock: a hook that a kill stops inside a slot transaction leaves no lock that blocks the next agent", () => {
+  const s = nestedSession(), state = s.vars.SAGE_HOOKS_STATE, slots = join(state, "slots");
+  const killed = runChild(childRunsSlotTransactions(slots, `() => process.exit(137)`));
+  assert.equal(killed.status, 137, "the child stops inside the transaction and runs no finally, as a hook timeout stops a hook");
+  assert.ok(existsSync(lockFolder(state)), "the killed holder leaves its lock folder behind");
+  assert.equal(s.send(nested("sage:qa", "after-kill")), undefined, "the next agent starts: the lock of a holder that is gone is taken over");
+  assert.deepEqual(leftovers(state), [], "the take-over and the transaction leave no lock folder");
+});
+
+test("Stale slot lock: an empty lock folder of an earlier sage version is taken over when it is older than any hook can run", () => {
+  const s = nestedSession(), state = s.vars.SAGE_HOOKS_STATE;
+  mkdirSync(lockFolder(state));
+  const old = new Date(Date.now() - 60_000);
+  utimesSync(lockFolder(state), old, old);
+  assert.equal(s.send(nested("sage:qa", "after-old-empty")), undefined, "an old empty lock folder no longer blocks every agent");
+  assert.deepEqual(leftovers(state), []);
+  mkdirSync(lockFolder(state));
+  assert.match(denied(s.send(nested("sage:qa", "fresh-empty"))) ?? "", /agent-slot lock is busy/, "a fresh empty lock folder still refuses");
+  rmSync(lockFolder(state), { recursive: true });
+});
+
+test("Stale slot lock: a live holder keeps the lock, and a holder that outlives any hook is taken over", async () => {
+  const s = nestedSession(), state = s.vars.SAGE_HOOKS_STATE, slots = join(state, "slots");
+  assert.equal(s.send(nested("sage:qa", "before-hold")), undefined, "the test's lead is in place before the holder starts");
+  const holding = join(state, "holding"), release = join(state, "release");
+  const waitsOf25msThatOnlyStopABrokenTestFromHangingCI = 4800;
+  const holdUntilReleased = `() => { writeFileSync(${JSON.stringify(holding)}, ""); for (let wait = 0; wait < ${waitsOf25msThatOnlyStopABrokenTestFromHangingCI} && !existsSync(${JSON.stringify(release)}); wait++) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25); }`;
+  const holder = spawn(process.execPath, ["--input-type=module", "-e", childRunsSlotTransactions(slots, holdUntilReleased)], { stdio: "ignore" });
+  const exited = new Promise(done => holder.on("exit", done));
+  try {
+    while (!existsSync(holding)) await new Promise(tick => setTimeout(tick, 20));
+    const refusal = denied(s.send(nested("sage:qa", "while-held"))) ?? "";
+    assert.match(refusal, /agent-slot lock is busy/, "a live holder's lock is never taken over");
+    assert.match(refusal, new RegExp(`pid ${holder.pid} has held`), "the refusal names the holder");
+    assert.ok(existsSync(lockFolder(state)), "the live holder still holds its lock");
+  } finally {
+    writeFileSync(release, "");
+  }
+  await exited;
+  assert.equal(readFileSync(join(state, "inside.done"), "utf8"), "x", "the live holder finished its transaction");
+  assert.equal(s.send(nested("sage:qa", "after-release")), undefined);
+  mkdirSync(lockFolder(state));
+  const ownerFileOfALivePidOlderThanAnyHook = join(lockFolder(state), "00000000-0000-4000-8000-000000000000.json");
+  writeFileSync(ownerFileOfALivePidOlderThanAnyHook, JSON.stringify({ pid: process.pid, host: hostname(), at: Date.now() - 120_000 }));
+  assert.equal(s.send(nested("sage:qa", "after-old-live")), undefined, "a lock held longer than any hook can run is taken over");
+  assert.deepEqual(leftovers(state), []);
+});
+
+test("Stale slot lock: an agent that ends while a live holder keeps the lock frees its slot at the next transaction", () => {
+  const dir = join(mkdtempSync(join(tmpdir(), "sage-busy-end-")), "slots"), lock = join(dir, "..", "slots.lock");
+  const slots = slotsFor(dir, "s", Date.now(), "s", () => true);
+  const lead = (run) => ({ role: "sage:lead", input: {}, lead: { task: "T86", logbook: sha256("logbook"), run, folder: dir } });
+  assert.deepEqual(slots.take("p", 5, "first-lead", lead("R1")), { ok: true });
+  slots.result("first-lead", undefined, { status: "async_launched", agentId: "first-lead-agent" });
+  assert.equal(slots.take("p", 5, "second-lead", lead("R2")).refused, "task", "a lead of the task holds its slot while it runs");
+  mkdirSync(lock);
+  writeFileSync(join(lock, "00000000-0000-4000-8000-000000000001.json"), JSON.stringify({ pid: process.pid, host: hostname(), at: Date.now() }));
+  assert.doesNotThrow(() => slots.release("first-lead-agent"), "the end of an agent is kept when the lock stays busy");
+  rmSync(lock, { recursive: true });
+  assert.deepEqual(slots.take("p", 5, "second-lead", lead("R2")), { ok: true }, "the next transaction frees the ended lead's slot, so a fresh lead of the task starts at once");
+  assert.equal(slots.take("p", 5, "third-lead", lead("R3")).refused, "task", "the fresh lead holds the task's slot");
+});
+
+test("Stale slot lock: processes that take over stale locks at the same time never hold the lock together", async () => {
+  const s = nestedSession(), state = s.vars.SAGE_HOOKS_STATE, slots = join(state, "slots");
+  const oneHolderAtATimeAndEveryFifthKilled = `(marker, n) => {
+    try { writeFileSync(marker, "", { flag: "wx" }); } catch (error) { appendFileSync(marker + ".overlap", "x"); throw error; }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1);
+    unlinkSync(marker);
+    if ((process.pid + n) % 5 === 0) process.exit(137);
+  }`;
+  const children = Array.from({ length: 10 }, () => new Promise(done => spawn(process.execPath, ["--input-type=module", "-e", childRunsSlotTransactions(slots, oneHolderAtATimeAndEveryFifthKilled, 15)], { stdio: "ignore" }).on("exit", (code, signal) => done({ code, signal }))));
+  const ends = await Promise.all(children);
+  const read = (name) => existsSync(join(state, name)) ? readFileSync(join(state, name), "utf8") : "";
+  assert.equal(read("inside.overlap"), "", "no two processes held the lock at the same time");
+  assert.equal(read("inside.refused"), "", "no transaction was refused: each stale lock was taken over");
+  assert.ok(ends.some(end => end.code === 137), "some holders stopped while they held the lock");
+  assert.ok(read("inside.done").length > 0, "transactions ran");
+  assert.equal(s.send(nested("sage:qa", "after-storm")), undefined, "the next agent starts after the kills");
+  assert.deepEqual(leftovers(state), [], "no lock folder and no folder of a killed waiter stays");
+});
+
+
+test("T1211 (1): hooks that find the same stale lock take it over, and only one of them holds it at a time", async () => {
+  const s = nestedSession();
+  leftLock(s, LOCK_AGE_MS + 30_000);
+  const outs = await Promise.all(Array.from({ length: 4 }, (_, k) => s.sendAsync(leadSpawn(`stale-${k}`, 7))));
+  const refusals = outs.map(denied).filter(Boolean);
+  assert.equal(outs.length - refusals.length, 1, "exactly one lead of T7 starts: each hook checked the held leads under the lock");
+  for (const why of refusals) assert.match(why, /already holds a slot/, "the other hooks wait for the lock and then see the first lead");
+  assert.deepEqual(lockFolders(s), [], "no lock and no moved lock folder stays behind");
+});
+
+test("T1211 (1) F-T1221-1: a hook that saw a stale lock never removes or moves the lock of a hook that took the lock in the meantime", () => {
+  const dir = mkdtempSync(join(tmpdir(), "sage-lock-")), lock = join(dir, "slots.lock"), old = new Date(Date.now() - LOCK_AGE_MS - 30_000);
+  mkdirSync(lock);
+  utimesSync(lock, old, old);
+  const slots = slotsFor(join(dir, "slots"), "s", Date.now(), "s"), real = { statSync: fs.statSync, lstatSync: fs.lstatSync, renameSync: fs.renameSync };
+  const taken = [];
+  let raced = false;
+  const otherHookTakes = (how) => { how(); taken.push(real.statSync(lock).ino); };
+  const firstLook = (name) => (path, ...rest) => {
+    const seen = real[name](path, ...rest);
+    if (path === lock && !raced) {
+      raced = true;
+      otherHookTakes(() => { rmSync(lock, { recursive: true }); ownerFile(lock, { pid: process.pid }); });
+    }
+    return seen;
+  };
+  fs.statSync = firstLook("statSync");
+  fs.lstatSync = firstLook("lstatSync");
+  fs.renameSync = (from, to) => {
+    real.renameSync(from, to);
+    if (from === lock) otherHookTakes(() => mkdirSync(lock));
+  };
+  syncBuiltinESMExports();
+  try {
+    assert.throws(() => slots.take("p", 5, "tu-race", { input: {} }), /agent-slot lock is busy/, "this hook does not win while another hook holds the lock");
+  } finally {
+    Object.assign(fs, real);
+    syncBuiltinESMExports();
+  }
+  assert.ok(raced, "another hook took the lock over right after this hook saw it stale");
+  assert.equal(fs.statSync(lock).ino, taken.at(-1), "the lock of the hook that took it last stays at its place: it was not removed, and no moved lock was put back over it");
+  rmSync(dir, { recursive: true });
+});
+
+test("T1211 (2): calls that start or end no agent run while the agent-slot lock is busy", () => {
+  const s = nestedSession();
+  const child = { agent_id: "busy-child", agent_type: "sage:implementer", cwd: FEATURE };
+  assert.equal(s.send(nested("sage:implementer", "busy-call")), undefined);
+  s.send(resultOf("busy-call", "busy-child", LEAD));
+  const lock = join(s.vars.SAGE_HOOKS_STATE, "slots.lock");
+  const calls = {
+    "a read": bash("cat README.md", FEATURE, child),
+    "git": bash("git status", FEATURE, child),
+    "a state tool read": bash(`node ${TOOL} status`, FEATURE, child),
+    "a file write": tool("Write", { file_path: join(FEATURE, "a.js"), content: "x" }, child),
+    "a file edit": tool("Edit", { file_path: join(FEATURE, "a.js"), old_string: "x", new_string: "y" }, child),
+    "a message to main": tool("SendMessage", { to: "main", message: "done" }, child),
+  };
+  for (const [what, call] of Object.entries(calls)) {
+    leftLock(s, 0);
+    assert.equal(denied(s.send(call)), undefined, `${what} runs while the lock is busy`);
+    assert.deepEqual(lockFolders(s), ["slots.lock"], `${what} leaves the fresh lock in place`);
+  }
+  leftLock(s, 0);
+  assert.match(denied(s.send(nested("sage:qa", "busy-start"))) ?? "", /agent-slot lock/, "an agent start still needs the lock");
+  rmSync(lock, { recursive: true });
+});
+
+test("T1211 (3): a refusal for a busy lock names the lock folder, the age after which the hook frees it, and rm -r", () => {
+  const s = nestedSession();
+  assert.equal(s.send(nested("sage:qa", "named-first")), undefined, "the lead holds its slot before the lock is busy");
+  const lock = leftLock(s, 0);
+  const why = denied(s.send(nested("sage:qa", "named-start"))) ?? "";
+  assert.ok(why.includes(lock), `the refusal names ${lock}: ${why}`);
+  assert.match(why, new RegExp(`rm -r "${lock}"`));
+  assert.match(why, new RegExp(`\\b${LOCK_AGE_MS / 1000} s\\b`));
+  rmSync(lock, { recursive: true });
+});
+
+test("T1211 (4): a lock left by a stopped hook frees on the next call after the age limit; a fresh lock is not taken over", () => {
+  const limits = [...readFileSync(fileURLToPath(new URL("../packages/sage-claude/hooks/claude.json", import.meta.url)), "utf8").matchAll(/"timeout": (\d+)/g)].map(([, n]) => Number(n) * 1000);
+  assert.ok(limits.length && Math.max(...limits) < LOCK_AGE_MS, "Claude Code stops each hook before its lock reaches the age limit, so an older lock has no live holder");
+  const s = nestedSession();
+  assert.equal(s.send(nested("sage:qa", "aged-first")), undefined, "the lead holds its slot before the lock is left");
+  const lock = leftLock(s, 0);
+  assert.ok(denied(s.send(nested("sage:qa", "young"))), "a lock made right before this call stays younger than the limit while one hook call runs (Claude Code stops a hook long before), and a young lock may still have a live holder");
+  assert.deepEqual(lockFolders(s), ["slots.lock"], "the hook leaves a young lock in place");
+  ageLock(lock, LOCK_AGE_MS + 1_000);
+  assert.equal(s.send(nested("sage:qa", "old")), undefined, "the next call after the limit takes the lock over and starts the agent");
+  assert.deepEqual(lockFolders(s), [], "the transaction ends and frees the lock");
+});
+
+for (const [n, what, leave] of [
+  [5, "a lock whose time is more than the age limit in the future (clock skew, a restored folder)", (s) => leftLock(s, -(LOCK_AGE_MS + 30_000))],
+  [6, "a stale lock that is a file, not a folder", (s) => {
+    const lock = join(s.vars.SAGE_HOOKS_STATE, "slots.lock");
+    writeFileSync(lock, "");
+    ageLock(lock, LOCK_AGE_MS + 30_000);
+  }],
+  [7, "a stale lock folder that holds a file", (s) => {
+    const lock = join(s.vars.SAGE_HOOKS_STATE, "slots.lock");
+    mkdirSync(lock);
+    writeFileSync(join(lock, "left"), "");
+    ageLock(lock, LOCK_AGE_MS + 30_000);
+  }],
+]) test(`T1211 (${n}): ${what} frees on the next agent start, and nothing of it stays`, () => {
+  const s = nestedSession();
+  assert.equal(s.send(nested("sage:qa", `kind-${n}-first`)), undefined, "the lead holds its slot before the lock is left");
+  leave(s);
+  assert.equal(denied(s.send(nested("sage:qa", `kind-${n}`))), undefined, "the next agent start takes the lock over and starts the agent");
+  assert.deepEqual(lockFolders(s), [], "no lock and no moved lock entry stays behind");
+});
+
+test("F-T1221-2: the next transaction removes a lock folder that a stopped hook moved aside, and the folder of a waiter that ended", () => {
+  const s = nestedSession(), state = s.vars.SAGE_HOOKS_STATE;
+  assert.equal(s.send(nested("sage:qa", "aside-first")), undefined, "the lead holds its slot before the folders are left");
+  const aside = join(state, `slots.lock.stale-${randomUUID()}`);
+  mkdirSync(aside);
+  ageLock(aside, LOCK_AGE_MS + 30_000);
+  ownerFile(join(state, `slots.lock.${randomUUID()}`), { pid: endedPid() });
+  assert.equal(lockFolders(s).length, 2);
+  assert.equal(denied(s.send(nested("sage:qa", "aside"))), undefined, "the next agent starts");
+  assert.deepEqual(lockFolders(s), [], "no moved lock folder and no waiter's folder stays behind");
+});
+
+test("F-T1221-3 F-T1221-5: an agent that ends while the lock is busy frees its slot at the session's next slot change, also one that starts no lead", () => {
+  const s = nestedSession();
+  for (let n = 1; n <= 9; n++) {
+    assert.equal(s.send(nested("sage:qa", `busy-end-${n}`)), undefined, `helper ${n} starts`);
+    s.send(resultOf(`busy-end-${n}`, `busy-end-child-${n}`, LEAD));
+  }
+  assert.match(denied(s.send(nested("sage:qa", "busy-end-10"))) ?? "", /this lead already has 9 children/);
+  const lock = heldLock(s);
+  assert.equal(s.send(ended("busy-end-child-1")), undefined, "the helper's stop goes on while a live holder keeps the lock");
+  rmSync(lock, { recursive: true });
+  assert.equal(denied(s.send(nested("sage:qa", "busy-end-11"))), undefined, "the next helper start frees the ended helper's slot first, so the lead has a free place");
+});
+
+test("F-T1221-6: a holder ends its transaction with no error when its lock is no longer there", () => {
+  const dir = join(mkdtempSync(join(tmpdir(), "sage-gone-lock-")), "slots"), lock = join(dir, "..", "slots.lock");
+  const slots = slotsFor(dir, "s", Date.now(), "s");
+  assert.doesNotThrow(() => slots.reconcile({ filter: () => { rmSync(lock, { recursive: true }); return []; } }), "another hook took the lock over while this hook held it");
+  assert.deepEqual(readdirSync(join(dir, "..")).filter((name) => name.startsWith("slots.lock")), []);
+});
+
+test("F-T1221-8: a link at the lock path that points nowhere frees on the next agent start after the age limit", () => {
+  const s = nestedSession(), lock = join(s.vars.SAGE_HOOKS_STATE, "slots.lock");
+  assert.equal(s.send(nested("sage:qa", "link-first")), undefined, "the lead holds its slot before the link is left");
+  symlinkSync(join(s.vars.SAGE_HOOKS_STATE, "nowhere"), lock);
+  const old = new Date(Date.now() - LOCK_AGE_MS - 30_000);
+  fs.lutimesSync(lock, old, old);
+  assert.equal(denied(s.send(nested("sage:qa", "link"))), undefined, "the next agent start takes the lock over and starts the agent");
+  assert.deepEqual(lockFolders(s), [], "no link and no lock stays behind");
 });
 
 test("T181: unbound child reservations keep a one-hour lease and duplicate Pre does not add capacity", async () => {
@@ -4430,7 +4745,7 @@ test("F-T255-13: a child whose type comes in another letter case keeps its slot 
   assert.match(denied(s.send(nested("sage:qa", "case-10"))) ?? "", /this lead already has 9 children/);
 });
 
-function leadSession(env = {}, size = "small") {
+function leadSession(env = {}, size = "small", named = true) {
   const s = linkedSession(env);
   s.sage("config", "max_agents=20", "cap_total=30");
   s.send(prompt("sage mode"));
@@ -4447,7 +4762,7 @@ function leadSession(env = {}, size = "small") {
   spawnSync("git", ["-C", s.dir, "branch", "claude/t1"]);
   s.sage("task", "T1", "set", "branch=claude/t1");
   const head = () => spawnSync("git", ["-C", s.dir, "rev-parse", "claude/t1"], { encoding: "utf8" }).stdout.trim();
-  assert.equal(s.send(leadSpawn("lead-call", 1, { cwd: s.dir })), undefined);
+  assert.equal(s.send(named ? leadSpawn("lead-call", 1, { cwd: s.dir }) : desktopLead("lead-call", "lead-T1 the task", { cwd: s.dir })), undefined);
   s.send(resultOf("lead-call", "lead-a"));
   leadAdd(s, "qa");
   s.sage("run", "add", "T2", "--role", "qa");
@@ -4546,7 +4861,7 @@ test("T273: each command that is not on the lead's list is refused, with the sen
     "config cycles.small=1": "config", init: "init", "standing add never": "standing add", "logbook repair --accept-loss tasks": "logbook repair",
     "logbook repair --accept-change-loss yes": "logbook repair", "observe T1 --kind x": "observe", "newcommand T1": "newcommand", "run frob T1": "run frob", "round T1 T2": "round",
     [`verdict T1 T2 --kind qa-pass --sha ${SHA}`]: "verdict", "run add T1 T2 --role qa": "run add", "finding close T1 F-T1-2 F-T1-1": "finding close",
-    "run done R2 R3 --status done": "run done", "task T1": "task", "task add --title x --size small": "task add", "task T1 set": "task set",
+    "run done R2 R3 --status done": "run done", "task add --title x --size small": "task add", "task T1 set": "task set",
     "task T1 frob state=building": "task", "pages T1 record x y": "pages" });
   for (const args of notOwn) {
     const why = denied(stateRun(s, args)) ?? "";
@@ -4559,6 +4874,7 @@ test("T273: each command that is not on the lead's list is refused, with the sen
     assert.match(why, NOT_LISTED, args);
     assert.match(why, LEAD_TAIL, args);
   }
+  assert.equal(denied(stateRun(s, "task T1")), undefined, "a lead reads one task, like any agent (T1210)");
 });
 
 test("F-T928-10: a lead's pages with no task says that it names none, and names the lead's own task", () => {
@@ -6459,6 +6775,25 @@ test("T482 R1762-2: within the lease, the sage's end of the old lead run and a n
   assert.match(denied(s.send(tool("Agent", { subagent_type: "sage:qa", prompt: BRIEF, name: "R4" }, { tool_use_id: "late-child", ...LEAD }))) ?? "", /^sage: this lead holds no bound lead slot, so it starts no agent\./, "the old lead starts no helper");
 });
 
+for (const where of ["the same session (a restart)", "another session"]) for (const named of [true, false]) test(`T1202 T1145: once the logbook ends a lead run, a fresh lead of its task starts at once in ${where}, and the old lead's slot and its helpers' slots are free, for a lead started ${named ? "with a name" : "with no name field"}`, () => {
+  const s = leadSession({}, "small", named), other = where === "another session" ? { session_id: "s2" } : {};
+  if (other.session_id) s.send({ ...prompt("sage mode"), ...other });
+  const dir = join(s.vars.SAGE_HOOKS_STATE, "slots"), h = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  const team = () => readdirSync(dir).filter((slot) => readdirSync(join(dir, slot)).some((m) => m === `bound-${h("lead-a")}` || m === `parent-${h("lead-a")}`));
+  const kid = leadAdd(s, "qa");
+  assert.equal(s.send(tool("Agent", { subagent_type: "sage:qa", prompt: BRIEF, name: kid }, { tool_use_id: "kid", ...LEAD })), undefined, `${where}: the helper starts`);
+  s.send(resultOf("kid", "kid-a", LEAD));
+  assert.equal(team().length, 2, `${where}: the lead and its helper hold slots`);
+  assert.match(denied(s.send(leadSpawn("live", 1, { cwd: s.dir, ...other }))) ?? "", /holds a slot/, `${where}: R1 still runs, so a second lead of T1 is refused`);
+  s.sage("run", "done", kid, "--status", "failed", "--why", "its session ended");
+  s.sage("run", "done", "R1", "--status", "failed", "--why", "its session ended");
+  s.sage("run", "add", "T1", "--role", "lead");
+  assert.equal(denied(s.send(leadSpawn("fresh", 1, { cwd: s.dir, ...other }))), undefined, `${where}: the fresh lead starts with no TaskStop and no wait`);
+  assert.deepEqual(team(), [], `${where}: the ended lead's slot and its helper's slot are free`);
+  assert.match(denied(stateRun(s, "round T1")) ?? "", /this lead holds no bound lead slot/, `${where}: the old lead writes nothing`);
+  assert.match(denied(s.send(nested("sage:qa", "late"))) ?? "", /this lead holds no bound lead slot, so it starts no agent/, `${where}: the old lead starts no helper`);
+});
+
 test("T482 R1763-3: the sage's message to an ended lead is refused for its agent id in any case and with spaces, as the slots fold it", () => {
   const s = leadSession();
   const message = (to) => denied(s.send(tool("SendMessage", { to, message: "a note" }, { cwd: s.dir })));
@@ -6519,7 +6854,7 @@ function chiefRunDone(s, run, extra = {}, why) {
   s.send({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: `node ${TOOL} run done ${run} --status failed --why${why ?? " stopped"} --project ${realpathSync(s.dir)}` }, tool_response: { stdout: "", stderr: "", interrupted: false }, cwd: s.dir, ...extra });
 }
 
-test("T482 R1836-1 T504: after a restart, an old helper's slot frees by the stale slot rule after the sage's run done, also after the fresh lead's start", () => {
+test("T482 R1836-1 T504 T1202: after a restart, the fresh lead's start frees the old helpers' slots once the sage ended the old lead run, before or after their own run done", () => {
   for (const helpersFirst of [false, true]) {
     const s = leadSession();
     s.sage("run", "done", "R2", "--status", "done", "--tokens", "1");
@@ -6539,10 +6874,9 @@ test("T482 R1836-1 T504: after a restart, an old helper's slot frees by the stal
     assert.equal(denied(s.send(leadSpawn("fresh-lead", 1, { cwd: s.dir, ...s2 }))), undefined, "the fresh lead starts");
     s.send(resultOf("fresh-lead", "lead-b", s2));
     if (!helpersFirst) for (const run of old) chiefRunDone(s, run, s2);
-    assert.equal(helperSlots(s).length, 2, `variant ${helpersFirst ? "B" : "A"}: the sage's run done frees no slot`);
-    ageSlots(s, 61, helperSlots(s));
+    assert.deepEqual(helperSlots(s), [], `variant ${helpersFirst ? "B" : "A"}: the ended lead run's helpers hold no slot`);
     const run = leadAdd(s, "qa", fresh);
-    assert.equal(denied(s.send(tool("Agent", { subagent_type: "sage:qa", prompt: BRIEF, name: run }, { tool_use_id: "fresh-helper", cwd: s.dir, ...fresh }))), undefined, `variant ${helpersFirst ? "B" : "A"}: the fresh lead starts a helper after the lease`);
+    assert.equal(denied(s.send(tool("Agent", { subagent_type: "sage:qa", prompt: BRIEF, name: run }, { tool_use_id: "fresh-helper", cwd: s.dir, ...fresh }))), undefined, `variant ${helpersFirst ? "B" : "A"}: the fresh lead starts a helper at once, under the cap of 3`);
   }
 });
 
@@ -7024,16 +7358,220 @@ test("T1133: a lead that ends its turn with no report, to wait for its backgroun
   assert.match(nudge.reason, /^sage: your report has no STATUS.*A lead that waits for its own background work may end its turn again/, "the report check tells a waiting lead that it may end its turn");
 });
 
-test("T1133: a lead that ends its turn with no report and never wakes frees its slot by the sage's stop, or by its lease once its lead run ends", () => {
-  for (const how of ["stop", "lease"]) {
-    const s = leadSession();
+test("T1133 T1145: a lead keeps its slot through each turn end with no report, and the sage's run done of its lead run frees its slot and its helpers' slots at once", () => {
+  for (const paused of [true, false]) {
+    const s = leadSession(), how = paused ? "a paused lead" : "a lead with a helper";
     s.sage("run", "done", "R2", "--status", "done", "--tokens", "1");
-    assert.equal(pause(s), undefined, how);
-    s.sage("run", "done", "R1", "--status", "failed", "--why", "its agent stopped");
-    if (how === "stop") s.send(tool("TaskStop", { task_id: "lead-T1" }));
-    else ageSlots(s, 61);
-    s.sage("run", "add", "T1", "--role", "lead");
-    assert.equal(denied(s.send(leadSpawn("fresh-lead", 1, { cwd: s.dir }))), undefined, `${how}: a fresh lead of T1 starts`);
-    assert.match(denied(stateRun(s, "round T1")) ?? "", /this lead holds no bound lead slot/, `${how}: the old lead writes nothing`);
+    if (paused) {
+      assert.equal(pause(s, false)?.decision, "block", "the first stop with no report gets the report check");
+      for (const [turn, write] of [[1, "round T1"], [2, "run add T1 --role qa"]]) {
+        assert.equal(pause(s), undefined, `turn end ${turn} with no report`);
+        assert.equal(denied(stateRun(s, write)), undefined, `after turn end ${turn}, the paused lead still holds its slot and writes`);
+      }
+    } else {
+      const kid = leadAdd(s, "qa");
+      assert.equal(denied(s.send(tool("Agent", { subagent_type: "sage:qa", prompt: BRIEF, name: kid }, { tool_use_id: "kid", ...LEAD }))), undefined, "the helper starts");
+      s.send(resultOf("kid", "kid-a", LEAD));
+      assert.equal(helperSlots(s).length, 1, "the helper holds a slot");
+    }
+    chiefRunDone(s, "R1");
+    assert.match(denied(stateRun(s, "round T1")) ?? "", /this lead holds no bound lead slot/, `${how}: the sage's run done frees the lead's slot at once, with no TaskStop and no lease`);
+    assert.deepEqual(helperSlots(s), [], `${how}: no helper of the ended lead run holds a slot`);
+    assert.match(denied(s.send(tool("SendMessage", { to: "lead-T1", message: "a note" }, { cwd: s.dir }))) ?? "", /has ended or holds no lead slot/, `${how}: a message to the ended lead is refused`);
   }
+});
+
+test("T1145: a lead's final report with a missing field keeps its text for its run, as a full report does", () => {
+  const s = leadSession(), kept = () => readFileSync(join(s.sage("logbook"), "reports", "R1.md"), "utf8");
+  s.sage("run", "done", "R2", "--status", "done", "--tokens", "1");
+  const text = report("ready").replace(/\nBRANCH none$/, "");
+  const stop = (active, message) => s.send({ hook_event_name: "SubagentStop", ...LEAD, cwd: s.dir, stop_hook_active: active, last_assistant_message: message });
+  assert.equal(stop(false, text)?.decision, "block", "the report check names the missing field");
+  assert.equal(stop(true, text), undefined, "the lead's turn ends");
+  assert.equal(kept(), text, "the malformed report is kept for R1");
+  assert.equal(stop(false, report("ready")), undefined, "the lead ends with its full report");
+  assert.equal(kept(), report("ready"), "the full report replaces it");
+});
+
+for (const seen of [true, false]) test(`T1145: after an app restart, a lead started with no name field holds its slot until the sage ends its lead run; the refusal names that recovery, and the fresh lead starts with no wait (the sage's run done ${seen ? "seen by the hook" : "not seen by the hook"})`, () => {
+  const s = linkedSession();
+  s.sage("config", "max_agents=20", "cap_total=30");
+  s.send(prompt("sage mode"));
+  s.sage("init");
+  s.sage("task", "add", "--priority", "P2", "--title", "mine", "--size", "small");
+  s.sage("run", "add", "T1", "--role", "lead");
+  const start = (id) => s.send(tool("Agent", { subagent_type: "sage:lead", prompt: BRIEF, description: "lead-T1 the task", run_in_background: true }, { tool_use_id: id, cwd: s.dir }));
+  assert.equal(start("lead-call"), undefined, "the lead starts with no name field, in the background");
+  s.send(tool("Read", { file_path: join(s.dir, "a.txt") }, { cwd: s.dir, ...LEAD }));
+  s.send(resultOf("lead-call", "lead-a"));
+  const dir = join(s.vars.SAGE_HOOKS_STATE, "slots"), leads = () => readdirSync(dir).map((slot) => readdirSync(join(dir, slot))).filter((marks) => marks.includes("role-sage_lead"));
+  assert.equal(leads().length, 1);
+  for (const m of ["role-sage_lead", "run-R1", "task-T1", "possible-launch", "ok"]) assert.ok(leads()[0].includes(m), `the lead's slot has ${m}`);
+  for (const m of ["session-", "bound-"]) assert.ok(leads()[0].some((x) => x.startsWith(m)), `the lead's slot has ${m}`);
+  s.send({ hook_event_name: "SessionStart", source: "resume", cwd: s.dir });
+  assert.match(denied(start("while-R1-runs")) ?? "", /^sage: a lead named lead-T1 already holds a slot, in this session or for this logbook \(F-T273-5, F-T273-16\)\. Wait for it to end, or stop it with TaskStop \(by its agent id, from its start's result: it started with no name field, so a stop by its name is refused\), before you start a fresh lead\. If its agent no longer runs \(after a restart, TaskStop finds no task\), run each of these as a command of its own: node \S+ run done R1 --status failed --why "its session ended", then node \S+ run add T1 --role lead, then start the lead again\.$/, "after the restart, the refusal names the recovery that works with no TaskStop");
+  if (seen) chiefRunDone(s, "R1");
+  else s.sage("run", "done", "R1", "--status", "failed", "--why", "its session ended");
+  const fresh = s.sage("run", "add", "T1", "--role", "lead").split(" ")[0];
+  assert.equal(denied(start("fresh-call")), undefined, "the fresh lead starts with no TaskStop and no wait");
+  s.send(resultOf("fresh-call", "lead-b"));
+  assert.deepEqual(leads().map((marks) => marks.includes(`run-${fresh}`)), [true], "only the fresh lead's slot is left");
+  assert.equal(denied(stateRun(s, "round T1", { agent_id: "lead-b", agent_type: "sage:lead" })), undefined, `the fresh lead writes for ${fresh}`);
+  assert.match(denied(stateRun(s, "round T1")) ?? "", /this lead holds no bound lead slot/, "the old lead writes nothing");
+});
+
+function helperTranscript(s, child, prompt) {
+  const path = join(s.dir, `agent-${child.agent_id}.jsonl`), add = (record) => appendFileSync(path, `${JSON.stringify(record)}\n`);
+  writeFileSync(path, `${JSON.stringify({ type: "user", message: { role: "user", content: prompt } })}\n`);
+  let calls = 0;
+  return {
+    path,
+    handback(message, failed) {
+      const id = `handback-${child.agent_id}-${++calls}`, why = denied(s.send(tool("SubagentHandback", message === undefined ? {} : { message }, { tool_use_id: id, ...child })));
+      add({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id, name: "SubagentHandback", input: message === undefined ? {} : { message } }] } });
+      add({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: why ?? (failed ? "the tool failed" : "handed back"), ...(why || failed ? { is_error: true } : {}) }] } });
+      return why;
+    },
+    say: (text) => add({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text }] } }),
+    stop: (text) => s.send({ hook_event_name: "SubagentStop", ...child, agent_transcript_path: path, ...(text === undefined ? {} : { stop_hook_active: false, last_assistant_message: text }) }),
+  };
+}
+const QA_FAIL = report("FAIL", "- Q1 medium src/a.mjs:1 the form loses the text\n  proof: cat src/a.mjs\n  saw: `lost`");
+function keptQa(s, run) {
+  s.sage("run", "done", run, "--status", "done", "--tokens", "1");
+  const pass = leadVerdict(s, "qa-pass", run);
+  if (pass === undefined) return "pass";
+  return /so it backs qa-fail/.test(pass) && UNHELD("medium").test(leadVerdict(s, "qa-fail", run) ?? "") ? "fail" : pass;
+}
+
+test("T1171: a report handed back through SubagentHandback is kept like a text report and backs a verdict; its gate refuses a missing field once", () => {
+  const s = leadSession();
+  const start = (run) => {
+    const child = { agent_id: `child-${run}`, agent_type: "sage:qa" };
+    assert.equal(s.send(tool("Agent", { subagent_type: "sage:qa", prompt: BRIEF, name: run }, { tool_use_id: `help-${run}`, ...LEAD })), undefined, `the helper of ${run}`);
+    s.send(resultOf(`help-${run}`, child.agent_id, LEAD));
+    return helperTranscript(s, child, BRIEF);
+  };
+  const run = leadAdd(s, "qa"), qa = start(run);
+  assert.match(qa.handback("All good, it works.") ?? "", /^sage: your report has no STATUS, RESULT, EVIDENCE, FINDINGS, QUESTIONS, NOT VERIFIED, BRANCH\./, "a handback with a missing field is refused like a text report");
+  assert.equal(qa.handback(report("PASS")), undefined, "the full report goes through");
+  assert.equal(qa.stop(), undefined, "the stop after the handback is not blocked: the report has no closing text");
+  assert.equal(keptQa(s, run), "pass", "the handed-back PASS backs qa-pass");
+  const once = leadAdd(s, "qa"), late = start(once);
+  assert.ok(late.handback("not a report"), "the first bad handback is refused");
+  assert.equal(late.handback("still not a report"), undefined, "the second goes through, like the second stop");
+  assert.equal(late.stop(), undefined);
+  s.sage("run", "done", once, "--status", "done", "--tokens", "1");
+  assert.ok(leadVerdict(s, "qa-pass", once), "a kept report without a RESULT backs no verdict");
+});
+
+function boundQa(s) {
+  const run = leadAdd(s, "qa"), child = { agent_id: `child-${run}`, agent_type: "sage:qa" };
+  s.send(tool("Agent", { subagent_type: "sage:qa", prompt: BRIEF, name: run }, { tool_use_id: `help-${run}`, ...LEAD }));
+  s.send(resultOf(`help-${run}`, child.agent_id, LEAD));
+  return { run, ...helperTranscript(s, child, BRIEF) };
+}
+
+test("T1193: at a sage agent's stop, its run's row gets the usage summed over its transcript's API calls, one count for each request, and its weighted total", () => {
+  const s = leadSession(), qa = boundQa(s), add = (record) => appendFileSync(qa.path, `${JSON.stringify(record)}\n`);
+  const call = (requestId, usage, text = "x") => add({ type: "assistant", requestId, message: { id: `msg-${requestId}`, role: "assistant", content: [{ type: "text", text }], usage } });
+  call("req-1", { input_tokens: 10, cache_creation_input_tokens: 1000, cache_read_input_tokens: 0, output_tokens: 3 });
+  call("req-1", { input_tokens: 10, cache_creation_input_tokens: 1000, cache_read_input_tokens: 0, output_tokens: 200 });
+  call("req-2", { input_tokens: 2, cache_creation_input_tokens: 400, cache_read_input_tokens: 20000, output_tokens: 100, cache_creation: { ephemeral_5m_input_tokens: 300, ephemeral_1h_input_tokens: 100 } });
+  add({ type: "user", message: { role: "user", content: "a usage word in a user record is not a call" }, usage: { input_tokens: 999999 } });
+  assert.equal(qa.stop(report("PASS")), undefined);
+  s.sage("run", "done", qa.run, "--status", "done", "--tokens", "21502");
+  const [head, ...rows] = readFileSync(join(s.sage("logbook"), "runs.tsv"), "utf8").trimEnd().split("\n").map((line) => line.split("\t"));
+  const row = Object.fromEntries(head.map((c, i) => [c, rows.find((r) => r[0] === qa.run)[i]]));
+  const weighted = 12 * 1 + 1300 * 1.25 + 100 * 2 + 20000 * 0.05 + 300 * 5;
+  assert.deepEqual([row.spend_input, row.spend_cache_write, row.spend_cache_read, row.spend_output, row.spend_weighted], ["12", "1400", "20000", "300", String(Math.round(weighted))],
+    "req-1 counts once, with its last record; the user record counts not");
+  assert.equal(row.tokens, "21502", "the count of run done stays: it is the peak context");
+  assert.match(s.sage("stats"), new RegExp(`^\\| T1 \\| \\d+ \\| ${Math.round(weighted / 1000)}k \\| 0k \\| 22k \\|`, "m"), "stats shows the weighted total and the peak context");
+});
+
+test("T1175 F-T1175-5: a handback whose tool call failed does not replace the closing text", () => {
+  const s = leadSession(), qa = boundQa(s);
+  assert.equal(qa.handback(report("PASS"), "failed"), undefined, "the gate lets the PASS through, and then the tool call fails");
+  qa.say(QA_FAIL);
+  assert.equal(qa.stop(QA_FAIL), undefined);
+  assert.equal(keptQa(s, qa.run), "fail");
+});
+
+test("T1175 F-T1175-1: closing text after a handback (as after a lead's blocked stop) is the report", () => {
+  const s = leadSession(), qa = boundQa(s);
+  assert.equal(qa.handback(report("PASS")), undefined);
+  qa.say(QA_FAIL);
+  assert.equal(qa.stop(QA_FAIL), undefined);
+  assert.equal(keptQa(s, qa.run), "fail");
+});
+
+test("T1175 F-T1175-3: a second handback gets the gate again, and the last one that went through is the report", () => {
+  const s = leadSession(), qa = boundQa(s);
+  assert.equal(qa.handback(QA_FAIL), undefined);
+  assert.match(qa.handback("not a report") ?? "", /^sage: your report has no STATUS/);
+  assert.equal(qa.handback(report("PASS")), undefined);
+  assert.equal(qa.stop(), undefined);
+  assert.equal(keptQa(s, qa.run), "pass");
+});
+
+test("T1175 F-T1175-4: a handback with no message is refused like an empty report", () => {
+  const s = leadSession(), qa = boundQa(s);
+  assert.match(qa.handback(undefined) ?? "", /^sage: your report has no STATUS/);
+  assert.equal(qa.handback(QA_FAIL), undefined);
+  assert.equal(qa.stop(), undefined);
+  assert.equal(keptQa(s, qa.run), "fail");
+});
+
+test("T1175: when two helpers of one role start at once, the hook keeps each report by the run line of the helper's brief, from a handback or from closing text", () => {
+  const s = leadSession();
+  const runs = [leadAdd(s, "qa"), leadAdd(s, "qa")];
+  const kids = runs.map((run) => {
+    const child = { agent_id: `twin-${run}`, agent_type: "sage:qa" };
+    const prompt = `Run ${run} · task T1 (twins) · qa\n${BRIEF}`;
+    assert.equal(s.send(tool("Agent", { subagent_type: "sage:qa", prompt, name: run }, { tool_use_id: `twin-call-${run}`, ...LEAD })), undefined, `the helper of ${run}`);
+    return { run, child, transcript: helperTranscript(s, child, prompt) };
+  });
+  for (const { child } of kids) s.send({ hook_event_name: "SubagentStart", ...child });
+  const [first, second] = kids;
+  const background = { command: "npm test", run_in_background: true };
+  assert.equal(denied(s.send(tool("Bash", background, { cwd: s.dir, ...first.child }))), undefined, "a background test run of the helper");
+  s.send({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: background, tool_response: { backgroundTaskId: "b1" }, cwd: s.dir, ...first.child });
+  assert.equal(denied(s.send(tool("Monitor", { command: "tail -f out.txt", description: "test output" }, { cwd: s.dir, ...first.child }))), undefined, "and its Monitor");
+  assert.equal(first.transcript.handback(QA_FAIL), undefined, "the handback goes through");
+  assert.equal(first.transcript.stop(), undefined);
+  s.send(resultOf(`twin-call-${first.run}`, first.child.agent_id, LEAD, "completed"));
+  assert.equal(second.transcript.stop(report("PASS")), undefined);
+  s.send(resultOf(`twin-call-${second.run}`, second.child.agent_id, LEAD, "completed"));
+  assert.deepEqual(kids.map(({ run }) => keptQa(s, run)), ["fail", "pass"], "each run keeps its own helper's report: the handed-back FAIL and the closing PASS");
+});
+
+const LOST_HANDBACK = readFileSync(fileURLToPath(new URL("./fixtures/t1176-lost-handback.jsonl", import.meta.url)), "utf8").trimEnd().split("\n");
+test("T1176: a handback is kept also when its records are not yet in the transcript at the stop (the real records of lost R5021)", () => {
+  const [call] = JSON.parse(LOST_HANDBACK[5]).message.content, closing = "Now the sage-hook files, each alone.";
+  for (const written of [5, 7]) {
+    const s = leadSession(), run = leadAdd(s, "code-reviewer"), child = { agent_id: `lost-${written}`, agent_type: "sage:code-reviewer" };
+    s.send(tool("Agent", { subagent_type: "sage:code-reviewer", prompt: BRIEF, name: run }, { tool_use_id: `help-${written}`, ...LEAD }));
+    s.send(resultOf(`help-${written}`, child.agent_id, LEAD));
+    const path = join(s.dir, `agent-${child.agent_id}.jsonl`);
+    writeFileSync(path, `${LOST_HANDBACK.slice(0, written).join("\n")}\n`);
+    assert.equal(denied(s.send(tool("SubagentHandback", call.input, { tool_use_id: call.id, ...child }))), undefined, `${written}: the real handback goes through the gate`);
+    assert.equal(s.send({ hook_event_name: "SubagentStop", ...child, agent_transcript_path: path, stop_hook_active: false, last_assistant_message: closing }), undefined, `${written}: the stop is not blocked`);
+    const kept = JSON.parse(readFileSync(join(s.sage("logbook"), "kept", `${run}.json`), "utf8"));
+    assert.equal(kept.text, call.input.message, `${written} of 7 records written at the stop: the kept report is the handed-back message`);
+    assert.equal(readReport(kept.text).result, "CLEAN", `${written}: and it reads as CLEAN`);
+  }
+});
+
+test("T1175 F-T1175-8: the brief's run line binds a helper only to the slot of the same run and task", () => {
+  const s = leadSession();
+  const runs = [leadAdd(s, "qa"), leadAdd(s, "qa")];
+  const kids = runs.map((run) => {
+    const child = { agent_id: `twin-${run}`, agent_type: "sage:qa" };
+    s.send(tool("Agent", { subagent_type: "sage:qa", prompt: `Run ${run} · task T1 (twins) · qa\n${BRIEF}`, name: run }, { tool_use_id: `twin-call-${run}`, ...LEAD }));
+    return { run, child, transcript: helperTranscript(s, child, `Run ${run} · task T9 (another logbook) · qa\n${BRIEF}`) };
+  });
+  for (const { child } of kids) s.send({ hook_event_name: "SubagentStart", ...child });
+  for (const { transcript } of kids) assert.equal(transcript.stop(report("PASS")), undefined);
+  for (const { run } of kids) assert.match(keptQa(s, run), /has no kept report/, `${run}: a run line of another task binds no slot`);
 });

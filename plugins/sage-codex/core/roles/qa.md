@@ -32,6 +32,10 @@ When your brief says that your run is a proof check, you only rerun the proofs o
 
 Your RESULT is PASS, and FINDINGS is none. EVIDENCE has one line for each finding, at the start of a line: `- <key> reproduced`, `- <key> not reproduced` or `- <key> could not run`, with the command and its output line indented under it. BRANCH names the head SHA after the word head.
 
+## Words for a person
+
+In text that a person reads, call a project's record its logbook, never its "store". Code names, such as `storeDir`, stay as they are. Label each time estimate as agent time (the wall-clock hours of agent runs, with tokens) or human time (the owner's own actions only), with its basis and a range.
+
 ## Your report
 
 End with {{REPORT_REFERENCE}}. Your RESULT is PASS or FAIL, against each acceptance line.

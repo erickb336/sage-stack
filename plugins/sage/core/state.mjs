@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { USAGE_FIELDS, tokenCount, usageText, usageRegistry, usageSnapshot, validUsageSnapshot, usageSummary } from "./usage.mjs";
+import { SPEND_FIELDS, USAGE_FIELDS, measureTotals, spendText, tokenCount, usageText, usageRegistry, usageSnapshot, validUsageSnapshot, usageSummary } from "./usage.mjs";
 import { readLocalGit } from "./local-git.mjs";
 import { PENDING, recordedWrites, assertNoPendingWrite, hasPendingWrite, pendingRequest, pendingNames, settlePendingWrite, verifyPendingWrite, RecordedWriteError } from "./recorded-write.mjs";
 import { execFileSync } from "node:child_process";
@@ -11,7 +11,7 @@ import { boardView, sessionRoots, sessionSources } from "./board-view.mjs";
 import { projectName as shownName } from "./board-model.mjs";
 import { ADMIT_LEASE_MS, KEPT_FILE_MAX, KEPT_TEXT_MAX, LAPSED, agentCaps, capNames, projectLimits, queueOrder, slug } from "./logbook-fields.mjs";
 import { logbookIdentity } from "./board-reader.mjs";
-import { PR, USERS_FOLDER, pullRequestBody, pullRequestHead, usersPart } from "./pull-request.mjs";
+import { PR, USERS_FOLDER, mainOverlap, pullRequestBody, pullRequestHead, usersPart } from "./pull-request.mjs";
 import { REPORT_FIELDS } from "./report.mjs";
 import { cleanReport, fieldsOf, proofResults, readReport } from "./report-reader.mjs";
 import { ROLES } from "./roles.mjs";
@@ -26,14 +26,18 @@ import { pagesFolder, worktreeRoot, worktrees } from "./worktrees.mjs";
 import { priorArtCommand } from "./prior-art-index.mjs";
 import { storageClean, storagePlan, storageView } from "./storage.mjs";
 import { CHIEF, TAKEOVER_OPTIONS, chiefOnly, createChiefs, crossed, offerOf, replaceOf, replaceQuestion, writerClass } from "./chiefs.mjs";
-import { NAMES_FILE, chiefNames } from "./chief-live.mjs";
+import { NAMES_FILE, boardChiefs, chiefNames, readLiveRecord } from "./chief-live.mjs";
+import { PICKUP_TABLES, handoverOf, pickupDelta, pickupPlan, pickupText, stoppedState } from "./pickup.mjs";
 import { LEAD_COMMANDS, leadProblem as leadPolicy, leadRequest } from "./lead-policy.mjs";
 import { renderMessage } from "./message-checks.mjs";
-import { MAX_SECTIONS, PAGE_DEPTH, PAGE_MAX, PAGE_TYPES, pageType, pageUrl } from "./message.mjs";
+import { KINDS as MESSAGE_KINDS, MAX_SECTIONS, PAGE_DEPTH, PAGE_MAX, PAGE_TYPES, pageType, pageUrl } from "./message.mjs";
 import { boardPort, pageFile, pageTaskFolder } from "./page-files.mjs";
-import { taskWord } from "./state-words.mjs";
+import { DESIGN_GATE, copyDesign, designFiles, designPathOk } from "./design-copy.mjs";
+import { boardAnswers, boardDownLine } from "./board-probe.mjs";
+import { DESIGN_OPTIONS, WORDS_MAX, answerOption, taskWord, withWords } from "./state-words.mjs";
 import { AST_GREP_VERSION, LINT_CONFIG, LINT_KINDS, astGrepBinary, lintBase, lintChange } from "./lint.mjs";
 import { adoptBrief, languageList, placeToolFiles, projectLanguages } from "./lint-offer.mjs";
+import { DOCS_RULE, docsNote, docsOnly, docsPathsProblem, globsOf } from "./docs-only.mjs";
 
 export const STUCK_WRITE = 'This command changed nothing. This project cannot save changes; other projects work. Tell the owner. There are two ways out. With a backup: the owner restores the folder that `sage logbook` prints; rows newer than the backup are lost. With no backup: after the owner accepts the loss of this saved change, the chief runs `sage logbook repair --accept-change-loss yes --project <the project>`, or the owner runs it in a terminal when the chief cannot; it keeps the file, and a half-published update keeps mixed tables. Do not remove review-pending.json by hand.';
 
@@ -44,7 +48,7 @@ export const balancedModels = (strong, light) => ({
   "model.implementer.tiny": light, "model.code-reviewer.tiny": light, "model.qa.tiny": light, "model.qa.small": light,
 });
 
-export function createStateTool({ defaultRoot, legacyRoots: namedRoots = () => [], provider, models = ["inherit"], modelDefaults = {}, spawnFields = (model) => (model ? { model } : {}), usageInterfaces = [], claimStep = (task, version, chief) => `run sage claim ${task} --version ${version} --chief ${chief}`, replaceStep = (task, chief) => `run sage gate replace ${task} --to ${chief} --chief ${chief}`, takeoverCycle, queueWait = () => "", autopilot = () => false }) {
+export function createStateTool({ defaultRoot, legacyRoots: namedRoots = () => [], provider, models = ["inherit"], modelDefaults = {}, spawnFields = (model) => (model ? { model } : {}), usageInterfaces = [], replaceStep = (task, chief) => `run sage gate replace ${task} --to ${chief} --chief ${chief}`, takeoverCycle, queueWait = () => "", autopilot = () => false }) {
 if (typeof defaultRoot !== "function") throw new TypeError("defaultRoot must be a function");
 if (typeof namedRoots !== "function") throw new TypeError("legacyRoots must be a function");
 const rootsOf = (env) => namedRoots(env).map((root) => {
@@ -107,19 +111,16 @@ const CHIEF_COLUMN = "chief";
 const CHECKOUT_COLUMN = "checkout";
 const ADMITTED_COLUMN = "admitted";
 const RELEASE_COLUMN = "release";
-const SPARSE = { tasks: [CHIEF_COLUMN, "offer", RELEASE_COLUMN, "request"], runs: [CHIEF_COLUMN, CHECKOUT_COLUMN, ADMITTED_COLUMN, "failure"], gates: ["kind", CHIEF_COLUMN, "answered", "picked", "run"], milestones: [RELEASE_COLUMN] };
+const SPARSE = { tasks: [CHIEF_COLUMN, "offer", RELEASE_COLUMN, "request"], runs: [CHIEF_COLUMN, CHECKOUT_COLUMN, ADMITTED_COLUMN, "failure", ...SPEND_FIELDS], gates: ["kind", CHIEF_COLUMN, "answered", "picked", "run"], milestones: [RELEASE_COLUMN], decisions: ["handover"] };
 const TABLES = { ...PLAIN_TABLES, ...Object.fromEntries(Object.entries(SPARSE).map(([t, cols]) => [t, [...PLAIN_TABLES[t], ...cols]])) };
 const ADDED = { ...FILLED, ...Object.fromEntries(Object.entries(SPARSE).map(([t, cols]) => [t, [...(FILLED[t] ?? []), ...cols]])) };
 const RUN_ENDS = ["done", "blocked", "question", "failed"];
-const COMMANDS = ["init", "logbook", "standing", "pages", "message", "task", "task-adopt", "milestone", "release", "round", "run", "finding", "verdict", "lint", "gate", "log", "status", "stats", "merge-check", "config", "projects", "board", "observe", "link", "claim", "offer", "cancel", "accept", "unclaim", "move", "worktrees", "storage", "chief", "prior-art"];
+const GONE = ["claim", "offer", "cancel", "accept"];
+const COMMANDS = ["init", "logbook", "standing", "pages", "message", "task", "task-adopt", "milestone", "release", "round", "run", "finding", "verdict", "lint", "gate", "log", "status", "stats", "merge-check", "config", "projects", "board", "observe", "link", "unclaim", "pickup", "move", "worktrees", "storage", "chief", "prior-art"];
 const OPTIONS = {
   "logbook repair": ["accept-loss", "accept-change-loss"],
   link: ["to", "separate"],
   move: ["preview", "plan", "gate"],
-  claim: ["version"],
-  offer: ["to"],
-  cancel: ["offer"],
-  accept: ["offer", "version"],
   "gate replace": ["to"],
   "gate give": ["to"],
   "projects rebuild": ["accept-listing"],
@@ -138,7 +139,7 @@ const OPTIONS = {
   "finding move": ["to", "into", "size"],
   verdict: ["sha", "kind", "cycle", "pr", "run"],
   lint: ["sha"],
-  "gate add": ["question", "options", "recommend", "default", "message", "run"],
+  "gate add": ["question", "options", "recommend", "default", "message", "run", "design"],
   "gate answer": ["option", "other-hex", "via", "seen"],
   log: ["why"],
   "merge-check": ["sha", "pr", "cycles", "head"],
@@ -502,8 +503,6 @@ function knownColumns(dir, table, cols) {
   if (extra.length) refuse(`${join(dir, `${table}.tsv`)} has columns that this version of sage does not know (${extra.join(", ")}): a newer sage wrote this logbook, and a write of this version would lose them. Update the sage plugin and restart this session. Nothing changed; status, logbook, standing and merge-check still work.`);
 }
 
-const taskVersion = ({ offer, ...task }) => createHash("sha256").update(JSON.stringify(offer ? { ...task, offer } : task)).digest("hex");
-
 const updateKeys = (value, keys) => value && typeof value === "object" && !Array.isArray(value)
   && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
 function savedWriteColumns(tables, deny) {
@@ -561,6 +560,8 @@ const archivedIn = (dir) => savedIn(dir).archived === true;
 const ARCHIVE_FAILURE = "the project was archived";
 const RESTORE = "If this is new work that the owner asked for in this chat after the archive, restore the project first with sage config archived=no, tell the owner in one line that you restored it";
 const archivedBar = (what, then) => `this project is archived, so it takes no ${what}: an archived project starts no agent and merges nothing. ${RESTORE}, then ${then}. A lead does not restore a project: report blocked to your chief. Nothing changed.`;
+const ARCHIVED_OWNER = "This project is archived, so it takes no answer and no other owner write. Restore it first, on the board or with sage config archived=no in its own chat when the owner asks for it, then try again. Nothing changed.";
+const shutByArchive = (dir, cmd, pos) => writerClass(cmd, pos).kind === "owner" && cmd !== "config" && cmd !== "logbook" && archivedIn(dir);
 function admit(dir, project, env, runs) {
   const stamp = now(), notes = [], lapsed = lapsedOf(dir, runs, Date.parse(stamp));
   for (const r of lapsed) {
@@ -586,6 +587,16 @@ function queueOf(project, env = process.env) {
     queued: queueOrder(runs).map((r, i) => ({ ...brief(r), place: i + 1 })),
     admitted: runs.filter((r) => awaiting(dir, r) && leaseEnd(r) > at).map((r) => ({ ...brief(r), admitted: r.admitted, until: utc(new Date(leaseEnd(r)).toISOString()) })),
     lapsed: runs.filter((r) => r.admitted && !started(dir, r) && (r.status === "failed" || (r.status === "running" && leaseEnd(r) <= at))).map((r) => ({ ...brief(r), admitted: r.admitted, ended: r.status === "failed" })) };
+}
+function sessionsHere(project, native, env = process.env) {
+  const { dir, shared } = locate(project, env);
+  if (!shared || !existsSync(join(dir, "tasks.tsv"))) return null;
+  const rows = chiefs(dir), me = rowOf(dir, native)?.id ?? null, tasks = read(dir, "tasks"), runs = read(dir, "runs");
+  const live = Object.fromEntries(rows.map((r) => [r.id, readLiveRecord(dir, r.id)]).filter(([, record]) => record));
+  const waits = read(dir, "gates").filter((g) => !g.answer).map((g) => gateChief(dir, g, tasks)).filter(Boolean);
+  const owners = tasks.filter((t) => !ENDED.includes(t.state) && t.chief).map((t) => t.chief);
+  const others = boardChiefs({ rows, live, runs, waits, owners, now: Date.now() }).filter((c) => c.id !== me && c.session === "live");
+  return { me, others, running: runningOf(runs).length, limit: projectCap(dir, project, env) };
 }
 function sweepQueue(project, env = process.env) {
   const dir = storeDir(project, env);
@@ -761,6 +772,20 @@ function keepUsage(project, { task, run, role, tokens, source, evidence } = {}, 
   renameSync(temporary, usageFile(dir, run));
   return usageFile(dir, run);
 }
+function keepSpend(project, { run, spend } = {}, env = process.env) {
+  const dir = storeDir(project, env);
+  if (!existsSync(join(dir, "tasks.tsv")) || lstatSync(join(dir, "moved.json"), { throwIfNoEntry: false })) refuse(`no logbook takes spend for the project ${visible(project)}.`);
+  const values = SPEND_FIELDS.map((c) => spend?.[c.slice(6)]);
+  if (!/^R[1-9]\d*$/.test(String(run)) || !values.every((v) => Number.isSafeInteger(v) && v >= 0 && v < 1e15)) refuse("kept spend needs its run id and a whole number of 0 or more for each of input, cache_write, cache_read, output and weighted. No spend is kept.");
+  return withLock(dir, () => {
+    assertNoPendingWrite(dir);
+    const runs = read(dir, "runs"), row = runs.find((r) => r.id === run);
+    if (!row) refuse(`no run ${run}, so no spend is kept.`);
+    SPEND_FIELDS.forEach((c, i) => { row[c] = String(values[i]); });
+    write(dir, "runs", runs);
+    return run;
+  });
+}
 function keptUsage(dir, run) {
   try {
     const kept = JSON.parse(readRegular(usageFile(dir, run.id), { link: false, max: 16384 }) ?? "null");
@@ -909,7 +934,7 @@ function backingProblem(dir, task, kind, opt) {
   return `${run.id}'s report has ${needed.length} medium or high finding${needed.length === 1 ? "" : "s"} (${said}), and ${task.id} holds ${tally} of ${run.id}, but each one needs a row at its severity or above: ${found ? `${record}, then record ${kind}.` : `so it backs ${problemKind}. For ${cleanKind}, ${record}, then dismiss it with a reason, move it or close it.`}`;
 }
 
-function replaceDelta({ reference: { gate, task, to, runs, offer }, result: { at, answer, answered, picked } }, rows) {
+function replaceDelta({ reference: { gate, task, to, runs, offer, handover }, result: { at, answer, answered, picked } }, rows) {
   const row = rows.tasks.find((t) => t.id === task), asked = rows.gates.find((g) => g.id === gate);
   if (!row || !asked || runs.some((id) => !rows.runs.some((r) => r.id === id))) return false;
   if (offer !== undefined) {
@@ -918,14 +943,14 @@ function replaceDelta({ reference: { gate, task, to, runs, offer }, result: { at
   } else Object.assign(row, { chief: to, ...(row.offer ? { offer: "" } : {}) });
   for (const run of rows.runs) if (runs.includes(run.id)) Object.assign(run, { status: "failed", ended: at, failure: `ended when you gave ${task} to ${to} (${gate})` });
   Object.assign(asked, { answer, ...(answered === undefined ? {} : { answered }), ...(picked === undefined ? {} : { picked }) });
-  rows.decisions.push({ at, task, decision: `${asked.question} → ${answer}`, why: "the user's answer" });
+  rows.decisions.push({ at, task, decision: `${asked.question} → ${answer}`, why: "the user's answer", ...(handover ? { handover: JSON.stringify({ ...handover, to, tasks: [task] }) } : {}) });
   return true;
 }
 function validateReplaceWrite(receipt, tables) {
   const deny = () => refuse("The saved Replace is damaged. No table changed.");
   const { reference, result } = receipt;
   if (typeof reference?.gate !== "string" || typeof reference.task !== "string" || !CHIEF.test(reference.to) || !Array.isArray(reference.runs)
-    || !["undefined", "string"].includes(typeof reference.offer) || typeof result?.at !== "string" || typeof result.answer !== "string"
+    || !["undefined", "string"].includes(typeof reference.offer) || (reference.handover !== undefined && !["from", "fromProvider", "toProvider"].every((key) => typeof reference.handover?.[key] === "string")) || typeof result?.at !== "string" || typeof result.answer !== "string"
     || ["answered", "picked"].some((key) => !["undefined", "string"].includes(typeof result[key]))) deny();
   if (!tables) return;
   const columns = savedWriteColumns(tables, deny);
@@ -936,7 +961,21 @@ const REPLACE_TABLES = ["tasks", "runs", "gates", "decisions"];
 const replaceWrites = recordedWrites({ schema: 9, tables: REPLACE_TABLES, folder: "replace-requests",
   name: /^[0-9a-f]{64}\.json$/, receiptName: reference => createHash("sha256").update(JSON.stringify(reference)).digest("hex") + ".json", validate: validateReplaceWrite });
 
-const SAVED = { 7: usageWrites, 9: replaceWrites };
+function validatePickupWrite(receipt, tables) {
+  const deny = () => refuse("The saved pick-up is damaged. No table changed.");
+  const { reference, result } = receipt, ids = (value) => Array.isArray(value) && value.every((id) => typeof id === "string");
+  if (!CHIEF.test(reference?.to ?? "") || typeof reference.at !== "string" || result?.at !== reference.at || !Array.isArray(reference.groups) || !Array.isArray(reference.offers)
+    || !reference.groups.every((g) => ["from", "fromProvider", "toProvider", "reason", "since"].every((k) => typeof g?.[k] === "string") && ["tasks", "lost", "queued", "gates"].every((k) => ids(g[k])))
+    || !reference.offers.every((o) => ["task", "id", "to"].every((k) => typeof o?.[k] === "string"))) deny();
+  if (!tables) return;
+  const columns = savedWriteColumns(tables, deny);
+  const rows = Object.fromEntries(Object.entries(tables).map(([table, { before }]) => [table, rowsOf(sheetText(before))]));
+  if (!pickupDelta(receipt, rows) || Object.keys(tables).some((table) => tables[table].after !== tableText(table, rows[table], columns[table]))) deny();
+}
+const pickupWrites = recordedWrites({ schema: 10, tables: PICKUP_TABLES, folder: "pickup-requests",
+  name: /^[0-9a-f]{64}\.json$/, receiptName: reference => createHash("sha256").update(JSON.stringify(reference)).digest("hex") + ".json", validate: validatePickupWrite });
+
+const SAVED = { 7: usageWrites, 9: replaceWrites, 10: pickupWrites };
 function settle(dir) {
   let settled;
   try { settled = settlePendingWrite(dir, SAVED); }
@@ -1595,6 +1634,25 @@ function scopedRead(cmd, pos, opt) {
   return cmd === "task" || (cmd === "board" && opt.view === "task");
 }
 
+function readForm(cmd, pos, opt) {
+  if (Object.keys(opt).some((key) => !["project", "chief", "lead"].includes(key))) return false;
+  const [sub] = pos;
+  if (cmd === "status") return true;
+  if (cmd === "logbook") return sub !== "repair";
+  if (cmd === "standing") return sub !== "add";
+  if (cmd === "finding") return sub === "show" && pos.length === 3;
+  return ["task", "pages", "log"].includes(cmd) && pos.length === 1 && (TASK_ID.test(sub) || (cmd === "log" && sub === "-"));
+}
+const HELP = ["help", "--help"];
+function readsOnly([cmd, ...args]) {
+  if (HELP.includes(cmd)) return true;
+  if (!COMMANDS.includes(cmd)) return false;
+  try {
+    const { pos, opt } = parse(cmd, args);
+    return readForm(cmd, pos, opt) || cmd === "merge-check" || (cmd === "config" && !pos.length);
+  } catch { return false; }
+}
+
 function roleReadProject([cmd, ...args]) {
   try {
     const { pos, opt } = parse(cmd, args);
@@ -1800,6 +1858,7 @@ function planTaskChanges(before, id, changes, at, facts) {
       if (v === "repairing") refuse("start a repair with: sage round <task>");
       const was = task.state;
       move(task, v);
+      if (was === "awaiting-you" && v === "briefed" && !designApproved(facts.gates, task.id)) refuse(`${task.id} moves from awaiting-you to briefed only on the owner's approval of its design. Ask it with a design question: sage gate add ${task.id} --design <the design's page or folder in the task's pages folder> --question "<q>" --recommend 1 --message <file>. The owner's Approve, or Approve with your words, moves ${task.id} to briefed; New version moves it to designing. Nothing changed.`);
       if (["building", "merged", "concluded"].includes(v)) waitsMet(task, graph, `move to ${v}`);
       if (was === "held" && task.hold === "round" && v !== "abandoned") {
         task.extra = String(allowance);
@@ -1830,9 +1889,9 @@ function planTaskChanges(before, id, changes, at, facts) {
         const rows = facts.ledger.filter((r) => r.task === task.id);
         const tip = task.branch && branchTip(facts.project, task.branch, facts.env);
         const head = tip || rows.at(-1)?.sha || refuse(`${task.id} has no verdicts yet`);
-        const checkout = tip ? branchCheckout(storeDir(facts.project, facts.env), facts.project, task.branch, facts.env) : undefined;
+        const dir = storeDir(facts.project, facts.env), checkout = tip ? branchCheckout(dir, facts.project, task.branch, facts.env) : undefined;
         const carry = carryOver(checkout, task, head, rows);
-        const r = judge("", task, facts.findings, decisions, task.id, carry.rows, 1);
+        const r = judge("", task, facts.findings, decisions, task.id, carry.rows, 1, { docs: docsOf(dir, checkout, head) });
         if (!r.ok) refuse(`${task.id} is not verified on ${head.slice(0, 7)}: ${r.reason}`);
       }
       if (["merged", "concluded", "abandoned"].includes(v)) decided.push({ at: at, task: task.id, decision: `state ${v}`, why: (v === "abandoned" && facts.why) || "task set" });
@@ -1904,7 +1963,7 @@ function frame(dir, title, size, risk, add, tags = {}) {
   write(dir, "decisions", [...read(dir, "decisions"), { at: now(), task: task.id, decision: TASK_ADDED, why: "framed" }]);
   return task;
 }
-const tagsOf = (task) => `${task.priority ? ` · ${task.priority}` : ""}${task.kind ? ` · kind ${task.kind}` : ""}${task.milestone ? ` · milestone ${task.milestone}` : task.release ? ` · release ${oneLine(task.release)}` : ""}${task.chief ? ` · chief ${task.chief}` : ""}${offerOf(task) ? ` · offer ${offerOf(task).id} to ${offerOf(task).to} · version ${taskVersion(task)}` : ""}`;
+const tagsOf = (task) => `${task.priority ? ` · ${task.priority}` : ""}${task.kind ? ` · kind ${task.kind}` : ""}${task.milestone ? ` · milestone ${task.milestone}` : task.release ? ` · release ${oneLine(task.release)}` : ""}${task.chief ? ` · chief ${task.chief}` : ""}`;
 const framed = (task) => `${task.id} framed · ${task.size}${task.risk ? ` · risk ${task.risk}` : ""} · route ${task.route}${tagsOf(task)}${task.waits ? ` · waits ${task.waits.replaceAll(",", ", ")}` : ""}`;
 
 function move(task, to) {
@@ -1947,7 +2006,7 @@ const prHistory = (pr, tasks, decisions, ledger) =>
 
 const notFull = (sha) => (/^[0-9a-f]{40}$/i.test(sha) ? "" : `${JSON.stringify(sha)} is not a full commit SHA: a short one can match another commit. Give all 40 characters: git rev-parse <branch>.`);
 
-function judge(dir, task, findings, decisions, id, rows, cycles, repaired, cfg, pr, from, lint) {
+function judge(dir, task, findings, decisions, id, rows, cycles, { repaired, cfg, pr, from, lint, docs } = {}) {
   if (!task) return { ok: false, reason: `${id} is in ${join(dir, "ledger.tsv")} but not in its tasks.tsv: ${repaired ? `tasks.tsv was started again without rows (see decisions.tsv), so the verdicts of ${id} are on a lost task. Push a new commit, and record its verdicts under a task that the logbook has.` : `a stray or damaged logbook. If no project uses it, ask the user to remove ${dir}.`}` };
   const who = task.state === "abandoned" ? `${task.id} (abandoned)` : task.id;
   if (!rows.length && !builds(task)) return { ok: false, reason: `${who} is an investigation, so it has no pull request, but it has PR ${task.pr}: clear its PR (sage task ${task.id} set pr=).` };
@@ -1962,19 +2021,21 @@ function judge(dir, task, findings, decisions, id, rows, cycles, repaired, cfg, 
     ? `${who}: the merge check cannot read the git checkout of the project (${lint.error}), so it cannot tell if origin/main has a root ${LINT_CONFIG}. Run it with --project set to the project's git checkout.`
     : !lint.main ? `${who}: ${visible(lint.top)} has a root ${LINT_CONFIG} but no origin/main, and lint reads its rules only from the tip of origin/main, so no SHA here can get lint-pass. lint needs a remote named origin with a branch named main.`
     : `${who}: ${linted ? "lint-fail" : "no lint-pass"} on this SHA, and origin/main ${lint.main.slice(0, 7)} has a root ${LINT_CONFIG}. ${linted ? "Fix the lines that lint named in a new commit, then lint that commit" : `Run sage lint ${task.id} --sha <sha> on it`}.` };
-  const perCycle = cleanKinds(task);
+  const perCycle = kindsOf(task, docs);
   const want = perCycle.length ? cycles : 1;
-  const clean = perCycle.length ? cleanCycles(task, rows) : 1;
+  const clean = perCycle.length ? cleanCycles(task, rows, docs) : 1;
   if (clean < want) {
     const missing = perCycle.filter((k) => !rows.some((r) => r.kind === k));
     const high = want > LIMIT["cycles.small"] && cycleKeys(task).find((k) => cfg[k] === want);
     return { ok: false, reason: `${who}: ${clean} of ${want} clean cycles on this SHA${high ? ` (${high} is ${want} in config.json; the config command takes 1 to 10)` : ""}${missing.length ? `; never recorded: ${missing.join(", ")}` : ""}. ${from ? `A review or QA verdict on this SHA replaces the carried cycles of ${from}, so this SHA then needs all ${want} clean cycles of its own: run them on this SHA, or run the missing cycles on ${from}.` : "Run the next cycle of its reviews on this SHA and record each verdict."}` };
   }
-  return { ok: true, reason: `${task.id} may merge: ${clean} clean cycle${clean === 1 ? "" : "s"} on this SHA` };
+  return { ok: true, reason: `${task.id} may merge: ${docs?.only ? docsNote(docs) : `${clean} clean cycle${clean === 1 ? "" : "s"} on this SHA`}` };
 }
 
 const cleanKinds = (task) => list(task.route).map((b) => VERDICT[b]).filter((k) => k && k !== "checks-pass");
-const cleanCycles = (task, rows) => [...new Set(rows.map((r) => r.cycle))].filter((c) => cleanKinds(task).every((k) => rows.some((r) => r.cycle === c && r.kind === k))).length;
+const kindsOf = (task, docs) => (docs?.only ? [] : cleanKinds(task));
+const cleanCycles = (task, rows, docs) => [...new Set(rows.map((r) => r.cycle))].filter((c) => kindsOf(task, docs).every((k) => rows.some((r) => r.cycle === c && r.kind === k))).length;
+const docsOf = (dir, checkout, sha) => (checkout === undefined ? null : docsOnly(checkout, sha, jsonObject(join(dir, "config.json"))?.docs_paths));
 
 function carryOver(checkout, task, head, all) {
   const own = all.filter((r) => String(r.sha).toLowerCase() === String(head).toLowerCase());
@@ -2037,13 +2098,8 @@ function cleanMergesOfMain(project, from, head, reviewed) {
   return before === after ? "" : "the pull request's own diff changed (its patch-id is not the same)";
 }
 
-function takenAt(decisions) {
-  for (const d of decisions.filter((d) => / → (?:approve|replace)$/.test(d.decision)).reverse()) {
-    const p = replaceOf({ question: d.decision });
-    if (p && (p.fresh || (!!takeoverCycle && p.toProvider === provider && crossed(p)))) return d.at;
-    if (p && crossed(p)) return "";
-  }
-  return "";
+function takenAt(decisions, id) {
+  return decisions.findLast((d) => ((h) => h && crossed(h) && (d.task === id || h.tasks.includes(id)))(handoverOf(d)))?.at ?? "";
 }
 const olderThan = (since, runs) => (r) => !(Date.parse(r.at) > Date.parse(since)) || (!!r.run && !(Date.parse(runs.find((x) => x.id === r.run)?.started) > Date.parse(since)));
 
@@ -2171,11 +2227,14 @@ function boardLandingCheck(sha, env, logbook, pr, checkout) {
 }
 
 function assessMerge(sha, env, options, logbook = null) {
-  const skipped = [], verdict = judgeMerge(sha, env, options, logbook, skipped);
+  const skipped = [], seen = {}, judged = judgeMerge(sha, env, options, logbook, skipped, seen);
+  const overlap = judged.ok && options.pr && !options.readOnly && options.project !== undefined && mainOverlap(options.pr, String(sha).toLowerCase(), options.project, env);
+  const refused = overlap ? { ok: false, reason: overlap } : judged;
+  const verdict = !refused.ok && seen.docs?.only ? { ok: false, reason: `${refused.reason} ${docsNote(seen.docs)}` } : refused;
   return skipped.length ? { ...verdict, reason: `${verdict.reason} Skipped ${skipped.map(visible).join(", ")}: a saved change is incomplete there, and it has no row for this commit. Any write there finishes it or says what to do.` } : verdict;
 }
 
-function judgeMerge(sha, env, { cycles, pr, readOnly, head, project, locked, session, chief: merger, checkout }, logbook, skipped) {
+function judgeMerge(sha, env, { cycles, pr, readOnly, head, project, locked, session, chief: merger, checkout }, logbook, skipped, seen) {
   let root = sageRoot(env);
   try {
     if (notFull(sha)) return { ok: false, reason: notFull(sha) };
@@ -2190,6 +2249,8 @@ function judgeMerge(sha, env, { cycles, pr, readOnly, head, project, locked, ses
     }
     sha = String(sha).toLowerCase();
     pr &&= prNumber(String(pr));
+    const docsMemo = new Map(), docsAt = (dir) => (docsMemo.has(dir) ? docsMemo : docsMemo.set(dir, docsOf(dir, gitOf(dir), sha))).get(dir);
+    seen.docs = home ? docsAt(home) : logbook !== null ? docsAt(join(root, logbook)) : null;
     const cfg = config(env, home);
     const broken = Object.keys(cfg).find((k) => cfg[k] === "invalid");
     if (broken) return { ok: false, reason: `the merge check refuses every merge, because ${broken} in ${join(root, "config.json")} is not a number. Set it with sage config ${broken}=<n> (a whole number from ${floor(broken)} to 10), or remove the key.` };
@@ -2222,18 +2283,18 @@ function judgeMerge(sha, env, { cycles, pr, readOnly, head, project, locked, ses
       if (head !== undefined && ofPr.size) absent.push(...tasks.filter((t) => !ofPr.has(t.id) && owns(t.id)).map((t) => ({ name: `${visible(dir)} ${t.id}`, how: how(t.id) })));
       const graph = waitGraph(tasks, book ? rowsOf(book.milestones) : [], book ? rowsOf(book.gates) : [], decisions);
       const chief = basename(dir) !== mine ? undefined : merger ?? (session !== undefined ? chiefFor(project, session, env) : undefined);
-      const lint = lintNeed(gitOf(dir)), shut = archivedIn(dir);
+      const lint = lintNeed(gitOf(dir)), shut = archivedIn(dir), docs = docsAt(dir);
       const checked =[...new Set([...rows.map((r) => r.task), ...ofPr])].map((id) => {
         const task = byId.get(id), carry = carryOver(gitOf(dir), task, sha, ledgerOf.get(id) ?? []), own = carry.rows;
         const held = task?.state === "held" && { ok: false, reason: `${id} is held: only the sage moves a held task, and it does not merge until then.` };
-        const judged = judge(dir, task, findingsOf.get(id) ?? [], decisionsOf.get(id) ?? [], id, own, task ? Math.max(cycles ?? 0, cyclesFor(task, cfg)) : cycles, repaired, cfg, pr, carry.from, lint);
+        const judged = judge(dir, task, findingsOf.get(id) ?? [], decisionsOf.get(id) ?? [], id, own, task ? Math.max(cycles ?? 0, cyclesFor(task, cfg)) : cycles, { repaired, cfg, pr, from: carry.from, lint, docs });
         const note = carry.from ? `cycles from ${carry.from} carried to ${sha}: clean merge of main, same patch-id` : carry.why;
         const verdict = !note ? judged : judged.ok ? (carry.from ? { ...judged, reason: judged.reason.replace(/ on this SHA$/, `, ${note}`) } : judged) : { ...judged, reason: `${judged.reason} ${carry.from ? `(${note})` : note}` };
         const live = (runsOf.get(id) ?? []).filter((r) => LIVE.includes(r.status) && CHECKERS.includes(r.role)).map((r) => `${r.id} (${r.role}${r.status === "queued" ? ", queued" : ""})`);
         const busy = verdict.ok && live.length > 0 && { ok: false, reason: `${id} has a review or QA run that still runs: ${live.join(", ")}. End it with its report's findings recorded, then check again.` };
         const bar = candidateBar(task ?? { id }, head ?? task?.branch, candidates, runsOf.get(id) ?? []), arena = bar && { ok: false, reason: bar };
-        const since = verdict.ok && task && takenAt(decisionsOf.get(id) ?? []), older = since && olderThan(since, runsOf.get(id) ?? []);
-        const fresh = since && !cleanCycles(task, own.filter((r) => !older(r))) && { ok: false, reason: `${id} came from a chief of another provider through a takeover gate (${since}), so the cycles before that do not merge it alone: ${takeoverCycle ? takeoverCycle(id) : "its owning chief runs one cycle of its reviews and QA on this SHA, and records each verdict"}.` };
+        const since = verdict.ok && task && takenAt(decisions, id), older = since && olderThan(since, runsOf.get(id) ?? []);
+        const fresh = since && !cleanCycles(task, own.filter((r) => !older(r)), docs) && { ok: false, reason: `${id} came from a chief of another provider (${since}, by a takeover gate or a pick-up), so the cycles before that do not merge it alone: ${takeoverCycle ? takeoverCycle(id) : "its owning chief runs one cycle of its reviews and QA on this SHA, and records each verdict"}.` };
         const notOwn = chief && task && liveBar(dir, task, chief), owner = notOwn && { ok: false, reason: notOwn };
         const archived = shut && { ok: false, reason: mine !== undefined && basename(dir) !== mine
           ? `${id} is in the logbook ${visible(basename(dir))}, and that project is archived, so ${id} does not merge: an archived project merges nothing. A chat restores only its own project, so do not restore that one from here. To merge the change, push a new commit, and record its verdicts only under this project's tasks. If the owner wants that project back, the owner restores it on the board or in that project's own chat.`
@@ -2274,7 +2335,7 @@ function judgeMerge(sha, env, { cycles, pr, readOnly, head, project, locked, ses
     });
     const one = strangers.length === 1;
     if (strangers.length) return { ok: false, reason: `${strangers.map(visible).join(" and ")} ${one ? "has" : "have"} verdicts on ${sha.slice(0, 7)} but ${one ? "is" : "are"} not in the known project list (${join(root, "projects.tsv")}), so the merge check refuses: a logbook that init did not make may be forged. init adds only a project's own logbook folder, so it does not help here. If ${one ? "it is" : "one is"} a project's logbook under another name (a renamed folder or a link), ask the user to give the folder back its own name, or to run ${REBUILD} and check each folder that it prints. If no project uses ${one ? "it" : "one"}, ask the user to remove it.` };
-    if (!each.length) return { ok: false, reason: `no verdicts recorded for ${sha}. Record the reviews and QA with sage verdict first.` };
+    if (!each.length) return { ok: false, reason: `no verdicts recorded for ${sha}. ${seen.docs?.only ? "Record checks-pass on it." : "Record the reviews and QA with sage verdict first."}` };
     if (pr && !each.some((r) => r.ofPr)) return { ok: false, reason: `no task of PR ${pr}${mine === undefined ? "" : ` in this project's logbook (${visible(mine)})`} has verdicts on ${sha.slice(0, 7)}: only ${each.map((r) => `${visible(r.dir)} ${r.id}`).join(", ")} ${each.length === 1 ? "has" : "have"}. Record PR ${pr}'s verdicts under its own task (sage verdict <T> --sha <sha> --pr ${pr}), or set its PR: sage task <T> set pr=${pr}.` };
     const strays = head === undefined ? [] : each.filter((r) => r.ofPr && !r.owns);
     if (strays.length && each.every((r) => r.ok)) {
@@ -2338,12 +2399,11 @@ function status(dir, save) {
   const graph = shownGraph(waitGraph(tasks, read(dir, "milestones"), all, read(dir, "decisions")), all);
   const count = {};
   for (const t of tasks) count[t.state] = (count[t.state] ?? 0) + 1;
-  const tokens = runs.reduce((n, r) => n + (r.status === "done" && tokenCount(r.tokens) ? Number(r.tokens) : 0), 0);
   const lines = [
     `sage · ${shownName({ name: basename(dir), ...logbookIdentity(dir) })} · ${now().slice(11, 16)} UTC`,
     `tasks   ${tasks.length}${Object.entries(count).map(([s, n]) => ` · ${s} ${n}`).join("")}`,
     `gates   ${gates.length} open${gates.map((g) => ` · ${g.id} ${gateShort(g, graph)} (default: ${g.default || "none"})`).join("")}${board.length ? ` · ${board.length} answered on the board, not picked up yet${board.map((g) => ` · ${g.id} ${gateShort(g, graph)} (board answer: ${visible(pendingOf(g).answer)})`).join("")}` : ""}`,
-    `agents  ${runs.length} runs · ${runs.filter((r) => r.status === "running").length} running${queueOrder(runs).length ? ` · ${queueOrder(runs).length} queued` : ""} · about ${Math.round(tokens / 1000)}k tokens · ${usageSummary(runs)}`,
+    `agents  ${runs.length} runs · ${runs.filter((r) => r.status === "running").length} running${queueOrder(runs).length ? ` · ${queueOrder(runs).length} queued` : ""} · about ${spendText(runs, (n) => `${Math.round(n / 1000)}k`)} · ${usageSummary(runs)}`,
   ];
   const waiting = tasks.filter((t) => !ENDED.includes(t.state)).map((t) => [t, shownOpen(t, graph)]).filter(([, open]) => open.length);
   if (waiting.length) lines.push(`waits   ${waiting.length} waiting${waiting.map(([t, open]) => ` · ${t.id} for ${waitList(open)}`).join("")}`);
@@ -2355,8 +2415,7 @@ function status(dir, save) {
   for (const r of runs) (runsOf.get(r.task) ?? runsOf.set(r.task, []).get(r.task)).push(r);
   lines.push(...tasks.map(t => {
     const own = runsOf.get(t.id) ?? [];
-    const measured = own.reduce((n, r) => n + (r.status === "done" && tokenCount(r.tokens) ? Number(r.tokens) : 0), 0);
-    return `usage ${t.id} · ${measured} measured tokens · ${usageSummary(own)}`;
+    return `usage ${t.id} · ${spendText(own)} · ${usageSummary(own)}`;
   }));
   const table = ["", "| Task | State | Size | Round | PR | Title |", "| --- | --- | --- | --- | --- | --- |", ...tasks.map((t) => `| ${t.id} | ${t.state} | ${t.size} | ${t.round} | ${t.pr} | ${t.title} |`)];
   if (save) put(join(dir, "status.md"), [`# ${lines[0]}`, "", ...lines.slice(1).map((l) => `    ${l}`), ...table].join("\n") + "\n");
@@ -2373,25 +2432,25 @@ function stats(dir, only) {
   const cycles = new Map();
   for (const l of read(dir, "ledger")) if (l.run && !cycles.has(`${l.task}\t${l.run}`)) cycles.set(`${l.task}\t${l.run}`, l.cycle);
   const whole = (v) => (/^(0|[1-9]\d*)$/.test(v ?? "") ? Number(v) : undefined);
-  const tokens = (v) => (/^[1-9]\d{0,11}$/.test(v ?? "") ? Number(v) : 0);
-  const tokensOf = (rs) => rs.reduce((n, r) => n + (r.status === "done" ? tokens(r.tokens) : 0), 0);
+  const measured = (rs) => measureTotals(rs.filter((r) => r.status === "done"));
   const k = (n) => `${Math.round(n / 1000)}k`;
   const esc = (v) => String(v).replace(/\|/g, "\\|");
+  const others = (m) => Object.entries(m.providers).map(([p, o]) => ` · ${esc(p)} own count ${k(o.tokens)}`).join("");
   const counts = (values) => [...values.reduce((m, v) => m.set(v, (m.get(v) ?? 0) + 1), new Map())].sort(([a], [b]) => (a < b ? -1 : 1)).map(([v, n]) => `${esc(v)}: ${n}`).join(" · ") || "none";
   const rows = tasks.map((t) => {
     const own = runs.get(t.id) ?? [], found = findings.get(t.id) ?? [];
     const cycle = (f) => { const c = f.run && cycles.get(`${t.id}\t${f.run}`); return c ? `cycle ${c}` : "none"; };
-    return { t, own, found, tokens: tokensOf(own), later: tokensOf(own.filter((r) => whole(r.round) >= 1)), round: whole(t.round || "0"), cycle };
-  }).sort((a, b) => b.tokens - a.tokens);
+    return { t, own, found, m: measured(own), later: measured(own.filter((r) => whole(r.round) >= 1)), round: whole(t.round || "0"), cycle };
+  }).sort((a, b) => b.m.weighted - a.m.weighted);
   const sum = (f) => rows.reduce((n, r) => n + f(r), 0);
   if (!sum((r) => r.own.length + r.found.length)) return "No review runs yet.\nData starts when a review or QA run ends with run done <R> --status done --tokens <n>, and its findings name it with finding add --run <R>.";
-  const more = rows.length - TOP;
+  const more = rows.length - TOP, all = measured(rows.flatMap((r) => r.own)), peak = (m) => (m.peak === null ? "none" : k(m.peak));
   return [
-    "Tokens in thousands (k), of done runs only. A round is one repair of findings; after round 0 counts the runs of round 1 and later. A cycle is one set of reviews and QA on one head commit.",
-    `total · ${rows.length} tasks · ${sum((r) => r.own.length)} review runs (${sum((r) => r.own.filter((x) => x.status === "done" && !tokens(x.tokens)).length)} done without tokens) · ${k(sum((r) => r.tokens))} tokens · ${k(sum((r) => r.later))} after round 0 · ${sum((r) => r.round ?? 0)} rounds · ${sum((r) => r.found.length)} findings`,
+    "Tokens in thousands (k), of done runs only. Weighted is the run's summed usage over all its API calls, weighted by price, from its transcript; a run without one has no weighted count. Peak context is the largest context of one API call, the count that run done --tokens records. A provider's own count is its own measure, never added to weighted. A round is one repair of findings; after round 0 counts the runs of round 1 and later. A cycle is one set of reviews and QA on one head commit.",
+    `total · ${rows.length} tasks · ${sum((r) => r.own.length)} review runs (${all.uncounted} done without a weighted count) · ${k(all.weighted)} weighted · ${k(sum((r) => r.later.weighted))} after round 0 · peak context ${peak(all)}${others(all)} · ${sum((r) => r.round ?? 0)} rounds · ${sum((r) => r.found.length)} findings`,
     "",
-    "| Task | Review runs | Review tokens | After round 0 | Rounds | Findings by role | Findings by cycle | Usage |", "| --- | --- | --- | --- | --- | --- | --- | --- |",
-    ...rows.slice(0, TOP).map((r) => `| ${esc(r.t.id)} | ${r.own.length} | ${k(r.tokens)} | ${k(r.later)} | ${r.round ?? "invalid"} | ${counts(r.found.map((f) => f.source))} | ${counts(r.found.map(r.cycle))} | ${usageSummary(r.own)} |`),
+    "| Task | Review runs | Weighted | After round 0 | Peak context | Rounds | Findings by role | Findings by cycle | Usage |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ...rows.slice(0, TOP).map((r) => `| ${esc(r.t.id)} | ${r.own.length} | ${k(r.m.weighted)}${others(r.m)} | ${k(r.later.weighted)} | ${peak(r.m)} | ${r.round ?? "invalid"} | ${counts(r.found.map((f) => f.source))} | ${counts(r.found.map(r.cycle))} | ${usageSummary(r.own)} |`),
     "", `usage total · ${usageSummary(rows.flatMap(r => r.own))}`,
     ...(rows.some(r => usageSummary(r.own).startsWith("partial")) ? ["Partial totals do not establish which task cost less."] : []),
     ...(more > 0 ? ["", `${more} more tasks not shown; use --task <T>`] : []),
@@ -2429,9 +2488,10 @@ function logbookView(project, env = process.env, { max = Infinity } = {}) {
     cleanCycles: (id, sha) => {
       const task = one(rows("tasks").filter((t) => t.id === id));
       if (!task) return 0;
-      const carry = carryOver(branchCheckout(dir, project, task.branch, env), task, sha, rows("ledger").filter((r) => r.task === id));
-      if (carry.from && !judge(dir, task, rows("findings"), rows("decisions"), id, carry.rows, 1).ok) return 0;
-      return cleanKinds(task).length ? cleanCycles(task, carry.rows) : null;
+      const checkout = branchCheckout(dir, project, task.branch, env), docs = docsOf(dir, checkout, sha);
+      const carry = carryOver(checkout, task, sha, rows("ledger").filter((r) => r.task === id));
+      if (carry.from && !judge(dir, task, rows("findings"), rows("decisions"), id, carry.rows, 1, { docs }).ok) return 0;
+      return kindsOf(task, docs).length ? cleanCycles(task, carry.rows, docs) : null;
     },
     endedLeadRuns: () => rows("runs").filter((r) => r.role === "lead" && RUN_ENDS.includes(r.status)),
     prTasks: (pr) => prHistory(prNumber(pr), rows("tasks"), rows("decisions"), rows("ledger")),
@@ -2443,7 +2503,7 @@ function fileOrNone(file) {
   const st = lstatSync(file, { throwIfNoEntry: false });
   if (st && !st.isFile()) refuse(`${file} is ${st.isSymbolicLink() ? "a link" : st.isDirectory() ? "a folder" : st.isFIFO() ? "a named pipe" : st.isSocket() ? "a socket" : "a device"}, not a regular file, so config writes nothing. Replace it with a regular file.`);
 }
-const ownKey = (kv) => /^(name|archived|start|lint_offer|commit_email|commit_name)(=|$)/.test(kv);
+const ownKey = (kv) => /^(name|archived|start|lint_offer|commit_email|commit_name|docs_paths)(=|$)/.test(kv);
 
 function jsonObject(file) {
   try {
@@ -2463,7 +2523,7 @@ function logbookConfig(dir, pairs) {
   const set = {};
   for (const kv of pairs) {
     const at = kv.indexOf("="), k = at < 0 ? kv : kv.slice(0, at), v = at < 0 ? undefined : kv.slice(at + 1);
-    if (!ownKey(kv)) refuse(`"${visible(k)}" is a key for all projects, and name=, archived=, start=, lint_offer=, commit_email= and commit_name= are keys of one logbook: set them in a config command of their own.`);
+    if (!ownKey(kv)) refuse(`"${visible(k)}" is a key for all projects, and name=, archived=, start=, lint_offer=, commit_email=, commit_name= and docs_paths= are keys of one logbook: set them in a config command of their own.`);
     if (v === undefined) refuse(`${k} needs a value: write ${k}=<value>`);
     if (k === "name") {
       const name = v.normalize("NFC"), why = name && nameProblem(name);
@@ -2472,13 +2532,16 @@ function logbookConfig(dir, pairs) {
     } else if (k === "lint_offer") set.lint_offer = v === "never" ? v : v === "ask" ? undefined : refuse(`lint_offer is never or ask, not "${visible(v)}". Nothing changed.`);
     else if (k === "commit_email") set.commit_email = !v ? undefined : COMMIT_EMAIL.test(v) ? v : refuse(`commit_email is one email address with no space, quote or $, such as 12345+name@users.noreply.github.com, not "${visible(v)}". Nothing changed.`);
     else if (k === "commit_name") set.commit_name = !v.trim() ? undefined : COMMIT_NAME.test(v.trim()) ? v.trim() : refuse(`commit_name is 1 to 100 characters with no control character, single quote, < or >, not "${visible(v)}". Nothing changed.`);
-    else if (k === "start") set.start = v === START_SAGE_MODE ? v : v === "normal" ? undefined : refuse(`start is ${START_SAGE_MODE} or normal, not "${visible(v)}". Nothing changed.`);
+    else if (k === "docs_paths") {
+      const globs = globsOf(v).join(","), why = docsPathsProblem(globs);
+      set.docs_paths = why ? refuse(`docs_paths only adds to the documentation files (${DOCS_RULE}), and ${why}. Nothing changed.`) : globs || undefined;
+    } else if (k === "start") set.start = v === START_SAGE_MODE ? v : v === "normal" ? undefined : refuse(`start is ${START_SAGE_MODE} or normal, not "${visible(v)}". Nothing changed.`);
     else set.archived = v === "yes" ? true : v === "no" ? undefined : refuse(`archived is yes or no, not "${visible(v)}". Nothing changed.`);
   }
   const was = logbookJson(dir), next = { ...was, ...set };
   for (const k of Object.keys(set)) if (set[k] === undefined) delete next[k];
   swap(join(dir, "config.json"), JSON.stringify(next, null, 2) + "\n");
-  const line = `name=${visible(typeof next.name === "string" ? next.name : "")} archived=${next.archived === true ? "yes" : "no"} start=${next.start === START_SAGE_MODE ? START_SAGE_MODE : "normal"}${next.lint_offer === "never" ? " lint_offer=never" : ""}${next.commit_email ? ` commit_email=${visible(next.commit_email)}` : ""}${next.commit_name ? ` commit_name=${visible(next.commit_name)}` : ""}`;
+  const line = `name=${visible(typeof next.name === "string" ? next.name : "")} archived=${next.archived === true ? "yes" : "no"} start=${next.start === START_SAGE_MODE ? START_SAGE_MODE : "normal"}${next.lint_offer === "never" ? " lint_offer=never" : ""}${next.commit_email ? ` commit_email=${visible(next.commit_email)}` : ""}${next.commit_name ? ` commit_name=${visible(next.commit_name)}` : ""}${next.docs_paths ? ` docs_paths=${visible(next.docs_paths)}` : ""}`;
   return Object.hasOwn(set, "archived") ? [line, archiveChange(dir, was.archived === true, set.archived === true)].join("\n") : line;
 }
 function archiveChange(dir, was, archiving) {
@@ -2502,13 +2565,8 @@ function folderHere() {
   }
 }
 
-const oldWord = (cmd, rest) => {
-  if (cmd === "program") return "milestone";
-  if (cmd !== "release") return undefined;
-  try { return TASK_ID.test(parse(cmd, rest).pos[0] ?? "") ? "unclaim" : undefined; } catch { return undefined; }
-};
 function sage(argv, env = process.env) {
-  const [cmd, ...rest] = argv, old = [], newCmd = oldWord(cmd, rest);
+  const [cmd, ...rest] = argv, old = [], newCmd = cmd === "program" ? "milestone" : undefined;
   const words = [newCmd ? (old.push(`${cmd} is ${newCmd} now`), newCmd) : cmd, ...rest.map((word, i) => {
     if (/^--program(?:=|$)/.test(word)) return old.push("--program is --milestone now"), word.replace("--program", "--milestone");
     if (cmd === "task" && rest[1] === "set" && i > 1 && word.startsWith("program=")) return old.push("program= is milestone= now"), `milestone=${word.slice(8)}`;
@@ -2519,12 +2577,13 @@ function sage(argv, env = process.env) {
 }
 function sageCommand(argv, env) {
   const [cmd, ...rest] = argv;
-  if (!COMMANDS.includes(cmd)) refuse(`unknown command "${cmd ?? ""}". Commands: ${COMMANDS.join(", ")}`);
+  if (HELP.includes(cmd)) return `Commands: ${COMMANDS.join(", ")}. The sage skill's references/commands.md gives the rules of each command.`;
+  if (!COMMANDS.includes(cmd)) refuse(`unknown command "${cmd ?? ""}". Commands: ${COMMANDS.join(", ")}${GONE.includes(cmd) ? `\n${cmd} is gone: give up your own task with unclaim <T>; the work of a stopped session and a task with no owning chief pass on by the pick-up; a task of a live chief moves only through the owner's takeover gate (gate replace <T> --to C<n>).` : ""}`);
   const { pos, opt } = parse(cmd, rest);
   if (cmd === "prior-art") return priorArtCommand(pos, opt, env, refuse);
   const readOnly = scopedRead(cmd, pos, opt);
   const root = sageRoot(env), project = resolve(opt.project ?? env.SAGE_PROJECT ?? folderHere());
-  if ((opt.chief !== undefined || opt.lead !== undefined || chiefOnly(cmd, pos)) && !locate(project, env).shared) refuse(chiefOnly(cmd, pos) && cmd !== "claim" ? `${visible(project)} has no shared logbook, so it has no chiefs to hand a task to. Nothing changed.` : `${visible(project)} has no shared logbook, and only a shared logbook has chiefs: leave out --chief and --lead, and a task here needs no claim. Nothing changed.`);
+  if ((opt.chief !== undefined || opt.lead !== undefined || chiefOnly(cmd, pos)) && !locate(project, env).shared) refuse(chiefOnly(cmd, pos) ? `${visible(project)} has no shared logbook, so it has no chiefs to hand a task to. Nothing changed.` : `${visible(project)} has no shared logbook, and only a shared logbook has chiefs: leave out --chief and --lead. Nothing changed.`);
   if (cmd === "board") {
     const hex = opt["name-hex"];
     if (pos.length > 1 || (hex !== undefined && unhex(hex) === undefined))
@@ -2537,7 +2596,7 @@ function sageCommand(argv, env) {
       const folder = opt.project ?? env.PWD;
       const located = () => { try { return storeDir(folder, env); } catch (e) { if (readOnly) throw e; return null; } };
       const dir = !env.SAGE_BOARD_ROOTS && folder ? located() : null, key = dir && `${isShared(dir, env) ? "shared" : "current"}/${basename(dir)}`;
-      return boardView({ sources, scope, project: folder, logbookKey: readOnly ? key : null, here: key?.startsWith("shared/") ? key : null, providerRoots: sessionRoots(root, legacyRoots(env), provider), taskId: /^T[1-9]\d*$/.test(pos[0] ?? "") ? pos[0] : null, format: opt.view ?? "chat" });
+      return boardView({ sources, scope, project: folder, logbookKey: readOnly ? key : null, here: key?.startsWith("shared/") ? key : null, providerRoots: sessionRoots(root, legacyRoots(env), provider), taskId: /^T[1-9]\d*$/.test(pos[0] ?? "") ? pos[0] : null, format: opt.view ?? "chat", port: boardPort(env) });
     } catch (error) { refuse(error.message); }
   }
   if (!readOnly && statSync(root, { throwIfNoEntry: false })?.isDirectory() && ["projects.tsv", "projects.made"].every((f) => !lstatSync(join(root, f), { throwIfNoEntry: false }))) known(root);
@@ -2595,7 +2654,7 @@ function sageCommand(argv, env) {
     const printed = visible(project);
     refuse(`no logbook for the project ${printed}. ${printed === project ? `Run: sage init --project ${shell(project)}` : "Its path has control characters, so no command is printed to paste. Rename the folder, or run sage init from inside it."}`);
   }
-  if (readOnly || (cmd === "logbook" && !repair) || cmd === "status" || cmd === "stats" || (cmd === "standing" && pos[0] !== "add") || (cmd === "pages" && pos[1] !== "record") || cmd === "message" || cmd === "worktrees" || (cmd === "storage" && pos[0] !== "clean")) return act(cmd, pos, opt, dir, env, [], project);
+  if (readOnly || readForm(cmd, pos, opt) || cmd === "stats" || (cmd === "pages" && pos[1] !== "record") || cmd === "message" || cmd === "worktrees" || (cmd === "storage" && pos[0] !== "clean")) return act(cmd, pos, opt, dir, env, [], project);
   notePlugin(env);
   if (place.row && !place.row.commits && fillCommits(place.checkout, env)) locate(project, env);
   const run = () => change(cmd, pos, opt, dir, env, skip, project, place.shared);
@@ -2640,16 +2699,47 @@ function lostChangeLine(dir, { request, aside }) {
   }
 }
 
+function pickup(dir, to, env) {
+  if (!CHIEF.test(to ?? "") || !chiefs(dir).some((r) => r.id === to)) return "";
+  let probe;
+  const plan = pickupPlan({ to, chiefs: chiefs(dir), rows: Object.fromEntries(PICKUP_TABLES.map((t) => [t, read(dir, t)])), now: now(),
+    records: (chief) => readLiveRecord(dir, chief), probe: () => (probe === undefined ? (probe = sessionProbe(dir, env)) : probe),
+    released: (task) => heldLast(dir, task).released, moved: (task) => heldLast(dir, task).moved });
+  if (!plan) return "";
+  const rows = Object.fromEntries(PICKUP_TABLES.map((t) => [t, read(dir, t)])), receipt = { reference: plan, result: { at: plan.at } };
+  pickupDelta(receipt, rows);
+  pickupWrites.commit(dir, receipt, Object.fromEntries(PICKUP_TABLES.map((t) => [t, tableText(t, rows[t])])));
+  const lost = plan.groups.flatMap((g) => g.lost);
+  return [...plan.groups.map((g) => `sage: ${pickupText(g, to)}.`), ...(plan.offers.length ? [`sage: open offers ended: ${plan.offers.map((o) => `${o.task} (${o.id})`).join(", ")}.`] : []),
+    `sage: tell the owner in one line what passed to ${to}${lost.length ? `, and start each lost run again now (${lost.join(", ")}), within the agent limit` : ""}.`].join("\n");
+}
+
+function stoppedSessions(project, env = process.env) {
+  const { dir, shared } = locate(project, env);
+  if (!shared) return [];
+  const rows = { runs: read(dir, "runs"), gates: read(dir, "gates") }, nowMs = Date.now();
+  let probe;
+  const once = () => (probe === undefined ? (probe = sessionProbe(dir, env)) : probe);
+  return chiefs(dir).filter((r) => r.provider === provider && stoppedState({ id: r.id, rows, record: readLiveRecord(dir, r.id), nowMs, probe: once })).map((r) => r.native);
+}
+
 function change(cmd, pos, opt, dir, env, skip, project, guarded) {
   const changeLoss = opt["accept-change-loss"] !== undefined;
   return withLock(dir, () => {
     if (!changeLoss) ready(dir, env, skip);
-    if (guarded) opt.chief = guard(dir, cmd, pos, opt, project, env);
-    if (!changeLoss && !skip.length && isShared(dir, env)) moveLimits(dir, env, cmd === "init");
-    const out = act(cmd, pos, opt, dir, env, skip, project);
-    checkout(dir, project, env);
-    if (!changeLoss) status(dir, true);
-    return out;
+    const picked = guarded && !changeLoss && !skip.length && opt.lead === undefined && writerClass(cmd, pos).kind !== "read" ? pickup(dir, opt.chief, env) : "";
+    try {
+      if (guarded) opt.chief = guard(dir, cmd, pos, opt, project, env);
+      if (shutByArchive(dir, cmd, pos)) refuse(ARCHIVED_OWNER);
+      if (!changeLoss && !skip.length && isShared(dir, env)) moveLimits(dir, env, cmd === "init");
+      const out = picked && cmd === "pickup" ? picked : act(cmd, pos, opt, dir, env, skip, project);
+      checkout(dir, project, env);
+      if (!changeLoss) status(dir, true);
+      return picked && cmd !== "pickup" ? `${out}\n${picked}` : out;
+    } catch (error) {
+      if (picked && error instanceof Refusal) error.message = `${error.message}\n${picked}`;
+      throw error;
+    }
   });
 }
 
@@ -2660,8 +2750,9 @@ function chiefLabel(dir, id) {
 function ownerBar(dir, task, chief, lead = false) {
   if (task.chief === chief) return "";
   const report = "Report this to your chief: a lead writes only while its chief owns the task.";
-  if (!task.chief) return `${task.id} has no owning chief, so ${chief} cannot change it. ${lead ? `Nothing changed. ${report}` : `Claim it first: ${claimStep(task.id, taskVersion(task), chief)}. Nothing changed.`}`;
-  return `${task.id} belongs to chief ${chiefLabel(dir, task.chief)}, not to ${chief}. Nothing changed. ${lead ? report : `Change only your own tasks. To take ${task.id}, ask ${task.chief} to offer it to you, or open a takeover gate for the owner to answer: ${replaceStep(task.id, chief)}.`}`;
+  const moved = !task.chief && !lead && heldLast(dir, task).moved;
+  if (!task.chief) return `${task.id} has no owning chief, so ${chief} cannot change it. ${lead ? `Nothing changed. ${report}` : moved ? `Nothing changed. It came in the move from the ${moved} logbook, so the next pick-up of a ${moved} chief takes it. To take it, open a takeover gate for the owner to answer: ${replaceStep(task.id, chief)}.` : `Nothing changed. ${chief} unclaimed it, so the next pick-up of another chief takes it. To get it back, open a takeover gate for the owner to answer: ${replaceStep(task.id, chief)}.`}`;
+  return `${task.id} belongs to chief ${chiefLabel(dir, task.chief)}, not to ${chief}. Nothing changed. ${lead ? report : `Change only your own tasks. A live chief keeps its work; to take ${task.id}, open a takeover gate for the owner to answer: ${replaceStep(task.id, chief)}.`}`;
 }
 const liveBar = (dir, task, chief) => (ENDED.includes(task.state) ? "" : ownerBar(dir, task, chief));
 function sessionBar(project, id, native, env = process.env) {
@@ -2683,15 +2774,10 @@ function branchBar(project, branch, native, env = process.env) {
 const activeRuns = (dir, id) => read(dir, "runs").filter((r) => r.task === id && !RUN_ENDS.includes(r.status));
 function runsBar(dir, task, what, chief) {
   const active = activeRuns(dir, task.id).map((r) => r.id);
-  const replace = what === "accept" ? replaceStep(task.id, chief) : `open one that names the chief that goes on with ${task.id}`;
+  const replace = `open one that names the chief that goes on with ${task.id}`;
   if (active.length) refuse(`${task.id} has ${active.join(", ")} active, so it takes no ${what} yet: a transfer waits for each active run to end. Nothing changed. Run this again after they end. A run that never ends, such as one of unknown status, ends only through a takeover gate that the owner answers: ${replace}.`);
 }
 const ownership = (dir, task, decision, why) => write(dir, "decisions", [...read(dir, "decisions"), { at: now(), task, decision: `${task} ${decision}`, why }]);
-function exactOffer(task, id) {
-  const open = offerOf(task);
-  if (open?.id !== need(id, "--offer with the offer's id")) refuse(`${task.id} has ${open ? `the open offer ${open.id}, not ${visible(id)}` : `no open offer ${visible(id)}`}, and an offer that was cancelled never comes back. Nothing changed. Read ${task.id} for its open offer. If it has none, ask its owning chief for a new offer.`);
-  return open;
-}
 function chiefNamed(dir, to) {
   need(to, "--to with a chief id, for example --to C2");
   if (!chiefs(dir).some((r) => r.id === to)) refuse(`${visible(to)} is not a chief of this logbook (${join(dir, "chiefs.tsv")}). A session gets its id at its first write. Nothing changed. Use an id from that file: each row is one chief, with its provider.`);
@@ -2732,11 +2818,37 @@ function applyAnswer(dir, gates, g, answer, { answered, picked }, opt, project, 
   Object.assign(g, { answer, ...marks });
   const adopted = g.kind === LINT_GATE && answer === OFFER_OPTIONS[0] ? adoptTask(dir, g, opt, project, env) : "";
   if (g.kind === LINT_GATE && answer === OFFER_OPTIONS[2]) logbookConfig(dir, ["lint_offer=never"]);
+  const designed = g.kind === DESIGN_GATE ? designOutcome(dir, g, answer, picked.at, env) : undefined;
   write(dir, "gates", gates);
-  write(dir, "decisions", [...read(dir, "decisions"), { at: picked.at, task: g.task, decision: `${g.question} → ${answer}`, why: answer.startsWith("other: ") ? "the user's own words" : "the user's answer" }]);
+  const own = answer.startsWith("other: ") || answerOption(DESIGN_OPTIONS, answer) === 1;
+  write(dir, "decisions", [...read(dir, "decisions"), { at: picked.at, task: g.task, decision: `${g.question} → ${answer}`, why: own ? "the user's own words" : "the user's answer" }, ...(designed ? [{ at: picked.at, task: g.task, decision: `${g.id} design: ${designed}`, why: "the user's answer to a design question" }] : [])]);
   const kept = g.kind === "replace" && read(dir, "tasks").find((t) => t.id === g.task);
   if (kept) return `${g.id} answered · ${answer} · nothing replaced: ${kept.id} keeps ${kept.chief ? `its chief ${kept.chief}` : "no owning chief"}, and no run ended. ${g.id} is spent: to change the chief, open a new takeover gate.`;
-  return `${g.id} answered · ${answer}${adopted}`;
+  return `${g.id} answered · ${answer}${adopted}${designed ? ` · ${designed}` : ""}`;
+}
+const lastDesignGate = (gates, task) => gates.filter((g) => g.kind === DESIGN_GATE && g.task === task).at(-1);
+const designApproved = (gates, task) => [0, 1].includes(answerOption(DESIGN_OPTIONS, lastDesignGate(gates, task)?.answer));
+function designGate(dir, project, id, opt, env) {
+  if (id === undefined) refuse(`a design question belongs to its task: sage gate add <T> --design <the design's page or folder> --question "<q>" --recommend 1 --message <file>. Nothing changed.`);
+  if (opt.options !== undefined) refuse(`a design question has three fixed choices (${DESIGN_OPTIONS.join(", ")}), so it takes no --options. Nothing changed.`);
+  const task = taskOf(dir, id).task.id, design = String(opt.design);
+  if (!designPathOk(design)) refuse(`--design names the design's page or folder in ${task}'s pages folder, for example designs/final or R12-final.html: 1 to ${PAGE_DEPTH} parts of letters, digits and . _ - (none that starts with a dot or holds ..), a page ending in .${Object.keys(PAGE_TYPES).join(", .")}. Nothing changed.`);
+  const { problem } = designFiles(basename(dir), task, design, env);
+  if (problem) refuse(`--design ${visible(design)} cannot be copied when the owner approves it: ${problem}. Save the design in the pages folder that sage pages ${task} prints, then ask again. Nothing changed.`);
+  return design;
+}
+function designAnswerText(g, option, words) {
+  const n = /^[1-3]$/.test(String(option ?? "")) ? Number(option) : 0;
+  if (!n || (n === 2) !== (words !== undefined)) refuse(`${g.id} is a design question, so its answer is one of its three choices: --option 1 (${DESIGN_OPTIONS[0]}), --option 2 with --other-hex <the owner's words, as the hex of their UTF-8 bytes> (${DESIGN_OPTIONS[1]}), or --option 3 (${DESIGN_OPTIONS[2]}). Words go only with choice 2: after choice 2, ask the owner for the words. Nothing changed.`);
+  return n === 2 ? withWords(need(words, "the owner's words: --other-hex gives only spaces")) : DESIGN_OPTIONS[n - 1];
+}
+function designOutcome(dir, g, answer, at, env) {
+  const choice = answerOption(DESIGN_OPTIONS, answer), tasks = read(dir, "tasks"), task = tasks.find((t) => t.id === g.task), to = choice === 2 ? "designing" : "briefed";
+  const moved = task?.state === "awaiting-you" ? (task.state = to, write(dir, "tasks", tasks), `${task.id} awaiting-you → ${to}`) : `${g.task} stays ${task?.state ?? "unknown"}`;
+  if (choice === 2) return `${moved} · nothing copied: the owner asked for a new version`;
+  let design;
+  try { design = jsonCell(readRegular(gateMessageFile(dir, g.id), { link: false, max: KEPT_FILE_MAX }) ?? "")?.design; } catch {}
+  return `${moved} · ${typeof design === "string" ? copyDesign({ dir, task: g.task, gate: g.id, design, answer, at }, env) : `not copied: sage cannot read the design that ${g.id} names in gates/${g.id}.json`}`;
 }
 function undoAnswer(dir, gates, g) {
   const pending = pendingOf(g), picked = pickedOf(g), answered = answeredOf(g);
@@ -2822,10 +2934,11 @@ function readMessage(file, json, project, env) {
   let input;
   try { input = JSON.parse(text); } catch (e) { refuse(`the message is not JSON: ${e.message}. Nothing written.`); }
   if (/#pair=/i.test(text.replace(/\\u([0-9a-f]{4})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16))))) refuse("the message holds #pair=, the mark of a board pairing link. A pairing link opens the board for one browser, so it goes in the chat text only, never in a message or its page. Take it out. Nothing written.");
-  const logbook = basename(storeDir(project, env));
+  const logbook = basename(storeDir(project, env)), named = [];
   const pages = (blocks, depth = 0) => (Array.isArray(blocks) ? blocks : []).forEach((b) => {
     if (b?.t === "section" && depth < MAX_SECTIONS) pages(b.body, depth + 1);
     if (b?.t !== "page") return;
+    named.push(b);
     if (!TASK_ID.test(String(b.task)) || typeof b.file !== "string" || !pageType(b.file))
       refuse(`a page block names its page as { t: page, title, task, file }: a task id and a file in that task's pages folder that the board serves: 1 to ${PAGE_DEPTH} parts of letters, digits and . _ - (none that starts with a dot or holds ..), ending in .${Object.keys(PAGE_TYPES).join(", .")}; not ${JSON.stringify({ task: b.task, file: b.file })}. Nothing written.`);
     b.path = join(pagesDir(project, b.task, env), b.file);
@@ -2837,11 +2950,12 @@ function readMessage(file, json, project, env) {
     if (!folder || !pageFile(folder, b.file)) refuse(`the page block "${b.title}" names ${b.path}, and the board serves only a regular file with one name that it can read, of at most 16 MiB, with no link in its path or in the pages folders. Save the page itself there. Nothing written.`);
   });
   pages(input?.blocks);
-  return { input, logbook };
+  return { input, logbook, named };
 }
 function writeMessage(project, taskId, { input, logbook }, shape, env) {
   const folder = taskId && pagesDir(project, taskId, env);
-  const out = renderMessage(input, folder ? { pagePath: (name) => join(folder, name), pageUrl: (name) => pageUrl(logbook, taskId, name, boardPort(env)) } : {});
+  const port = boardPort(env), down = () => (boardAnswers(port) ? undefined : boardDownLine());
+  const out = renderMessage(input, folder ? { pagePath: (name) => join(folder, name), pageUrl: (name) => pageUrl(logbook, taskId, name, port), down } : { down });
   if (out.problems) refuse(`the message is not in its kind's shape, so ${shape}. Nothing written.\n${out.problems.map((p) => `- ${p}`).join("\n")}`);
   if (!out.page) return out.text;
   if (!folder) refuse("the message has a long form, a picture or a toggle, so it needs a page, and a page lives in a task's pages folder: give the gate its task. Nothing written.");
@@ -2852,15 +2966,23 @@ function writeMessage(project, taskId, { input, logbook }, shape, env) {
   renameSync(temp, out.page.path);
   return out.text;
 }
+const MESSAGE_PAGE = new RegExp(`^(?:${Object.keys(MESSAGE_KINDS).map((k) => k.replace(/ /g, "-")).join("|")})-[0-9a-f]{8}\\.html$`);
+const workPages = (folder) => {
+  try { return readdirSync(folder, { recursive: true }).filter((f) => pageType(f) && !MESSAGE_PAGE.test(f)).sort(); } catch (e) { if (e.code === "ENOENT") return []; throw e; }
+};
+const PAGE_FORM = '{ "t": "page", "title": "<what to look at>", "task": "<T>", "file": "<file in that task\'s pages folder>" }';
 function questionMessage(file, project, taskId, env) {
+  if (file === undefined) refuse(`a question to the owner names what to look at: give --message <the JSON file of a question message> ({ kind: "question", title, blocks }), with a Page block ${PAGE_FORM} for the main page when the task has pages. Nothing changed.`);
   const given = readMessage(file, undefined, project, env);
   if (given.input?.kind !== "question") refuse(`--message is the file of a question message ({ kind: "question", title, blocks }), not of ${JSON.stringify(given.input?.kind ?? null)}. Nothing written.`);
+  const pages = taskId && !given.named.length ? workPages(pagesDir(project, taskId, env)) : [];
+  if (pages.length) refuse(`${taskId}'s pages folder holds ${pages.length === 1 ? "a page" : `${pages.length} pages`} (${pages.slice(0, 5).join(", ")}${pages.length > 5 ? ", …" : ""}), so the question names the main one: add a Page block ${PAGE_FORM.replace("<T>", taskId)} to the message's blocks; it may name another task's page. Nothing written.`);
   return { message: given.input, text: writeMessage(project, taskId, given, "the gate keeps no message in another shape", env) };
 }
-function keepGateMessage(dir, g, { message, text }) {
+function keepGateMessage(dir, g, { message, text, design }) {
   const folder = join(dir, "gates"), file = gateMessageFile(dir, g.id), temp = join(folder, `.${g.id}-${randomUUID()}.tmp`);
   mkdirSync(folder, { recursive: true, mode: 0o700 });
-  writeFileSync(temp, `${JSON.stringify({ gate: g.id, task: g.task, at: g.at, message, text })}\n`, { mode: 0o600, flag: "wx" });
+  writeFileSync(temp, `${JSON.stringify({ gate: g.id, task: g.task, at: g.at, message, text, ...(design ? { design } : {}) })}\n`, { mode: 0o600, flag: "wx" });
   renameSync(temp, file);
 }
 
@@ -2871,7 +2993,8 @@ function replaceChief(dir, g, answer, project, env, marks) {
   const again = `Answer ${optionsOf(g)[1] ?? "decline"}, then open a new takeover gate. Nothing changed.`;
   if (task.chief !== plan.from) refuse(`${task.id} now belongs to ${task.chief ? `chief ${task.chief}` : "no chief"}, not to ${plan.from || "no chief"}, so ${g.id} is out of date. ${again}`);
   if (added.length) refuse(`${added.join(", ")} started after ${g.id} opened, so ${g.id} does not name each run that ends as failed. ${again}`);
-  commitReplace(dir, { reference: { gate: g.id, task: task.id, to: plan.to, runs: active }, result: { at: now(), answer, ...marks } });
+  const handover = { from: plan.from, fromProvider: plan.fromProvider ?? "", toProvider: plan.toProvider ?? chiefs(dir).find((r) => r.id === plan.to)?.provider ?? "" };
+  commitReplace(dir, { reference: { gate: g.id, task: task.id, to: plan.to, runs: active, handover }, result: { at: now(), answer, ...marks } });
   return `${g.id} answered · ${answer} · ${task.id} chief ${plan.to}${active.length ? ` · ${active.join(", ")} failed` : ""}${branchHeld(project, task.branch, plan.to, env)}`;
 }
 function declineOffer(dir, g, answer, marks) {
@@ -2906,15 +3029,10 @@ function takeoverGate(dir, task, to, offered = false) {
   if (open) return `${open.id} is open already · ${open.question}\n${next(open.id)}`;
   const pr = PR.test(prNumber(task.pr)) ? prNumber(task.pr) : "";
   const ask = (fresh) => replaceQuestion({ from: task.chief, to, task: task.id, pr, title: oneLine(task.title), runs: activeRuns(dir, task.id), label: (chief) => chiefLabel(dir, chief), ...(!task.chief && heldLast(dir, task)), fresh, offered });
-  const p = replaceOf({ question: ask(false) }), fresh = !!takeoverCycle && !!p && p.toProvider === provider && crossed(p);
+  const p = replaceOf({ question: ask(false) }), fresh = !!p && crossed(p);
   const g = { id: nextId(dir, "G"), task: task.id, question: ask(fresh), options: TAKEOVER_OPTIONS, recommendation: "approve", default: "", at: now(), kind: "replace", chief: to };
   write(dir, "gates", [...read(dir, "gates"), g]);
   return `${g.id} open · ${g.question}\n${next(g.id)}`;
-}
-function claimBar(dir, task, chief) {
-  const held = heldLast(dir, task);
-  if (held.released) return held.released === chief ? "" : `${chiefLabel(dir, held.released)} unclaimed ${task.id} last`;
-  return "moved" in held && held.moved !== chiefs(dir).find((r) => r.id === chief)?.provider ? `${task.id} came in the move from the ${held.moved} logbook` : "";
 }
 
 function abandonsUnclaimed(task, [, set, ...changes], opt, lead) {
@@ -2951,8 +3069,8 @@ function guard(dir, cmd, pos, opt, project, env) {
     : [need.task ?? (need.run && read(dir, "runs").find((r) => r.id === need.run)?.task)];
   const named = ids.filter(Boolean);
   if (need.kind !== "any") for (const id of new Set(named)) {
-    const task = tasks.find((t) => t.id === id), declines = need.recipient && !lead && offerOf(task ?? {})?.to === chief;
-    const bar = task && !declines && !(cmd === "task" && abandonsUnclaimed(task, pos, opt, lead)) && ownerBar(dir, task, chief, !!lead);
+    const task = tasks.find((t) => t.id === id);
+    const bar = task && !(cmd === "task" && abandonsUnclaimed(task, pos, opt, lead)) && ownerBar(dir, task, chief, !!lead);
     if (bar) throw Object.assign(new Refusal(bar), { code: "other-chief" });
   }
   return chief;
@@ -2962,6 +3080,11 @@ function chiefFor(project, native, env = process.env, known = false) {
   const { dir, shared } = locate(project, env);
   if (!shared) return undefined;
   return rowOf(dir, native)?.id ?? (known ? undefined : withLock(dir, () => chiefRow(dir, native).id));
+}
+
+function chiefLink(project, native, chief, from, env = process.env) {
+  const { dir, shared } = locate(project, env);
+  return shared && CHIEF.test(chief ?? "") && typeof from === "string" ? withLock(dir, () => chiefRow(dir, native, chief, from)?.id) : undefined;
 }
 
 function actorOptions(project, [cmd, ...rest], { native, leadTask }, env = process.env) {
@@ -3077,50 +3200,17 @@ function act(cmd, pos, opt, dir, env, skip, project) {
     }
     case "config":
       return logbookConfig(dir, pos);
-    case "claim": {
-      const { tasks, task } = taskOf(dir, need(sub, "the task id"));
-      if (task.chief) refuse(`${task.id} belongs to chief ${task.chief}, so it takes no claim. Nothing changed.`);
-      const held = claimBar(dir, task, opt.chief);
-      if (held) refuse(`${held}, so ${opt.chief} takes it only through the owner's takeover gate. Nothing changed. Open one for the owner to answer: ${replaceStep(task.id, opt.chief)}.`);
-      if (opt.version !== taskVersion(task)) refuse(`${task.id} changed, so this claim is out of date: read it again, then claim it with --version ${taskVersion(task)}. Nothing changed.`);
-      task.chief = opt.chief;
-      write(dir, "tasks", tasks);
-      ownership(dir, task.id, `claimed by ${opt.chief}`, "claim");
-      return `${task.id} claimed · chief ${opt.chief}`;
-    }
-    case "offer": {
-      const { tasks, task } = taskOf(dir, need(sub, "the task id")), to = chiefNamed(dir, opt.to), open = offerOf(task);
-      if (open) refuse(`${task.id} has the open offer ${open.id} to ${open.to}: cancel it first. Nothing changed.`);
-      if (to === opt.chief) refuse(`${task.id} is yours, so an offer names another chief. Nothing changed.`);
-      task.offer = JSON.stringify({ id: randomUUID().slice(0, 8), from: opt.chief, to });
-      write(dir, "tasks", tasks);
-      ownership(dir, task.id, `offered to ${to}`, "offer");
-      return `${task.id} offered to ${to} · offer ${offerOf(task).id} · version ${taskVersion(task)}. You stay its owning chief until ${to} accepts.`;
-    }
-    case "cancel": {
-      const { tasks, task } = taskOf(dir, need(sub, "the task id")), open = exactOffer(task, opt.offer), declined = open.to === opt.chief;
-      task.offer = "";
-      write(dir, "tasks", tasks);
-      ownership(dir, task.id, declined ? `offer ${open.id} declined by ${opt.chief}` : `offer ${open.id} cancelled`, declined ? "decline" : "cancel");
-      return declined ? `${task.id} offer ${open.id} declined by ${opt.chief} · chief ${task.chief} keeps ${task.id}` : `${task.id} offer ${open.id} cancelled`;
-    }
-    case "accept": {
-      const { task } = taskOf(dir, need(sub, "the task id")), open = exactOffer(task, opt.offer);
-      if (open.to !== opt.chief) refuse(`offer ${open.id} of ${task.id} names ${open.to}, not ${opt.chief}. Nothing changed. Only ${open.to} accepts it. ${task.chief === opt.chief ? `You own ${task.id}: to end this offer, cancel it.` : `To get ${task.id}, ask its owning chief ${task.chief} to cancel this offer and offer it to you.`}`);
-      if (opt.version !== taskVersion(task)) refuse(`${task.id} changed, so this acceptance is out of date: read it again, then accept it with --version ${taskVersion(task)}. Nothing changed.`);
-      runsBar(dir, task, "accept", opt.chief);
-      return takeoverGate(dir, task, opt.chief, true);
-    }
     case "unclaim": {
-      const { tasks, task } = taskOf(dir, need(sub, "the task id")), open = offerOf(task);
-      if (open) refuse(`${task.id} has the open offer ${open.id} to ${open.to}: cancel it first. Nothing changed.`);
+      const { tasks, task } = taskOf(dir, need(sub, "the task id"));
       runsBar(dir, task, "unclaim", opt.chief);
       const last = read(dir, "decisions").filter(d => d.task === task.id).at(-1);
       if (last?.decision !== `${task.id} unclaimed by ${opt.chief}` || last.why !== "unclaim") ownership(dir, task.id, `unclaimed by ${opt.chief}`, "unclaim");
       task.chief = "";
       write(dir, "tasks", tasks);
-      return `${task.id} unclaimed · no owning chief. Only ${opt.chief} claims it back; another chief needs the owner's takeover gate.`;
+      return `${task.id} unclaimed · no owning chief. The next pick-up of another chief takes it; ${opt.chief} gets it back only through the owner's takeover gate.`;
     }
+    case "pickup":
+      return "nothing to pick up";
     case "init":
       for (const t of Object.keys(TABLES).reverse()) if (!existsSync(join(dir, `${t}.tsv`))) write(dir, t, []);
       if (!existsSync(join(dir, "standing.md"))) put(join(dir, "standing.md"), STANDING);
@@ -3310,7 +3400,7 @@ function act(cmd, pos, opt, dir, env, skip, project) {
       write(dir, "tasks", tasks);
       write(dir, "gates", [...gates, g]);
       write(dir, "decisions", [...decisions, ...rowsOfMoves, ...unreleased, ...kept, { at, task: pilot.id, decision, why: PROPOSE }]);
-      return `${pid} proposed${round > 1 ? ` (round ${round})` : ""} · pilot ${pilot.id} · ${others.length ? `tasks ${others.map((t) => t.id).join(", ")}` : "no other task"} · ${g.id} open: ask the owner to approve, change or drop it. To say what to change, the owner may answer in own words. Until the owner approves, no task of ${pid} builds.`;
+      return `${pid} proposed${round > 1 ? ` (round ${round})` : ""} · pilot ${pilot.id} · ${others.length ? `tasks ${others.map((t) => t.id).join(", ")}` : "no other task"}\n${g.id} open · ask the owner to approve, change or drop it. To say what to change, the owner may answer in own words. Until the owner approves, no task of ${pid} builds.`;
     }
     case "release": {
       if (sub !== "add" || id !== undefined) refuse(`release takes: add --name "<name>" [--goal "<goal>"]. A milestone goes into a release with sage milestone <M> set release=<name>, and a task outside a milestone with sage task <T> set release=<name>.`);
@@ -3434,6 +3524,11 @@ function act(cmd, pos, opt, dir, env, skip, project) {
     }
     case "finding": {
       const findings = read(dir, "findings");
+      if (sub === "show") {
+        const key = need(more[0], "the finding's key"), f = findings.find((x) => x.task === id && x.key === key) ?? missing(`finding ${key} on ${id}`, findings.filter((x) => x.task === id).map((x) => x.key));
+        const tags = [f.run, f.class, f.triage && `triage ${f.triage}`].filter(Boolean).map((tag) => ` · ${tag}`).join("");
+        return `${f.key} ${f.status} · ${f.severity} · ${f.task} · round ${f.round} · from ${f.source}${tags}\n${f.summary}${f.reason ? `\nreason: ${f.reason}` : ""}`;
+      }
       if (sub === "add") {
         const { task } = taskOf(dir, need(id, "the task id"));
         notHeld(task, "finding add");
@@ -3481,7 +3576,7 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         if (f.status !== "open") refuse(`${f.key} is ${f.status}: only an open finding moves.`);
         if (f.severity === "high") refuse(`${f.key} is high, so it blocks ${id} until it is fixed: a high finding never moves to a follow-up task.`);
         if (roundKeys(taskOf(dir, id).task).includes(f.key) && !read(dir, "gates").some((g) => g.task === id && g.question.split(/[^\w-]+/).includes(f.key) && g.answer && g.answer === optionsOf(g)[0])) {
-          refuse(`${f.key} is a fix of ${id}'s current round, so it stays on ${id}: it is fixed in a round, or dismissed with a reason. It moves to a follow-up task only after the owner chose the first option of a gate of ${id} whose question names ${f.key}: sage gate add ${id} --question "Move ${f.key} to a follow-up task?" --options "move|keep" --recommend <move or keep>.`);
+          refuse(`${f.key} is a fix of ${id}'s current round, so it stays on ${id}: it is fixed in a round, or dismissed with a reason. It moves to a follow-up task only after the owner chose the first option of a gate of ${id} whose question names ${f.key}: sage gate add ${id} --question "Move ${f.key} to a follow-up task?" --options "move|keep" --recommend <move or keep> --message <the question message file>.`);
         }
         let to, tasks;
         if (into === undefined) {
@@ -3581,7 +3676,8 @@ function act(cmd, pos, opt, dir, env, skip, project) {
     case "gate": {
       const gates = read(dir, "gates");
       if (sub === "add") {
-        const flatOptions = flat(need(opt.options, "--options"));
+        const design = opt.design === undefined ? undefined : designGate(dir, project, id, opt, env);
+        const flatOptions = design ? DESIGN_OPTIONS.join("|") : flat(need(opt.options, "--options"));
         const options = optionsOf({ options: flatOptions });
         const twin = options.find((o, i) => options.findIndex((x) => looks(x) === looks(o)) !== i);
         if (twin !== undefined) refuse(`two options look the same: ${JSON.stringify(twin)} and ${JSON.stringify(options.find((x) => looks(x) === looks(twin)))}. Make them differ in more than case.`);
@@ -3591,17 +3687,17 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         const question = flat(need(opt.question, "--question"));
         if (readsAsBreakdown(question)) refuse(`a question that starts with "Approve milestone" or "Approve program" is a breakdown gate, and only milestone propose opens one. Ask it in other words.`);
         if (looks(question).startsWith("move · plan")) refuse(`a question that starts with "move · plan" is a move gate, and only sage move --plan opens one. Ask it in other words.`);
-        const g = { id: nextId(dir, "G"), task: id === undefined ? "" : taskOf(dir, id).task.id, question: need(question, "--question"), options: flatOptions, recommendation, default: opt.default === undefined ? "" : pick(opt.default, "--default"), at: now(), ...chiefTag(opt) };
+        const g = { id: nextId(dir, "G"), task: id === undefined ? "" : taskOf(dir, id).task.id, question: need(question, "--question"), options: flatOptions, recommendation, default: opt.default === undefined ? "" : pick(opt.default, "--default"), at: now(), ...(design ? { kind: DESIGN_GATE } : {}), ...chiefTag(opt) };
         if (opt.run !== undefined) {
           if (!g.task) refuse("--run names the run that asked this question, and a run belongs to a task: give the gate its task (sage gate add <T> ... --run R<n>). Nothing changed.");
           const runs = read(dir, "runs"), run = runs.find((r) => r.id === opt.run) ?? missing(`run ${opt.run}`, runs.filter((r) => r.task === g.task).map((r) => r.id));
           if (run.task !== g.task) refuse(`--run ${run.id} is a run of ${run.task}, not of ${g.task}: name the run of ${g.task} that asked this question. Nothing changed.`);
           g.run = run.id;
         }
-        const message = opt.message === undefined ? undefined : questionMessage(opt.message, project, g.task, env);
-        if (message) keepGateMessage(dir, g, message);
+        const message = questionMessage(opt.message, project, g.task, env);
+        keepGateMessage(dir, g, { ...message, design });
         write(dir, "gates", [...gates, g]);
-        return `${g.id} open · ${g.question}${message ? ` · its message: ${gateMessageFile(dir, g.id)}` : ""}`;
+        return `${g.id} open · ${g.question}`;
       }
       if (sub === "replace" || sub === "give") {
         if (sub === "give" && more.length) refuse("gate give takes one task id and --to <C id>: sage gate give <T> --to C<n>. Nothing changed.");
@@ -3619,14 +3715,17 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         }
         const own = opt["other-hex"], via = opt.via ?? "chat";
         if (!Object.hasOwn(VIA, via)) refuse(`--via is the place of the owner's answer: ${Object.keys(VIA).join(", ")}. Nothing changed.`);
-        if (archivedIn(dir)) refuse(via === "board" ? "This project is archived, so it takes no answer. Restore it, then answer again. Nothing changed." : archivedBar("answer", "give the same command again"));
         const first = firstAnswer(g);
         if (first) refuse(first);
         if (opt.seen !== undefined && opt.seen !== gateDigest(g)) refuse(`${g.id} changed after the owner read it: its question or its options are not the ones that --seen ${visible(String(opt.seen))} names. Read ${g.id} again, and answer what it asks now. Nothing changed.`);
         const options = optionsOf(g);
         const how = `gate answer ${g.id} takes --option <n>, the number of one of its options (1 to ${options.length}), or --other-hex <hex>, the owner's own words as the hex of their UTF-8 bytes (0-9 and a-f). Nothing changed.`;
-        if (more.length || (opt.option === undefined) === (own === undefined) || (own !== undefined && unhex(own) === undefined)) refuse(how);
-        const answer = own !== undefined ? `other: ${need(cell(unhex(own)), "the owner's own words: --other-hex gives only spaces")}` : (/^[1-9]\d*$/.test(opt.option) && options[Number(opt.option) - 1]) || refuse(how);
+        const words = own === undefined ? undefined : cell(unhex(own) ?? refuse(how));
+        if (more.length) refuse(how);
+        if (words !== undefined && [...words].length > WORDS_MAX) refuse(`the owner's words have ${[...words].length} characters, and an answer keeps at most ${WORDS_MAX}. Ask the owner for shorter words. Nothing changed.`);
+        const answer = g.kind === DESIGN_GATE ? designAnswerText(g, opt.option, words)
+          : (opt.option === undefined) === (own === undefined) ? refuse(how)
+          : own !== undefined ? `other: ${need(words, "the owner's own words: --other-hex gives only spaces")}` : (/^[1-9]\d*$/.test(opt.option) && options[Number(opt.option) - 1]) || refuse(how);
         const at = now();
         if (via === "board") {
           g.answered = JSON.stringify({ at, via, answer });
@@ -3638,6 +3737,11 @@ function act(cmd, pos, opt, dir, env, skip, project) {
       refuse("gate add, gate replace, gate give, gate answer or gate undo");
     }
     case "log": {
+      if (id === undefined && opt.why === undefined) {
+        const task = sub === "-" ? "" : taskOf(dir, need(sub, "the task id, or - for the decisions with no task")).task.id;
+        const rows = read(dir, "decisions").filter((d) => d.task === task);
+        return rows.length ? rows.map((d) => `${d.at} · ${d.decision}${d.why ? ` · ${d.why}` : ""}`).join("\n") : `no decisions ${task ? `on ${task}` : "with no task"}`;
+      }
       write(dir, "decisions", [...read(dir, "decisions"), { at: now(), task: sub === "-" ? "" : sub, decision: need(id, "the decision"), why: need(opt.why, "--why") }]);
       return "logged";
     }
@@ -3755,6 +3859,16 @@ function probeFor(dir) {
   } catch {}
   if (!map || typeof map !== "object" || Array.isArray(map)) refuse(`SAGE_TEST_PIDS is not a JSON object of pid to start time or null: ${pids}`);
   return { alive: (pid) => map[pid] !== null, started: (pid) => map[pid] ?? NaN };
+}
+
+function sessionProbe(dir, given = process.env) {
+  const marks = ["NODE_TEST_CONTEXT", "SAGE_TEST_PIDS", "SAGE_TEST_MACHINE_ID"], env = marks.some((name) => Object.hasOwn(given, name)) ? given : process.env;
+  if (!marks.some((name) => Object.hasOwn(env, name))) return { ...realProbe, machine: machineIdentity(dir), boot: bootTime() };
+  let map;
+  try { map = JSON.parse(env.SAGE_TEST_PIDS ?? "null"); } catch {}
+  if (!map || typeof map !== "object" || Array.isArray(map)) return null;
+  const machine = /^[A-Za-z0-9-]{1,128}$/.test(env.SAGE_TEST_MACHINE_ID ?? "") ? env.SAGE_TEST_MACHINE_ID : null;
+  return { alive: (pid) => map[pid] !== null, started: (pid) => map[pid] ?? NaN, machine, boot: Number.isFinite(Number(env.SAGE_TEST_BOOT)) && env.SAGE_TEST_BOOT ? Number(env.SAGE_TEST_BOOT) : bootTime() };
 }
 
 function bootTime() {
@@ -3875,5 +3989,5 @@ const { bindings, fillCommits, folderOf, link, locate, movePlans, notePlugin, pl
   listed: (root) => known(root, undefined, undefined, true),
   enroll });
 const { chiefs, chiefRow, rowOf } = createChiefs({ now, provider, readRegular, refuse, rowsOf, sheetText, swap });
-return { SIZES, BLOCKS, RISKS, KINDS, STATES, DEFAULTS, PR, LEAD_COMMANDS, leadProblem, leadRequest, sageRoot, locate, chiefFor, sessionBar, branchBar, actorOptions, git, projectRoot, roleReadProject, optionsOf, slug, worktreeRoot, pagesRoot, BRANCH, ofTask, branchOfTask, branchTip, projectName, storeDir, config, cyclesFor, modelFor, read, mergeCheck, boardLandingCheck, carryOver, logbookView, sage, keepReport, keepRunText, keepUsage, observePush, compareRetainedReport, ownGates, pickupAnswers, queueOf, chiefQueue, queueProblem, pendingRun, markStart, sweepQueue, withLock, command, runCli, waitingPlugins, writeIdFloors };
+return { SIZES, BLOCKS, RISKS, KINDS, STATES, DEFAULTS, PR, LEAD_COMMANDS, leadProblem, leadRequest, sageRoot, locate, chiefFor, chiefLink, sessionProbe, sessionsHere, stoppedSessions, sessionBar, branchBar, actorOptions, git, projectRoot, roleReadProject, readsOnly, optionsOf, slug, worktreeRoot, pagesRoot, BRANCH, ofTask, branchOfTask, branchTip, projectName, storeDir, config, cyclesFor, modelFor, read, mergeCheck, boardLandingCheck, carryOver, logbookView, sage, keepReport, keepRunText, keepSpend, keepUsage, observePush, compareRetainedReport, ownGates, pickupAnswers, queueOf, chiefQueue, queueProblem, pendingRun, markStart, sweepQueue, withLock, command, runCli, waitingPlugins, writeIdFloors };
 }

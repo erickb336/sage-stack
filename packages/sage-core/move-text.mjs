@@ -20,8 +20,9 @@ const zone = (d) => {
 };
 export function localTime(at) {
   const d = new Date(String(at ?? ""));
-  if (Number.isNaN(d.getTime())) return { clock: "", day: "", date: "" };
-  return { clock: `${two(d.getHours())}:${two(d.getMinutes())} ${zone(d)}`, day: `${d.getDate()} ${MONTHS[d.getMonth()]}`, date: `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}` };
+  if (Number.isNaN(d.getTime())) return { clock: "", time: "", zone: "", day: "", date: "" };
+  const time = `${two(d.getHours())}:${two(d.getMinutes())}`;
+  return { clock: `${time} ${zone(d)}`, time, zone: zone(d), day: `${d.getDate()} ${MONTHS[d.getMonth()]}`, date: `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}` };
 }
 const clock = (at) => localTime(at).clock;
 export const providersOf = (plan) => [...new Set(plan.sources.map((s) => s.provider))];
@@ -99,7 +100,7 @@ export function gateText(gate, lines, { unused, recommendation, why }) {
   const options = String(gate.options).split("|");
   const about = (o) => OPTION_TEXT[o] ?? `Only if you do not use ${title(unused)} on this project. Sage writes "${title(unused)}: unused" and does not wait for the ${title(unused)} plugin. This answer counts for every project of this shared root: a later move or a new project does not wait for the ${title(unused)} plugin either.`;
   return [
-    `${gate.id} · ${lines[0]}`, ...lines.slice(1),
+    `${gate.id} open · ${lines[0]}`, ...lines.slice(1),
     ...options.flatMap((o, i) => [`${i + 1} · ${o}${o === gate.recommendation ? " RECOMMENDED" : ""}`, about(o)]),
     `Default: ${gate.default}. Recommendation: ${recommendation}${why}`,
     `What is "plan ${lines[0].slice(-8)}"? A fingerprint of the preview above. You do not need to read it. The move runs only if both logbooks still match it, so your answer covers exactly what you saw. If anything changed, nothing moves and you get a new preview.`,

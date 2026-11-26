@@ -61,8 +61,9 @@ function fixture(t) {
 const plain = text => text.replace(/\\(.)/g, "$1");
 const clean = (id, number, sha, kinds = ["checks-pass", "review-clean", "qa-pass"]) => kinds.map(kind => ({ task: id, pr: number, sha, kind, cycle: "1", run: "", at: AT }));
 const known = f => writeFileSync(join(f.root, "projects.tsv"), `logbook\tat\thow\nproject-abcdef\t${AT}\tinit\n`);
-const sections = text => Object.fromEntries([...text.matchAll(/^### \S+ ([^\n]+?) \((\d+)\)\n([\s\S]*?)(?=^### |(?![\s\S]))/gm)].map(([, name, count, body]) => [name, { count: Number(count), body }]));
-const columnsOf = text => Object.fromEntries(Object.entries(sections(text)).filter(([name]) => name !== "Needs you").flatMap(([name, { body }]) => [...body.matchAll(/\*\*Sample (T\d+)\*\*/g)].map(([, id]) => [id, name])));
+const partsOf = text => Object.fromEntries([...text.matchAll(/^### (?:🔴 )?([^\n]+)\n([\s\S]*?)(?=\n\n(?:### |Quiet: |Archived: |Incomplete source: |Setting ignored: |Logbook note: |More: )|(?![\s\S]))/gm)]
+  .map(([, name, body]) => [name, body.split("\n").filter(line => line.startsWith("- "))]));
+const placesOf = text => Object.fromEntries(Object.entries(partsOf(text)).flatMap(([name, lines]) => lines.filter(line => /^- Sample T\d+\b/.test(line)).map(line => [line.match(/^- Sample (T\d+)\b/)[1], name])));
 
 test("T280 acceptance: the board shows a PR ready to merge only when sage's own merge check passes on its head", t => {
   const f = fixture(t);
@@ -74,14 +75,16 @@ test("T280 acceptance: the board shows a PR ready to merge only when sage's own 
   table(f.book, "findings", [{ task: "T2", key: "F-T2-1", round: "0", source: "R9", severity: "medium", summary: "Sample finding", triage: "fix", status: "open" }]);
   known(f);
   const before = snapshot(f.root), text = f.view("chat"), detail = plain(["T1", "T2", "T3", "T4", "T5"].map(id => f.view("task", { id })).join("\n"));
-  assert.deepEqual(columnsOf(text), { T1: "Ready to merge", T2: "In review", T3: "In review", T4: "In review", T5: "In review" });
+  assert.deepEqual(placesOf(text), { T1: "Needs you", T2: "Moving now", T3: "Moving now", T4: "Needs you", T5: "Moving now" });
+  assert.ok(text.includes("\n- Sample T1. The board cannot tell if autopilot is on, so review and merge its PR.\n"), text);
+  assert.ok(text.includes("\n- Sample T2. The merge check refuses its last commit; the chief repairs it.\n"), "a refused merge is the chief's to repair");
+  assert.ok(text.includes("\n- Sample T4. The merge check is not checked, because the board does not know the last commit of its PR.\n"), text);
   assert.match(detail, /The merge check refuses 5555555\. Stranger-123456 has verdicts on 5555555/, "the reason names the folder, not its path");
   assert.match(detail, /The merge check passes on 1111111\. The board does not check the PR's head branch\./);
   assert.match(detail, /The merge check refuses 2222222\. T2 has open findings/);
   assert.match(detail, /The merge check refuses 3333333\. T3/);
   assert.match(detail, /The merge check is not checked, because the board does not know the last commit of PR 24\./);
   assert.doesNotMatch(text + detail, new RegExp(f.root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "no root path in the board");
-  assert.match(text, /### ✅ Ready to merge[\s\S]*Sample T1/);
   assert.deepEqual(snapshot(f.root), before, "the board's merge check writes nothing");
 });
 
@@ -93,9 +96,8 @@ test("T205 acceptance: the chat board's state columns describe the recorded task
   const recent = new Date(Date.now() - 86400000).toISOString();
   records(f.book, [{ task: "T6", kind: "completion", observedAt: recent, recordedAt: recent, data: { state: "merged", at: recent } }]);
   const before = snapshot(f.root), text = f.view("chat");
-  for (const name of ["Backlog", "Design", "Building", "In review", "Ready to merge", "Done, last 7 days"]) assert.equal(sections(text)[name]?.count, 1, name);
-  assert.deepEqual(columnsOf(text), { T1: "Backlog", T2: "Design", T3: "Building", T4: "In review", T5: "Ready to merge", T6: "Done, last 7 days" }, "T7, abandoned, is in no column");
-  assert.match(text, /### 🔴 Needs you/);
+  assert.deepEqual(placesOf(text), { T2: "Moving now", T3: "Moving now", T4: "Moving now", T5: "Needs you", T6: "Done since yesterday" }, "T1 is in the backlog and T7 is abandoned: no line (T1217)");
+  assert.deepEqual(partsOf(text)["Moving now"], ["- Sample T2. In design.", "- Sample T3. Held by the chief.", "- Sample T4. In review, cycle 1 of 1."]);
   assert.deepEqual(snapshot(f.root), before);
 });
 
@@ -117,8 +119,10 @@ test("T205 acceptance: current-head review evidence ignores old SHA and clears s
 
 test("T205 acceptance: provider roots keep duplicate task identities separate and offer exact task selection", t => {
   const f = fixture(t), other = f.add("second", [task("T1", "held", { title: "Sample second provider" })]);
+  table(f.book, "tasks", [task("T1", "held")]);
   const before = [snapshot(f.root), snapshot(other.root)], text = f.view("chat", { scope: "this" });
-  assert.ok(text.includes("Source sample") && text.includes("Source second")); assert.ok(text.includes("Sample second provider"));
+  assert.ok(text.includes("- Sample T1. Held by the chief.") && text.includes("- Sample second provider. Held by the chief."), text);
+  assert.ok(text.endsWith("\nRef: T1 T1"), "two task identities, one for each source");
   assert.throws(() => f.invoke("task", { id: "T1" }), /task is ambiguous/);
   const detail = f.view("task", { id: "T1", sourceScope: other.key });
   assert.ok(detail.includes("Sample second provider")); assert.ok(!detail.includes("Source sample"));
@@ -133,10 +137,9 @@ test("T205 acceptance: owner questions and hostile text remain escaped, complete
   table(f.book, "tasks", [task("T1", "held", { title: "<script>sample</script> [sample](https://example.test)" })]);
   table(f.book, "gates", [{ id: "G1", task: "T1", question: "Pick <sample>?", options: "keep|change", recommendation: "keep", default: "keep", answer: "", at: AT }]);
   const text = f.view("chat");
-  assert.match(text, /\*\*1 · [^\n]+\*\* T1 · /); assert.ok(text.includes("sample/project-abcdef/G1"));
-  assert.ok(text.includes("> Options: 1: keep · 2: change")); assert.ok(text.includes("> Recommended: keep"));
-  assert.ok(text.includes("\\<script\\>sample\\</script\\>")); assert.ok(!text.includes("[sample](https://example.test)"));
-  assert.ok(text.includes("Pick \\<sample\\>?")); assert.ok(!text.includes("<script>sample</script>") && !text.includes("<sample>"));
+  assert.ok(text.includes("\n- ‹script›sample‹/script› [sample] (https://example.test). Pick ‹sample›?\n  Options: 1 keep · 2 change.\n  Recommended: keep.\n"), text);
+  assert.ok(text.endsWith("\nRef: T1 sample/project-abcdef/G1"), "the Ref line gives the full gate key");
+  assert.ok(!text.includes("[sample](https://example.test)") && !text.includes("<") && !text.includes(String.fromCharCode(92)), "no link, no HTML and no backslash");
 });
 
 test("T205 acceptance: task details show verified briefs, report proof, run time and screenshots, then reject tampering", t => {
@@ -150,7 +153,7 @@ test("T205 acceptance: task details show verified briefs, report proof, run time
   records(f.book, saved.map(([path, content, type, label]) => ({ kind: "artifact", data: { type, label, path, ...(type === "proof" ? { run: "R1" } : {}), sha256: createHash("sha256").update(content).digest("hex") } })));
   const before = snapshot(f.root), text = f.view("task", { id: "T1" });
   assert.ok(text.includes("Goal: Show recorded work")); assert.ok(text.includes("Acceptance: Keep both views equal\n- Preserve detail"));
-  assert.ok(text.includes("tests 12\npass 12")); assert.ok(text.includes("120 s")); assert.ok(text.includes("tokens 200"));
+  assert.ok(text.includes("tests 12\npass 12")); assert.ok(text.includes("120 s")); assert.ok(text.includes("peak context 200"));
   assert.ok(text.includes("R1 · digest verified")); assert.ok(text.includes("Full brief:")); assert.ok(text.includes("\\<sample proof\\>"));
   assert.ok(text.includes("Sample screenshot · local artifact; digest verified"));
   assert.ok(text.includes("digest verified")); assert.ok(!text.includes("content not verified"));
@@ -161,6 +164,7 @@ test("T205 acceptance: task details show verified briefs, report proof, run time
 
 test("T205 acceptance: missing and malformed inputs show diagnostics without exposing content or initializing files", t => {
   const f = fixture(t);
+  table(f.book, "tasks", [task("T1", "held")]);
   const valid = f.view("chat"); assert.ok(valid.includes("Sample T1"));
   f.sources.push({ id: "missing", path: join(f.dir, "does-not-exist") });
   writeFileSync(join(f.root, "config.json"), "SAMPLE_PRIVATE_CONFIG_DO_NOT_SHOW");
@@ -181,7 +185,7 @@ test("T205 acceptance: Done uses completion evidence and status preserves actual
   records(f.book, [{ task: "T1", kind: "completion", observedAt: recent, recordedAt: recent, data: { state: "merged", at: recent } }, { task: "T2", kind: "completion", observedAt: old, recordedAt: old, data: { state: "merged", at: old } }]);
   table(f.book, "decisions", [{ task: "T2", at: recent, decision: "renamed title", why: "sample" }, { task: "T3", at: recent, decision: "added note", why: "sample" }]);
   const text = f.view("chat"), status = f.view("status");
-  assert.equal(sections(text)["Done, last 7 days"]?.count, 1); assert.ok(text.includes("Recent completion"));
+  assert.deepEqual(partsOf(text)["Done since yesterday"], [`- Recent completion. Merged yesterday at ${String(new Date(recent).getHours()).padStart(2, "0")}:${String(new Date(recent).getMinutes()).padStart(2, "0")}.`]);
   assert.ok(!text.includes("Old completion")); assert.ok(!text.includes("Unknown completion"));
   assert.equal(status.split("\n")[0], "Tasks: merged 2 · concluded 1");
   assert.equal(status.split("\n")[1], "Agents: 0 recorded running · 0 inferred PRs");
@@ -240,12 +244,10 @@ test("T922: in a sandbox that blocks every write, as Codex's does, the note's ch
     return run.stdout;
   };
   const first = board();
-  assert.ok(first.includes("### 🏁 Done, last 7 days (1)\n**First merge** T1"), first);
+  assert.deepEqual(partsOf(first)["Done since yesterday"].map(line => line.split(". ")[0]), ["- First merge"], first);
   table(f.book, "tasks", [task("T1", "merged", { title: "First merge" }), task("T2", "merged", { title: "Second merge" })]);
   records(f.book, [done("T1", hour), done("T2", new Date().toISOString())]);
   const second = board();
-  const shown = second.slice(second.indexOf("### 🏁 Done, last 7 days (2)\n"));
-  assert.ok(shown.includes("**Second merge** T2"), second);
-  assert.ok(shown.includes("**First merge** T1"), "the list is the last 7 days, not since the last board");
+  assert.deepEqual(partsOf(second)["Done since yesterday"].map(line => line.split(". ")[0]), ["- Second merge", "- First merge"], "newest first; the list is since yesterday, not since the last board");
   assert.equal(existsSync(join(f.root, "board.json")), false);
 });

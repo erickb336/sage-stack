@@ -15,8 +15,11 @@ export function useNow() {
   return now;
 }
 
+export const answerOf = async response => response.ok ? response.json() : Promise.reject(response.status === 503 ? (await response.text()).trim() || 503 : response.status);
+export const problemOf = error => error === 404 ? "gone" : typeof error === "string" ? error : "read";
+
 export function useModel(url) {
-  const [state, setState] = useState({ model: null, link: "connecting", lostAt: null });
+  const [state, setState] = useState({ model: null, link: "connecting", lostAt: null, notice: null });
   useEffect(() => {
     let source, timer, closed = false;
     const open = () => {
@@ -24,7 +27,12 @@ export function useModel(url) {
       source.addEventListener("model", event => {
         let model;
         try { model = JSON.parse(event.data); model.chiefs = (model.chiefs ?? []).map(localName); } catch { return; }
-        setState({ model, link: "live", lostAt: null });
+        setState(previous => ({ ...previous, model, link: "live", lostAt: null }));
+      });
+      source.addEventListener("notice", event => {
+        let text = null;
+        try { text = JSON.parse(event.data).text; } catch { return; }
+        setState(previous => ({ ...previous, notice: typeof text === "string" ? text : null }));
       });
       source.addEventListener("error", () => {
         setState(previous => ({ ...previous, link: "lost", lostAt: previous.lostAt ?? new Date().toISOString() }));

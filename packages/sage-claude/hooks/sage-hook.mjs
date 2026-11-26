@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { appendFileSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, utimesSync, watch, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { appendFileSync, chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, utimesSync, watch, writeFileSync } from "node:fs";
+import { homedir, hostname } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,6 +12,7 @@ const modePolicy = await import("./mode-policy.mjs").catch((error) => ({ error }
 const filePolicy = await import("./file-policy.mjs").catch((error) => ({ error }));
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const commandReader = await import("./command-reader.mjs").catch((error) => ({ error }));
+const spendReader = await import("./transcript-spend.mjs").catch((error) => ({ error }));
 const TOOL = join(ROOT, "skills/sage/sage.mjs");
 const BOARD = join(ROOT, "board/cli.mjs");
 const FIRST_FORM = "gh api --hostname github.com -X POST repos/<owner>/<repo>/git/refs -f ref=refs/heads/main -f sha=<full commit id>";
@@ -27,6 +28,7 @@ const commandPolicy = await import("./command-policy.mjs")
 const SP = String.raw`[^\S\r\n  ]`;
 const FILE_TOOLS = /^(Edit|Write|MultiEdit|NotebookEdit)$/;
 const AGENT_TOOLS = /^(Agent|Task)$/;
+const HANDBACK = "SubagentHandback";
 const LEAD_CHILDREN = new Set(["sage:implementer", "sage:code-reviewer", "sage:security-reviewer", "sage:ux-reviewer", "sage:qa"]);
 const LEAD_HELPERS = 9;
 const WAIT = join(ROOT, "hooks/wait.mjs");
@@ -163,6 +165,8 @@ function handleEvent(input, state, slots) {
     if (state.sage && !state.given) {
       state.given = true;
       notes.unshift(chiefText());
+      const others = main ? sessionsNote(input) : "";
+      if (others) notes.push(others);
     }
     if (state.sage && state.shapeNote) notes.push(state.shapeNote);
     delete state.shapeNote;
@@ -175,18 +179,26 @@ function handleEvent(input, state, slots) {
     return undefined;
   }
   const ours = OURS.test(input.agent_type ?? "");
+  if (event === "PreToolUse" && input.tool_name === HANDBACK) {
+    if (!ours || !input.agent_id) return undefined;
+    const message = typeof input.tool_input?.message === "string" ? input.tool_input.message : "", reason = reportProblem(input, message);
+    if (slots.refusedHandback(input.agent_id) || !reason) return void (message && slots.handback(input.agent_id, { id: input.tool_use_id, message }));
+    slots.refusedHandback(input.agent_id, true);
+    return deny(event, reason.replace(/^sage: /, ""));
+  }
   if (event === "SubagentStop") {
+    const briefed = ours && input.agent_id && briefOfTranscript(input.agent_transcript_path);
+    if (briefed) try { slots.bindByBriefRun(input.agent_id, input.agent_type, briefed); } catch {}
+    if (ours && input.agent_id) keepSpend(input, () => slots.helperFor(input.agent_id)?.folder, () => slots.runOf(input.agent_id)?.run);
     const lead = input.agent_type === "sage:lead" && slots.leadOf(input.agent_id);
     const ended = lead && (() => { try { return logbookOf(lead.folder).leadRun(lead.task)?.id !== lead.run; } catch { return false; } })();
     const live = lead && !ended ? slots.running(leadKey(lead)) : [];
     if (live.length) return { decision: "block", reason: `sage: your helper${live.length === 1 ? "" : "s"} ${live.join(", ")} still run${live.length === 1 ? "s" : ""}, and a lead does not end while a helper runs. Run ${waitStep(lead.task)}: it returns at once with each helper that stopped and whose run you end, else when a helper stops or none runs, and after ${WAIT_MS / 60_000} minutes at the latest. It names once each run whose report the hook cannot read: the sage ends that run, so do not end it, and name it in FINDINGS of your report. Then go on with your steps.` };
-    if (ours && !input.stop_hook_active && typeof input.last_assistant_message === "string") {
-      const missing = core.missingFields(REPORT_FIELDS, input.last_assistant_message);
-      if (missing.length) return { decision: "block", reason: `sage: your report has no ${missing.join(", ")}. End with the report of the sage:report skill: ${REPORT_FIELDS.join(", ")}, each at the start of a line that is not in a list or a code block, with "none" where a field has nothing.${input.agent_type === "sage:lead" ? " A lead that waits for its own background work may end its turn again instead: the work's notice wakes it, and it keeps its lead slot until its report." : ""}` };
-      const role = input.agent_type.slice("sage:".length).toLowerCase();
-      const reason = REVIEWERS.includes(role) && core.stopReason(input.last_assistant_message, input.cwd ?? process.cwd(), { who: "the hook", proof: TEAM.slice(1).includes(role) });
-      if (reason) return { decision: "block", reason };
-    }
+    const saved = ours && input.agent_id ? slots.handback(input.agent_id) : undefined;
+    const handed = saved && handbackStands(input.agent_transcript_path, saved.id) ? saved.message : undefined;
+    if (handed !== undefined) input = { ...input, last_assistant_message: handed };
+    const reason = ours && handed === undefined && !input.stop_hook_active && reportProblem(input, input.last_assistant_message);
+    if (reason) return { decision: "block", reason };
   }
   if (!main && ours && input.agent_id) slots.touch(input.agent_id, input.agent_type);
   if (event === "SubagentStart") return void (ours && slots.bind(input.agent_id, input.agent_type));
@@ -205,8 +217,8 @@ function handleEvent(input, state, slots) {
     const gates = pickupNote(input, state) || (!input.stop_hook_active && gatesWaitNote(input, state));
     if (gates) return { decision: "block", reason: gates };
   }
-  if (event === "SubagentStop" && input.agent_type === "sage:lead" && typeof input.last_assistant_message === "string" && core.missingFields(REPORT_FIELDS, input.last_assistant_message).length) return undefined;
   if (event === "SubagentStop" && ours) keepRunText(input.cwd, "reports", () => slots.runOf(input.agent_id)?.run, input.last_assistant_message);
+  if (event === "SubagentStop" && input.agent_type === "sage:lead" && typeof input.last_assistant_message === "string" && core.missingFields(REPORT_FIELDS, input.last_assistant_message).length) return undefined;
   if (event === "SubagentStop") {
     const helper = slots.helperFor(input.agent_id), head = helper && headOf(helper.folder, helper.task);
     if (!helper || REVIEWERS.includes(helper.role)) {
@@ -226,6 +238,8 @@ function handleEvent(input, state, slots) {
   if (event === "PostToolUse" && input.tool_name === "Bash" && input.agent_type === "sage:lead") return void leadWrote(input, slots);
   if (event === "PostToolUse" && input.tool_name === "Bash" && main) {
     chiefEnded(input, slots);
+    const asked = state.sage && ASKED.exec(outText(input))?.[1];
+    if (asked) state.asked = [...new Set([...(state.asked ?? []), asked])];
     const picked = pickupNote(input, state);
     return picked ? context(event, picked) : undefined;
   }
@@ -303,7 +317,9 @@ function handleEvent(input, state, slots) {
   if (event === "PreToolUse" && FILE_TOOLS.test(tool) && (state.sage || chiefAgent)) {
     if (filePolicy.error) return deny(event, "the file policy cannot load, so this file change is refused. Reinstall or update the sage plugin.");
     if (filePolicy.chiefEditDenied({ sage: Boolean(state.sage) || chiefAgent, chief: main || chiefAgent }) && !chiefMemoryWrite(input)) {
-      return deny(event, chiefAgent ? "you are a chief agent, so you do not change files yourself, in any mode. Give this change to a sage:implementer." : 'sage mode is on, so you do not change files yourself. Give this change to a sage:implementer. The user ends sage mode with the message "sage mode off", alone.');
+      if (chiefAgent) return deny(event, "you are a chief agent, so you do not change files yourself, in any mode. Give this change to a sage:implementer.");
+      const why = filePaths(ti).map((path) => { try { return core.chiefFileProblem(path, input.cwd ?? process.cwd()); } catch { return "the sage core cannot load, so the hook refuses this file change of the chief. Reinstall or update the sage plugin."; } }).find(Boolean);
+      if (why) return deny(event, why);
     }
   }
   if (event !== "PreToolUse" || (!state.sage && !nestedSpawn)) return undefined;
@@ -323,7 +339,7 @@ function handleEvent(input, state, slots) {
     const run = view.leadRun(task);
     if (!run) return deny(event, `${task} has no running lead run in the logbook of ${project}. Record it first, as a command of its own: ${stateCommand(`run add ${task} --role lead`)}. A lead starts only from a session opened in the project's folder or one of its worktrees, so that the lead's logbook is the one that the session uses (F-T284-7).`);
     leadMark = { task, logbook: digest(view.dir), run: run.id, folder: project, named: Boolean(String(ti.name ?? "").trim()) };
-    slots.prune(view.endedLeadRuns().map((r) => digest(`${leadMark.logbook}:${r.id}`)));
+    slots.prune(view.endedLeadRuns().map((r) => digest(`${leadMark.logbook}:${r.id}`)), task);
   }
   if (AGENT_TOOLS.test(tool) && OURS.test(spawned)) {
     const missing = core.missingFields(BRIEF_FIELDS, ti.prompt);
@@ -336,7 +352,9 @@ function handleEvent(input, state, slots) {
     } catch (e) {
       return deny(event, `the state tool cannot load (${e?.message ?? e}), so sage starts no new agent: reinstall or update the sage plugin, and tell the user.`);
     }
-    const r = slots.take(project, caps.cap_total, input.tool_use_id ?? (main && spawned !== "sage:lead" ? String(Date.now()) : undefined), { role: spawned, caller: main ? undefined : input.agent_id, input: ti, lead: leadMark, helper: helperKey, brief: main && spawned !== "sage:lead" ? briefMark(ti.prompt, spawned, input.cwd) : undefined });
+    let gone = [];
+    try { gone = stateTool.stoppedSessions(realpathSync.native(input.cwd)); } catch {}
+    const r = slots.take(project, caps.cap_total, input.tool_use_id ?? (main && spawned !== "sage:lead" ? String(Date.now()) : undefined), { role: spawned, caller: main ? undefined : input.agent_id, input: ti, lead: leadMark, helper: helperKey, brief: main && spawned !== "sage:lead" ? briefMark(ti.prompt, spawned, input.cwd) : undefined, gone });
     if (r.refused) {
       slots.log(`${project} ${r.project} total ${r.total}/${caps.cap_total}`);
       const helperWait = `Wait for one of your helpers to stop: run ${waitStep(main ? undefined : slots.leadOf(input.agent_id)?.task)}, then start this helper again.`;
@@ -345,9 +363,10 @@ function handleEvent(input, state, slots) {
       if (r.refused === "ended") return deny(event, "this lead or spawn already ended, so it cannot start another agent. Report to the sage.");
       if (r.refused === "children") return deny(event, `this lead already has ${LEAD_HELPERS} children. ${helperWait}`);
       if (r.refused === "helper") return deny(event, `${helperKey.run} already has its helper: one run is backed by one child (F-T284-9). Report to the sage.`);
+      const fresh = () => `run each of these as a command of its own: ${stateCommand(`run done ${r.run ?? "<its lead run>"} --status failed --why "its session ended"`)}, then ${stateCommand(`run add ${leadMark.task} --role lead`)}, then start the lead again.`;
       const stop = () => slots.unnamedLead(leadMark.task) ? "by its agent id, from its start's result: it started with no name field, so a stop by its name is refused" : `by its agent id or by its name lead-${leadMark.task}`;
-      if (r.refused === "task" && r.elsewhere) return deny(event, `a lead of ${leadMark.task} holds a slot in another session, for the lead run ${r.run ?? "of its start"} (F-T273-5), and a TaskStop in this session cannot stop it. If that session ended (a restart or a crash), the slot frees by itself after an hour with no event of that lead or its helpers: start this lead again then. To start a fresh lead now, run each of these as a command of its own: ${stateCommand(`run done ${r.run ?? "<its lead run>"} --status failed --why "its session ended"`)}, then ${stateCommand(`run add ${leadMark.task} --role lead`)}, then start the lead again.`);
-      if (r.refused === "task") return deny(event, `a lead named lead-${leadMark.task} already holds a slot, in this session or for this logbook (F-T273-5, F-T273-16). Wait for it to end, or stop it with TaskStop (${stop()}), before you start a fresh lead.`);
+      if (r.refused === "task" && r.elsewhere) return deny(event, `a lead of ${leadMark.task} holds a slot in another session, for the lead run ${r.run ?? "of its start"} (F-T273-5), and a TaskStop in this session cannot stop it. If that session ended (a restart or a crash), the slot frees by itself after an hour with no event of that lead or its helpers: start this lead again then. To start a fresh lead now, ${fresh()}`);
+      if (r.refused === "task") return deny(event, `a lead named lead-${leadMark.task} already holds a slot, in this session or for this logbook (F-T273-5, F-T273-16). Wait for it to end, or stop it with TaskStop (${stop()}), before you start a fresh lead.${r.run ? ` If its agent no longer runs (after a restart, TaskStop finds no task), ${fresh()}` : ""}`);
       if (r.refused === "mark") return deny(event, `the agent cap could not mark its slot (${r.error}), so it refuses this spawn. Tell the user.`);
       return deny(event, `${running(r.total)} across all projects, and the total cap is ${caps.cap_total} (${project} has ${r.project}). ${raise("cap_total", caps.cap_total)}`);
     }
@@ -498,8 +517,7 @@ function moveCheck({ owner, repo, branch }) {
   }
 }
 
-const READS = { status: () => true, "merge-check": () => true, logbook: (pos) => pos[0] !== "repair", standing: (pos) => pos[0] !== "add", config: (pos) => !pos.length };
-const READ_FORM = "node <path to skills/sage/sage.mjs> <status, merge-check, logbook, standing or config> [--project <path>] (config without a key=value)";
+const READ_FORM = "node <path to skills/sage/sage.mjs> <status, merge-check, logbook, standing, config, task <T>, pages <T>, log <T>, finding show <T> <key> or help> [--project <path>] (config without a key=value, and no other option)";
 const PLAIN = /^[\w./=:@,+-]+(?:[ \t]+[\w./=:@,+-]+)*$/;
 const fields = (v) => (typeof v === "string" ? [v] : v && typeof v === "object" ? Object.values(v).flatMap(fields) : []);
 const fold = (text) => text.normalize("NFKC").toLowerCase();
@@ -516,11 +534,15 @@ function rootsOf(strict) {
   }
 }
 const from = (cwd, path) => (isAbsolute(path) ? path : `${isAbsolute(cwd) ? cwd : resolve(cwd)}/${path}`);
+const filePaths = (ti) => { const paths = [ti.file_path, ti.notebook_path].filter((path) => path !== undefined); return paths.length ? paths : [""]; };
 function underRoot(input) {
-  const ti = input.tool_input ?? {};
-  const path = canonical(from(input.cwd ?? process.cwd(), String(ti.file_path ?? ti.notebook_path ?? "")));
-  const root = [stateTool.sageRoot(process.env), core.sharedRoot(process.env)].map(canonical).find((r) => path === r || path.startsWith(r + sep));
-  return root ? `the sage root ${root} (${path})` : undefined;
+  const roots = [stateTool.sageRoot(process.env), core.sharedRoot(process.env)].map(canonical);
+  for (const given of filePaths(input.tool_input ?? {})) {
+    const path = canonical(from(input.cwd ?? process.cwd(), String(given)));
+    const root = roots.find((r) => path === r || path.startsWith(r + sep));
+    if (root) return `the sage root ${root} (${path})`;
+  }
+  return undefined;
 }
 function chiefMemoryWrite(input) {
   const path = input.tool_input?.file_path;
@@ -651,7 +673,7 @@ function leadProblem(input, cmd, pos, opt, slots) {
   if (view.shared && (opt.lead !== lead.run || opt.chief !== undefined)) return `this project's logbook is shared, so a lead's write names its lead run: add --lead ${lead.run}, with no --chief.`;
   return leadEndProblem(request, view, { lead, slots });
 }
-const READ_WAY = "To run a read command of the state tool, run node <path to skills/sage/sage.mjs> status (or merge-check, logbook, standing, config), with the path of the copy that this hook loads; to read the file, use cat <path> or git show <sha>:<path>.";
+const READ_WAY = "To run a read command of the state tool, run node <path to skills/sage/sage.mjs> status (or merge-check, logbook, standing, config, task <T>, pages <T>, log <T>, finding show <T> <key>, help), with the path of the copy that this hook loads; to read the file, use cat <path> or git show <sha>:<path>.";
 function optionsOf(args) {
   const pos = [], opt = Object.create(null);
   let twice;
@@ -704,10 +726,26 @@ function chiefEnded(input, slots) {
     if (!literal || words[0] !== "run" || !words.every(plain)) return;
     const { pos, opt } = optionsOf(words.slice(1));
     if (pos[0] !== "done" || !/^R[1-9]\d*$/.test(pos[1] ?? "")) return;
-    const view = logbookOf(opt.project ?? env.SAGE_PROJECT ?? input.cwd), run = view.row(pos[1]);
-    if (!run || run.status === "running" || !TEAM.includes(run.role)) return;
+    const view = logbookOf(opt.project ?? env.SAGE_PROJECT ?? input.cwd), run = view.row(pos[1]), logbook = digest(view.dir);
+    if (!run || run.status === "running") return;
+    if (run.role === "lead") return void slots.prune([leadKey({ logbook, run: run.id })], run.task);
+    if (!TEAM.includes(run.role)) return;
     const leads = [view.leadRun(run.task), ...view.endedLeadRuns().filter((r) => r.task === run.task)].filter(Boolean);
-    slots.endHelpers(leads.map((lead) => helperOf({ logbook: digest(view.dir), run: lead.id }, run.id)));
+    slots.endHelpers(leads.map((lead) => helperOf({ logbook, run: lead.id }, run.id)));
+  } catch {}
+}
+function reportProblem(input, text) {
+  if (typeof text !== "string") return false;
+  const missing = core.missingFields(REPORT_FIELDS, text);
+  if (missing.length) return `sage: your report has no ${missing.join(", ")}. End with the report of the sage:report skill: ${REPORT_FIELDS.join(", ")}, each at the start of a line that is not in a list or a code block, with "none" where a field has nothing.${input.agent_type === "sage:lead" ? " A lead that waits for its own background work may end its turn again instead: the work's notice wakes it, and it keeps its lead slot until its report." : ""}`;
+  const role = input.agent_type.slice("sage:".length).toLowerCase();
+  return REVIEWERS.includes(role) && core.stopReason(text, input.cwd ?? process.cwd(), { who: "the hook", proof: TEAM.slice(1).includes(role) });
+}
+function keepSpend(input, folderOf, runOf) {
+  if (stateTool.error || spendReader.error) return;
+  try {
+    const folder = folderOf() ?? input.cwd, run = typeof folder === "string" && runOf(), spend = run && spendReader.transcriptSpend(input.agent_transcript_path);
+    if (spend) stateTool.keepSpend(realpathSync.native(folder), { run, spend });
   } catch {}
 }
 function keepRunText(cwd, kind, runOf, text, task) {
@@ -723,21 +761,27 @@ function pickupNote(input, state) {
   try { lines = stateTool.pickupAnswers(realpathSync.native(input.cwd), input.session_id, process.env); } catch { return ""; }
   return lines.length ? [`sage: the owner answered on the board, and this hook applied ${lines.length === 1 ? "that answer" : "those answers"} for you. Tell the owner what each one did, and go on from it:`, ...lines.map((line) => `- ${line}`)].join("\n") : "";
 }
+const ASKED = /^(G[1-9]\d*) open · /m;
 const busy = (task) => task?.status === undefined || ["running", "pending"].includes(task.status);
 function gatesWaitNote(input, state) {
   if (!Array.isArray(input.background_tasks) || input.background_tasks.some(busy) || stateTool.error || typeof input.cwd !== "string") return "";
   let own;
   try { own = stateTool.ownGates(realpathSync.native(input.cwd), { native: input.session_id }, process.env); } catch { return ""; }
-  const key = own.open.join(",");
+  const legacy = own.me === "", open = legacy ? own.open.filter((id) => state.asked?.includes(id)) : own.open, key = open.join(",");
+  if (legacy) state.asked = (state.asked ?? []).filter((id) => own.open.includes(id) || own.pending.some((p) => p.id === id));
   if (!key) delete state.gatesTold;
   if (!key || state.gatesTold === key) return "";
   state.gatesTold = key;
-  return `sage: ${own.open.join(", ")} ${own.open.length === 1 ? "waits" : "wait"} for the owner, and no agent or command of yours runs, so nothing wakes you when the owner answers on the board. Before you end the turn, start the gates wait, as a Bash command of its own with run_in_background true, in the project's folder: ${nodeCommand(WAIT, `--gates${own.me ? ` ${own.me}` : ""}`)}. It ends when an answer comes, and then this hook applies a board answer at your next step.`;
+  return `sage: ${open.join(", ")} ${open.length === 1 ? "waits" : "wait"} for the owner, and no agent or command of yours runs, so nothing wakes you when the owner answers on the board. Before you end the turn, start the gates wait, as a Bash command of its own with run_in_background true, in the project's folder: ${nodeCommand(WAIT, `--gates ${legacy ? key : own.me}`)}. It ends when an answer comes, and then this hook applies a board answer at your next step.`;
 }
 export async function waitForGates(chief, cwd, { ms = WAIT_MS, every = 5_000 } = {}) {
-  const usage = "usage: node wait.mjs --gates [C<n>], in the project's folder; a shared logbook needs your chief id, for example node wait.mjs --gates C1";
-  if (chief !== undefined && !/^C[1-9]\d*$/.test(chief)) return usage;
-  const folder = realpathSync.native(cwd), look = () => stateTool.ownGates(folder, chief === undefined ? {} : { chief }, process.env);
+  const usage = "usage: node wait.mjs --gates [C<n>], in the project's folder; a shared logbook needs your chief id, for example node wait.mjs --gates C1; a logbook that is not shared takes the ids of the gates that you asked, for example node wait.mjs --gates G3,G4";
+  const ids = /^G[1-9]\d*(?:,G[1-9]\d*)*$/.test(chief ?? "") ? chief.split(",") : undefined;
+  if (chief !== undefined && !ids && !/^C[1-9]\d*$/.test(chief)) return usage;
+  const folder = realpathSync.native(cwd), look = () => {
+    const own = stateTool.ownGates(folder, chief === undefined || ids ? {} : { chief }, process.env);
+    return ids ? { ...own, open: own.open.filter((id) => ids.includes(id)), pending: own.pending.filter((p) => ids.includes(p.id)) } : own;
+  };
   const first = look(), started = Date.now();
   if (first.me === undefined) return usage;
   for (;;) {
@@ -822,7 +866,7 @@ function agentCheck(input, file, slots) {
     for (const run of runs) {
       if (canonical(from(run.dir ?? cwd, run.script)) !== canonical(TOOL)) return `an agent runs only the copy of the state tool that this hook loads, and ${quoted(run.script)} is not that copy. ${READ_WAY}`;
       const [cmd, ...args] = run.args, { pos, opt, twice } = optionsOf(args);
-      if (Object.hasOwn(READS, cmd ?? "") && READS[cmd](pos)) continue;
+      if (stateTool.readsOnly(run.args)) continue;
       if (input.agent_type !== "sage:lead") return `"${[cmd, ...pos.slice(0, 1)].join(" ")}" writes the logbook, or is not a read command of the state tool.`;
       const command = String(ti.command ?? "").trim(), [node, path = ""] = command.split(/[ \t]+/);
       const plain = texts.length === 1 && runs.length === 1 && PLAIN.test(command) && node === "node" && /(?:^|\/)skills\/sage\/sage\.mjs$/.test(path) && !path.split("/").includes("..");
@@ -936,17 +980,25 @@ export function agentProblem(command, cwd, path = process.env.PATH ?? "") {
 
 function readOnlyRole(agentType) {
   const role = String(agentType).replace(/^sage:/i, "").toLowerCase();
-  try { return { role, denied: core.roleEditDenied({ sage: true, role }) }; } catch { return { role, denied: true }; }
+  try { return { role, denied: core.roleEditDenied({ sage: true, role }), known: true }; } catch { return { role, denied: true }; }
 }
 function scratchOf(role, cwd) {
   if (role !== "investigate") return core.TEMP;
   try { return [...core.TEMP, stateTool.pagesRoot(realpathSync.native(cwd), process.env)]; } catch { return core.TEMP; }
 }
-const PAGE_NOTE = "The investigate agent writes only its pages, in the task's pages folder that its brief names, and files in its scratch folder.";
 export function readOnlyWrite(agentType, commands, cwd) {
-  const { role, denied } = readOnlyRole(agentType), scratch = denied ? scratchOf(role, cwd) : [];
-  const write = denied ? commands.find((command) => { try { return core.commandWrites(command, cwd, scratch, { readOnly: true }); } catch { return true; } }) : undefined;
-  return write === undefined ? undefined : `in sage mode, the ${role} agent changes no files, also not from the shell, so ${quoted(bare(write))} is refused: it has a write form (for example sed -i, a redirection to a file, tee, cp, mv, rm, code in node -e, or a git command that changes the checkout, such as git checkout, reset, commit or branch -D). ${role === "investigate" ? `${PAGE_NOTE} Redirect a page into its pages folder, with a literal path.` : "Report the finding instead."} ${core.READ_ONLY_SHELL_WAY ?? ""}`;
+  const { role, denied, known } = readOnlyRole(agentType);
+  if (!denied) return undefined;
+  let place = { readOnly: true };
+  try { if (known && role !== "lead") place = core.readOnlyPlace(rootsOf(true), process.env, { "the Claude config folder": process.env.CLAUDE_CONFIG_DIR, "the Codex config folder": process.env.CODEX_HOME }); } catch {}
+  const scratch = scratchOf(role, cwd);
+  for (const command of commands) {
+    let write;
+    try { write = core.commandWritePart(command, cwd, scratch, place); } catch { write = { part: command }; }
+    if (write === undefined) continue;
+    try { return core.readOnlyShell(role, write); } catch { return `in sage mode, the ${role} agent changes no files, also not from the shell, and the sage core cannot load, so the hook refuses this command. Reinstall or update the sage plugin.`; }
+  }
+  return undefined;
 }
 export function readOnlyFile(input) {
   const { role, denied } = readOnlyRole(input.agent_type);
@@ -965,7 +1017,7 @@ export function readOnlyFile(input) {
     outside ??= paths[0];
   }
   if (outside === undefined) return undefined;
-  return `in sage mode, the ${role} agent changes no project files, so its ${input.tool_name} of ${quoted(outside)} is refused. ${role === "investigate" ? PAGE_NOTE : "Report the finding instead."} A file in your scratch folder in the temp folder passes, with a literal path (for example /tmp/<run>/notes.md).`;
+  return `in sage mode, the ${role} agent changes no project files, so its ${input.tool_name} of ${quoted(outside)} is refused. ${role === "investigate" ? core.READ_ONLY_PAGE_NOTE : "Report the finding instead."} A file in your scratch folder in the temp folder passes, with a literal path (for example /tmp/<run>/notes.md).`;
 }
 
 export function programsRun(command, cwd, path = process.env.PATH ?? "", options) {
@@ -1022,6 +1074,39 @@ function briefMark(prompt, role, cwd) {
   }
 }
 const briefRun = (prompt) => BRIEF_LINE.exec(String(prompt ?? "").split("\n", 1)[0])?.[1];
+function transcriptRecords(path, fromEnd) {
+  if (typeof path !== "string" || !isAbsolute(path) || !path.endsWith(".jsonl")) return [];
+  let fd;
+  try {
+    fd = openSync(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+    const stat = fstatSync(fd), length = Math.min(stat.size, fromEnd ? 1 << 20 : 1 << 16);
+    if (!stat.isFile()) return [];
+    const chunk = Buffer.alloc(length), lines = chunk.subarray(0, readSync(fd, chunk, 0, length, fromEnd ? stat.size - length : 0)).toString("utf8").split("\n");
+    if (fromEnd && length < stat.size) lines.shift();
+    return (fromEnd ? lines.reverse() : lines.slice(0, 1)).flatMap((line) => { try { return [JSON.parse(line)]; } catch { return []; } });
+  } catch {
+    return [];
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+const recordParts = (record) => Array.isArray(record?.message?.content) ? record.message.content : [];
+function briefOfTranscript(path) {
+  const first = transcriptRecords(path, false)[0], content = first?.message?.content;
+  const [, run, task] = BRIEF_LINE.exec(String((typeof content === "string" ? content : recordParts(first).find((part) => part?.type === "text")?.text) ?? "").split("\n", 1)[0]) ?? [];
+  return run && { run, task };
+}
+function handbackStands(path, id) {
+  const failed = new Set();
+  let later = false;
+  for (const record of transcriptRecords(path, true)) {
+    const parts = recordParts(record);
+    for (const part of parts) if (part?.type === "tool_result" && part.is_error) failed.add(part.tool_use_id);
+    if (parts.some((part) => part?.type === "tool_use" && part.id === id)) return !later && !failed.has(id);
+    later ||= record?.type === "assistant";
+  }
+  return true;
+}
 const spawnRun = (input, ti, given) => briefRun(ti.prompt) ?? (/^R[1-9]\d*$/.test(given) ? given : pendingSpawn(input, ti, given));
 function pendingSpawn(input, ti, given) {
   const role = String(ti.subagent_type ?? "").toLowerCase().replace(/^sage:/, "");
@@ -1044,6 +1129,31 @@ function noteStart(input) {
     const run = OURS.test(String(ti.subagent_type ?? "")) && spawnRun(input, ti, spawnGiven(ti));
     if (run && !stateTool.error) stateTool.markStart(realpathSync.native(input.cwd), run);
   } catch {}
+}
+
+const HOOK_TIME_LIMIT_MS = 10_000, LOCK_AGE_MS = 3 * HOOK_TIME_LIMIT_MS, skipWhenBusy = () => {};
+const LOCK_OWNER = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/;
+
+function lockHolder(path) {
+  let info, names = [], owner;
+  try { info = lstatSync(path); if (info.isDirectory()) names = readdirSync(path); }
+  catch (error) { if (error.code === "ENOENT") return { free: true }; throw error; }
+  if (names.length === 1 && LOCK_OWNER.test(names[0])) try { owner = JSON.parse(readFileSync(join(path, names[0]), "utf8")); } catch {}
+  const at = Number.isFinite(owner?.at) ? owner.at : info.mtimeMs;
+  return { folder: info.isDirectory(), names, pid: owner?.pid, host: owner?.host, age: Math.abs(Date.now() - at) };
+}
+
+function holderGone(holder) {
+  if (holder.age > LOCK_AGE_MS) return true;
+  if (holder.host !== hostname() || !Number.isInteger(holder.pid) || holder.pid <= 0) return false;
+  try { process.kill(holder.pid, 0); return false; }
+  catch (error) { return error.code === "ESRCH"; }
+}
+
+function removeSeenLock(path, { folder, names }) {
+  if (!folder) { try { unlinkSync(path); } catch {} return; }
+  for (const name of names) rmSync(join(path, name), { recursive: true, force: true });
+  try { rmdirSync(path); } catch {}
 }
 
 export function slotsFor(dir, session, now = Date.now(), rawSession = session, leadRuns = liveLeadRun) {
@@ -1091,17 +1201,53 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
     try { rmdirSync(join(dir, slot)); }
     catch { rmSync(join(dir, slot), { recursive: true, force: true }); }
   };
-  const transaction = (fn) => (...args) => {
-    mkdirSync(dirname(lock), { recursive: true });
-    let held = false;
-    for (let attempt = 0; attempt < 400; attempt++) {
-      try { mkdirSync(lock); held = true; break; }
-      catch (error) { if (error.code !== "EEXIST") throw error; }
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+  const endsNoted = join(events, "ended-while-lock-busy");
+  const applyEndsNoted = () => {
+    let names;
+    try { names = readdirSync(endsNoted); }
+    catch (error) { if (error.code === "ENOENT") return; throw error; }
+    for (const name of names) {
+      let value;
+      try { value = JSON.parse(readFileSync(join(endsNoted, name), "utf8")); } catch {}
+      if (valid(value?.agent)) release(value.agent, value.report ?? undefined);
+      rmSync(join(endsNoted, name), { force: true });
     }
-    if (!held) throw Error("the agent-slot lock is busy; no new agent can start until the slot state is available");
-    try { return fn(...args); }
-    finally { rmdirSync(lock); }
+  };
+  const busy = (holder) => {
+    const who = holder.pid !== undefined ? `pid ${holder.pid} has held it for ${(holder.age / 1000).toFixed(1)} s` : holder.free ? "other hooks took it first each time" : "it has no owner file";
+    throw Error(`the agent-slot lock is busy (${who}), so no agent can start or end until the slot state is available. The hook frees the lock folder ${lock} by itself as soon as its holder has ended, or when it is older than ${LOCK_AGE_MS / 1000} s; if it stays, the user removes it with: rm -r "${lock}"`);
+  };
+  const transaction = (fn, whenBusy = busy) => (...args) => {
+    const parent = dirname(lock), token = randomUUID(), file = `${token}.json`, temporary = `${lock}.${token}`;
+    mkdirSync(parent, { recursive: true });
+    mkdirSync(temporary);
+    let held = false, holder;
+    try {
+      chmodSync(temporary, 0o700);
+      writeFileSync(join(temporary, file), JSON.stringify({ pid: process.pid, host: hostname(), at: Date.now() }));
+      for (let attempt = 0; attempt < 400 && !held; attempt++) {
+        holder = lockHolder(lock);
+        if (holder.free) {
+          try { renameSync(temporary, lock); held = true; continue; }
+          catch (error) { if (!["EEXIST", "ENOTEMPTY", "ENOTDIR"].includes(error.code)) throw error; }
+        } else if (holderGone(holder)) { removeSeenLock(lock, holder); continue; }
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+      }
+    } finally {
+      if (!held) rmSync(temporary, { recursive: true, force: true });
+    }
+    if (!held) return whenBusy(holder, ...args);
+    try {
+      for (const name of readdirSync(parent)) {
+        if (!name.startsWith(`${basename(lock)}.`)) continue;
+        const left = lockHolder(join(parent, name));
+        if (!left.free && holderGone(left)) removeSeenLock(join(parent, name), left);
+      }
+      applyEndsNoted();
+      return fn(...args);
+    } finally {
+      removeSeenLock(lock, { folder: true, names: [file] });
+    }
   };
   const expire = () => {
     const age = slot => has(slot, "possible-launch") || mark(slot, "agent-") !== undefined || mark(slot, "bound-") !== undefined ? STALE.agent : STALE.pending;
@@ -1180,10 +1326,12 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
     renew(candidates);
   };
   return {
-    take: transaction((project, capTotal, toolUseId, { role: raw, caller, input, lead, helper, brief } = {}) => {
+    take: transaction((project, capTotal, toolUseId, { role: raw, caller, input, lead, helper, brief, gone = [] } = {}) => {
       const role = raw === undefined ? undefined : String(raw).toLowerCase();
       mkdirSync(dir, { recursive: true });
       expire();
+      const goneScopes = new Set(gone.filter((native) => native !== rawSession).map(hash));
+      for (const slot of list()) if (goneScopes.has(mark(slot, "scope-"))) free(slot);
       const exact = caller !== undefined || role === "sage:lead";
       if (exact && (!valid(rawSession) || !valid(toolUseId) || (caller !== undefined && !valid(caller)))) return { refused: "identity", ...counts(project) };
       const tu = valid(toolUseId) ? toolUseId : String(now);
@@ -1195,13 +1343,8 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
       const sameName = slot => mark(slot, "task-") === lead.task && mark(slot, "role-") === "sage_lead";
       if (role === "sage:lead" && lead) {
         const mine = new Set(ofSession());
-        for (const slot of list().filter(slot => sameName(slot) && mark(slot, "logbook-") === lead.logbook && !mine.has(slot) && mark(slot, "run-") !== lead.run)) {
-          const bound = mark(slot, "bound-");
-          if (bound) note(`ended-${bound}`, "", join(dir, "..", "slot-events", mark(slot, "scope-") ?? scope));
-          free(slot);
-        }
         const held = list().find(slot => sameName(slot) && mark(slot, "logbook-") === lead.logbook) ?? [...mine].find(sameName);
-        if (held) return { refused: "task", elsewhere: !mine.has(held), run: mark(held, "run-"), ...counts(project) };
+        if (held) return { refused: "task", elsewhere: !mine.has(held), run: mark(held, "logbook-") === lead.logbook ? mark(held, "run-") : undefined, ...counts(project) };
       }
       if (helper && helperNote(`started-${helper.key}`) !== undefined) return { refused: "helper", ...counts(project) };
       let mine;
@@ -1217,6 +1360,8 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
         if (role === "sage:lead" && lead?.named) initial.push("named");
         const run = role === "sage:lead" && lead ? lead.run : helper ? helper.run : brief === undefined ? briefRun(input?.prompt) : brief.run;
         if (run) initial.push(`run-${run}`);
+        const task = role === "sage:lead" ? undefined : helper ? helper.task : run && BRIEF_LINE.exec(String(input?.prompt ?? "").split("\n", 1)[0])?.[2];
+        if (task) initial.push(`task-${task}`);
         if (helper) initial.push(`helper-${helper.key}`);
         if (exact) initial.push("exact");
         if (caller !== undefined) initial.push(`parent-${hash(caller)}`);
@@ -1263,7 +1408,30 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
       if (stopped(agent)) release(agent);
       else utimesSync(join(dir, slot), new Date(now), new Date(now));
     }),
-    release: transaction(release),
+    release: transaction(release, (holder, agent, report) => valid(agent) && note(hash(agent), JSON.stringify({ agent, report: report ?? null }), endsNoted)),
+    bindByBriefRun: transaction((agent, role, { run, task }) => {
+      if (!valid(agent) || !run || stopped(agent) || ofSession().some(slot => ownsAgent(slot, agent)) || noted(`binding-${hash(agent)}`)) return;
+      const calls = observationOf(agent)?.calls ?? [];
+      const mine = pendingFor(role).filter(slot => calls.includes(mark(slot, "call-")) && mark(slot, "run-") === run && mark(slot, "task-") === task);
+      if (mine.length === 1) bindTo(mine[0], agent);
+    }),
+    refusedHandback: (agent, refuse) => {
+      if (!valid(agent)) return false;
+      const name = `handback-${hash(agent)}`, was = noted(name);
+      if (refuse) note(name);
+      else rmSync(join(events, name), { force: true });
+      return was;
+    },
+    handback: (agent, saved) => {
+      if (!valid(agent)) return undefined;
+      const name = `handed-${hash(agent)}`;
+      if (saved) return void note(name, JSON.stringify(saved));
+      let text;
+      try { text = readFileSync(join(events, name), "utf8"); } catch { return undefined; }
+      rmSync(join(events, name), { force: true });
+      const value = parsed(text);
+      return typeof value?.message === "string" ? value : undefined;
+    },
     drop: transaction((tool, caller) => {
       const slot = ofSession().find(slot => mark(slot, "call-") === callKey(tool, caller))
         ?? (caller === undefined ? ofSession().find(slot => !has(slot, "exact") && mark(slot, "pending-") === id(tool)) : undefined);
@@ -1273,7 +1441,7 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
         free(slot);
       }
     }),
-    touch: transaction(touch),
+    touch: transaction(touch, skipWhenBusy),
     helper: (key) => ({ owned: helperNote(`owned-${key}`) !== undefined, started: helperNote(`started-${key}`) !== undefined, stopped: parsed(helperNote(`stopped-${key}`)) }),
     told: (key) => helperNote(`told-${key}`) !== undefined,
     tell: (key) => note(`told-${key}`, "", helpers),
@@ -1296,11 +1464,19 @@ export function slotsFor(dir, session, now = Date.now(), rawSession = session, l
       if (/^lead-t[1-9]\d*$/.test(name)) return !ofSession().some((slot) => live(slot) && mark(slot, "task-") === `T${name.slice("lead-t".length)}`);
       return Boolean(name) && noted(`lead-${hash(name)}`) && !ofSession().some((slot) => live(slot) && mark(slot, "folded-") === hash(name));
     },
-    prune: (leads) => {
+    prune: transaction((leads, task) => {
+      const ended = (slot) => mark(slot, "role-") === "sage_lead" && mark(slot, "task-") === task && leads.includes(leadKey({ logbook: mark(slot, "logbook-"), run: mark(slot, "run-") }));
+      const gone = new Set(list().filter(ended).map((slot) => mark(slot, "bound-")).filter(Boolean));
+      for (const slot of list()) {
+        const key = mark(slot, "helper-");
+        if (!ended(slot) && !gone.has(mark(slot, "parent-")) && !(key && mark(slot, "task-") === task && leads.some((lead) => key.startsWith(`${lead}.`)))) continue;
+        if (mark(slot, "bound-")) note(`ended-${mark(slot, "bound-")}`, "", join(dir, "..", "slot-events", mark(slot, "scope-") ?? scope));
+        free(slot);
+      }
       let names = [];
       try { names = readdirSync(helpers); } catch (error) { if (error.code !== "ENOENT") throw error; }
       for (const name of names) if (leads.some((lead) => name.slice(name.indexOf("-") + 1).startsWith(`${lead}.`))) rmSync(join(helpers, name), { force: true });
-    },
+    }),
     stops: (prefix) => {
       let names = [];
       try { names = readdirSync(helpers); } catch (error) { if (error.code !== "ENOENT") throw error; }
@@ -1358,13 +1534,47 @@ function liveLeadRun(folder, task, run) {
 }
 
 const BEATS = ["PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop"];
-function beat(input, state) {
-  if (!BEATS.includes(input.hook_event_name) || agentEvent(input) || stateTool.error || core.error || typeof input.session_id !== "string" || typeof input.cwd !== "string") return;
-  const sageMode = state.sage === true;
+function beat(input, state, session) {
+  if (!BEATS.includes(input.hook_event_name) || stateTool.error || core.error || typeof input.session_id !== "string" || typeof input.cwd !== "string") return;
+  const file = join(stateDir(), "live", `${session}.json`), temp = `${file}.${randomUUID()}`, sageMode = state.sage === true;
   try {
-    const last = core.chiefBeat({ last: state.live, mode: { sageMode, autopilot: sageMode && state.autopilot === true }, now: Date.now(), project: input.cwd, native: input.session_id, provider: "claude", tool: stateTool, env: process.env });
-    if (last) state.live = last;
-  } catch {}
+    let last;
+    try { last = JSON.parse(readFileSync(file, "utf8")); } catch { last = state.live; }
+    const next = core.chiefBeat({ last, mode: { sageMode, autopilot: sageMode && state.autopilot === true }, now: Date.now(), project: input.cwd, native: input.session_id, provider: "claude", tool: stateTool, env: process.env, pid: process.ppid });
+    if (next === last) return;
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(temp, JSON.stringify(next), { flag: "wx" });
+    renameSync(temp, file);
+  } catch {} finally { rmSync(temp, { force: true }); }
+}
+
+function sessionsNote(input) {
+  try { return stateTool.error || core.error ? "" : core.sessionsLine(stateTool.sessionsHere(input.cwd ?? process.cwd(), input.session_id, process.env)); } catch { return ""; }
+}
+
+const ENDS = ["prompt_input_exit", "logout", "other"];
+function sessionEdge(input) {
+  if (stateTool.error || core.error || typeof input.session_id !== "string" || typeof input.cwd !== "string") return;
+  const edge = { project: input.cwd, native: input.session_id, pid: process.ppid, now: Date.now(), tool: stateTool, env: process.env };
+  if (input.hook_event_name === "SessionEnd" && input.reason === "clear") core.clearNote(edge);
+  else if (input.hook_event_name === "SessionEnd" && ENDS.includes(input.reason)) core.chiefEnd({ ...edge, reason: input.reason });
+  else if (input.hook_event_name === "SessionStart" && input.source === "clear") {
+    const chief = core.clearLink(edge);
+    if (chief && core.readLiveRecord(stateTool.locate(input.cwd).dir, chief)?.sageMode === true) keepSageMode(input.session_id);
+  }
+  else if (input.hook_event_name === "SessionStart" && input.source === "resume") core.chiefResume(edge);
+}
+const EDGES = ["SessionStart", "SessionEnd"];
+function keepSageMode(native) {
+  const file = join(stateDir(), `${safe(native)}.json`), temp = `${file}.${randomUUID()}`;
+  let state = {};
+  try { state = JSON.parse(readFileSync(file, "utf8")); } catch {}
+  if (!state || typeof state !== "object" || Array.isArray(state)) state = {};
+  try {
+    mkdirSync(stateDir(), { recursive: true });
+    writeFileSync(temp, JSON.stringify({ ...state, sage: true }), { flag: "wx" });
+    renameSync(temp, file);
+  } catch {} finally { rmSync(temp, { force: true }); }
 }
 
 const stateDir = () => process.env.SAGE_HOOKS_STATE ?? join(process.env.SAGE_HOME ?? join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "sage"), ".hooks");
@@ -1373,6 +1583,10 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
   let input;
   try {
     input = JSON.parse(readFileSync(0, "utf8"));
+    if (EDGES.includes(input?.hook_event_name)) {
+      sessionEdge(input);
+      process.exit(0);
+    }
     const session = safe(input.session_id ?? "unknown");
     const file = join(stateDir(), `${session}.json`);
     let state = {}, fd;
@@ -1403,11 +1617,9 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
     };
     const before = JSON.stringify(state);
     const output = handle(input, state, slotsFor(join(stateDir(), "slots"), session, Date.now(), input.session_id ?? null));
-    const handled = JSON.stringify(state);
-    if (handled !== before) keep();
+    if (JSON.stringify(state) !== before) keep();
     if (output) process.stdout.write(JSON.stringify(output));
-    beat(input, state);
-    if (JSON.stringify(state) !== handled) try { keep(); } catch {}
+    beat(input, state, session);
   } catch (e) {
     let commands;
     try { commands = commandFields(input?.tool_input ?? {}); } catch {}
