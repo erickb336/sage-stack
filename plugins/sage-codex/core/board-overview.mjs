@@ -147,7 +147,7 @@ function agentsOf(model, recent, agents, chiefs) {
       const { run, task, flag, state, look } = item;
       return {
         id: run.id, role: run.role, status: run.status, chief: chiefOf(item), lead: leadOf(item)?.id ?? null, model: run.model || null, candidate: run.candidate || null,
-        task: { key: task.key, id: task.id, title: task.title }, started: iso(run.started), ended: iso(run.ended), ...runMeasure(run), place: run.place ?? null, look, state, ...(flag && { flag: { level: flag.level, text: flag.text } }),
+        task: { key: task.key, id: task.id, title: task.title }, started: iso(run.started), ended: iso(run.ended), ...runMeasure(run), place: run.place ?? null, look, state, ...(flag ? { flag: { level: flag.level, text: flag.text } } : look && run.status === "failed" && { flag: { level: "red", text: runWord("failed").flag } }),
         why: run.status === "failed" ? runFailure(task, run)?.text ?? null : item.agent?.why || flag?.why || null,
         ...(endedOf.has(run.id) && { endedHelpers: endedOf.get(run.id).length }),
       };
