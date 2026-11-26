@@ -42,9 +42,10 @@ function scratch(t) {
   const codex = (text) => write(join(home, ".codex", "config.toml"), text);
   const managed = join(system, "ClaudeCode"), systemConfig = join(system, "codex", "config.toml"), managedConfig = join(system, "codex", "managed_config.toml");
   const places = (all) => ({ claude: { ...all.claude, managed }, codex: { ...all.codex, system: systemConfig, managed: managedConfig } });
-  const state = (provider, more = {}, cwd = project) => sandboxState(provider, { env: { ...env, ...more }, cwd, places: places(sandboxPlaces({ ...env, ...more }))[provider] });
-  const line = (provider, more = {}) => sandboxLine(state(provider, more), { env: { ...env, ...more }, cwd: project });
-  const plugin = join(home, ".claude", "plugins", "cache", "sage", "sage", "v1");
+  const pluginOf = (more) => join(more.CLAUDE_CONFIG_DIR ?? join(home, ".claude"), "plugins", "cache", "sage", "sage", "v1");
+  const state = (provider, more = {}, cwd = project, plugin = pluginOf(more)) => sandboxState(provider, { env: { ...env, ...more }, cwd, places: places(sandboxPlaces({ ...env, ...more }))[provider], plugin });
+  const line = (provider, more = {}, plugin = pluginOf(more)) => sandboxLine(state(provider, more, project, plugin), { env: { ...env, ...more }, cwd: project });
+  const plugin = pluginOf({});
   const guide = () => {
     const json = JSON.parse(CLAUDE_BLOCK);
     json.sandbox.excludedCommands = entryLines(plugin);
@@ -86,7 +87,7 @@ test("Claude Code: with no settings file the sandbox is off, and the line names 
   const s = scratch(t);
   assert.equal(s.state("claude").state, "off");
   assert.deepEqual(s.state("claude").writes, []);
-  assert.equal(s.line("claude"), 'Claude Code: off · missing: sandbox.enabled: true; sandbox.failIfUnavailable: true; sandbox.allowUnsandboxedCommands: false; sandbox.autoAllowBashIfSandboxed: true; "gh *" in sandbox.excludedCommands; the state tool\'s line in sandbox.excludedCommands (sage sandbox entries prints it); the board\'s line in sandbox.excludedCommands (sage sandbox entries prints it); "~/sage-worktrees" in sandbox.filesystem.allowWrite; "~/.config/sage-board" in sandbox.filesystem.denyRead; "WebFetch(domain:*)" in permissions.allow');
+  assert.equal(s.line("claude"), 'Claude Code: off · missing: sandbox.enabled: true; sandbox.failIfUnavailable: true; sandbox.allowUnsandboxedCommands: false; sandbox.autoAllowBashIfSandboxed: true; "gh *" in sandbox.excludedCommands; the state tool\'s line in sandbox.excludedCommands (run sage sandbox entries again); the board\'s line in sandbox.excludedCommands (run sage sandbox entries again); "~/sage-worktrees" in sandbox.filesystem.allowWrite; "~/.config/sage-board" in sandbox.filesystem.denyRead; "WebFetch(domain:*)" in permissions.allow');
   s.claude(settings({ ...FAILS_CLOSED, enabled: false }));
   assert.equal(s.state("claude").state, "off", "enabled false");
   s.claude(settings({ ...FAILS_CLOSED, filesystem: { disabled: true } }));
@@ -105,8 +106,8 @@ test("Claude Code: F-T1241-19, each key of the guide's block that is gone is nam
   assert.deepEqual(without((x) => delete x.autoAllowBashIfSandboxed), ["sandbox.autoAllowBashIfSandboxed: true"]);
   assert.deepEqual(without((x) => delete x.filesystem.denyRead), ['"~/.config/sage-board" in sandbox.filesystem.denyRead']);
   assert.deepEqual(without((x) => x.excludedCommands.splice(0, 1)), ['"gh *" in sandbox.excludedCommands']);
-  assert.deepEqual(without((x) => x.excludedCommands.splice(1, 1)), ["the state tool's line in sandbox.excludedCommands (sage sandbox entries prints it)"]);
-  assert.deepEqual(without((x) => x.excludedCommands.splice(2, 1)), ["the board's line in sandbox.excludedCommands (sage sandbox entries prints it)"]);
+  assert.deepEqual(without((x) => x.excludedCommands.splice(1, 1)), ["the state tool's line in sandbox.excludedCommands (run sage sandbox entries again)"]);
+  assert.deepEqual(without((x) => x.excludedCommands.splice(2, 1)), ["the board's line in sandbox.excludedCommands (run sage sandbox entries again)"]);
 });
 
 test("Claude Code: a sandbox that a command can leave reads as on but may run unsandboxed, and names what is missing", (t) => {
@@ -421,8 +422,40 @@ test("F-T1241-22: a sage entry whose plugin folder holds a write root, or whose 
   for (const part of ["$X", "`x`"]) {
     const found = read((x) => x.excludedCommands.splice(1, 1, `node ${plugins}/${part}/skills/sage/sage.mjs *`));
     assert.equal(found.state, "may-run-unsandboxed", part);
-    assert.ok(found.missing.includes("the state tool's line in sandbox.excludedCommands (sage sandbox entries prints it)"), part);
+    assert.ok(found.missing.includes("the state tool's line in sandbox.excludedCommands (run sage sandbox entries again)"), part);
   }
+});
+
+test("F-T1241-63, F-T1241-37: a node entry that names an old version's folder or another plugin's folder is not the guide's line: the line names what is missing and says to run sage sandbox entries again", (t) => {
+  const s = scratch(t);
+  const MISSING = "missing: the state tool's line in sandbox.excludedCommands (run sage sandbox entries again); the board's line in sandbox.excludedCommands (run sage sandbox entries again)";
+  const LOOSE = "may run outside the sandbox: ~/.claude/settings.json: excludedCommands entry 2; ~/.claude/settings.json: excludedCommands entry 3";
+  const withEntries = (folder) => {
+    const json = s.guide();
+    json.sandbox.excludedCommands = entryLines(folder);
+    s.claude(json);
+  };
+  const plugins = join(s.home, ".claude", "plugins", "cache");
+  for (const [why, folder] of [["a version folder that a sage update removed", join(plugins, "sage", "sage", "0.0.1-removed-after-update")], ["another plugin's folder", join(plugins, "evil", "evil", "9")]]) {
+    mkdirSync(join(folder, "skills", "sage"), { recursive: true });
+    withEntries(folder);
+    const found = s.state("claude");
+    assert.equal(found.state, "may-run-unsandboxed", why);
+    assert.equal(s.line("claude"), `Claude Code: on, but may run unsandboxed · writes: the project, $TMPDIR, ~/sage-worktrees, /tmp, /private/tmp · network: on · 1 command pattern of the guide run outside the sandbox · known gap: git metadata, which git can run later outside the sandbox · ${LOOSE} · ${MISSING}`, why);
+  }
+  withEntries(s.plugin);
+  assert.equal(s.state("claude").state, "on", "the running plugin's own folder");
+  assert.equal(s.state("claude", {}, s.project, null).state, "may-run-unsandboxed", "a caller that names no plugin folder cannot match an entry, so it never reads fails closed");
+  assert.ok(s.line("claude", {}, null).endsWith(`${LOOSE} · ${MISSING}`));
+  const stale = s.guide();
+  stale.sandbox.excludedCommands = entryLines(join(plugins, "sage", "sage", "0.0.1-removed-after-update"));
+  s.claude(stale);
+  const before = tool(CLAUDE_TOOL, s.project, s.env).stdout.split("\n")[0];
+  assert.ok(before.startsWith("Claude Code: on, but may run unsandboxed · ") && before.endsWith(MISSING), `the state tool passes its own folder: ${before}`);
+  const current = s.guide();
+  current.sandbox.excludedCommands = entryLines(join(ROOT, "plugins/sage"));
+  s.claude(current);
+  assert.match(tool(CLAUDE_TOOL, s.project, s.env).stdout, /^Claude Code: on, fails closed · .* · missing: none\n/, "the lines that the installed plugin's sandbox entries prints");
 });
 
 test("F-T1241-27: a CLAUDE_CONFIG_DIR inside the session's temp folder, which the sandbox lets a command write, reads as may run unsandboxed", (t) => {

@@ -438,7 +438,7 @@ You need Claude Code v2.1.285 or later. Before v2.1.285, a project's `"allowUnsa
 3. Replace the 3 lines of `excludedCommands` with the 3 lines that `sage sandbox entries` prints: ask the chief "what are the sandbox entries?". The two `node` lines name the sage plugin's folder in full, with its version, because Claude Code compares the text of a command as written.
 4. Start a new session.
 5. Check it: ask the chief "is the sandbox on?", and the chief runs `sage sandbox`. In Terminal, in the project's folder, you can also run `node <the sage plugin's folder>/skills/sage/sage.mjs sandbox`. The Claude Code line must say `on, fails closed` and `missing: none`.
-6. After each sage update, do step 3 again: the plugin's folder name changes with the version.
+6. After each sage update, do step 3 again: the plugin's folder name changes with the version. Until you do, the Claude Code line says `on, but may run unsandboxed` and names the two `node` lines as missing, with `run sage sandbox entries again`.
 
 What each line does:
 
@@ -472,7 +472,7 @@ The states of the `sage sandbox` line:
 | State | What it means |
 | --- | --- |
 | `on, fails closed` | The sandbox is on, Claude Code stops when it cannot start, and no command can run again outside it. Only the excluded commands of the guide run outside, and git metadata stays a known gap. |
-| `on, but may run unsandboxed` | The sandbox is on, but a command can run outside it: `failIfUnavailable` is not `true`, `allowUnsandboxedCommands` is not `false`, a settings file excludes a command that is not one of the guide's 3 lines, or a settings file sets a key that opens the sandbox (`allowAppleEvents`, `allowNestedUserNamespaces`, `enableWeakerNestedSandbox`, `enableWeakerNetworkIsolation`, or under `network`: `allowAllUnixSockets`, `allowUnixSockets`, `allowMachLookup`, `allowLocalBinding`, `httpProxyPort`, `socksProxyPort`). The line names each file, and each entry by its place in the list (`excludedCommands entry 2`), not by its text, because an entry can hold a token. |
+| `on, but may run unsandboxed` | The sandbox is on, but a command can run outside it: `failIfUnavailable` is not `true`, `allowUnsandboxedCommands` is not `false`, a settings file excludes a command that is not one of the guide's 3 lines (a `node` line counts only when it names the folder of the sage plugin that runs `sage sandbox`, so the line of an old version or of another plugin does not), or a settings file sets a key that opens the sandbox (`allowAppleEvents`, `allowNestedUserNamespaces`, `enableWeakerNestedSandbox`, `enableWeakerNetworkIsolation`, or under `network`: `allowAllUnixSockets`, `allowUnixSockets`, `allowMachLookup`, `allowLocalBinding`, `httpProxyPort`, `socksProxyPort`). The line names each file, and each entry by its place in the list (`excludedCommands entry 2`), not by its text, because an entry can hold a token. |
 | `off` | The sandbox is off, or its file part is off (`sandbox.filesystem.disabled`). |
 | `strict rules` | sage cannot confirm the sandbox: a settings file cannot be read or is not valid JSON, a key has a wrong type, or a path in a list has a `$`, a `~name` or nothing in it. The line names the file. The hook keeps all its rules. |
 
@@ -480,6 +480,7 @@ The line also gives the folders that a command may write, the network, the count
 
 - **What sage reads:** `~/.claude/settings.json`, the project's `.claude/settings.json` and `.claude/settings.local.json` (also the one in the main checkout, for a worktree), and the managed settings file (`/Library/Application Support/ClaudeCode/managed-settings.json` on macOS). Claude Code merges the `excludedCommands` of all these files, so sage checks each one. Claude Code's hook input has no field for the sandbox, so sage reads the files only.
 - **What sage cannot see:** a `--settings` option, the settings that your organization sends from the admin console or by a device profile. A `managed-settings.d` folder gives `strict rules`.
+- **From Codex:** the Codex plugin does not know the folder of the Claude Code plugin. So in its `sage sandbox`, the Claude Code line reads the two `node` lines as `on, but may run unsandboxed`. Check the Claude Code line in a Claude Code session.
 - **To undo it:** set `"enabled": false` in the `sandbox` block, or remove the block and the `WebFetch(domain:*)` entry. Then start a new session.
 
 | Command | Does |

@@ -2591,7 +2591,7 @@ function sageCommand(argv, env) {
       return ["gh *", `node ${join(sandboxPlugin, "skills/sage/sage.mjs")} *`, `node ${join(sandboxPlugin, "board/cli.mjs")} board *`].map((entry) => JSON.stringify(entry)).join(",\n");
     }
     if (pos.length) refuse("sandbox takes no words, or the word entries. sandbox prints one line for Claude Code and one for Codex: the sandbox state, the folders that a command may write, the network and what is missing. sandbox entries prints the excludedCommands lines for this machine. Both read only and change nothing.");
-    return sandboxPlaces ? sandboxStatus({ env, cwd: project, places: sandboxPlaces(env) }) : refuse("this plugin names no settings files for the sandbox, so sandbox cannot read them. Update the sage plugin.");
+    return sandboxPlaces ? sandboxStatus({ env, cwd: project, places: sandboxPlaces(env), plugin: sandboxPlugin }) : refuse("this plugin names no settings files for the sandbox, so sandbox cannot read them. Update the sage plugin.");
   }
   if ((opt.chief !== undefined || opt.lead !== undefined || chiefOnly(cmd, pos)) && !locate(project, env).shared) refuse(chiefOnly(cmd, pos) ? `${visible(project)} has no shared logbook, so it has no chiefs to hand a task to. Nothing changed.` : `${visible(project)} has no shared logbook, and only a shared logbook has chiefs: leave out --chief and --lead. Nothing changed.`);
   if (cmd === "board") {

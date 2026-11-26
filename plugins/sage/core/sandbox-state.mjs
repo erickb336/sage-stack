@@ -79,7 +79,7 @@ function gitRoots(start, show) {
   }
 }
 
-function claude({ env, cwd, places }) {
+function claude({ env, cwd, places, plugin }) {
   const home = homeOf(env), project = resolve(cwd), config = dirname(places.user), show = shower(env, project, places.named);
   const { main } = gitRoots(project, show);
   const files = [
@@ -123,10 +123,10 @@ function claude({ env, cwd, places }) {
   }
   const network = allow.some(({ rule }) => rule === "WebFetch(domain:*)");
   const tmp = isAbsolute(env.TMPDIR ?? "") ? resolve(env.TMPDIR) : tmpdir(), roots = writes.map((root) => (root === TMPDIR ? tmp : root));
-  const plugins = join(config, "plugins"), excluded = layers.flatMap((l) => (at(l, ["sandbox", "excludedCommands"], "list") ?? []).map((entry, i) => ({ entry, l, place: i + 1 })));
+  const excluded = layers.flatMap((l) => (at(l, ["sandbox", "excludedCommands"], "list") ?? []).map((entry, i) => ({ entry, l, place: i + 1 })));
   const sageEntry = (entry) => {
     const [, dir, tool] = SAGE_ENTRY.exec(entry) ?? [];
-    return dir && !dir.split("/").some((s) => s === "." || s === "..") && within(dir, plugins) && !roots.some((root) => within(dir, root) || within(root, dir)) ? tool : undefined;
+    return plugin && dir === plugin && !roots.some((root) => within(dir, root) || within(root, dir)) ? tool : undefined;
   };
   const loose = excluded.filter(({ entry }) => entry !== "gh *" && !sageEntry(entry)).map(({ l, place }) => `${l.shown}: excludedCommands entry ${place}`);
   for (const l of layers) for (const [path, type] of LOOSE) {
@@ -144,8 +144,8 @@ function claude({ env, cwd, places }) {
     last(["sandbox", "autoAllowBashIfSandboxed"]) !== true && "sandbox.autoAllowBashIfSandboxed: true",
     filesystemOff === true && "no sandbox.filesystem.disabled",
     !excluded.some(({ entry }) => entry === "gh *") && '"gh *" in sandbox.excludedCommands',
-    !tools.includes("skills/sage/sage.mjs") && "the state tool's line in sandbox.excludedCommands (sage sandbox entries prints it)",
-    !tools.includes("board/cli.mjs board") && "the board's line in sandbox.excludedCommands (sage sandbox entries prints it)",
+    !tools.includes("skills/sage/sage.mjs") && "the state tool's line in sandbox.excludedCommands (run sage sandbox entries again)",
+    !tools.includes("board/cli.mjs board") && "the board's line in sandbox.excludedCommands (run sage sandbox entries again)",
     !writes.some((root) => within(sage, root)) && `"${show(sage)}" in sandbox.filesystem.allowWrite`,
     !denied && '"~/.config/sage-board" in sandbox.filesystem.denyRead',
     !network && '"WebFetch(domain:*)" in permissions.allow',
@@ -302,11 +302,11 @@ function profile(chosen, all = {}, { home, project }) {
   return { state: "on", writes: access("write"), denied: access("deny"), network: net.enabled ?? false, sockets: socketsOpen(net, `permissions.${chosen}.network`), git: rules.get(":workspace_roots/.git") === "write", gitGuard, base: name };
 }
 
-export function sandboxState(provider, { env = process.env, cwd = process.cwd(), places }) {
+export function sandboxState(provider, { env = process.env, cwd = process.cwd(), places, plugin }) {
   const read = { claude, codex }[provider];
   if (!read || !places) throw new TypeError(`sandboxState needs a provider (claude or codex) and the places of its settings files, not ${provider}`);
   try {
-    return { provider, named: places.named ?? [], ...read({ env, cwd, places }) };
+    return { provider, named: places.named ?? [], ...read({ env, cwd, places, plugin }) };
   } catch (error) {
     if (!(error instanceof Strict)) throw error;
     return { provider, named: places.named ?? [], state: "strict", reason: error.message, writes: [], loose: [], missing: [] };
