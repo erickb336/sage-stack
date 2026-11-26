@@ -317,7 +317,9 @@ function handleEvent(input, state, slots) {
   if (event === "PreToolUse" && FILE_TOOLS.test(tool) && (state.sage || chiefAgent)) {
     if (filePolicy.error) return deny(event, "the file policy cannot load, so this file change is refused. Reinstall or update the sage plugin.");
     if (filePolicy.chiefEditDenied({ sage: Boolean(state.sage) || chiefAgent, chief: main || chiefAgent }) && !chiefMemoryWrite(input)) {
-      return deny(event, chiefAgent ? "you are a chief agent, so you do not change files yourself, in any mode. Give this change to a sage:implementer." : 'sage mode is on, so you do not change files yourself. Give this change to a sage:implementer. The user ends sage mode with the message "sage mode off", alone.');
+      if (chiefAgent) return deny(event, "you are a chief agent, so you do not change files yourself, in any mode. Give this change to a sage:implementer.");
+      const why = filePaths(ti).map((path) => { try { return core.chiefFileProblem(path, input.cwd ?? process.cwd()); } catch { return "the sage core cannot load, so the hook refuses this file change of the chief. Reinstall or update the sage plugin."; } }).find(Boolean);
+      if (why) return deny(event, why);
     }
   }
   if (event !== "PreToolUse" || (!state.sage && !nestedSpawn)) return undefined;
@@ -532,11 +534,15 @@ function rootsOf(strict) {
   }
 }
 const from = (cwd, path) => (isAbsolute(path) ? path : `${isAbsolute(cwd) ? cwd : resolve(cwd)}/${path}`);
+const filePaths = (ti) => { const paths = [ti.file_path, ti.notebook_path].filter((path) => path !== undefined); return paths.length ? paths : [""]; };
 function underRoot(input) {
-  const ti = input.tool_input ?? {};
-  const path = canonical(from(input.cwd ?? process.cwd(), String(ti.file_path ?? ti.notebook_path ?? "")));
-  const root = [stateTool.sageRoot(process.env), core.sharedRoot(process.env)].map(canonical).find((r) => path === r || path.startsWith(r + sep));
-  return root ? `the sage root ${root} (${path})` : undefined;
+  const roots = [stateTool.sageRoot(process.env), core.sharedRoot(process.env)].map(canonical);
+  for (const given of filePaths(input.tool_input ?? {})) {
+    const path = canonical(from(input.cwd ?? process.cwd(), String(given)));
+    const root = roots.find((r) => path === r || path.startsWith(r + sep));
+    if (root) return `the sage root ${root} (${path})`;
+  }
+  return undefined;
 }
 function chiefMemoryWrite(input) {
   const path = input.tool_input?.file_path;

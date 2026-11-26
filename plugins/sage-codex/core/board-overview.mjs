@@ -1,6 +1,6 @@
 import { LAPSED, LINE, PRIORITIES, boardAnswer } from "./logbook-fields.mjs";
 import { milestoneName } from "./milestone-rules.mjs";
-import { isOpen } from "./board-model.mjs";
+import { ROW_STATES, isOpen, rowState } from "./board-model.mjs";
 import { needsLook } from "./agent-flag.mjs";
 import { TEAM } from "./role-policy.mjs";
 import { runWord, taskWord } from "./state-words.mjs";
@@ -9,7 +9,7 @@ import { measureTotals, runMeasure } from "./usage.mjs";
 const DAY = 86_400_000, DONE_DAYS = 7;
 const ENDED = ["merged", "concluded", "abandoned"];
 const MOVING = ["design", "building", "review", "ready"];
-export const isMoving = task => MOVING.includes(task.column) || task.column === "backlog" && task.agents.some(agent => !agent.stale);
+export const isMoving = task => { const row = rowState(task); return row === "work" || row === "waits" && MOVING.includes(task.column); };
 const time = value => {
   const at = typeof value === "number" ? value : Date.parse(value);
   return Number.isFinite(at) ? at : null;
@@ -85,12 +85,12 @@ export function projectNames(model) {
 }
 
 function taskRow(task, chiefs) {
-  const step = stepOf(task);
+  const step = stepOf(task), row = rowState(task);
   return {
-    key: task.key, id: task.id, title: task.title, project: task.group, state: task.state, word: task.word ?? null, ended: !isOpen(task),
+    key: task.key, id: task.id, title: task.title, project: task.group, state: task.state, row, word: task.word ?? null, ended: !isOpen(task),
     priority: task.priority || null, kind: task.kind || null, size: task.size || null, pr: task.pr || null,
     milestone: task.milestone ? { key: task.milestone.key, id: task.milestone.id, title: milestoneName({ id: task.milestone.id, name: task.milestone.name ?? "" }) } : null,
-    chief: chiefTag(task, chiefs), needsYou: task.reasons.length > 0, waits: task.waitLine?.text ?? null, cannotStart: !!task.waitLine?.never,
+    chief: chiefTag(task, chiefs), needsYou: row === "needs", waits: task.waitLine?.text ?? null, cannotStart: !!task.waitLine?.never,
     waitsFor: task.waits.filter(wait => wait.id).map(wait => ({ key: `${task.project}/${wait.id}`, id: wait.id, met: wait.met })),
     why: task.reasons.length || task.problems?.length ? taskWord(task).reason : null,
     conflicts: task.mayConflict.map(other => ({ key: other.key, id: other.id, chief: other.chief })),
@@ -189,7 +189,7 @@ export function boardOverview(model) {
       abandoned: milestone.progress.abandoned,
       moving: open.filter(isMoving).length,
       waiting: milestone.waiting,
-      needsYou: open.filter(task => task.reasons.length).length + (milestone.need ? 1 : 0),
+      needsYou: open.filter(task => rowState(task) === "needs").length + (milestone.need ? 1 : 0),
       pilot: milestone.pilot,
       doneAt: milestone.state === "done" && Number.isFinite(lastDone) ? new Date(lastDone).toISOString() : null,
     }];
@@ -201,6 +201,7 @@ export function boardOverview(model) {
   const leaving = [...merged.map(task => time(task.completedAt)), ...look.filter(item => item.run.status === "failed").map(item => time(item.run.ended))].map(when => when + DAY + 1)
     .concat(chiefs.flatMap(chief => [time(chief.quietAt), time(chief.passOnAt)]).filter(when => when !== null));
 
+  const rows = tasks.map(task => taskRow(task, chiefs)), designs = designRows(tasks);
   return {
     at: model.at,
     stale: !!model.stale,
@@ -212,12 +213,51 @@ export function boardOverview(model) {
     pickups: (model.projects ?? []).flatMap(project => (project.pickups ?? []).map(item => ({ ...item, project: project.key }))),
     needs,
     answered: tasks.flatMap(task => task.boardAnswers.map(item => ({ ...item, task: { key: task.key, id: task.id, title: task.title }, project: task.group }))).sort((a, b) => (time(a.at) ?? 0) - (time(b.at) ?? 0)),
-    tasks: tasks.map(task => taskRow(task, chiefs)),
+    tasks: rows,
     milestones,
+    designs,
+    levels: levelsOf({ rows, tasks, needs, milestones, designs, projects: model.projects ?? [], at }),
+    search: searchRows(rows, designs, model.projects ?? [], names),
     hiddenDone,
     agents: books,
     next: leaving.length ? Math.min(...leaving) : null,
   };
+}
+
+function designRows(tasks) {
+  return tasks.filter(task => task.design && task.state !== "abandoned").map(task => ({ key: task.design.key, task: task.key, id: task.id, title: task.title, project: task.group, milestone: task.milestone?.key ?? null,
+    archived: !!task.archived, gate: task.design.gate, design: task.design.design, answer: task.design.answer, at: iso(task.design.at), files: task.design.files }))
+    .sort((a, b) => time(b.at) - time(a.at) || a.key.localeCompare(b.key));
+}
+
+function levelsOf({ rows, tasks, needs, milestones, designs, projects, at }) {
+  const agents = new Map(tasks.map(task => [task.key, task.agents.length])), asked = new Map();
+  for (const [i, need] of needs.entries()) if (need.task && !asked.has(need.task.key)) asked.set(need.task.key, i);
+  const shown = row => row.row !== "done" || time(row.doneAt) > at - DONE_DAYS * DAY;
+  const plan = (a, b) => rank(a.priority) - rank(b.priority) || number(a.id) - number(b.id);
+  const ORDER = { needs: (a, b) => (asked.get(a.key) ?? needs.length) - (asked.get(b.key) ?? needs.length) || plan(a, b), work: plan, waits: plan, done: (a, b) => time(b.doneAt) - time(a.doneAt) || plan(a, b) };
+  const keys = list => list.map(item => item.key);
+  const level = (own, mine) => {
+    const lists = Object.fromEntries(ROW_STATES.map(state => [state, keys(own.filter(row => row.row === state && shown(row)).sort(ORDER[state]))]));
+    return { ...lists, agents: lists.work.reduce((n, key) => n + agents.get(key), 0), designs: keys(designs.filter(mine)) };
+  };
+  const archived = new Set(projects.filter(project => project.archived).map(project => project.key)), live = item => !archived.has(item.project);
+  return {
+    all: { ...level(rows.filter(live), live), projects: keys(projects), milestones: keys(milestones.filter(live)) },
+    projects: Object.fromEntries(projects.map(({ key }) => [key, { ...level(rows.filter(row => row.project === key), item => item.project === key), milestones: keys(milestones.filter(milestone => milestone.project === key)) }])),
+    milestones: Object.fromEntries(milestones.map(({ key }) => [key, level(rows.filter(row => row.milestone?.key === key), item => item.milestone === key)])),
+    loose: Object.fromEntries(projects.map(({ key }) => [key, level(rows.filter(row => row.project === key && !row.milestone), item => item.project === key && !item.milestone)])),
+  };
+}
+
+function searchRows(rows, designs, projects, names) {
+  const archived = new Set(projects.filter(project => project.archived).map(project => project.key));
+  const hit = (kind, key, id, label, project, rank, at, extra) => ({ kind, key, id, label, project, rank: archived.has(project) ? 2 : rank, at: at ?? null, ...extra });
+  return [
+    ...rows.map(row => hit("task", row.key, row.id, row.title, row.project, row.row === "done" ? 1 : 0, row.lastActivity, { row: row.row })),
+    ...designs.map(design => hit("design", design.key, design.id, design.title, design.project, 1, design.at)),
+    ...projects.map(project => hit("project", project.key, null, names.get(project.key), project.key, 0, project.lastActivity)),
+  ].sort((a, b) => a.rank - b.rank || (time(b.at) ?? 0) - (time(a.at) ?? 0) || a.key.localeCompare(b.key));
 }
 
 const LOG_MAX = 200;
