@@ -68,10 +68,29 @@ test("retire and chief refuse a missing or a retired number, and retire needs a 
   assert.equal(run("standing", "--all"), was);
 });
 
-function shared(t) {
+test("a reason keeps its text literally, also with $ patterns", (t) => {
+  const run = legacy(t);
+  run("standing", "retire", "2", "--why", "replaced by order $1 and $& and $$ and $` and $'");
+  assert.match(run("standing", "--all"), /^2\. \[retired \S+: replaced by order \$1 and \$& and \$\$ and \$` and \$'\] Two\.$/m);
+});
+
+test("a reason that is empty after cleaning is refused like a missing one, and nothing changes", (t) => {
+  const run = legacy(t);
+  const was = run("standing", "--all");
+  let missing;
+  assert.throws(() => run("standing", "retire", "3"), (e) => (missing = e.message, true));
+  for (const why of [" ", "\t \n", "\u200b\u2060"]) {
+    assert.throws(() => run("standing", "retire", "3", "--why", why), { message: missing }, JSON.stringify(why));
+  }
+  assert.equal(run("standing", "--all"), was);
+});
+
+const PARAGRAPHS = "# Standing orders\n\n1. One.\n2. Two.\n\n   Second paragraph of two.\n3. Three.\n\n   Second paragraph of three.\n\n## From another logbook\n\n4. Four.\n\nClosing note.\n5. Five.\n";
+
+function shared(t, orders = ORDERS) {
   const w = scratch(t);
   claude.sage(["link", "--separate", "--project", w.project], w.env);
-  writeFileSync(join(claude.storeDir(w.project, w.env), "standing.md"), ORDERS);
+  writeFileSync(join(claude.storeDir(w.project, w.env), "standing.md"), orders);
   const chief = claude.chiefFor(w.project, "session-a", w.env);
   return {
     chief: (...args) => claude.sage([...args, "--project", w.project, "--chief", chief], w.env),
@@ -109,4 +128,18 @@ test("only a chief retires or marks: a command with no chief and a lead are refu
     assert.throws(() => w.lead(...args), new RegExp(`"standing ${args[1]}" is not on a lead's list\\.`), args.join(" "));
   }
   assert.equal(w.agent("standing", "--all"), was);
+});
+
+test("a hidden order hides its indented paragraphs after a blank line; a heading, the next order and a plain paragraph still show", (t) => {
+  const w = shared(t, PARAGRAPHS);
+  w.chief("standing", "retire", "2", "--why", "old");
+  w.chief("standing", "retire", "4", "--why", "old");
+  w.chief("standing", "chief", "3");
+  const agents = w.agent("standing");
+  assert.doesNotMatch(agents, /Two|Three|Four|Second paragraph/, agents);
+  for (const line of [/^1\. One\.$/m, /^## From another logbook$/m, /^Closing note\.$/m, /^5\. Five\.$/m]) assert.match(agents, line, agents);
+  const mine = w.chief("standing");
+  assert.match(mine, /^3\. \[chief only\] Three\.\n\n {3}Second paragraph of three\.$/m, mine);
+  assert.doesNotMatch(mine, /Two|Four|Second paragraph of two/, mine);
+  assert.match(mine, /^## From another logbook$/m);
 });

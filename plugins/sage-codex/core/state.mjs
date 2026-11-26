@@ -1607,16 +1607,19 @@ const builds = (task) => list(task.route).includes("build");
 const ORDER = /^(\d+)\. /, RETIRED = /^\d+\. \[retired /, CHIEF_ONLY = /^\d+\. (?:\[retired [^\]]*\] )?\[chief only\] /;
 
 function ordersFor(text, chief) {
-  let hide = false, retired = 0, chiefs = 0;
-  const kept = text.split("\n").filter((line) => {
+  let hide = false, gap = [], retired = 0, chiefs = 0;
+  const kept = [];
+  for (const line of text.split("\n")) {
+    if (!line.trim()) { gap.push(line); continue; }
     if (ORDER.test(line)) {
       const old = RETIRED.test(line), mine = !old && !chief && CHIEF_ONLY.test(line);
       hide = old || mine;
       retired += old;
       chiefs += mine;
-    } else if (!line.trim() || line.startsWith("#")) hide = false;
-    return !hide;
-  });
+    } else if (line.startsWith("#") || (gap.length && !/^\s/.test(line))) hide = false;
+    else if (hide) gap = [];
+    if (!hide) kept.push(...gap.splice(0), line);
+  }
   const hidden = [retired && `${retired} retired`, chiefs && `${chiefs} for the chief only`].filter(Boolean);
   return hidden.length ? `${kept.join("\n").trimEnd()}\n\nNot shown: ${hidden.join(" and ")} (sage standing --all prints every order).` : text;
 }
@@ -1627,8 +1630,8 @@ function markOrder(dir, text, sub, n, more, why) {
   if (at < 0) refuse(`the standing orders have no order ${n}. Nothing changed.`);
   if (RETIRED.test(lines[at])) refuse(`standing order ${n} is retired already: ${lines[at].slice(0, lines[at].indexOf("]") + 1).replace(ORDER, "")}. Nothing changed.`);
   if (sub === "chief" && CHIEF_ONLY.test(lines[at])) return `standing order ${n} is for the chief only already. Nothing changed.`;
-  const mark = sub === "retire" ? `[retired ${localTime(now()).date}: ${cell(need(why, '--why "<reason>"')).replaceAll("]", ")")}]` : "[chief only]";
-  lines[at] = lines[at].replace(ORDER, `$1. ${mark} `);
+  const mark = sub === "retire" ? `[retired ${localTime(now()).date}: ${need(cell(why), '--why "<reason>"').replaceAll("]", ")")}]` : "[chief only]";
+  lines[at] = lines[at].replace(ORDER, () => `${n}. ${mark} `);
   put(join(dir, "standing.md"), `${lines.join("\n")}\n`);
   return sub === "retire" ? `standing order ${n} retired: agents and the chief no longer read it; sage standing --all prints it with its reason` : `standing order ${n} is for the chief only: sage standing --chief <your C id> prints it, and the agents' read does not`;
 }
