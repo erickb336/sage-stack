@@ -322,3 +322,12 @@ test("T1083 (F-T1083-4): a budget reads thousands separators and k or M before t
   for (const [text, tokens] of [["About 1 hour and 1,000,000 tokens.", 1_000_000], ["7 M tokens", 7_000_000], ["400 k tokens", 400_000], ["1.5 M tokens", 1_500_000], ["12,000 tokens", 12_000]]) assert.equal(budgetOf(text).tokens, tokens, text);
   assert.equal(budgetOf("About 1 hour and 1,000,000 tokens.").ms, 3_600_000);
 });
+
+test("T1224 (F-T1224-8): the Tasks page colours a Look at it step amber, as a step that needs you, and a Stopped without a report step red", () => {
+  const css = readFileSync(join(ROOT, "packages/sage-board/app/board.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const colour = selector => [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, selectors]) => selectors.split(",").map(item => item.trim()).includes(selector))
+    .flatMap(([, , body]) => [...body.matchAll(/(?:^|;)\s*color\s*:\s*([^;]+)/g)].map(match => match[1].trim())).at(-1);
+  const step = status => colour(`.step.${status}`);
+  assert.deepEqual([step("stale"), step("lost")], [step("need"), step("fail")], "stale is the step status of Look at it, lost of Stopped without a report");
+  assert.notEqual(step("need"), step("fail"));
+});

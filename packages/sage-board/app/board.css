@@ -161,8 +161,8 @@ header.top { position: sticky; top: 0; z-index: 20; min-height: 52px; display: f
 .row .step, .row .age { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row .age { text-align: right; }
 .row.ended .text { color: var(--muted); }
-.step.need, .awhy.need { color: var(--need); }
-.step.fail, .step.stale, .step.lost, .step.blocked { color: var(--fail); }
+.step.need, .step.stale, .awhy.need { color: var(--need); }
+.step.fail, .step.lost, .step.blocked { color: var(--fail); }
 .step.run { color: var(--run); }
 .badge.warn { color: var(--need); border-color: var(--need); }
 .badge.word { justify-self: start; }
