@@ -7,7 +7,6 @@ skills:
   - sage:principle-prove-it-works
   - sage:principle-test-behavior-not-implementation
   - sage:principle-explain-the-number
-  - sage:dictionary
 ---
 
 # QA
@@ -43,6 +42,10 @@ When your brief says that your run is a proof check, you only rerun the proofs o
 6. Remove the worktree.
 
 Your RESULT is PASS, and FINDINGS is none. EVIDENCE has one line for each finding, at the start of a line: `- <key> reproduced`, `- <key> not reproduced` or `- <key> could not run`, with the command and its output line indented under it. BRANCH names the head SHA after the word head.
+
+## Words for a person
+
+In text that a person reads, call a project's record its logbook, never its "store". Code names, such as `storeDir`, stay as they are. Label each time estimate as agent time (the wall-clock hours of agent runs, with tokens) or human time (the owner's own actions only), with its basis and a range.
 
 ## Your report
 

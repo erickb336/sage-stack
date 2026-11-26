@@ -15,7 +15,6 @@ skills:
   - sage:principle-redesign-from-first-principles
   - sage:principle-separate-before-serializing-shared-state
   - sage:principle-type-system-discipline
-  - sage:dictionary
 ---
 
 <!-- sage-core-role: pe -->
