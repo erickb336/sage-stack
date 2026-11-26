@@ -440,7 +440,7 @@ const R1 = "sample/project-abcdef/R1";
 
 async function lightBoard(t, { lightEvery, quiet = false, slotOnly = false, hooks = true, slotAge = 0 } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-light-")), root = join(dir, "source"), project = populate(root);
-  writeFileSync(join(project, "runs.tsv"), `${HEADERS.runs.replaceAll(" ", "\t")}\nR1\tT1\tqa\t0\t\t\trunning\t\t\t${new Date(Date.now() - 60 * 60_000).toISOString()}\t\nR2\tT1\timplementer\t0\t\t\tdone\t\t\t2026-11-14T10:00:00Z\t2026-11-14T11:00:00Z\n`);
+  writeFileSync(join(project, "runs.tsv"), `${HEADERS.runs.replaceAll(" ", "\t")}\nR1\tT1\tqa\t0\t\t\trunning\t\t\t${new Date(Date.now() - 60 * 60_000).toISOString()}\t\nR2\tT1\timplementer\t0\t\t\tdone\t\t\t2026-11-14T10:00:00Z\t2026-11-14T11:00:00Z\n${[11, 12, 13, 14, 15].map(n => `R${n}\tT1\tqa\t0\t\t\tdone\t\t\t2026-11-14T10:00:00Z\t2026-11-14T10:10:00Z\n`).join("")}`);
   if (hooks) slot(root, "slot-1", ["project-project", "role-sage_qa", "run-R1"]);
   if (slotOnly) slot(root, "slot-2", ["project-project", "role-sage_explore"]);
   if (slotAge) { const then = new Date(Date.now() - slotAge * 60_000); utimesSync(join(root, ".hooks", "slots", "slot-1"), then, then); }
@@ -511,13 +511,13 @@ test("T1100: a quiet agent that wakes, also one whose slot names no run, and a s
   const f = await lightBoard(t, { lightEvery: 200, quiet: true, slotOnly: true }), stream = appFrames(f); t.after(() => stream.close());
   const runs = () => stream.frames.filter(frame => frame.event === "model").at(-1)?.data.agents.flatMap(book => book.runs) ?? [];
   const r1 = () => runs().find(run => run.id === "R1");
-  await stream.until(() => r1()?.state === "stuck" && /no activity for 40 min/.test(r1().why));
+  await stream.until(() => r1()?.flag?.text === "Look at it" && /^no note for 40 min, and past 10 min/.test(r1().why));
   const reads = f.reads(), renew = path => { const now = new Date(); utimesSync(path, now, now); };
   renew(join(f.root, ".hooks", "slots", "slot-2"));
   for (let i = 0; i < 600 && f.reads() === reads; i++) await wait(50);
   assert.ok(f.reads() > reads, "the agent of the slot with no run works again, and that is a full read (F-T1100-1)");
   renew(f.slot);
-  await stream.until(() => r1()?.state === "work");
+  await stream.until(() => r1() && !r1().flag);
   writeFileSync(join(f.project, "runs.tsv"), `${readFileSync(join(f.project, "runs.tsv"), "utf8")}R3\tT1\tcode-reviewer\t0\t\t\trunning\t\t\t${new Date().toISOString()}\t\n`);
   slot(f.root, "slot-3", ["project-project", "role-sage_code-reviewer", "run-R3"]);
   await stream.until(() => runs().some(run => run.id === "R3" && run.role === "code-reviewer" && run.status === "running"));
@@ -527,12 +527,12 @@ test("T1099 (F-T1088-2): a board that starts before the hook's folder exists see
   const f = await lightBoard(t, { lightEvery: 50, hooks: false }), stream = appFrames(f); t.after(() => stream.close());
   const r1 = () => stream.frames.filter(frame => frame.event === "model").at(-1)?.data.agents.flatMap(book => book.runs).find(run => run.id === "R1");
   await stream.until(() => r1() !== undefined);
-  assert.doesNotMatch(r1().why ?? "", /no activity for 40 min/, "no hook folder yet: the run has no slot");
+  assert.doesNotMatch(r1().why ?? "", /no note for 40 min/, "no hook folder yet: the run has no slot");
   mkdirSync(join(f.root, ".hooks"));
   await wait(400);
   slot(f.root, "slot-1", ["project-project", "role-sage_qa", "run-R1"]);
   const long = new Date(Date.now() - 40 * 60_000); utimesSync(f.slot, long, long);
-  await stream.until(() => /no activity for 40 min/.test(r1()?.why ?? ""));
+  await stream.until(() => /^no note for 40 min/.test(r1()?.why ?? ""));
 });
 
 test("T1100: GET /api/actions/R<n> gives a known run's last 20 actions, and refuses path tricks, unknown runs and links", async t => {

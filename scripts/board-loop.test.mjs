@@ -48,7 +48,7 @@ export function check(c, task = sample(c)) {
     assert.ok(!steps.some(step => step.status === "run" || step.parts?.some(([, value]) => value === "run")), `${name}: a step runs with no live run`);
     assert.ok(!/at work/.test(now.text), `${name}: Now says at work with no live run`);
   }
-  if (stale && !now.needs && steps.some(step => step.status === "stale")) assert.ok(now.stale && /^No news from .*, so ask the chief to check it\./.test(now.text), `${name}: the stale step has no stale Now line`);
+  if (stale && !now.needs && steps.some(step => step.status === "stale")) assert.ok(now.stale && /^Look at it\. For the .* \(run R7\), no news since .*, so ask the chief to check it\./.test(now.text), `${name}: the stale step has no stale Now line`);
   if (!stale) assert.ok(!steps.some(step => step.status === "stale") && !now.stale, `${name}: a stale mark with no stale run`);
   assert.equal(now.needs, openGate || ownerState, `${name}: Needs you is ${now.needs}`);
   assert.equal(task.reasons.length > 0, now.needs, `${name}: the card's needs differs from its Needs you line`);
@@ -93,7 +93,7 @@ export function check(c, task = sample(c)) {
       assert.ok(next.startsWith(expected), `${name}: ${next} does not name ${label}`);
     }
   }
-  if (!now.needs && !(c.state === "awaiting-you" && c.gate !== "answered")) assert.match(now.text, stale && ![c.gate === "answered" && "awaiting-you", "held", "replan", "verifying", "verified", "pr-ready", ...FINAL].includes(c.state) && !/failed|review(s are| is) done/.test(now.text) ? /^No news from .*, so ask the chief to check it\./ : NOW[c.state], `${name}: Now ${JSON.stringify(now.text)}`);
+  if (!now.needs && !(c.state === "awaiting-you" && c.gate !== "answered")) assert.match(now.text, stale && ![c.gate === "answered" && "awaiting-you", "held", "replan", "verifying", "verified", "pr-ready", ...FINAL].includes(c.state) && !/failed|review(s are| is) done/.test(now.text) ? /^Look at it\. For the .* \(run R7\), no news since .*, so ask the chief to check it\./ : NOW[c.state], `${name}: Now ${JSON.stringify(now.text)}`);
 }
 
 test("R1077: the step line, Now and Next keep every invariant over the whole space of states, routes, gates, runs, heads and verdicts", () => {

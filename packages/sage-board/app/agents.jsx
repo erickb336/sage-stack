@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { AgentRing, AgentTile, Glyph, Ring, StateBadge, age, clock, runTokens, span, tokens } from "./agent.jsx";
 import { chiefState, chiefSub, ofChief, readLink, taskLink } from "./task.jsx";
-import { FLAGGED, MARKS, OBJECTS, chiefName, runWord, shown } from "../../sage-core/state-words.mjs";
+import { FLAGGED, LOOK_AT_IT, MARKS, STOPPED_NO_REPORT, chiefName, runWord } from "../../sage-core/state-words.mjs";
 
 const MIN = 60_000, SEATS_MAX = 30;
-const LEGEND = [["running", "running"], ["done", "done"], ["question", "question"], ["failed", "failed"], ["look", "stuck"], ["queued", "queued"]].map(([bar, state]) => [bar, shown(OBJECTS.agent.states[state]).text + (bar === "look" ? `, or ${shown(OBJECTS.agent.states.stop).text}` : "")]);
+const BAR = { red: "failed", amber: "question" };
+const LEGEND = [["running", "running"], ["done", "done"], ["question", "question", LOOK_AT_IT], ["failed", "failed", STOPPED_NO_REPORT], ["queued", "queued"]]
+  .map(([bar, status, flag]) => [bar, `${runWord(status).text}${flag ? `, or ${runWord("work", { text: flag }).text}` : ""}`]);
 const RUN = runWord("running").text, WAIT = runWord("queued").text;
 const limitNote = (n, limit) => n > limit ? " · over the limit" : n >= limit ? " · at the limit" : "";
 const chiefKey = id => id ?? "none";
@@ -214,7 +216,7 @@ function Timeline({ groups, now }) {
             <p className="lane-h">{group.title}</p>
             {group.lanes.map(({ run, indent }) => {
               const from = Date.parse(run.started), to = run.ended ? Date.parse(run.ended) : now;
-              const bar = run.status === "queued" ? "queued" : run.status === "running" ? run.look ? "look" : "running" : ["done", "question"].includes(run.status) ? run.status : "failed";
+              const bar = run.status === "queued" ? "queued" : run.status === "running" ? BAR[run.flag?.level] ?? "running" : ["done", "question"].includes(run.status) ? run.status : "failed";
               return (
                 <div className="lane" key={run.id}>
                   <span className={`lane-l${indent ? " in" : ""}`}><AgentRing run={run} now={now} small /><span>{run.role} <span className="mono faint">{run.id}</span></span></span>

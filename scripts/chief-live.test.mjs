@@ -758,10 +758,11 @@ test("T1173: the board model marks a running run of a stopped session lost, and 
   table(w, "runs", [run("R1", "T1", "C1", iso(now - 15 * MINUTE)), run("R2", "T2", "C2", iso(now - 5 * MINUTE))]);
   const { model, project } = boardOf(w, now);
   assert.deepEqual(project.chiefs.map(({ id, session, reason, lost }) => ({ id, session, reason, lost })), [{ id: "C1", session: "stopped", reason: "ended", lost: 1 }, { id: "C2", session: "live", reason: null, lost: 0 }]);
-  const agents = model.agents.projects.flatMap((one) => one.agents).map(({ runId, state }) => ({ runId, state }));
-  assert.deepEqual(agents.sort((a, b) => a.runId.localeCompare(b.runId)).map(({ runId, state }) => [runId, state === "lost"]), [["R1", true], ["R2", false]]);
-  const overview = boardOverview(model);
-  assert.equal(overview.agents.flatMap((book) => book.runs).find((one) => one.id === "R1").state, "lost", "the Agents page shows the run as lost");
+  const agents = model.agents.projects.flatMap((one) => one.agents);
+  assert.deepEqual(agents.sort((a, b) => a.runId.localeCompare(b.runId)).map(({ runId, flag }) => [runId, flag?.level ?? null, flag?.text ?? null]), [["R1", "red", "Stopped without a report"], ["R2", null, null]], "T1224: a run of a stopped chief is red, before any other fact");
+  assert.equal(agents[0].why, "its chief C1 stopped, so no agent works on it; the logbook still says running");
+  const overview = boardOverview(model), shown = overview.agents.flatMap((book) => book.runs).find((one) => one.id === "R1");
+  assert.deepEqual([shown.flag.text, shown.look], ["Stopped without a report", true], "the Agents page shows the same flag, and counts it");
   const ended = new Date(now - 10 * MINUTE), hhmm = `${String(ended.getHours()).padStart(2, "0")}:${String(ended.getMinutes()).padStart(2, "0")}`;
   const chiefLines = renderBoardText(model).split("\n").filter((line) => /chief/i.test(line));
   assert.deepEqual(chiefLines, [`- A Claude chief stopped at ${hhmm} with 1 open task. The next chief that works in this project picks it up.`], "the chat digest has one Needs you line for the stopped chief, and none for the live one (T1217)");

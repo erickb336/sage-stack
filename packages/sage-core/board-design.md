@@ -120,7 +120,7 @@ Each job is answered from the Overview in at most two clicks. `scripts/board-job
 | J3 | Click a milestone (the Tasks page at that milestone), then a task row. The task page shows the steps, About this task, and the tabs Artifacts, Log and Decisions. | 2 | `J3 at <width> px: a milestone, then a task, shows the task's dev cycle …` |
 | J4 | The top bar: "Agents 8 of 20 · C1 4 · C2 4 · 3 waiting" and "Leads 4 of 5" (0 clicks). A click on the count opens the Agents page, with a box for each chief. | 0 and 1 | `J4 at <width> px: the top bar counts the agents …` |
 | J5 | Pull requests: the groups by next action. Graph: what waits for what. | 1 and 2 | `J5 at <width> px: Pull requests groups each PR …` |
-| J6 | The counts at the end of the Overview: merged, failed or may be stuck, new tasks. | 0 | `J6 at <width> px: the Overview counts what changed …` |
+| J6 | The counts at the end of the Overview: merged, failed or flagged, new tasks. | 0 | `J6 at <width> px: the Overview counts what changed …` |
 | J7 | The chief chips: a dot for live or stopped, and "autopilot on" or "autopilot off". | 0 | `J7 at <width> px: each chief's chip says …` |
 
 The ux-review checklist above applies to each page. Its line 14 (from 1024 px wide) holds, and a phone-width window (390 px) works for every job too, with the narrow layout of T1099.
