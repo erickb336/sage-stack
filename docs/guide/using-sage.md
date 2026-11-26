@@ -365,6 +365,23 @@ A release is a version that you ship, such as 1.0. It holds milestones and singl
 
 `status` shows one line for each release, in the order that you added them: its state (not started, in progress, done or stopped) and how many of its tasks are done. For example: `release 1.0 · in progress · 1 of 10 tasks done · milestones M5 · single tasks T993, T996`. The board does not show releases yet, and the full rules are in [Rules held in code](../design/rules-in-code.md#waits-and-milestones).
 
+## Standing orders
+
+The standing orders are short rules for a project that every agent reads before it starts. Each order has a number that never changes.
+
+To make the agents read less, the chief retires an order that is replaced or done, and marks an order that only the chief needs. Ask the chief in your own words, for example "retire order 12, order 40 replaces it".
+
+| Command | Who runs it | What happens |
+| --- | --- | --- |
+| `sage standing` | Each agent, before it starts: its brief points to this command. | Prints the orders in force for agents. Retired orders and orders for the chief only stay out, and the last line counts them. |
+| `sage standing --chief C<n>` | The chief. | Also prints the orders for the chief only, each marked `[chief only]`. Retired orders stay out. |
+| `sage standing --all` | Anyone. | Prints every order, also each retired one, marked `[retired <date>: <reason>]`. |
+| `sage standing add "<order>"` | The chief. | Adds an order with the next new number. A retired number is never used again. |
+| `sage standing retire <n> --why "<reason>"` | The chief. | Retires the order. Its text, the reason and the date stay in the file. A missing or retired number is refused. |
+| `sage standing chief <n>` | The chief. | Marks the order for the chief only. A missing or retired number is refused. |
+
+An agent's or a lead's retire or mark is refused. Neither command has an undo: to bring an order back, the chief adds it again with a new number. A Codex chief reads with the CLI forms above; the retire and the mark have no Codex tool yet.
+
 ## Start every session in sage mode
 
 By default, each new session starts with sage mode off. To make every new session of a project start in sage mode, ask the chief to set the project's start setting. It runs:
@@ -668,7 +685,7 @@ A moved folder with no Git commits, or that is no Git repository, has no first c
 | --- | --- |
 | The owning chief | Its own task: `task <T> set`, `round`, `run add`, `run done`, `finding add`, `triage`, `close`, `move`, `verdict`, `gate add <T>`, `milestone propose` for its pilot and each of its tasks, `log <T>` and `unclaim`. |
 | A lead | What the chief of its lead run may write, on the task of that run only, while that run runs. |
-| Any chief | `task add`, `pickup`, `gate add` with no task, `gate replace`, `init`, `standing add`, `config`, `log -`, `pages <T> record`, `observe`, `run usage`, `release add` and `milestone <M> set release=`. |
+| Any chief | `task add`, `pickup`, `gate add` with no task, `gate replace`, `init`, `standing add`, `standing retire`, `standing chief`, `config`, `log -`, `pages <T> record`, `observe`, `run usage`, `release add` and `milestone <M> set release=`. |
 | You | `gate answer`, in your own words, from either provider, `gate undo`, `gate give`, each form of `logbook repair` (`--accept-loss`, `--accept-change-loss`, or both), `projects rebuild` and `chief name`: each is your act and names no chief, so the line that sage prints works in your terminal. |
 | A stop hook | The report and the end of the run of its own slot, so no report is lost. |
 | A push hook | After a push of a task's branch, in either provider: the `files` record of each open task on that branch, as `observe <T> files` writes it (the paths that the branch changes against origin/main, at most 500). A failure never stops the push. The board model marks two open tasks of different chiefs that change one file as "may conflict": a warning, never a wait. |
