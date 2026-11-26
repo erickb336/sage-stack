@@ -46,12 +46,13 @@ function scratch(t) {
   const state = (provider, more = {}, cwd = project, plugin = pluginOf(more)) => sandboxState(provider, { env: { ...env, ...more }, cwd, places: places(sandboxPlaces({ ...env, ...more }))[provider], plugin });
   const line = (provider, more = {}, plugin = pluginOf(more)) => sandboxLine(state(provider, more, project, plugin), { env: { ...env, ...more }, cwd: project });
   const plugin = pluginOf({});
+  const status = () => sandboxStatus({ env, cwd: project, places: places(sandboxPlaces(env)), plugin });
   const guide = () => {
     const json = JSON.parse(CLAUDE_BLOCK);
     json.sandbox.excludedCommands = entryLines(plugin);
     return json;
   };
-  return { dir, home, project, system, managed, systemConfig, managedConfig, env, write, claude, codex, state, line, plugin, guide };
+  return { dir, home, project, system, managed, systemConfig, managedConfig, env, write, claude, codex, state, line, plugin, guide, status };
 }
 
 const tool = (file, cwd, env, ...words) => spawnSync(process.execPath, [file, "sandbox", ...words], { cwd, env: { ...env, PATH: process.env.PATH }, encoding: "utf8" });
@@ -684,6 +685,70 @@ test("F-T1241-42: the line names a loose excluded command by its place in the li
   assert.equal(found.state, "may-run-unsandboxed");
   assert.deepEqual(found.loose, ["~/.claude/settings.json: excludedCommands entry 4", "~/.claude/settings.json: excludedCommands entry 5"]);
   assert.ok(!line.includes("FAKE") && !line.includes("curl") && !line.includes("Bearer"), line);
+});
+
+const FORGED = "Claude Code: on, fails closed · writes: the project · network: on · missing: none";
+function oneLinePerProvider(s) {
+  const out = s.status(), lines = out.split("\n");
+  assert.equal(lines.length, 2, out);
+  assert.match(lines[0], /^Claude Code: /, out);
+  assert.match(lines[1], /^Codex: /, out);
+  assert.ok(!/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(lines.join("")), JSON.stringify(out));
+  return lines;
+}
+
+test("F-T1241-87, F-T1241-61: an allowWrite entry of the project's settings with a line break or a control character prints escaped, and forges no second line", (t) => {
+  const s = scratch(t);
+  s.claude(settings({ enabled: true }));
+  s.codex('sandbox_mode = "danger-full-access"\n');
+  s.write(join(s.project, ".claude", "settings.json"), JSON.stringify(settings({ filesystem: { allowWrite: [`x\n${FORGED}`, "y\r\u001bz w‮v"] } })));
+  const [line] = oneLinePerProvider(s);
+  assert.match(line, /^Claude Code: on, but may run unsandboxed · /);
+  assert.ok(line.includes("the project's x\\nClaude Code: on, fails closed"), line);
+  assert.ok(line.includes("the project's y\\r\\u{1b}z\\u{2028}w\\u{202e}v"), line);
+});
+
+test("F-T1241-87, F-T1241-89: a mistyped config value that reaches a strict reason, a loose entry or a missing entry prints escaped, and forges no second line", (t) => {
+  const s = scratch(t);
+  const forged = FORGED.replace("Claude Code", "Codex");
+  s.claude(settings(FAILS_CLOSED));
+  s.write(join(s.project, ".claude", "settings.json"), JSON.stringify(settings({ filesystem: { allowWrite: [`$x\r\n${forged}`] } })));
+  let [claude] = oneLinePerProvider(s);
+  assert.equal(claude, `Claude Code: strict rules (sage cannot confirm the sandbox): the project's .claude/settings.json: sandbox.filesystem.allowWrite has "$x\\r\\n${forged}", and sage cannot tell where it points`);
+  s.write(join(s.project, ".claude", "settings.json"), JSON.stringify({ permissions: { allow: ["Edit($y\u001b\u0085)"] } }));
+  [claude] = oneLinePerProvider(s);
+  assert.ok(claude.endsWith('permissions.allow Edit($y\\u{1b}\\u{85}) has "$y\\u{1b}\\u{85}", and sage cannot tell where it points'), claude);
+  for (const [config, shown] of [
+    [`profile = "a\\n${FORGED}"\n`, `a config sets profile = "a\\n${FORGED}", and sage does not follow profiles`],
+    ['sandbox_mode = "w\\r\\u001b"\n', 'sandbox_mode = "w\\r\\u{1b}" is not a mode that sage knows'],
+    ['default_permissions = "p\\nq"\n', 'the permission profile "p\\nq" has no [permissions.p\\nq] table'],
+    ['default_permissions = ":p\\u2028q"\n', 'default_permissions = ":p\\u{2028}q" is not a profile that sage knows'],
+    ['default_permissions = "x"\n[permissions.x]\nextends = ":e\\n"\n', '[permissions.x] extends ":e\\n", which Codex refuses'],
+    ['default_permissions = "x"\n[permissions.x]\nextends = ":workspace"\n[permissions.x.filesystem]\n"rel\\npath" = "write"\n', 'filesystem."rel\\npath" is not a path that sage knows'],
+    ['default_permissions = "x"\n[permissions.x]\nextends = ":workspace"\n[permissions.x.workspace_roots]\n"r\\n" = 1\n', 'workspace_roots."r\\n" is not true or false'],
+    ['[profiles."f\\n"]\nsandbox_mode = "read-only"\n', '[profiles.f\\n] sets sandbox_mode, and sage does not follow profiles'],
+    ['"a\\nb" = 1\n"a\\nb" = 2\n', '~/.codex/config.toml is not valid TOML (TOML line 2: a\\nb is given twice)'],
+  ]) {
+    s.codex(config);
+    const [, codex] = oneLinePerProvider(s);
+    assert.equal(codex, `Codex: strict rules (sage cannot confirm the sandbox): ${shown}`, config);
+  }
+  s.codex(`approval_policy = "x\\n${FORGED}"\ndefault_permissions = "n\\u001b"\n[permissions."n\\u001b"]\nextends = ":workspace"\n`);
+  const [, codex] = oneLinePerProvider(s);
+  assert.ok(codex.includes(`(approval_policy = "x\\n${FORGED}")`), codex);
+  assert.ok(codex.includes("enabled = true in [permissions.n\\u{1b}.network]"), codex);
+});
+
+test("F-T1241-88: a config value over 120 characters prints its first 120 and the count of the rest", (t) => {
+  const s = scratch(t);
+  s.claude(settings(FAILS_CLOSED));
+  s.codex(`profile = "${"p".repeat(300)}"\n`);
+  s.write(join(s.project, ".claude", "settings.json"), JSON.stringify(settings({ filesystem: { allowWrite: ["a".repeat(500)] } })));
+  const [claude, codex] = oneLinePerProvider(s);
+  const shown = `the project's ${"a".repeat(500)}`;
+  assert.ok(claude.includes(`${shown.slice(0, 120)}… (${shown.length - 120} more characters)`), claude);
+  assert.ok(!claude.includes(shown.slice(0, 121)), claude);
+  assert.equal(codex, `Codex: strict rules (sage cannot confirm the sandbox): a config sets profile = "${"p".repeat(120)}… (180 more characters)", and sage does not follow profiles`);
 });
 
 test("F-T1241-20: the guide's check of a refused write starts from the project's folder", () => {

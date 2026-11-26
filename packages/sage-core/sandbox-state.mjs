@@ -18,6 +18,13 @@ const LOOSE = [
 ];
 const SAGE_ENTRY = /^node (\/[^\s*?[\]$`]+)\/(skills\/sage\/sage\.mjs|board\/cli\.mjs board) \*$/;
 const GIT_GUARD = [".git/hooks", ".git/config"];
+const CAP = 120;
+const UNSAFE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
+const ESCAPES = { "\n": "\\n", "\r": "\\r", "\t": "\\t" };
+function printable(value) {
+  const chars = [...String(value).replace(UNSAFE, (c) => ESCAPES[c] ?? `\\u{${c.codePointAt(0).toString(16)}}`)];
+  return chars.length > CAP ? `${chars.slice(0, CAP).join("")}… (${chars.length - CAP} more characters)` : chars.join("");
+}
 
 class Strict extends Error {}
 const strict = (why) => { throw new Strict(why); };
@@ -36,7 +43,7 @@ function shower(env, project, named = []) {
     if (name === "") return path === root ? "the project" : `the project's ${rest}`;
     return path === root ? name : `${name}/${rest}`;
   };
-  return show;
+  return (path) => printable(show(path));
 }
 
 function readText(file, shown) {
@@ -60,7 +67,7 @@ function readLayer(file, shown, parse, kind) {
   const text = readText(file, shown);
   if (text === undefined) return undefined;
   let data;
-  try { data = parse(text); } catch (error) { strict(`${shown} is not valid ${kind}${kind === "TOML" ? ` (${error.message})` : ""}`); }
+  try { data = parse(text); } catch (error) { strict(`${shown} is not valid ${kind}${kind === "TOML" ? ` (${printable(error.message)})` : ""}`); }
   return isTable(data) ? data : strict(`${shown} is not a ${kind} table`);
 }
 
@@ -111,14 +118,14 @@ function claude({ env, cwd, places, plugin }) {
   const retry = retrySource ? at(retrySource, ["sandbox", "allowUnsandboxedCommands"], "boolean") && !(["project", "local"].includes(retrySource.kind) && last(["sandbox", "allowUnsandboxedCommands"], ["user"]) === false) : true;
   const writes = [project, TMPDIR], allow = layers.flatMap((l) => (at(l, ["permissions", "allow"], "list") ?? []).map((rule) => ({ rule, l })));
   const base = (l) => (l.kind === "user" ? config : project);
-  const plain = (p, l, key) => (p === "" || p.includes("$") || /^~[^/]/.test(p) ? strict(`${l.shown}: ${key} has "${p}", and sage cannot tell where it points`) : p);
+  const plain = (p, l, key) => (p === "" || p.includes("$") || /^~[^/]/.test(p) ? strict(`${l.shown}: ${key} has "${printable(p)}", and sage cannot tell where it points`) : p);
   for (const l of layers) {
     for (const p of at(l, ["permissions", "additionalDirectories"], "list") ?? []) writes.push(fromHome(plain(p, l, "permissions.additionalDirectories"), home, project));
     for (const p of at(l, ["sandbox", "filesystem", "allowWrite"], "list") ?? []) writes.push(sandboxPath(plain(p, l, "sandbox.filesystem.allowWrite"), home, base(l)));
   }
   for (const { rule, l } of allow) {
     const spec = /^Edit\((.+)\)$/.exec(rule)?.[1];
-    if (spec) plain(spec, l, `permissions.allow ${rule}`);
+    if (spec) plain(spec, l, `permissions.allow ${printable(rule)}`);
     if (spec) writes.push(trimGlob(spec.startsWith("//") ? spec.slice(1) : spec.startsWith("~") ? fromHome(spec, home, project) : spec.startsWith("/") ? join(base(l), spec) : join(project, spec)));
   }
   const network = allow.some(({ rule }) => rule === "WebFetch(domain:*)");
@@ -205,10 +212,10 @@ function codex({ env, cwd, places }) {
   }
   const layers = [[system, show(system)], [user, userShown], [managed, show(managed)]].map(([file, shown]) => readLayer(file, shown, parseToml, "TOML") ?? {});
   const merged = layers.reduce(merge, {});
-  if (merged.profile !== undefined) strict(`a config sets profile = ${JSON.stringify(String(merged.profile))}, and sage does not follow profiles`);
+  if (merged.profile !== undefined) strict(`a config sets profile = "${printable(merged.profile)}", and sage does not follow profiles`);
   for (const [name, table] of Object.entries(isTable(merged.profiles) ? merged.profiles : {})) {
     const keys = isTable(table) ? Object.keys(table).filter((key) => SANDBOX_KEYS.includes(key)) : [];
-    if (keys.length) strict(`[profiles.${name}] sets ${keys.join(", ")}, and sage does not follow profiles`);
+    if (keys.length) strict(`[profiles.${printable(name)}] sets ${keys.join(", ")}, and sage does not follow profiles`);
   }
   const text = (key) => (merged[key] === undefined || typeof merged[key] === "string" ? merged[key] : strict(`${key} is not a string`));
   const mode = text("sandbox_mode"), chosen = text("default_permissions");
@@ -216,7 +223,7 @@ function codex({ env, cwd, places }) {
   if (mode !== undefined) found = legacy(mode, merged.sandbox_workspace_write, { home, project });
   else if (chosen !== undefined) found = profile(chosen, merged.permissions, { home, project });
   else found = { state: "on", writes: [project, TMPDIR, "/tmp"], network: false, git: false };
-  const sage = worktreeRoot(env), custom = chosen !== undefined && mode === undefined && !chosen.startsWith(":");
+  const sage = worktreeRoot(env), custom = chosen !== undefined && mode === undefined && !chosen.startsWith(":"), name = printable(chosen);
   const policy = merged.approval_policy, granular = isTable(policy) && isTable(policy.granular) ? policy.granular : undefined;
   const asks = !(policy === "never" || (granular && ["sandbox_approval", "rules", "request_permissions", "skill_approval"].every((key) => granular[key] === false)));
   const autoReview = merged.approvals_reviewer === "auto_review" && asks;
@@ -224,14 +231,14 @@ function codex({ env, cwd, places }) {
     ...sockets, ...socketsOpen(merged.features?.network_proxy, "features.network_proxy"), ...found.sockets ?? [],
     ...unique(ruleDirs).flatMap((dir) => allowRules(dir, show)).map((file) => `${show(file)} has an allow rule`),
     found.git && !found.gitGuard && `the profile makes .git writable without ".git/hooks" = "read" and ".git/config" = "read"`,
-    asks && `${autoReview ? "an automatic reviewer" : "you"} can approve a command outside the sandbox (approval_policy ${policy === undefined ? "is on-request by default" : typeof policy === "string" ? `= "${policy}"` : "is granular"})`,
+    asks && `${autoReview ? "an automatic reviewer" : "you"} can approve a command outside the sandbox (approval_policy ${policy === undefined ? "is on-request by default" : typeof policy === "string" ? `= "${printable(policy)}"` : "is granular"})`,
   ].filter(Boolean);
   const missing = custom ? [
-    found.base !== ":workspace" && `extends = ":workspace" in [permissions.${chosen}]`,
-    found.git && !found.gitGuard && `".git/hooks" = "read" and ".git/config" = "read" in [permissions.${chosen}.filesystem.":workspace_roots"]`,
-    !found.network && `enabled = true in [permissions.${chosen}.network]`,
-    found.state !== "off" && !found.writes.some((root) => within(sage, root)) && `"${show(sage)}" = "write" in [permissions.${chosen}.filesystem]`,
-    found.state !== "off" && !found.denied.includes(join(home, ".config", "sage-board")) && `"~/.config/sage-board" = "deny" in [permissions.${chosen}.filesystem]`,
+    found.base !== ":workspace" && `extends = ":workspace" in [permissions.${name}]`,
+    found.git && !found.gitGuard && `".git/hooks" = "read" and ".git/config" = "read" in [permissions.${name}.filesystem.":workspace_roots"]`,
+    !found.network && `enabled = true in [permissions.${name}.network]`,
+    found.state !== "off" && !found.writes.some((root) => within(sage, root)) && `"${show(sage)}" = "write" in [permissions.${name}.filesystem]`,
+    found.state !== "off" && !found.denied.includes(join(home, ".config", "sage-board")) && `"~/.config/sage-board" = "deny" in [permissions.${name}.filesystem]`,
   ] : [`default_permissions = "sage", with the [permissions.sage] tables of the guide`, mode !== undefined && `no sandbox_mode line (Codex reads default_permissions only without it)`];
   if (autoReview) missing.push(`approvals_reviewer = "user"`);
   const state = found.state === "on" && loose.length ? "may-run-unsandboxed" : found.state;
@@ -255,7 +262,7 @@ function merge(low, high) {
 function legacy(mode, options = {}, { home, project }) {
   if (mode === "danger-full-access") return { state: "off", writes: [], network: true, git: true };
   if (mode === "read-only") return { state: "on", writes: [], network: false, git: false };
-  if (mode !== "workspace-write") strict(`sandbox_mode = "${mode}" is not a mode that sage knows`);
+  if (mode !== "workspace-write") strict(`sandbox_mode = "${printable(mode)}" is not a mode that sage knows`);
   if (!isTable(options)) strict("sandbox_workspace_write is not a table");
   const roots = options.writable_roots ?? [];
   if (!Array.isArray(roots) || roots.some((r) => typeof r !== "string")) strict("sandbox_workspace_write.writable_roots is not a list of strings");
@@ -271,27 +278,27 @@ function profile(chosen, all = {}, { home, project }) {
   let name = chosen, net = {};
   while (!name.startsWith(":")) {
     const table = isTable(all) ? all[name] : undefined;
-    if (!isTable(table)) strict(`the permission profile "${name}" has no [permissions.${name}] table`);
-    if (chain.includes(table)) strict(`the permission profile "${name}" extends itself`);
+    if (!isTable(table)) strict(`the permission profile "${printable(name)}" has no [permissions.${printable(name)}] table`);
+    if (chain.includes(table)) strict(`the permission profile "${printable(name)}" extends itself`);
     chain.unshift(table);
     if (table.extends === undefined) { name = undefined; break; }
-    if (typeof table.extends !== "string" || ![":read-only", ":workspace"].includes(table.extends) && table.extends.startsWith(":")) strict(`[permissions.${name}] extends "${table.extends}", which Codex refuses`);
+    if (typeof table.extends !== "string" || ![":read-only", ":workspace"].includes(table.extends) && table.extends.startsWith(":")) strict(`[permissions.${printable(name)}] extends "${printable(table.extends)}", which Codex refuses`);
     name = table.extends;
   }
   if (name === ":workspace") for (const key of [":workspace_roots/.", TMPDIR, "/tmp"]) rules.set(key, "write");
-  else if (name !== undefined && name !== ":read-only") strict(`default_permissions = "${chosen}" is not a profile that sage knows`);
+  else if (name !== undefined && name !== ":read-only") strict(`default_permissions = "${printable(chosen)}" is not a profile that sage knows`);
   for (const table of chain) {
     for (const [path, on] of Object.entries(table.workspace_roots ?? {})) {
-      if (typeof on !== "boolean") strict(`workspace_roots."${path}" is not true or false`);
+      if (typeof on !== "boolean") strict(`workspace_roots."${printable(path)}" is not true or false`);
       if (on) roots.push(fromHome(path, home, project));
     }
     for (const [path, value] of Object.entries(table.filesystem ?? {})) {
       if (path === "glob_scan_max_depth") continue;
       for (const [sub, access] of isTable(value) ? Object.entries(value) : [[".", value]]) {
-        if (!ACCESS.includes(access)) strict(`filesystem."${path}" has an access that is not read, write or deny`);
+        if (!ACCESS.includes(access)) strict(`filesystem."${printable(path)}" has an access that is not read, write or deny`);
         if (path === ":workspace_roots") rules.set(`:workspace_roots/${sub}`, access);
-        else if (path.startsWith(":") && sub !== ".") strict(`filesystem."${path}" takes only "."`);
-        else rules.set(join({ ":root": "/", ":tmpdir": TMPDIR, ":slash_tmp": "/tmp", ":minimal": ":minimal" }[path] ?? (path.startsWith("/") || path.startsWith("~") ? fromHome(path, home, project) : strict(`filesystem."${path}" is not a path that sage knows`)), sub), access);
+        else if (path.startsWith(":") && sub !== ".") strict(`filesystem."${printable(path)}" takes only "."`);
+        else rules.set(join({ ":root": "/", ":tmpdir": TMPDIR, ":slash_tmp": "/tmp", ":minimal": ":minimal" }[path] ?? (path.startsWith("/") || path.startsWith("~") ? fromHome(path, home, project) : strict(`filesystem."${printable(path)}" is not a path that sage knows`)), sub), access);
       }
     }
     if (isTable(table.network)) net = merge(net, table.network);
@@ -299,7 +306,7 @@ function profile(chosen, all = {}, { home, project }) {
   if (net.enabled !== undefined && typeof net.enabled !== "boolean") strict("network.enabled is not true or false");
   const access = (want) => [...rules].filter(([, a]) => a === want).flatMap(([key]) => key.startsWith(":workspace_roots/") ? roots.map((root) => join(root, key.slice(17))) : [key]);
   const gitGuard = GIT_GUARD.every((path) => ["read", "deny"].includes(rules.get(`:workspace_roots/${path}`)));
-  return { state: "on", writes: access("write"), denied: access("deny"), network: net.enabled ?? false, sockets: socketsOpen(net, `permissions.${chosen}.network`), git: rules.get(":workspace_roots/.git") === "write", gitGuard, base: name };
+  return { state: "on", writes: access("write"), denied: access("deny"), network: net.enabled ?? false, sockets: socketsOpen(net, `permissions.${printable(chosen)}.network`), git: rules.get(":workspace_roots/.git") === "write", gitGuard, base: name };
 }
 
 export function sandboxState(provider, { env = process.env, cwd = process.cwd(), places, plugin }) {
