@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { PairBox, PairNote, UndoButton, chiefLabel, markSeen, post, useAccess, useSeen } from "./actions.jsx";
-import { RestoreButton, day } from "./archive.jsx";
 import { Start, ago, plural } from "./overview.jsx";
 import { projectNamed } from "./projects.jsx";
 import { questionLink, runLink, taskLink } from "./task.jsx";
@@ -85,7 +84,7 @@ export function Tree({ all, page }) {
 }
 
 const openCount = level => level ? level.needs.length + level.work.length + level.waits.length : 0;
-export const Mark = ({ row, state }) => <span className={`mk ${row === "done" && state === "abandoned" ? "aband" : row}`} aria-hidden="true" />;
+export const Mark = ({ row, state }) => <span className={`mk m-${row === "done" && state === "abandoned" ? "aband" : row}`} aria-hidden="true" />;
 const Dot = () => <span className="new" title="New since you looked"><span className="sr">new: </span></span>;
 
 function TaskRow({ row, meta, project, fresh, to, indent }) {
@@ -104,7 +103,7 @@ function RunRow({ run, project }) {
   const flag = flagOf(run);
   return (
     <a className="lv-row ind" href={runLink(run.task.key, run.id)} data-run={run.id} data-task={run.task.key}>
-      <span className={run.status === "running" ? "mk work" : "mk"} aria-hidden="true" />
+      <span className={run.status === "running" ? "mk m-work" : "mk"} aria-hidden="true" />
       <span className="tt">{run.task.title}<span className="id">{run.task.id}</span></span>
       <span className="meta">{project && `${project} · `}{run.role} {run.id}{flag && <> · <Flag flag={flag} /></>}{run.why && ` · ${run.why}`}</span>
     </a>
@@ -360,7 +359,6 @@ export function LevelPage({ all, page, now }) {
       {head}
       <PairNote />
       <Unread projects={top ? all.projects.filter(item => !item.archived) : [project]} names={names} />
-      {project?.archived && <div className="lv-note" data-part="archived"><p><b>{project.name} {project.archivedAt ? `was archived on ${day(project.archivedAt)}` : "is archived"}.</b> It takes no answer until you restore it. <RestoreButton project={project} /></p></div>}
       {top && <Since all={all} since={since} previous={previous} now={now} />}
       <NeedsPart all={all} needs={needs} answered={answered} byProject={top} since={since} now={now} />
       <div className="lv-two">

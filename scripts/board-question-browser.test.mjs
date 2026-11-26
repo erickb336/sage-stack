@@ -14,7 +14,7 @@ import { QUESTION, questionFile } from "./fixtures/question-message.mjs";
 import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const chromium = requireBrowser();
-const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
+const APP = loadBoardApp(new URL("../plugins/sage/board/app/#overview", import.meta.url).pathname);
 const SHOTS = process.env.BOARD_SHOTS ?? null;
 const gitEnv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
 let browser;
@@ -402,7 +402,7 @@ test("T1156 F-T1156-18: a PDF in the material shows a note and a link that opens
 
 test("T1156 F-T1156-36, -43, -45: the picker counts each need as Needs you does, also in the archived list; the archived banner names the agent that still runs, as the header counts it", async t => {
   const w = await openBoard(t, undefined, { setup: as => as("C1", "gate", "add", "--message", questionFile("A second question?", { task: "T1", file: "notes.md" }), "T1", "--question", "A second question on T1?", "--options", "yes|no", "--recommend", "yes") }), { page } = w;
-  await page.goto(`${w.origin}/app/#?project=${encodeURIComponent(basename(w.dir))}`);
+  await page.goto(`${w.origin}/app/#overview?project=${encodeURIComponent(basename(w.dir))}`);
   await page.locator(".nav .count.need").filter({ hasText: "3" }).waitFor();
   await page.locator("header .picker").click();
   assert.equal(await page.locator('.pick-menu [data-project] span').first().textContent(), "3 need you", "F-T1156-43: three questions on two tasks are three needs, as in Needs you");
@@ -487,7 +487,7 @@ test("T1156: with a file open, the answers stay in view: beside the file at 1440
   await w.shot("t1156-reading-1440");
   for (const size of [SIZES[1], SIZES[0]]) {
     await page.setViewportSize(size);
-    await page.goto(`${w.origin}/app/#`);
+    await page.goto(`${w.origin}/app/#overview`);
     await page.goto(url);
     await page.frameLocator(".viewer iframe").getByRole("heading", { name: "The rule" }).waitFor();
     await inView(page, page.locator(".viewer h2"), `F-T1156-21: at ${size.width} px the open file shows on the first screen`);
@@ -525,7 +525,7 @@ test("T1156 F-T1156-54: from 1100 to 1279 px an open file takes the whole width,
   const w = await openBoard(t, { width: 1100, height: 900 }), { page } = w, url = `${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G1`)}&open=${encodeURIComponent("T1/notes.md")}`;
   for (const width of [1100, 1150, 1200, 1279]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.goto(`${w.origin}/app/#`);
+    await page.goto(`${w.origin}/app/#overview`);
     await page.goto(url);
     await page.frameLocator(".viewer iframe").getByRole("heading", { name: "The rule" }).waitFor();
     const pane = await page.locator(".viewer iframe").boundingBox(), side = await page.locator(".side").boundingBox(), bar = await page.locator(".qbar").boundingBox();
@@ -535,7 +535,7 @@ test("T1156 F-T1156-54: from 1100 to 1279 px an open file takes the whole width,
     await w.shot(`t1156-reading-${width}`);
   }
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(`${w.origin}/app/#`);
+  await page.goto(`${w.origin}/app/#overview`);
   await page.goto(url);
   await inView(page, page.locator(".q-side .answer").first(), "at 1280 px the answers are beside the file");
 });

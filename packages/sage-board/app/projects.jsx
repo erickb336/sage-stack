@@ -88,7 +88,7 @@ export function Picker({ projects, current, page, now }) {
 }
 
 export const othersLine = others => `${plural(others.length, "other project needs", "other projects need")} you`;
-export const projectHref = project => `#?project=${encodeURIComponent(project.key)}`;
+export const projectHref = project => `#overview?project=${encodeURIComponent(project.key)}`;
 
 export function Signal({ others }) {
   const [open, setOpen, box] = useMenu();

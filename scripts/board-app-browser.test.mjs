@@ -19,7 +19,7 @@ let browser;
 before(async () => { browser = await chromium.launch(); });
 after(async () => { await browser?.close(); });
 
-async function open(t, { viewport = { width: 1440, height: 1000 }, clock = false, edit, path = "/app/" } = {}) {
+async function open(t, { viewport = { width: 1440, height: 1000 }, clock = false, edit, path = "/app/#overview" } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-app-browser-")), root = join(dir, "logbooks");
   const project = writeAppLogbook(root, new Date().toISOString());
   edit?.(project, root);
@@ -100,14 +100,14 @@ test("T1054: text and controls meet AA contrast in the dark and the light theme,
 test("T1054: the keyboard reaches each page link and the theme switch in order, with a visible focus ring", async t => {
   const { page } = await open(t);
   const reached = [];
-  for (let i = 0; i < 9; i++) {
+  for (let i = 0; i < 11; i++) {
     await page.keyboard.press("Tab");
     reached.push(await page.evaluate(() => {
       const element = document.activeElement, style = getComputedStyle(element);
       return { name: element.getAttribute("aria-label") ?? element.textContent.trim(), ring: `${style.outlineStyle} ${style.outlineWidth}` };
     }));
   }
-  assert.deepEqual(reached.map(item => item.name), ["Overview2", "Tasks6", "Agents1", "Pull requests1", "Stats", "sample-app ▾", "Agents 1 of 10 · no chief 1", "Leads 0 of 5", "Switch to the light theme"]);
+  assert.deepEqual(reached.map(item => item.name), ["All projects", "sample-app2 need you", "Overview2", "Tasks6", "Agents1", "Pull requests1", "Stats", "sample-app ▾", "Agents 1 of 10 · no chief 1", "Leads 0 of 5", "Switch to the light theme"]);
   for (const item of reached) assert.equal(item.ring, "solid 2px", item.name);
   await page.keyboard.press("Enter");
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), "light", "Enter on the theme switch flips it");
@@ -211,9 +211,9 @@ async function until(read, expected) {
 }
 
 test("T1135: the link's project opens first; each page shows that project only; the picker folds Older and Archived; the signal opens the other project; Back returns", async t => {
-  const { page, problems } = await open(t, { edit: fourProjects, path: "/app/#project=garden-log-aaaaaa" });
+  const { page, problems } = await open(t, { edit: fourProjects, path: "/app/#overview?project=garden-log-aaaaaa" });
   await until(() => picker(page).textContent(), "garden-log ▾");
-  await until(() => hash(page), "#project=garden-log-aaaaaa");
+  await until(() => hash(page), "#overview?project=garden-log-aaaaaa");
   assert.equal(await page.getByText("All projects", { exact: true }).count(), 0, "no All projects view");
   assert.match(await page.locator("header.top").textContent(), /Leads 0 of 53 in progress in all projects/, "R8: this project's agents against its own limit, and the running agents of every project");
   assert.equal(await page.locator("button.signal").textContent(), "1 other project needs you", "sample-app asks too; the archived and the older project never count");
@@ -234,7 +234,7 @@ test("T1135: the link's project opens first; each page shows that project only; 
   await until(() => taskBooks(page), ["sample/garden-log-aaaaaa"]);
   await page.locator("button.signal").click();
   await page.locator('.pick-menu a[data-project="sample-app-abc123"]').click();
-  await until(() => hash(page), "#?project=sample-app-abc123");
+  await until(() => hash(page), "#overview?project=sample-app-abc123");
   await until(() => picker(page).textContent(), "sample-app ▾");
   assert.equal(await page.locator("button.signal").textContent(), "1 other project needs you", "now garden-log is the other one");
   assert.deepEqual(problems, []);
@@ -243,6 +243,8 @@ test("T1135: the link's project opens first; each page shows that project only; 
 test("T1135 R2: the board link keeps a valid project in the address and drops the pairing key; a name that is not a logbook folder opens the last project", async t => {
   const { page, base } = await open(t, { edit: fourProjects, path: "/app/#pair=sample-code&project=old-notes-bbbbbb" });
   await until(() => hash(page), "#?project=old-notes-bbbbbb");
+  await page.locator("main h1", { hasText: "old-notes" }).waitFor();
+  await page.locator("a[href='#tasks']").click();
   await until(() => picker(page).textContent(), "old-notes ▾");
   for (const name of ["..%2Fevil", "OLD-NOTES-BBBBBB", "old-notes", "javascript:alert(1)"]) {
     await page.goto(`${base}/app/#tasks?project=${name}`);
@@ -251,26 +253,30 @@ test("T1135 R2: the board link keeps a valid project in the address and drops th
   }
   await page.goto("about:blank");
   await page.goto(`${base}/app/#pair=sample-code&project=../evil`);
-  await until(() => hash(page), "#?project=old-notes-bbbbbb");
-  assert.equal(await picker(page).textContent(), "old-notes ▾", "a new tab opens on the project shown last");
+  await until(() => hash(page), "");
+  await page.locator("main h1", { hasText: "All projects" }).waitFor();
+  await page.locator("a[href='#tasks']").click();
+  await until(() => picker(page).textContent(), "old-notes ▾");
 });
 
 test("T1135 F-T1135-12: a link to a project that the board does not show opens another project with a short notice; the next page has no notice", async t => {
-  const { page, base } = await open(t, { edit: fourProjects, path: "/app/#project=garden-log-aaaaaa" });
+  const { page, base } = await open(t, { edit: fourProjects, path: "/app/#overview?project=garden-log-aaaaaa" });
   await until(() => picker(page).textContent(), "garden-log ▾");
   const notice = page.locator("main .banner[role=status]");
   assert.equal(await notice.count(), 0, "a known project gives no notice");
   await page.goto("about:blank");
   await page.goto(`${base}/app/#pair=sample-code&project=gone-away-dddddd`);
-  await until(() => hash(page), "#?project=garden-log-aaaaaa");
+  await until(() => hash(page), "#?project=gone-away-dddddd");
+  await page.locator("main h1", { hasText: "This project is not on the board" }).waitFor();
+  await page.goto(`${base}/app/#tasks?project=gone-away-dddddd`);
   await until(() => notice.textContent(), "This board shows no project gone-away-dddddd, so it opened garden-log.");
-  await page.locator("a[href='#tasks']").click();
-  await until(() => hash(page), "#tasks?project=garden-log-aaaaaa");
+  await page.locator("a[href='#agents']").first().click();
+  await until(() => hash(page), "#agents?project=garden-log-aaaaaa");
   assert.equal(await notice.count(), 0);
 });
 
 test("T1135 F-T1135-6: Esc closes the project picker and the signal, and the focus goes back to the button that opened it", async t => {
-  const { page } = await open(t, { edit: fourProjects, path: "/app/#project=garden-log-aaaaaa" });
+  const { page } = await open(t, { edit: fourProjects, path: "/app/#overview?project=garden-log-aaaaaa" });
   await until(() => picker(page).textContent(), "garden-log ▾");
   for (const button of [picker(page), page.locator("button.signal")]) {
     await button.click();
@@ -389,7 +395,7 @@ test("F-T1186-3, F-T1186-5, F-T1186-4: the Overview renders its Pick-ups list; t
   await server.ready();
   t.after(async () => { await context.close(); await server.close(); });
   const page = await context.newPage();
-  await page.goto(`http://127.0.0.1:${port}/app/`);
+  await page.goto(`http://127.0.0.1:${port}/app/#overview`);
   await page.getByRole("heading", { name: "Pick-ups" }).waitFor();
   const list = await texts(page.locator(".counts [data-pickup]"));
   assert.equal(list.length, 1, "F-T1186-3: one pick-up, one row");

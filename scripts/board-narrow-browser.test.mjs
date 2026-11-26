@@ -36,12 +36,15 @@ async function board(t, { question = false } = {}) {
 }
 
 const PAGES = [
-  ["overview", "/app/#", ".needs .q", ".needs .q, .ms .name a"],
+  ["overview", "/app/#overview", ".needs .q", ".needs .q, .ms .name a"],
   ["tasks", "/app/#tasks", ".row", ".row .text"],
   ["pull-requests", "/app/#pull-requests", ".prow", ".prow .ttl"],
   ["agents", "/app/#agents", ".chief-box", ".acard .ttl, .queue .ttl, .lane-l > span:last-child"],
   ["stats", "/app/#stats", ".chart", ".chart h2, .stat-tiles .l"],
   ["task", `/app/#task?key=${encodeURIComponent(KEY("T2"))}`, ".about-card", ".taskpage h1"],
+  ["all projects", "/app/#", "[data-part=needs]", ".lv-need .tt, .lv-row .tt, .lv .meta"],
+  ["project", "/app/#project?key=sample-app-abc123", "[data-part=work]", ".lv-row .tt, .lv .meta"],
+  ["run", `/app/#run?key=${encodeURIComponent(KEY("T3"))}&run=R30`, "[data-part=facts]", ".lv h1, .lv-facts p"],
 ];
 
 test("T1099 F-T1099-46, F-T1099-36, F-T1099-44, F-T1099-65, F-T1099-69: every app page reads at 380, 390, 768, 1024 and 1440 px with no sideways scroll, nothing cut at the right edge, and a visible task title", async t => {
@@ -128,7 +131,7 @@ test("T1159 (F-T1159-50): on a phone the board's shell is compact and never cove
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   t.after(() => context.close());
   const page = await context.newPage();
-  for (const [name, path] of [["overview", "/app/#"], ["tasks", "/app/#tasks"], ["question", `/app/#question?key=${encodeURIComponent(KEY("G4"))}`], ["stats", "/app/#stats"]]) {
+  for (const [name, path] of [["overview", "/app/#overview"], ["tasks", "/app/#tasks"], ["question", `/app/#question?key=${encodeURIComponent(KEY("G4"))}`], ["stats", "/app/#stats"]]) {
     await page.goto(`${base}${path}`);
     await page.locator("main h1").waitFor();
     const shell = await page.evaluate(() => {
@@ -146,7 +149,7 @@ test("F-T1168-7: at 390 px each control on Overview, Tasks and a task page is a 
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   t.after(() => context.close());
   const page = await context.newPage();
-  for (const [name, path, ready] of [["overview", "/app/#", ".needs .q"], ["tasks", "/app/#tasks", ".row"], ["task", `/app/#task?key=${encodeURIComponent(KEY("T2"))}`, ".about-card"]]) {
+  for (const [name, path, ready] of [["overview", "/app/#overview", ".needs .q"], ["tasks", "/app/#tasks", ".row"], ["task", `/app/#task?key=${encodeURIComponent(KEY("T2"))}`, ".about-card"]]) {
     await page.goto(`${base}${path}`);
     await page.locator(ready).first().waitFor();
     const small = await page.evaluate(() => [...document.querySelectorAll("button, select, input:not([type=radio], [type=checkbox]), summary, [role=tab], .chip, a.limit")]
@@ -162,7 +165,7 @@ test("F-T1159-50 in CI (a flaky test): on a phone the side bar keeps its own hei
   const context = await browser.newContext({ viewport: { width: 390, height: 3000 }, colorScheme: "dark" });
   t.after(() => context.close());
   const page = await context.newPage();
-  for (const [name, path] of [["overview", "/app/#"], ["question", `/app/#question?key=${encodeURIComponent(KEY("G4"))}`], ["stats", "/app/#stats"]]) {
+  for (const [name, path] of [["overview", "/app/#overview"], ["question", `/app/#question?key=${encodeURIComponent(KEY("G4"))}`], ["stats", "/app/#stats"]]) {
     await page.goto(`${base}${path}`);
     await page.locator("main h1").waitFor();
     const { side, nav } = await page.evaluate(() => ({ side: Math.round(document.querySelector(".side").getBoundingClientRect().height), nav: Math.round(document.querySelector(".side > nav").getBoundingClientRect().height) }));

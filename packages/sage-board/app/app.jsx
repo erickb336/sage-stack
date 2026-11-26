@@ -158,6 +158,7 @@ export function App() {
   const prs = model ? model.tasks.filter(task => task.pr && !task.ended).length : 0;
   const running = model ? model.agents.reduce((n, book) => n + book.running, 0) : 0;
   const key = page.params.get("key") ?? "", place = all && level ? placeOf(all, page) : null;
+  const welcome = page.hash === "overview" ? current : place?.level === "project" ? place.project : null;
   const body = page.hash === "overview" ? <Overview model={model} shown={shown} chief={picked} /> : page.hash === "tasks" ? <Tasks model={model} params={page.params} chief={picked} />
     : page.hash === "pull-requests" ? <Pulls model={model} chief={picked} />
     : page.hash === "agents" ? <Agents model={model} chief={picked} />
@@ -209,7 +210,7 @@ export function App() {
         <main className="main">
           {notice && <div className="banner fail" role="alert" data-part="too-big"><AlertIcon /><div>{notice}</div></div>}
           {model ? <><Banner model={model} link={link} lostAt={lostAt} now={now} own={page.own} />{unknown && old && !page.own && <p className="banner" role="status">This board shows no project {unknown}, so it opened {current.name}.</p>}
-            {old && <ArchiveLayer all={all} current={page.own ? null : current} now={now} />}{page.hash === "overview" && current && <WelcomeBack key={`${current.key} ${current.welcome}`} project={current} model={model} now={now} />}{body}{page.hash === "overview" && <ArchiveFoot project={current} />}</>
+            {page.hash !== "question" && <ArchiveLayer all={all} current={page.own ? null : level ? place?.project ?? null : current} now={now} />}{welcome && <WelcomeBack key={`${welcome.key} ${welcome.welcome}`} project={welcome} model={projectView(all, welcome.key)} now={now} />}{body}{page.hash === "overview" && <ArchiveFoot project={current} />}</>
             : ["task", "run"].includes(page.hash) && (notice || link === "connecting") ? body : level && link === "connecting" ? (notice ? null : <Loading hash={page.hash} />) : notice ? null : <NoData link={link} />}
         </main>
       </div>
