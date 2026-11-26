@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { tool as codexTool } from "../plugins/sage-codex/skills/sage/sage.mjs";
 import { backed } from "./verdict-backing.mjs";
 import { QUESTION } from "./fixtures/question-message.mjs";
+import { chiefPlaces } from "./fixtures/chief-places.mjs";
 
 const SCRATCH_HOME = realpathSync(mkdtempSync(join(tmpdir(), "sage-gates-home-")));
 process.env.HOME = SCRATCH_HOME;
@@ -24,7 +25,7 @@ const UNREADABLE = "sage: the hook could not read this tool call, so it refuses 
 const { stateKey } = await import(new URL("../plugins/sage-codex/hooks/hook-state.mjs", import.meta.url));
 const { recordBrief } = await import(new URL("../plugins/sage-codex/hooks/brief-hook.mjs", import.meta.url));
 const { ROUTES } = await import(new URL("../plugins/sage-codex/hooks/dispatch.mjs", import.meta.url));
-const { BRIEF_FIELDS, CHIEF_GIT: CHIEF_GIT_TEXT, CHIEF_SHELL: CHIEF_SHELL_TEXT, CHIEF_WORKTREE: CHIEF_WORKTREE_TEXT = "", READ_ONLY_SHELL_WAY, readOnlyShell } = await import(new URL("../plugins/sage-codex/core/index.mjs", import.meta.url));
+const { BRIEF_FIELDS, CHIEF_FILE: CHIEF_FILE_TEXT, CHIEF_GIT: CHIEF_GIT_TEXT, CHIEF_SHELL: CHIEF_SHELL_TEXT, CHIEF_WORKTREE: CHIEF_WORKTREE_TEXT = "", READ_ONLY_SHELL_WAY, readOnlyShell } = await import(new URL("../plugins/sage-codex/core/index.mjs", import.meta.url));
 
 const SHA = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
 const MERGE = `gh pr merge 41 --squash --delete-branch --match-head-commit ${SHA}`;
@@ -118,7 +119,7 @@ test("no refusal reason ends with a period, because Codex adds \". Command: …\
     assert.match(reason ?? "", /^sage: /, name);
     assert.doesNotMatch(reason, /\.$/, `${name}: ${reason}`);
   }
-  assert.equal(reasons.chief, 'sage: sage mode is on, so the chief does not change files. Brief an implementer to make this change. The user ends sage mode with the message "sage mode off", alone');
+  assert.equal(reasons.chief, `sage: ${CHIEF_FILE_TEXT}`.replace(/\.$/, ""));
 });
 
 test("no thread changes files under a .codex folder, in any mode", async () => {
@@ -148,13 +149,27 @@ function record(t, payload) {
   return file;
 }
 
-test("in sage mode the chief changes no file, and a child may", async (t) => {
+test("in sage mode the chief changes no project file, and a child may", async (t) => {
   const p = patch("*** Update File: src/a.js", "@@", "-a", "+b");
-  assert.equal(denied(await fixed({ sage: true }).run(pre("apply_patch", p))), 'sage: sage mode is on, so the chief does not change files. Brief an implementer to make this change. The user ends sage mode with the message "sage mode off", alone');
+  assert.equal(denied(await fixed({ sage: true }).run(pre("apply_patch", p))), `sage: ${CHIEF_FILE_TEXT}`.replace(/\.$/, ""));
   const child = record(t, { id: "child", session_id: base.session_id, agent_path: "/root/worker_1", source: { subagent: { thread_spawn: { depth: 1 } } } });
   assert.equal(await fixed({ sage: true }).run(pre("apply_patch", p, { ...CHILD, transcript_path: child })), undefined, "a child edits");
   assert.equal(await fixed({ sage: true }).run(pre("apply_patch", p, { agent_id: "", transcript_path: child })), undefined, "an empty agent_id is a child too");
   assert.equal(await fixed({ sage: false }).run(pre("apply_patch", p)), undefined, "outside sage mode the root edits");
+});
+
+test("T1240: in sage mode the chief's patches write where its shell writes: the temp folder and the sage worktrees folder, and nowhere else", async () => {
+  const table = chiefPlaces(), wrong = [];
+  for (const row of table.rows) {
+    const g = { run: (input) => gate(input, { mode: () => ({ sage: true, autopilot: false }), env: { ...process.env, CODEX_HOME: join(row.env.HOME, ".codex"), ...row.env } }) };
+    const at = { cwd: table.project }, { path } = row;
+    const answers = { add: denied(await g.run(pre("apply_patch", patch(`*** Add File: ${path}`, "+x"), at))), update: denied(await g.run(pre("apply_patch", patch(`*** Update File: ${path}`, "@@", "-a", "+b"), at))), shell: denied(await g.run(pre("Bash", `printf x > ${path}`, at))) };
+    for (const [how, why] of Object.entries(answers)) {
+      const right = row.scratch ? why === undefined : (row.worktree ? /does not change a git work tree in the sage worktrees folder/ : /^sage: /).test(why ?? "");
+      if (!right) wrong.push(`${row.name} (${how}): ${why === undefined ? "passes" : why.slice(0, 70)}`);
+    }
+  }
+  assert.deepEqual(wrong, [], "each row: a patch and the shell give the row's answer");
 });
 
 test("T948: in sage mode the chief changes no repository file from the shell either; git, gh, the sage tool, reads and scratch output run", async (t) => {

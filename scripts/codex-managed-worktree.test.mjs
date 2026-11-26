@@ -176,7 +176,9 @@ test("T119: event identity, configured home, nested boundaries and roles", async
   assert.match(reason(await w.send(join(w.linked, "new"), { agent_id: undefined, transcript_path: null }, true)), /read|role|hook/i);
   const chief = { hook_event_name: "PreToolUse", session_id: "session", cwd: w.main, tool_name: "apply_patch",
     tool_input: { command: `*** Begin Patch\n*** Add File: ${w.linked}/new\n+x\n*** End Patch` } };
-  assert.match(reason(await gate(chief, { env: w.env, mode: () => ({ sage: true }) })), /chief/i);
+  assert.equal(reason(await gate(chief, { env: w.env, mode: () => ({ sage: true }) })), "", "a sibling in the temp folder is a scratch place of the chief, as for its shell (T1240)");
+  const project = { ...chief, tool_input: { command: `*** Begin Patch\n*** Add File: ${w.main}/new\n+x\n*** End Patch` } };
+  assert.match(reason(await gate(project, { env: w.env, mode: () => ({ sage: true }) })), /chief/i);
   writeFileSync(w.transcript, JSON.stringify({ type: "session_meta", payload: { id: "child", agent_path: "/root/sage_code_reviewer_t1_r1", source: { subagent: { thread_spawn: { depth: 1 } } } } }) + "\n");
   assert.match(reason(await w.send(join(w.linked, "new"), {}, true)), /reviewer|read.only/i);
   w.git("init", "-q", join(w.linked, ".codex", "nested"));

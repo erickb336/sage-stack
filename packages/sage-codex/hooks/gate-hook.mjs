@@ -18,7 +18,7 @@ import { autopilotSwitch, dispatchBinding, NEW_ON, readRecord, RECORD_RANGE, REC
 import { markFile } from "./start-mark.mjs";
 import { launcherFolder, versionsFolder } from "./launch.mjs";
 import { ASK_INSTALL } from "./entries.mjs";
-import { CHIEF_SHELL, chiefShellProblem, READ_ONLY_SHELL_WAY, readOnlyShell, TEMP } from "sage-core";
+import { CHIEF_SHELL, chiefFileProblem, chiefShellProblem, READ_ONLY_SHELL_WAY, readOnlyShell, TEMP } from "sage-core";
 import { mergeCommand, permitFile, permitFolder } from "../skills/sage/merge.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -30,7 +30,6 @@ const pushes = createPushPolicy();
 const UNREADABLE = "sage: the hook could not read this tool call, so it refuses it. Codex may have changed its hook input: update the sage plugin, or tell the user.";
 const CODEX_FOLDER = "sage: no agent changes files under a .codex folder, because Codex reads its project settings there. Ask the user to make this change.";
 const CODEX_SETTINGS = "sage: no agent writes Codex's config file, its hooks.json, sage's hook launcher (sage-hooks), the sage plugin's folder or its installed versions (plugins/cache/sage/sage) from the shell, because sage's hooks and their trust are there. Ask the user to make this change.";
-const CHIEF = 'sage: sage mode is on, so the chief does not change files. Brief an implementer to make this change. The user ends sage mode with the message "sage mode off", alone.';
 const OWNER_MERGE = "sage: in Codex, only sage's merge command merges, on autopilot, as the chief's instructions say. Without autopilot, the owner merges the pull request in GitHub";
 const LOGBOOK_WRITE = (word) => `sage: no agent writes, moves or removes a logbook file from the shell: ${JSON.stringify(word)} is in the Codex sage folder or the shared root, or holds one. Use the sage MCP tools for the logbook.`;
 const LOGBOOK_PATCH = (path) => `sage: no patch changes a logbook file: ${JSON.stringify(path)} is in the Codex sage folder or the shared root. Use the sage MCP tools for the logbook.`;
@@ -542,7 +541,10 @@ export async function gate(input, { mode = readMode, check = checkMerge, env = p
       return deny("sage: this patch reaches protected storage or has unverified checkout paths");
     }
     const { sage } = mode(f, env);
-    if (!thread.child) return chiefEditDenied({ sage, chief: true }) ? deny(CHIEF) : undefined;
+    if (!thread.child) {
+      const why = chiefEditDenied({ sage, chief: true }) ? paths.map((path) => chiefFileProblem(path, f.cwd, env)).find(Boolean) : undefined;
+      return why ? deny(`sage: ${why}`) : undefined;
+    }
     const why = childChange(thread, sage);
     return why ? refuse(thread, why) : undefined;
   }

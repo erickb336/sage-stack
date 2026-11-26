@@ -4,7 +4,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { programsRun } from "./command-reader.mjs";
 import { GIT_VALUE, gitSubcommand, programName, unreadable } from "./command-policy.mjs";
 import { canonical } from "./protected-paths.mjs";
-import { commandWritePart, gitDestroysWork } from "./shell-write-policy.mjs";
+import { commandWritePart, gitDestroysWork, scratchTarget } from "./shell-write-policy.mjs";
 import { worktreeRoot } from "./worktrees.mjs";
 
 const fold = (text) => text.normalize("NFKC").toLowerCase();
@@ -45,6 +45,13 @@ function psEnvironment(args) {
 export const TEMP = [...new Set([tmpdir(), "/tmp", process.env.TMPDIR].filter(Boolean).map((d) => { try { return realpathSync.native(d); } catch { return resolve(d); } }))];
 export const CHIEF_SHELL = 'sage mode is on, so the chief does not change files, also not from the shell: this command has a write form (a redirection or a heredoc into a file, tee, cp, mv, rm, sed -i, code in node -e, or gh repo clone, gh run download or gh extension install) outside your scratch places. Brief an implementer to make this change. Your scratch places are the temp folder and the sage worktrees folder (~/sage-worktrees, which holds the pages folder that the pages command of the state tool prints), outside the project. There a redirection, rm, rmdir, touch, tee, cp, mv and a gh clone or download run, with literal paths (for example > /tmp/notes/out.txt, or rm -rf /tmp/notes). sed -i, code in node -e and the other forms are refused also there. gh, the sage tools, reads and git run as before, except git rm, git mv and the git forms that throw away uncommitted work. The user ends sage mode with the message "sage mode off", alone.';
 export const chiefPlaces = (env = process.env) => [...TEMP, worktreeRoot(env)];
+export const CHIEF_FILE = 'sage mode is on, so the chief does not change files outside its scratch places: the temp folder and the sage worktrees folder (~/sage-worktrees, which holds the pages folder that the pages command of the state tool prints), outside the project. A git work tree in the sage worktrees folder is not a scratch place. Brief an implementer to make this change. The user ends sage mode with the message "sage mode off", alone.';
+export function chiefFileProblem(path, cwd, env = process.env) {
+  const places = chiefPlaces(env);
+  if (typeof path !== "string" || !path) return CHIEF_FILE;
+  if (scratchTarget(path, cwd, places, [worktreeRoot(env)])) return undefined;
+  return scratchTarget(path, cwd, places) ? CHIEF_WORKTREE : CHIEF_FILE;
+}
 const HOME_PLACES = [".claude", ".claude.json", ".codex", ".ssh", ".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout", ".bashrc", ".bash_profile", ".bash_login", ".bash_logout", ".profile"];
 export function readOnlyPlace(roots, env = process.env, settings = {}) {
   const home = env.HOME || homedir();
@@ -54,7 +61,7 @@ export function readOnlyPlace(roots, env = process.env, settings = {}) {
   return { readOnly: true, protect, home, known: knownNames(env) };
 }
 const knownNames = (env) => ({ TMPDIR: env.TMPDIR });
-export const CHIEF_WORKTREE = 'sage mode is on, so the chief does not change a git work tree in the sage worktrees folder (~/sage-worktrees): a task worktree or a clone there holds repository files, and rm -rf can lose uncommitted work. This command writes into a work tree there, or removes a folder that holds one. To remove a worktree, run git worktree remove <path> (without --force): git refuses a worktree with changes. For a clone or any other change, brief an implementer or ask the owner. Folders there that hold no work tree stay your scratch place.';
+export const CHIEF_WORKTREE = 'sage mode is on, so the chief does not change a git work tree in the sage worktrees folder (~/sage-worktrees): a task worktree or a clone there holds repository files, and rm -rf can lose uncommitted work. This change writes into a work tree there, or removes a folder that holds one. To remove a worktree, run git worktree remove <path> (without --force): git refuses a worktree with changes. For a clone or any other change, brief an implementer or ask the owner. Folders there that hold no work tree stay your scratch place.';
 export const CHIEF_GIT = 'sage mode is on, so the chief does not throw away uncommitted work: git reset --hard, git checkout -- <path> (or ., or --force), git clean -f, git restore of the work tree and git worktree remove --force can destroy changes in the owner\'s checkout or a task\'s worktree. Make a scratch worktree in the temp folder and run the command there (for example git worktree add --detach /tmp/<name>/wt <sha>, then git -C /tmp/<name>/wt reset --hard), or ask the owner. git commit, git checkout <branch>, git fetch, git merge-tree, git commit-tree, git worktree add, git worktree remove without --force, and reads run as before.';
 export function chiefShellProblem(command, cwd, env = process.env) {
   const guard = [worktreeRoot(env)];
