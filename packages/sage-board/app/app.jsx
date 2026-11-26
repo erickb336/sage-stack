@@ -198,9 +198,9 @@ export function App() {
         <header className="top">
           {level || page.hash === "question" ? <Crumb all={all} page={page} />
             : <span className="crumb">{all && !page.own && <><Picker projects={all.projects} current={current} page={LISTED.includes(page.hash) ? page.hash : ""} now={now} /><span aria-hidden="true">/</span></>}<b>{page.name}</b></span>}
-          {model && old && !page.own && <Signal others={model.others} />}
+          {model && !level && !page.own && <Signal others={model.others} />}
           <span className="grow" />
-          {model && old && !page.own && <LimitCounts agents={model.agents} all={all.agents} />}
+          {model && !level && !page.own && <LimitCounts agents={model.agents} all={all.agents} />}
           <Status model={model} link={link} lostAt={lostAt} now={now} />
           <button type="button" className="theme" onClick={flip} aria-label={`Switch to the ${next} theme`} title={`Switch to the ${next} theme`}>
             {theme === "dark" ? <SunIcon /> : <MoonIcon />}
@@ -209,9 +209,12 @@ export function App() {
         {model && old && !page.own && <ChiefChips chiefs={model.chiefs} filter={filter} setFilter={setFilter} />}
         <main className="main">
           {notice && <div className="banner fail" role="alert" data-part="too-big"><AlertIcon /><div>{notice}</div></div>}
-          {model ? <><Banner model={model} link={link} lostAt={lostAt} now={now} own={page.own} />{unknown && old && !page.own && <p className="banner" role="status">This board shows no project {unknown}, so it opened {current.name}.</p>}
-            {page.hash !== "question" && <ArchiveLayer all={all} current={page.own ? null : level ? place?.project ?? null : current} now={now} />}{welcome && <WelcomeBack key={`${welcome.key} ${welcome.welcome}`} project={welcome} model={projectView(all, welcome.key)} now={now} />}{body}{page.hash === "overview" && <ArchiveFoot project={current} />}</>
-            : ["task", "run"].includes(page.hash) && (notice || link === "connecting") ? body : level && link === "connecting" ? (notice ? null : <Loading hash={page.hash} />) : notice ? null : <NoData link={link} />}
+          {model && <Banner model={model} link={link} lostAt={lostAt} now={now} own={page.own} />}
+          {model && unknown && old && !page.own && <p className="banner" role="status">This board shows no project {unknown}, so it opened {current.name}.</p>}
+          {model && <ArchiveLayer all={all} current={page.own || page.hash === "question" ? null : level ? place?.project ?? null : current} now={now} />}
+          {model && welcome && <WelcomeBack key={`${welcome.key} ${welcome.welcome}`} project={welcome} model={projectView(all, welcome.key)} now={now} />}
+          {model || ["task", "run"].includes(page.hash) ? body : notice ? null : level && link === "connecting" ? <Loading hash={page.hash} /> : <NoData link={link} />}
+          {model && page.hash === "overview" && <ArchiveFoot project={current} />}
         </main>
       </div>
     </div>

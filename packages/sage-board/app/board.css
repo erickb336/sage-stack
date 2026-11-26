@@ -752,7 +752,7 @@ table.sr { left: 0; top: 0; white-space: normal; }
 .skel.w4 { width: 40%; }
 a.chipa { text-decoration: none; }
 a.chipa:hover { background: var(--hover); }
-@media (max-width: 899px) { .side .tree { flex: 1 1 100%; } .app:not(.levels) .side .tree { display: none; } }
+@media (max-width: 899px) { .side .tree { flex: 1 1 100%; } .app:not(.levels) .side :is(.tree, .more-h) { display: none; } }
 @media (max-width: 760px) {
   .app.levels .side { order: 2; }
   .app.levels .col { order: 1; }

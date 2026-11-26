@@ -97,6 +97,8 @@ async function openBoard(t, viewport = { width: 1440, height: 1000 }, { refuse, 
   const page = await context.newPage();
   await page.goto(`${origin}/app/#pair=${startLink(stateDir)}`);
   await page.getByText(/^This browser is paired\./).waitFor();
+  await page.goto(`${origin}/app/#overview`);
+  await page.locator("main h1", { hasText: "Overview" }).waitFor();
   const shot = async name => { if (SHOTS) await page.screenshot({ path: join(SHOTS, `${name}.png`) }); };
   const config = (...args) => claude.sage(["config", ...args, "--project", project], env);
   return { page, origin, dir, writes, outside, shot, as, config, addProject, base, gate: id => claude.read(dir, "gates").find(row => row.id === id) };

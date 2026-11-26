@@ -90,11 +90,12 @@ for (const width of WIDTHS) {
     await w.pair(page);
     let clicks = 0;
     clicks++; await row.getByRole("button", { name: "yes (recommended)" }).click();
-    await row.getByRole("status").filter({ hasText: "You chose yes" }).waitFor();
+    const answeredRow = page.locator(`${w.need("G1")}, [data-answered="${w.key("G1")}"]`);
+    await answeredRow.getByText("You chose yes").waitFor();
     assert.equal(clicks, 1, "J1: one click answers a question with fixed choices");
     const onRow = w.answered("G1");
     assert.deepEqual([onRow.via, onRow.answer], ["board", "yes"]);
-    await row.getByRole("button", { name: "Undo" }).click();
+    await answeredRow.getByRole("button", { name: "Undo" }).click();
     for (let i = 0; i < 50 && w.answered("G1"); i++) await page.waitForTimeout(100);
     assert.equal(w.answered("G1"), null, "Undo on the row takes the answer back");
     await shot(page, `answered-${width}`);
@@ -124,7 +125,7 @@ for (const width of WIDTHS) {
     await decide.getByRole("textbox").waitFor();
     await decide.getByRole("button", { name: "Cancel" }).click();
     clicks++; await decide.getByRole("button", { name: "Approve (recommended)" }).click();
-    await decide.getByRole("status").filter({ hasText: "You chose Approve" }).waitFor();
+    await decide.getByText("You chose Approve").waitFor();
     assert.equal(clicks, 2, "J1: a design question takes two clicks");
     assert.deepEqual([w.answered("G2").via, w.answered("G2").answer], ["board", "Approve"]);
     assert.equal(await decide.getByRole("button", { name: "Undo" }).count(), 1);

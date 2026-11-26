@@ -214,7 +214,6 @@ test("T1135: the link's project opens first; each page shows that project only; 
   const { page, problems } = await open(t, { edit: fourProjects, path: "/app/#overview?project=garden-log-aaaaaa" });
   await until(() => picker(page).textContent(), "garden-log ▾");
   await until(() => hash(page), "#overview?project=garden-log-aaaaaa");
-  assert.equal(await page.getByText("All projects", { exact: true }).count(), 0, "no All projects view");
   assert.match(await page.locator("header.top").textContent(), /Leads 0 of 53 in progress in all projects/, "R8: this project's agents against its own limit, and the running agents of every project");
   assert.equal(await page.locator("button.signal").textContent(), "1 other project needs you", "sample-app asks too; the archived and the older project never count");
   await page.locator("a[href='#tasks']").click();

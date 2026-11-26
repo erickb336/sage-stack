@@ -55,7 +55,7 @@ export function Crumb({ all, page }) {
 
 const shownProjects = all => all.projects.filter(project => ["needs", "active"].includes(project.list));
 export function Tree({ all, page }) {
-  if (!all) return <div className="tree" aria-busy="true"><a href="#">All projects</a></div>;
+  if (!all) return <div className="tree" role="navigation" aria-label="Projects" aria-busy="true"><a href="#">All projects</a></div>;
   const place = placeOf(all, page), open = place.project?.key;
   const quiet = all.projects.filter(project => ["quiet", "older"].includes(project.list)), archived = all.projects.filter(project => project.list === "archived");
   const node = project => {
@@ -74,12 +74,12 @@ export function Tree({ all, page }) {
   };
   const fold = (label, list) => list.length > 0 && <details open={list.some(project => project.key === open)}><summary>{label} · {list.length}</summary>{list.map(node)}</details>;
   return (
-    <nav className="tree" aria-label="Projects">
+    <div className="tree" role="navigation" aria-label="Projects">
       <a href="#" className={place.level === "" ? "on" : ""} aria-current={place.level === "" ? "page" : undefined}>All projects</a>
       {shownProjects(all).map(node)}
       {fold("Quiet", quiet)}
       {fold("Archived", archived)}
-    </nav>
+    </div>
   );
 }
 
