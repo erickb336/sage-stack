@@ -40,7 +40,7 @@ function gateNeeds(task) {
       gate: reason.gateId ?? null,
       task: { key: task.key, id: task.id, title: task.title },
       chief: task.holder ?? title(task.sourceLabel) ?? null,
-      ...(reason.gateId && { logbook: reason.logbook, options: reason.options, digest: reason.digest, owner: reason.owner, takeover: !!reason.replace }),
+      ...(reason.gateId && { logbook: reason.logbook, options: reason.options, digest: reason.digest, owner: reason.owner, takeover: !!reason.replace, design: !!reason.design }),
       project: task.group,
       askedAt: gate && time(gate.at) !== null ? new Date(time(gate.at)).toISOString() : null,
     };
@@ -215,7 +215,7 @@ export function boardOverview(model) {
     stale: !!model.stale,
     problems: (model.diagnostics ?? []).map(item => item.message),
     projects: (model.projects ?? []).map(project => ({ key: project.key, name: names.get(project.key), sub: project.sub, books: project.books, list: project.list, needs: needs.filter(need => need.project === project.key).length,
-      agents: project.agents, open: tasks.filter(task => task.group === project.key && isOpen(task)).length, lastActivity: project.lastActivity, archived: project.archived, mixed: project.mixed ?? null,
+      agents: project.agents, open: tasks.filter(task => task.group === project.key && isOpen(task)).length, lastActivity: project.lastActivity, archived: project.archived, mixed: project.mixed ?? null, problem: project.problem ?? null, unread: project.unread ?? [],
       kept: { tasks: project.tasks, ...project.kept }, archives: project.archives ?? 0, archivedAt: project.archivedAt ?? null, welcome: !project.archived && !project.workSinceRestore && project.restoredAt || null })),
     chiefs,
     pickups: (model.projects ?? []).flatMap(project => (project.pickups ?? []).map(item => ({ ...item, project: project.key }))),

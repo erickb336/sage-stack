@@ -157,6 +157,7 @@ document.addEventListener("visibilitychange", () => {
   if (away) { seen.previous = keep("sessionStorage", away); away = null; seen.listeners.forEach(fn => fn()); }
 });
 export const useSeen = () => useShared(seen.listeners, () => seen.previous || null);
+export const markSeen = () => { seen.previous = keep("sessionStorage", new Date().toISOString()); keep("localStorage", seen.previous); seen.listeners.forEach(fn => fn()); };
 
 const dot = chief => chief.stopped ? "stopped" : chief.waitsForOwner ? "waits" : chief.session ?? "unknown";
 const STATE = { live: chiefState("live"), quiet: chiefState("quiet"), stopped: chiefState("stopped"), waits: chiefState("waits"), unknown: UNKNOWN };
