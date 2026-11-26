@@ -457,16 +457,23 @@ What each line does:
 - So the two `node` entries name the exact files of the installed plugin, which a sandboxed command cannot change. They have no `*` before the last one, because a `*` matches any text, also a path such as `../../my-script`.
 - `gh *` is a known gap: `gh` can run a command that you or an agent set up earlier, for example with `gh alias set --shell`, and that command runs outside the sandbox too.
 
+**Git metadata is a known gap.** Inside the project's `.git` folder, Claude Code's sandbox keeps only `hooks` and `config` read-only ([Claude Code: Sandboxing](https://code.claude.com/docs/en/sandboxing.md#protected-paths)).
+
+- So a sandboxed command can write the rest of `.git`. For example, it can write `.git/commondir`, which sends git to another folder for its config and hooks, and put a config there that names a program in `core.fsmonitor` or `core.hooksPath`. It can also change a submodule's config and hooks in `.git/modules`, a config file that another config includes, or the `.git` file of a worktree in `~/sage-worktrees`.
+- The sandbox does not run that program. The next git command that runs outside the sandbox runs it, with your full access: your own git, or the git that `gh` or the state tool runs.
+- sage cannot see such a write. The `sage sandbox` line names the gap (`known gap: git metadata`) while the sandbox is on.
+- No line of this setup closes it in Claude Code. An agent that follows its brief does not write these files: like the `gh` gap, it needs an agent that acts against its brief on purpose.
+
 The states of the `sage sandbox` line:
 
 | State | What it means |
 | --- | --- |
-| `on, fails closed` | The sandbox is on, Claude Code stops when it cannot start, and no command can run again outside it. Only the excluded commands of the guide run outside. |
+| `on, fails closed` | The sandbox is on, Claude Code stops when it cannot start, and no command can run again outside it. Only the excluded commands of the guide run outside, and git metadata stays a known gap. |
 | `on, but may run unsandboxed` | The sandbox is on, but a command can run outside it: `failIfUnavailable` is not `true`, `allowUnsandboxedCommands` is not `false`, a settings file excludes a command that is not one of the guide's 3 lines, or a settings file sets a key that opens the sandbox (`allowAppleEvents`, `allowNestedUserNamespaces`, `enableWeakerNestedSandbox`, `enableWeakerNetworkIsolation`, or under `network`: `allowAllUnixSockets`, `allowUnixSockets`, `allowMachLookup`, `allowLocalBinding`, `httpProxyPort`, `socksProxyPort`). The line names each file and entry. |
 | `off` | The sandbox is off, or its file part is off (`sandbox.filesystem.disabled`). |
 | `strict rules` | sage cannot confirm the sandbox: a settings file cannot be read or is not valid JSON, a key has a wrong type, or a path in a list has a `$`, a `~name` or nothing in it. The line names the file. The hook keeps all its rules. |
 
-The line also gives the folders that a command may write, the network, the count of the guide's excluded commands, and what is missing from the block above. It prints a path in your home folder with `~`, the temp folder as `$TMPDIR`, and a path in a folder that `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `SAGE_WORKTREES` or `SAGE_HOME` names by that name. It prints no value of your environment, and it changes no file.
+The line also gives the folders that a command may write, the network, the count of the guide's excluded commands, the known gap of git metadata, and what is missing from the block above. It prints a path in your home folder with `~`, the temp folder as `$TMPDIR`, and a path in a folder that `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `SAGE_WORKTREES` or `SAGE_HOME` names by that name. It prints no value of your environment, and it changes no file.
 
 - **What sage reads:** `~/.claude/settings.json`, the project's `.claude/settings.json` and `.claude/settings.local.json` (also the one in the main checkout, for a worktree), and the managed settings file (`/Library/Application Support/ClaudeCode/managed-settings.json` on macOS). Claude Code merges the `excludedCommands` of all these files, so sage checks each one. Claude Code's hook input has no field for the sandbox, so sage reads the files only.
 - **What sage cannot see:** a `--settings` option, the settings that your organization sends from the admin console or by a device profile. A `managed-settings.d` folder gives `strict rules`.
@@ -474,7 +481,7 @@ The line also gives the folders that a command may write, the network, the count
 
 | Command | Does |
 | --- | --- |
-| `sage sandbox` | Prints one line for Claude Code and one for Codex: the state of the sandbox, the folders that a command may write, the network and what is missing. It reads the settings files only and changes nothing. The chief runs it when you ask, and you can run it in Terminal. |
+| `sage sandbox` | Prints one line for Claude Code and one for Codex: the state of the sandbox, the folders that a command may write, the network, the known gap of git metadata and what is missing. It reads the settings files only and changes nothing. The chief runs it when you ask, and you can run it in Terminal. |
 | `sage sandbox entries` | Prints the 3 lines of `excludedCommands` for this machine: `gh *`, and the state tool and the board start with the full path of the installed sage plugin. Only the Claude Code plugin prints them. It changes nothing. |
 
 ## To update sage

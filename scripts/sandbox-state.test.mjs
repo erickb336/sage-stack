@@ -77,7 +77,7 @@ test("Claude Code: the guide's block, with the lines of sage sandbox entries, re
   assert.deepEqual(found.missing, []);
   assert.equal(found.network, true);
   for (const root of [s.project, "$TMPDIR", join(s.home, "sage-worktrees"), "/tmp", "/private/tmp"]) assert.ok(found.writes.includes(root), `${root} is a write root`);
-  assert.equal(s.line("claude"), "Claude Code: on, fails closed · writes: the project, $TMPDIR, ~/sage-worktrees, /tmp, /private/tmp · network: on · 3 command patterns of the guide run outside the sandbox · missing: none");
+  assert.equal(s.line("claude"), "Claude Code: on, fails closed · writes: the project, $TMPDIR, ~/sage-worktrees, /tmp, /private/tmp · network: on · 3 command patterns of the guide run outside the sandbox · known gap: git metadata, which git can run later outside the sandbox · missing: none");
   s.claude(CLAUDE_BLOCK);
   assert.equal(s.state("claude").state, "may-run-unsandboxed", "the block pasted with its example folder names no file of the installed plugin");
 });
@@ -324,7 +324,7 @@ test("Codex: full access is off; workspace-write is on with its writable roots; 
   assert.equal(found.state, "on");
   assert.deepEqual(found.writes, [s.project, "$TMPDIR", join(s.home, "sage-worktrees"), "/opt/cache"]);
   assert.equal(found.network, true);
-  assert.equal(s.line("codex"), 'Codex: on, fails closed · writes: the project, $TMPDIR, ~/sage-worktrees, /opt/cache · network: on · missing: default_permissions = "sage", with the [permissions.sage] tables of the guide; no sandbox_mode line (Codex reads default_permissions only without it)');
+  assert.equal(s.line("codex"), 'Codex: on, fails closed · writes: the project, $TMPDIR, ~/sage-worktrees, /opt/cache · network: on · known gap: git metadata, which git can run later outside the sandbox · missing: default_permissions = "sage", with the [permissions.sage] tables of the guide; no sandbox_mode line (Codex reads default_permissions only without it)');
   s.codex(`${NEVER}sandbox_mode = "read-only"\n`);
   assert.deepEqual([s.state("codex").state, s.state("codex").writes], ["on", []]);
   s.codex('default_permissions = ":danger-full-access"\n');
@@ -341,11 +341,11 @@ test("Codex: the guide's sage profile reads as on but may run unsandboxed, becau
   assert.deepEqual(found.missing, []);
   assert.equal(found.network, true);
   assert.deepEqual(found.writes, [s.project, "$TMPDIR", "/tmp", join(s.home, "sage-worktrees"), join(s.project, ".git")]);
-  assert.equal(s.line("codex"), "Codex: on, but may run unsandboxed · writes: the project, $TMPDIR, /tmp, ~/sage-worktrees, the project's .git · network: on · may run outside the sandbox: you can approve a command outside the sandbox (approval_policy is on-request by default) · missing: none");
+  assert.equal(s.line("codex"), "Codex: on, but may run unsandboxed · writes: the project, $TMPDIR, /tmp, ~/sage-worktrees, the project's .git · network: on · known gap: git metadata, which git can run later outside the sandbox · may run outside the sandbox: you can approve a command outside the sandbox (approval_policy is on-request by default) · missing: none");
   s.codex(`${NEVER}${CODEX_BLOCK}`);
-  assert.equal(s.line("codex"), "Codex: on, fails closed · writes: the project, $TMPDIR, /tmp, ~/sage-worktrees, the project's .git · network: on · missing: none");
-  s.codex(CODEX_BLOCK.replace('".git" = "write"', '".git" = "read"').replace("enabled = true", "enabled = false"));
-  assert.deepEqual(s.state("codex").missing, ['".git" = "write" in [permissions.sage.filesystem.":workspace_roots"]', "enabled = true in [permissions.sage.network]"]);
+  assert.equal(s.line("codex"), "Codex: on, fails closed · writes: the project, $TMPDIR, /tmp, ~/sage-worktrees, the project's .git · network: on · known gap: git metadata, which git can run later outside the sandbox · missing: none");
+  s.codex(CODEX_BLOCK.replace("enabled = true", "enabled = false"));
+  assert.deepEqual(s.state("codex").missing, ["enabled = true in [permissions.sage.network]"]);
   s.codex(CODEX_BLOCK.replace('default_permissions = "sage"\n', 'default_permissions = "sage"\nsandbox_mode = "danger-full-access"\n'));
   assert.equal(s.state("codex").state, "off", "while sandbox_mode is set, Codex ignores default_permissions");
   assert.match(guideSection("codex"), /The Codex line must say `on, but may run unsandboxed`, with `you can approve a command outside the sandbox` and `missing: none`/);
@@ -362,6 +362,97 @@ test("F-T1241-9: the guide keeps .git/hooks and .git/config read-only under a wr
   assert.ok(s.state("codex").writes.includes(join(s.project, ".git/hooks")));
   assert.equal(s.state("codex").missing.length, 1, "a writable hooks folder is missing its read-only line");
   assert.match(guideSection("codex"), /such as `git push -u` \(it records the upstream branch\), `git remote add` or `git config`/);
+});
+
+test("F-T1241-9, F-T1241-24: the line names the known gap of git metadata for each provider while its sandbox lets a command write, and the guides and SECURITY.md tell it", (t) => {
+  const s = scratch(t);
+  const gap = "known gap: git metadata, which git can run later outside the sandbox";
+  s.claude(s.guide());
+  s.codex(`${NEVER}${CODEX_BLOCK}`);
+  for (const provider of ["claude", "codex"]) {
+    assert.equal(s.state(provider).state, "on", provider);
+    assert.ok(s.line(provider).includes(` · ${gap} · `), s.line(provider));
+  }
+  s.codex(`${NEVER}${CODEX_BLOCK.replace('".git" = "write"\n', "")}`);
+  assert.deepEqual(s.state("codex").missing, [], "the guide offers a read-only .git, so the .git line is not missing");
+  assert.ok(s.line("codex").includes(gap), "the worktrees in ~/sage-worktrees stay writable");
+  s.codex(`${NEVER}sandbox_mode = "read-only"\n`);
+  assert.ok(!s.line("codex").includes(gap), "a sandbox that lets a command write nothing has no such gap");
+  s.codex('sandbox_mode = "danger-full-access"\n');
+  assert.ok(!s.line("codex").includes(gap), "with no sandbox, the line gives no gap of the sandbox");
+  const security = readFileSync(join(ROOT, "SECURITY.md"), "utf8");
+  for (const [name, text] of [["the Claude Code guide", guideSection("claude")], ["the Codex guide", guideSection("codex")], ["SECURITY.md", security]]) {
+    assert.match(text, /Git metadata is a known gap/, name);
+    assert.match(text, /`\.git\/commondir`/, name);
+    assert.match(text, /later, outside the sandbox|runs it, with your full access/, name);
+    assert.match(text, /cannot see such a write/, name);
+  }
+  assert.match(guideSection("claude"), /Claude Code's sandbox keeps only `hooks` and `config` read-only \(\[Claude Code: Sandboxing\]\(https:\/\/code\.claude\.com\/docs\/en\/sandboxing\.md#protected-paths\)\)/);
+  assert.match(guideSection("codex"), /To close it for the project's own `\.git` folder, remove the `"\.git" = "write"` line/);
+  assert.match(guideSection("codex"), /"This is why commands like `git commit` may still require approval to run outside the sandbox"/);
+  assert.match(guideSection("codex"), /The gap stays for the worktrees in `~\/sage-worktrees`/);
+});
+
+test("F-T1241-26: a writable .git without the two read lines reads as may run unsandboxed and is named", (t) => {
+  const s = scratch(t);
+  s.codex(`${NEVER}${CODEX_BLOCK.replace('".git/hooks" = "read"\n".git/config" = "read"\n', "")}`);
+  const found = s.state("codex");
+  assert.equal(found.state, "may-run-unsandboxed");
+  assert.deepEqual(found.loose, ['the profile makes .git writable without ".git/hooks" = "read" and ".git/config" = "read"']);
+  s.codex(`${NEVER}${CODEX_BLOCK.replace('".git/config" = "read"', '".git/config" = "write"')}`);
+  assert.equal(s.state("codex").state, "may-run-unsandboxed", "a writable config");
+  s.codex(`${NEVER}${CODEX_BLOCK}`);
+  assert.equal(s.state("codex").state, "on");
+});
+
+test("F-T1241-22: a sage entry whose plugin folder holds a write root, or whose path has a $ or a backtick, reads as may run unsandboxed", (t) => {
+  const s = scratch(t);
+  const read = (change) => {
+    const json = s.guide();
+    change(json.sandbox);
+    s.claude(json);
+    return s.state("claude");
+  };
+  assert.equal(read(() => {}).state, "on", "the guide's lines alone");
+  const inside = read((x) => x.filesystem.allowWrite.push(join(s.plugin, "skills", "sage")));
+  assert.equal(inside.state, "may-run-unsandboxed", "a write root inside the plugin folder");
+  assert.ok(inside.loose.some((item) => item.includes("skills/sage/sage.mjs *")), inside.loose);
+  const plugins = join(s.home, ".claude", "plugins");
+  for (const part of ["$X", "`x`"]) {
+    const found = read((x) => x.excludedCommands.splice(1, 1, `node ${plugins}/${part}/skills/sage/sage.mjs *`));
+    assert.equal(found.state, "may-run-unsandboxed", part);
+    assert.ok(found.missing.includes("the state tool's line in sandbox.excludedCommands (sage sandbox entries prints it)"), part);
+  }
+});
+
+test("F-T1241-27: a CLAUDE_CONFIG_DIR inside the session's temp folder, which the sandbox lets a command write, reads as may run unsandboxed", (t) => {
+  const s = scratch(t);
+  const config = join(s.env.TMPDIR, "claude-config"), plugin = join(config, "plugins", "cache", "sage", "sage", "v1");
+  const json = s.guide();
+  json.sandbox.excludedCommands = entryLines(plugin);
+  s.write(join(config, "settings.json"), JSON.stringify(json));
+  const found = s.state("claude", { CLAUDE_CONFIG_DIR: config });
+  assert.equal(found.state, "may-run-unsandboxed");
+  assert.equal(found.loose.length, 2, `both sage entries are named: ${found.loose}`);
+  const elsewhere = join(s.dir, "claude-config"), safe = s.guide();
+  safe.sandbox.excludedCommands = entryLines(join(elsewhere, "plugins", "cache", "sage", "sage", "v1"));
+  s.write(join(elsewhere, "settings.json"), JSON.stringify(safe));
+  assert.equal(s.state("claude", { CLAUDE_CONFIG_DIR: elsewhere }).state, "on", "the same setup outside the temp folder");
+});
+
+test("F-T1241-25: a rule's decision counts as prompt or forbidden only when the quoted word stands alone before the next , or )", (t) => {
+  const s = scratch(t);
+  s.codex(`${NEVER}${CODEX_BLOCK}`);
+  const file = join(s.home, ".codex", "rules", "default.rules");
+  for (const [text, want] of [
+    ['prefix_rule(pattern=["node"], decision="prompt" if False else "a" + "llow")\n', "may-run-unsandboxed"],
+    ['prefix_rule(pattern=["node"], decision="prompt" + "")\n', "may-run-unsandboxed"],
+    ['prefix_rule(pattern=["node"], decision = "prompt" )\n', "on"],
+    ['prefix_rule(\n  pattern=["rm"],\n  decision="forbidden"\n  ,\n)\n', "on"],
+  ]) {
+    s.write(file, text);
+    assert.equal(s.state("codex").state, want, text);
+  }
 });
 
 test("F-T1241-18: a profile that does not extend :workspace names the missing extends line", (t) => {

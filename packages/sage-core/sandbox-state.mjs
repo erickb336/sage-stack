@@ -1,5 +1,5 @@
 import { closeSync, constants, fstatSync, openSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { parseToml } from "./toml.mjs";
 import { worktreeRoot } from "./worktrees.mjs";
@@ -16,7 +16,7 @@ const LOOSE = [
   [["network", "allowAllUnixSockets"], "boolean"], [["network", "allowLocalBinding"], "boolean"], [["network", "allowUnixSockets"], "list"], [["network", "allowMachLookup"], "list"],
   [["network", "httpProxyPort"], "number"], [["network", "socksProxyPort"], "number"],
 ];
-const SAGE_ENTRY = /^node (\/[^\s*?[\]]+)\/(skills\/sage\/sage\.mjs|board\/cli\.mjs board) \*$/;
+const SAGE_ENTRY = /^node (\/[^\s*?[\]$`]+)\/(skills\/sage\/sage\.mjs|board\/cli\.mjs board) \*$/;
 const GIT_GUARD = [".git/hooks", ".git/config"];
 
 class Strict extends Error {}
@@ -123,10 +123,11 @@ function claude({ env, cwd, places }) {
     if (spec) writes.push(trimGlob(spec.startsWith("//") ? spec.slice(1) : spec.startsWith("~") ? fromHome(spec, home, project) : spec.startsWith("/") ? join(base(l), spec) : join(project, spec)));
   }
   const network = allow.some(({ rule }) => rule === "WebFetch(domain:*)");
+  const tmp = isAbsolute(env.TMPDIR ?? "") ? resolve(env.TMPDIR) : tmpdir(), roots = writes.map((root) => (root === TMPDIR ? tmp : root));
   const plugins = join(config, "plugins"), excluded = layers.flatMap((l) => (at(l, ["sandbox", "excludedCommands"], "list") ?? []).map((entry) => ({ entry, l })));
   const sageEntry = (entry) => {
     const [, dir, tool] = SAGE_ENTRY.exec(entry) ?? [];
-    return dir && !dir.split("/").some((s) => s === "." || s === "..") && within(dir, plugins) && !writes.some((root) => within(dir, root)) ? tool : undefined;
+    return dir && !dir.split("/").some((s) => s === "." || s === "..") && within(dir, plugins) && !roots.some((root) => within(dir, root) || within(root, dir)) ? tool : undefined;
   };
   const loose = excluded.filter(({ entry }) => entry !== "gh *" && !sageEntry(entry)).map(({ entry, l }) => `${l.shown}: excludedCommands ${JSON.stringify(show.text(entry))}`);
   for (const l of layers) for (const [path, type] of LOOSE) {
@@ -161,7 +162,7 @@ function sandboxPath(path, home, base) {
   return p.startsWith("//") ? resolve(p.slice(1)) : p.startsWith("/") ? resolve(p) : p === "~" || p.startsWith("~/") ? fromHome(p, home, base) : resolve(base, p);
 }
 
-const RULE_TOKENS = /"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|#[^\n]*|\bdecision\s*=\s*(["'])(?:prompt|forbidden)\1|\bprefix_rule\b|[()]/g;
+const RULE_TOKENS = /"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|#[^\n]*|\bdecision\s*=\s*(["'])(?:prompt|forbidden)\1(?=\s*[,)])|\bprefix_rule\b|[()]/g;
 function rulesAllow(text) {
   if (/\ballow\b/.test(text)) return true;
   const tokens = [...text.matchAll(RULE_TOKENS)];
@@ -221,11 +222,11 @@ function codex({ env, cwd, places }) {
   const autoReview = merged.approvals_reviewer === "auto_review" && asks;
   const loose = [
     ...unique(ruleDirs).flatMap((dir) => allowRules(dir, show)).map((file) => `${show(file)} has an allow rule`),
+    found.git && !found.gitGuard && `the profile makes .git writable without ".git/hooks" = "read" and ".git/config" = "read"`,
     asks && `${autoReview ? "an automatic reviewer" : "you"} can approve a command outside the sandbox (approval_policy ${policy === undefined ? "is on-request by default" : typeof policy === "string" ? `= "${policy}"` : "is granular"})`,
   ].filter(Boolean);
   const missing = custom ? [
     found.base !== ":workspace" && `extends = ":workspace" in [permissions.${chosen}]`,
-    !found.git && `".git" = "write" in [permissions.${chosen}.filesystem.":workspace_roots"]`,
     found.git && !found.gitGuard && `".git/hooks" = "read" and ".git/config" = "read" in [permissions.${chosen}.filesystem.":workspace_roots"]`,
     !found.network && `enabled = true in [permissions.${chosen}.network]`,
     found.state !== "off" && !found.writes.some((root) => within(sage, root)) && `"${show(sage)}" = "write" in [permissions.${chosen}.filesystem]`,
@@ -310,6 +311,7 @@ export function sandboxLine(found, { env = process.env, cwd = process.cwd() } = 
     parts.push(`writes: ${found.writes.length ? found.writes.map(show).join(", ") : "nothing"}`);
     parts.push(`network: ${found.network ? "on" : found.provider === "claude" ? "the hosts that you allow" : "off"}`);
     if (found.outside) parts.push(`${found.outside} command pattern${found.outside === 1 ? "" : "s"} of the guide run outside the sandbox`);
+    if (found.writes.length) parts.push("known gap: git metadata, which git can run later outside the sandbox");
     if (found.loose?.length) parts.push(`may run outside the sandbox: ${found.loose.join("; ")}`);
   }
   if (found.state !== "strict") parts.push(`missing: ${found.missing.length ? found.missing.join("; ") : "none"}`);
