@@ -100,7 +100,7 @@ REPORT      the sage:report fields, what RESULT means for this step, and BRANCH 
 STANDING    a pointer to the orders: "The standing orders apply in full: read them with <the standing command> before you start, and put the same pointer in every helper brief."
 ```
 
-In STANDING, write `sage standing` as the agent runs it, with the project's folder. Do not copy the orders into a brief.
+In STANDING, write `sage standing --project <folder>`, never a copy of the orders. Read yours with `--chief C<n>`.
 
 A task that waits for other tasks (its waits, or the pilot of its milestone) gets each one's final report in full in CONTEXT.
 

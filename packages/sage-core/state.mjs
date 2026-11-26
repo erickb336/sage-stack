@@ -150,6 +150,10 @@ const OPTIONS = {
   message: ["file", "json"],
   "worktrees prune": ["yes"],
   "prior-art": ["file", "rows"],
+  standing: ["all"],
+  "standing add": [],
+  "standing retire": ["why"],
+  "standing chief": [],
 };
 const prNumber = (pr) => (/^\d+$/.test(pr ?? "") ? String(BigInt(pr)) : pr);
 const STANDING = `# Standing orders
@@ -1601,6 +1605,38 @@ const lostName = (file) => {
 const list = (s) => (s ? s.split(",").map((x) => x.trim()).filter(Boolean) : []);
 const builds = (task) => list(task.route).includes("build");
 
+const ORDER = /^(\d+)\. /, RETIRED = /^\d+\. \[retired /, CHIEF_ONLY = /^\d+\. (?:\[retired [^\]]*\] )?\[chief only\] /;
+
+function ordersFor(text, chief) {
+  let hide = false, gap = [], retired = 0, chiefs = 0;
+  const kept = [];
+  for (const line of text.split("\n")) {
+    if (!line.trim()) { gap.push(line); continue; }
+    if (ORDER.test(line)) {
+      const old = RETIRED.test(line), mine = !old && !chief && CHIEF_ONLY.test(line);
+      hide = old || mine;
+      retired += old;
+      chiefs += mine;
+    } else if (line.startsWith("#") || (gap.length && !/^\s/.test(line))) hide = false;
+    else if (hide) gap = [];
+    if (!hide) kept.push(...gap.splice(0), line);
+  }
+  const hidden = [retired && `${retired} retired`, chiefs && `${chiefs} for the chief only`].filter(Boolean);
+  return hidden.length ? `${kept.join("\n").trimEnd()}\n\nNot shown: ${hidden.join(" and ")} (sage standing --all prints every order).` : text;
+}
+
+function markOrder(dir, text, sub, n, more, why) {
+  if (more.length || !/^[1-9]\d*$/.test(n ?? "")) refuse(`standing ${sub} takes one order number, for example: sage standing ${sub} 12${sub === "retire" ? ' --why "<reason>"' : ""}. Nothing changed.`);
+  const lines = text.split("\n"), at = lines.findIndex((line) => line.match(ORDER)?.[1] === n);
+  if (at < 0) refuse(`the standing orders have no order ${n}. Nothing changed.`);
+  if (RETIRED.test(lines[at])) refuse(`standing order ${n} is retired already: ${lines[at].slice(0, lines[at].indexOf("]") + 1).replace(ORDER, "")}. Nothing changed.`);
+  if (sub === "chief" && CHIEF_ONLY.test(lines[at])) return `standing order ${n} is for the chief only already. Nothing changed.`;
+  const mark = sub === "retire" ? `[retired ${localTime(now()).date}: ${need(cell(why), '--why "<reason>"').replaceAll("]", ")")}]` : "[chief only]";
+  lines[at] = lines[at].replace(ORDER, () => `${n}. ${mark} `);
+  put(join(dir, "standing.md"), `${lines.join("\n")}\n`);
+  return sub === "retire" ? `standing order ${n} retired: agents and the chief no longer read it; sage standing --all prints it with its reason` : `standing order ${n} is for the chief only: sage standing --chief <your C id> prints it, and the agents' read does not`;
+}
+
 function parse(cmd, args) {
   const pos = [];
   const opt = Object.create(null);
@@ -1611,7 +1647,7 @@ function parse(cmd, args) {
     else {
       const eq = a.includes("=");
       const o = a.slice(2, eq ? a.indexOf("=") : undefined);
-      const flag = !eq && ((cmd === "link" && o === "separate") || (cmd === "move" && o === "preview") || (cmd === "worktrees" && o === "yes"));
+      const flag = !eq && ((cmd === "link" && o === "separate") || (cmd === "move" && o === "preview") || (cmd === "worktrees" && o === "yes") || (cmd === "standing" && o === "all"));
       const v = flag ? true : eq ? a.slice(a.indexOf("=") + 1) : args[++i];
       if (!eq && !flag) spaced.push(o);
       if (o in opt) refuse(`--${o} is given twice. Give it once${o === "accept-loss" ? `, with the tables joined by a comma: --accept-loss ${opt[o]},${v}` : ""}.`);
@@ -1636,11 +1672,11 @@ function scopedRead(cmd, pos, opt) {
 }
 
 function readForm(cmd, pos, opt) {
-  if (Object.keys(opt).some((key) => !["project", "chief", "lead"].includes(key))) return false;
+  if (Object.keys(opt).some((key) => !["project", "chief", "lead", ...(cmd === "standing" ? ["all"] : [])].includes(key))) return false;
   const [sub] = pos;
   if (cmd === "status") return true;
   if (cmd === "logbook") return sub !== "repair";
-  if (cmd === "standing") return sub !== "add";
+  if (cmd === "standing") return !pos.length;
   if (cmd === "finding") return sub === "show" && pos.length === 3;
   return ["task", "pages", "log"].includes(cmd) && pos.length === 1 && (TASK_ID.test(sub) || (cmd === "log" && sub === "-"));
 }
@@ -3286,13 +3322,15 @@ function act(cmd, pos, opt, dir, env, skip, project) {
       });
     }
     case "standing": {
+      const text = (readRegular(join(dir, "standing.md")) ?? "").trimEnd();
       if (sub === "add") {
-        const text = (readRegular(join(dir, "standing.md")) ?? "").trimEnd();
         const n = (text.match(/^\d+\./gm) ?? []).length + 1;
         put(join(dir, "standing.md"), `${text}\n${n}. ${cell(need([id, ...more].join(" "), "the order's text"))}\n`);
         return `standing order ${n} added`;
       }
-      return (readRegular(join(dir, "standing.md")) ?? "").trimEnd();
+      if (sub === "retire" || sub === "chief") return markOrder(dir, text, sub, id, more, opt.why);
+      if (sub !== undefined) refuse(`standing takes add, retire or chief, not ${visible(sub)}. To read the orders, run sage standing with no word after it.`);
+      return opt.all === undefined ? ordersFor(text, opt.chief !== undefined) : text;
     }
     case "task": {
       if (sub === "add") {
