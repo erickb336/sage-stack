@@ -264,3 +264,18 @@ test("T1223: the approved-design rows: the newest approved design of each task t
   assert.deepEqual([view.levels.all.designs, view.levels.projects["sample-app-abc123"].designs, view.levels.milestones[key("M1")].designs, view.levels.milestones[key("M2")].designs],
     [[key("T21/G8"), key("T1/G7")], [key("T21/G8"), key("T1/G7")], [key("T1/G7")], []]);
 });
+
+test("T1216: a design question's need says so, so the board opens its page first; a plain question's need does not", () => {
+  const tables = appTables(NOW);
+  tables.gates.push({ id: "G8", task: "T30", question: "Approve design v1 of the crash screen?", options: "Approve|Approve with your words|New version", recommendation: "Approve", default: "", answer: "", at: new Date(Date.parse(NOW) - 3_600_000).toISOString(), kind: "design" });
+  const needs = overview(tables).needs;
+  assert.deepEqual(needs.filter(need => need.gate).map(need => [need.gate, need.design]), [["G4", false], ["G8", true], ["G5", false]]);
+});
+
+test("T1216: each project says what of its logbook the board cannot read, so its level shows the failure", () => {
+  const tables = appTables(NOW);
+  delete tables.runs;
+  const [project] = overview(tables).projects;
+  assert.deepEqual(project.unread, [{ logbook: "Claude", tables: ["runs"] }]);
+  assert.deepEqual(overview().projects[0].unread, []);
+});
