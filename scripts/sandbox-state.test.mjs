@@ -426,36 +426,47 @@ test("F-T1241-22: a sage entry whose plugin folder holds a write root, or whose 
   }
 });
 
-test("F-T1241-63, F-T1241-37: a node entry that names an old version's folder or another plugin's folder is not the guide's line: the line names what is missing and says to run sage sandbox entries again", (t) => {
+function staleEntries(t) {
   const s = scratch(t);
-  const MISSING = "missing: the state tool's line in sandbox.excludedCommands (run sage sandbox entries again); the board's line in sandbox.excludedCommands (run sage sandbox entries again)";
-  const LOOSE = "may run outside the sandbox: ~/.claude/settings.json: excludedCommands entry 2; ~/.claude/settings.json: excludedCommands entry 3";
+  const missing = "missing: the state tool's line in sandbox.excludedCommands (run sage sandbox entries again); the board's line in sandbox.excludedCommands (run sage sandbox entries again)";
+  const loose = "may run outside the sandbox: ~/.claude/settings.json: excludedCommands entry 2; ~/.claude/settings.json: excludedCommands entry 3";
   const withEntries = (folder) => {
     const json = s.guide();
     json.sandbox.excludedCommands = entryLines(folder);
     s.claude(json);
   };
-  const plugins = join(s.home, ".claude", "plugins", "cache");
-  for (const [why, folder] of [["a version folder that a sage update removed", join(plugins, "sage", "sage", "0.0.1-removed-after-update")], ["another plugin's folder", join(plugins, "evil", "evil", "9")]]) {
-    mkdirSync(join(folder, "skills", "sage"), { recursive: true });
-    withEntries(folder);
-    const found = s.state("claude");
-    assert.equal(found.state, "may-run-unsandboxed", why);
-    assert.equal(s.line("claude"), `Claude Code: on, but may run unsandboxed · writes: the project, $TMPDIR, ~/sage-worktrees, /tmp, /private/tmp · network: on · 1 command pattern of the guide run outside the sandbox · known gap: git metadata, which git can run later outside the sandbox · ${LOOSE} · ${MISSING}`, why);
-  }
+  const expect = (why) => {
+    assert.equal(s.state("claude").state, "may-run-unsandboxed", why);
+    assert.equal(s.line("claude"), `Claude Code: on, but may run unsandboxed · writes: the project, $TMPDIR, ~/sage-worktrees, /tmp, /private/tmp · network: on · 1 command pattern of the guide run outside the sandbox · known gap: git metadata, which git can run later outside the sandbox · ${loose} · ${missing}`, why);
+  };
+  return { s, missing, loose, withEntries, expect, cache: join(s.home, ".claude", "plugins", "cache") };
+}
+
+test("F-T1241-63, F-T1241-37 (a): node entries that name a sage version folder that an update removed read as may run unsandboxed and name the missing lines, also in the state tool", (t) => {
+  const { s, missing, loose, withEntries, expect, cache } = staleEntries(t);
+  withEntries(join(cache, "sage", "sage", "0.0.1-removed-after-update"));
+  expect("a version folder that is gone");
+  assert.equal(s.state("claude", {}, s.project, null).state, "may-run-unsandboxed", "a caller that names no plugin folder cannot match an entry, so it never reads fails closed");
   withEntries(s.plugin);
   assert.equal(s.state("claude").state, "on", "the running plugin's own folder");
-  assert.equal(s.state("claude", {}, s.project, null).state, "may-run-unsandboxed", "a caller that names no plugin folder cannot match an entry, so it never reads fails closed");
-  assert.ok(s.line("claude", {}, null).endsWith(`${LOOSE} · ${MISSING}`));
-  const stale = s.guide();
-  stale.sandbox.excludedCommands = entryLines(join(plugins, "sage", "sage", "0.0.1-removed-after-update"));
-  s.claude(stale);
-  const before = tool(CLAUDE_TOOL, s.project, s.env).stdout.split("\n")[0];
-  assert.ok(before.startsWith("Claude Code: on, but may run unsandboxed · ") && before.endsWith(MISSING), `the state tool passes its own folder: ${before}`);
-  const current = s.guide();
-  current.sandbox.excludedCommands = entryLines(join(ROOT, "plugins/sage"));
-  s.claude(current);
+  assert.equal(s.state("claude", {}, s.project, null).state, "may-run-unsandboxed", "the same lines, read by a caller that names no plugin folder");
+  assert.ok(s.line("claude", {}, null).endsWith(`${loose} · ${missing}`));
+  withEntries(join(cache, "sage", "sage", "0.0.1-removed-after-update"));
+  const stale = tool(CLAUDE_TOOL, s.project, s.env).stdout.split("\n")[0];
+  assert.ok(stale.startsWith("Claude Code: on, but may run unsandboxed · ") && stale.endsWith(missing), `the state tool passes its own folder: ${stale}`);
+  withEntries(join(ROOT, "plugins/sage"));
   assert.match(tool(CLAUDE_TOOL, s.project, s.env).stdout, /^Claude Code: on, fails closed · .* · missing: none\n/, "the lines that the installed plugin's sandbox entries prints");
+});
+
+test("F-T1241-63, F-T1241-37 (b): node entries that name another plugin's folder, which holds the same file names, read as may run unsandboxed and name the missing lines", (t) => {
+  const { withEntries, expect, cache } = staleEntries(t);
+  const other = join(cache, "evil", "evil", "9");
+  for (const file of ["skills/sage/sage.mjs", "board/cli.mjs"]) {
+    mkdirSync(dirname(join(other, file)), { recursive: true });
+    writeFileSync(join(other, file), "");
+  }
+  withEntries(other);
+  expect("another plugin's folder");
 });
 
 test("F-T1241-27: a CLAUDE_CONFIG_DIR inside the session's temp folder, which the sandbox lets a command write, reads as may run unsandboxed", (t) => {
