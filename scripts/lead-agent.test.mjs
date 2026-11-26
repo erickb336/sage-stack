@@ -85,7 +85,7 @@ function table(first) {
   return m[1].trim().split("\n").map((row) => row.slice(1, -1).split("|").map((cell) => cell.trim()));
 }
 
-function project({ size = "small", config = [], framed = false, add = [], env: more = {} } = {}) {
+function project({ size = "small", config = [], framed = false, add = [], file, env: more = {} } = {}) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "sage-lead-agent-")));
   const folder = join(dir, "project"), bin = join(dir, "bin");
   mkdirSync(bin);
@@ -94,6 +94,8 @@ function project({ size = "small", config = [], framed = false, add = [], env: m
   const git = (...args) => spawnSync("git", ["-C", folder, ...args]).stdout.trim();
   spawnSync("git", ["init", "-q", "-b", "main", folder]);
   git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "start");
+  if (file) git("update-ref", "refs/remotes/origin/main", "main");
+  const piped = (input, ...args) => spawnSync("git", ["-C", folder, ...args], { input }).stdout.trim();
   const send = (event) => {
     const r = spawnSync("node", LAUNCHER, { input: JSON.stringify({ session_id: "s1", cwd: folder, ...event }), env });
     assert.equal(r.status, 0, r.stderr);
@@ -127,7 +129,8 @@ function project({ size = "small", config = [], framed = false, add = [], env: m
   assert.equal(p.startLead(), undefined, "the sage starts lead-T1");
   p.commit = () => {
     const parent = git("rev-parse", "--verify", "--quiet", "sage/t1-example") || git("rev-parse", "main");
-    const sha = git("-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", `${parent}^{tree}`, "-p", parent, "-m", "work");
+    const tree = file ? piped(`100644 blob ${piped("changed\n", "hash-object", "-w", "--stdin")}\t${file}\n`, "mktree") : `${parent}^{tree}`;
+    const sha = git("-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", tree, "-p", parent, "-m", "work");
     git("update-ref", "refs/heads/sage/t1-example", sha);
   };
   p.head = () => git("rev-parse", "sage/t1-example");
@@ -159,7 +162,7 @@ function play(lines, p) {
   const roles = {}, ran = [], sage = [], moves = [];
   let printed, last, logbook, recheck = new Set();
   let blocked = false;
-  const fill = (text) => text.replaceAll("<sha>", () => p.head()).replaceAll("<logbook>", () => logbook ?? assert.fail("<logbook> before sage logbook"));
+  const fill = (text) => text.replaceAll("<sha>", () => p.head()).replaceAll("<sha7>", () => p.head().slice(0, 7)).replaceAll("<logbook>", () => logbook ?? assert.fail("<logbook> before sage logbook"));
   for (const line of lines) {
     const [mark, ...rest] = line.split(" "), text = rest.join(" ");
     const was = printed;
@@ -171,9 +174,9 @@ function play(lines, p) {
       assert.equal(p.ask(command), undefined, `the hook refuses: ${line}`);
       assert.ok(!(program === "sage" && args[0] === "verdict" && /^checks-/.test(args[args.indexOf("--kind") + 1])),`${line}: the checks verdict is the sage's (! sage verdict ...)`);
       if (program === "sage" && args[0] === "finding" && args[1] === "close") assert.deepEqual([...recheck], [], `${line}: round named a role that has not re-checked`);
-      const r = p.run(program, args);
-      assert.equal(r.status, 0, `${line}: ${r.stderr}`);
-      last = printed = r.stdout.trim();
+      const r = p.run(program, args), read = program === "sage" && args[0] === "merge-check";
+      assert.ok(r.status === 0 || (read && r.status === 1), `${line}: ${r.stderr}`);
+      last = printed = (r.status ? r.stderr : r.stdout).trim();
       if (program === "sage") p.send({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command }, tool_response: { stdout: r.stdout, stderr: r.stderr, interrupted: false }, ...p.lead });
       if (program === "sage" && args[0] === "round") recheck = new Set(/ re-run (\S+) on /.exec(printed)?.[1].split(",") ?? []);
       if (program === "sage" && args[0] === "run" && args[1] === "add") assert.match(printed, RUN_ADD, `${line}: the file says that run add prints ${RUN_ADD}`);
@@ -682,6 +685,25 @@ test("T301: the lead file gets only the tools that a lead needs", () => {
 });
 
 const stepOf = (text, n) => new RegExp(`^( *)${n}\\. \\*\\*[\\s\\S]*?(?=^\\1${n + 1}\\. |(?![\\s\\S]))`, "m").exec(text)?.[0] ?? assert.fail(`no step ${n}`);
+
+const MERGE_READ = /`(merge-check --sha <sha> --pr <n>)`/.exec(TEXT)?.[1] ?? assert.fail("agents/lead.md teaches the merge check as a read");
+const DOCS_START = ["$ sage task T1 set state=building branch=sage/t1-example", "$ sage run add T1 --role implementer --branch sage/t1-example", "→ R2 running · implementer on T1", "> R2 sage:implementer", "< R2 done: none",
+  "$ sage run done R2 --status done --tokens 1", "$ sage task T1 set state=reviewing pr=12", "$ wait T1 --ci", "→ CI pass · PR 12 · <sha>", `$ sage ${MERGE_READ.replace("<n>", "12")}`];
+
+test("T1239: on a docs-only head the lead's merge check says docs-only, the lead runs no review or QA, moves to verifying after CI, and the task merges on checks-pass", () => {
+  const p = project({ file: "README.md" });
+  const { ran, printed } = play([...DOCS_START, "→ sage: no verdicts recorded for <sha>. Record checks-pass on it. <sha7> is docs-only:", "$ gh pr checks 12", "→ build pass", "$ sage task T1 set state=verifying", "< lead-T1 ready: none",
+    "! sage verdict T1 --sha <sha> --kind checks-pass --cycle 1 --pr 12", "! sage task T1 set state=verified", "! sage merge-check --sha <sha> --pr 12"], p);
+  assert.match(printed, /^T1 may merge: [0-9a-f]{7} is docs-only: the one file that it changes since its merge base with origin\/main is /);
+  assert.deepEqual(ran.filter((command) => /run add T1 --role (?!implementer)/.test(command)), [], "the lead starts no review or QA on a docs-only head");
+});
+
+test("T1239: on a head that is not docs-only the merge check says nothing of docs, and the hook keeps the lead at reviewing until a clean cycle", () => {
+  const p = project({ file: "app.js" });
+  const { printed } = play(DOCS_START, p);
+  assert.match(printed, /^sage: no verdicts recorded for [0-9a-f]{40}\. Record the reviews and QA with sage verdict first\.$/);
+  assert.match(p.ask(`node ${TOOL} task T1 set state=verifying`) ?? "", /has no full clean cycle yet/);
+});
 
 test("T591 R2119: the lead's cycle reads its roles from the route, so a tiny arena's lead adds no QA run, and a route with a review is not sent past the cycle", () => {
   const steps = TEXT.split("## Steps")[1] ?? assert.fail("the lead file has steps");
