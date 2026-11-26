@@ -22,7 +22,7 @@ export function writerClass(cmd, [sub, id] = []) {
     case "log": return id === undefined ? READ : TASK.test(sub ?? "") ? onTask(sub) : ANY;
     case "observe": return { ...ANY, task: sub };
     case "pages": return id === "record" ? { ...ANY, task: sub } : READ;
-    case "standing": return sub === "add" ? ANY : READ;
+    case "standing": return sub === undefined ? READ : ANY;
     case "logbook": return sub === "repair" ? OWNER : READ;
     case "projects": return OWNER;
     case "move": return OWNER;

@@ -266,7 +266,7 @@ test("T815: the one merge form passes the merge rule, and the role and autopilot
 });
 
 test("T931: the stash, process and board rules give the same plain reason in both hooks, and the chiefs' own commands pass", () => {
-  const STASH = "sage: an agent never runs git stash: every worktree of a repo shares one stash list, so another agent can pop or drop your work (standing order 16). To test old code, use git worktree add --detach <scratch> <sha>, or git show <sha>:<path> into your scratch folder";
+  const STASH = "sage: an agent never runs git stash: every worktree of a repo shares one stash list, so another agent can pop or drop your work. To test old code, use git worktree add --detach <scratch> <sha>, or git show <sha>:<path> into your scratch folder";
   assert.equal(ROLES["codex agent"](`git -C ${T} stash`), STASH);
   assert.equal(ROLES["claude agent"](`git -C ${T} stash`), `${STASH}.`);
   for (const command of ["ps aux", "pgrep node", "lsof -i :3000"]) for (const role of AGENT) assert.equal(ROLES[role](command), undefined, `${role} looks at the processes (G233): ${command}`);
