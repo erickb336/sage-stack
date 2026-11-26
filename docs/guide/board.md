@@ -114,7 +114,7 @@ Each task, step, milestone and agent shows one of six state words, in the browse
 
 The same words and marks show the steps of a task and the agents, from one table in sage's code. Two more marks:
 
-- `!` is a problem: failed, blocked, may be stuck, running long, run still open or lost. The problem shows after the word, for example "in progress · may be stuck".
+- `!` is a problem: failed, blocked, Look at it or Stopped without a report. The problem shows after the word, for example "in progress · Look at it".
 - `◌` is a state that the board does not know. It reads "unknown".
 
 Two marks are not states:
@@ -199,7 +199,7 @@ The address of the board opens the Overview. From the top:
   - **The last pick-up** of the last 7 days, at the end of the row. The session that took the work says "picked up 146 tasks at 15:59", with "1 run lost" when a run of the stopped session was running. The stopped session says "passed on to C3 at 15:59".
 - **Needs you:** each open question and each problem, oldest first, with its chief, its task and when it was asked. A click on a question opens the [question view](#the-question-view-and-the-reader).
 - **Milestones:** each milestone by the top priority of its open tasks, with its state word, its goal, its progress bar ("2 of 9 merged") and its pilot. A click opens the Tasks page with only that milestone's tasks; "Show all tasks" shows the rest again.
-- **Since you looked**, or **In the last 24 hours** on the first visit in a browser, or **In the last 7 days** after a longer absence: the tasks merged, the runs "with a problem flag", and the tasks added. A run has a problem flag when its agent is silent for 30 minutes or stopped, or when it failed in the last 24 hours, its task is still open, and no later run of the same role started. A click on "Merged" opens those tasks on the Tasks page, newest first; a click on "With a problem flag" opens the Agents page, which uses the same label.
+- **Since you looked**, or **In the last 24 hours** on the first visit in a browser, or **In the last 7 days** after a longer absence: the tasks merged, the runs "with a problem flag", and the tasks added. A run has a problem flag when its agent has the flag "Look at it" or "Stopped without a report" (see [the Agents page](#the-agents-page)), or when it failed in the last 24 hours, its task is still open, and no later run of the same role started. A click on "Merged" opens those tasks on the Tasks page, newest first; a click on "With a problem flag" opens the Agents page, which uses the same label.
   - **Pick-ups**: one line for each pick-up in the same time, with its time, the session that took the work, the count of tasks from each source and the lost runs by id. For example "20 Nov, 15:59 · Claude · C3 picked up 146 tasks: 69 from Claude · C1, 2 from Codex · C2 and 75 with no owning chief · no run lost".
 
 When the board has no project yet, the Overview shows one card, "Start your first task", with the three first steps: start a chief in the project, ask for a change, and come back to the board. A project that has a chief but no task yet shows the same card, with the first step marked done.
@@ -265,12 +265,19 @@ A click on a card's title, on "About" or on an agent opens the task page. A run 
 
 | State | Shown when |
 | --- | --- |
-| ▶ in progress | The hook saw the agent in the last 30 min. A Codex run also shows this word: the logbook says that it runs. Codex sends no activity notes yet, so the row has no last activity, no helpers and no cap. |
+| ▶ in progress | The logbook says that the run runs. |
 | ⧗ waiting | A lead has at least one helper that still runs. |
-| ! in progress · may be stuck | No hook activity for 30 min or more, and no running helper. Or the logbook says that the run runs, and no agent slot holds it (the hook frees a slot after 60 min with no activity). |
-| ! in progress · running long | The time running is more than 2 times the median of the same role's ended runs in this project. It needs 5 ended runs. |
-| ! stopped · run still open | The hook saw the helper stop, but the logbook still says that the run runs. The chief must end the run. |
-| ! stopped · lost | The session of the run's chief stopped or ended, but the logbook still says that the run runs. No agent works on it. |
+
+A flag is not a state: it shows after the state, and one rule in sage's code gives it on every page and in the chat board. Most rows have no flag. The board finds each run's flag once, and the task's step, its Now line and the chat show that same flag: the step shows the worst flag of its runs, and the Now line names each flagged run and the reason.
+
+The chat view of one task (`show board T197`) reads only that task's logbook, not the hook's notes. So there a run shows only the flags that the logbook gives: "Stopped without a report" when the run's chief stopped, and "Look at it" when the run has no news for a day.
+
+| Flag | Shown when |
+| --- | --- |
+| ! in progress · Stopped without a report | The hook saw the agent's process end, but the logbook still says that the run runs, and no report came. Or the session of the run's chief stopped or ended. No agent works on it: the chief must end the run. |
+| ! in progress · Look at it | A Claude agent wrote no hook note for 15 min, and its run is past the usual top length of its step: 9 of 10 done runs of the same role in this project took no longer. Both facts must hold, and the rule needs 5 done runs. A lead whose helpers run gets no flag for its quiet. |
+| ! in progress · Look at it | The logbook says that a Claude run runs, but no agent slot holds it (the hook frees a slot after 60 min with no activity). Or the run has no news for a day: no logbook change and no hook note. |
+| ▶ in progress · Codex: activity unknown | A Codex run. Codex sends no activity notes yet, so the board cannot tell a quiet agent from a working one. The row never gets the amber flag, and it has no last activity, no helpers and no cap. |
 
 The page reads files only: the logbooks, the hook's agent slots and helper notes (by name and time, not their content) and the limits in `config.json`. It runs no command and reads no process list. To join a slot to its run, the hook marks each agent slot with the run id from the first line of the agent's brief ("Run R12 · task T3").
 
@@ -448,7 +455,7 @@ In the browser, each task shows its owning chief as a chip with its id and provi
 
 - **Names and links:** the board takes a shared project's checkout from its row in `bindings.tsv`, so the name and the PR links come from that checkout's GitHub remote.
 - **Old logbooks:** the move lists them in `sources.tsv`. The board reads a folder of that list only when it is a logbook folder directly under a Claude or Codex root, not a link, with the move's mark `moved.json`, and its row names that root's provider. Each old logbook shows once, in its shared project.
-- **Agents:** a run of a shared logbook joins its agent slot in its provider's root. So a Claude run with a slot shows as at work, not as "may be stuck".
+- **Agents:** a run of a shared logbook joins its agent slot in its provider's root. So a Claude run with a slot shows as at work, with no "Look at it" flag.
 - **"Show board" in a session:** the chat board finds a shared project from its checkout, a worktree, a subfolder or another linked clone. A clone with no row does not find a shared project by its folder's name: link it first.
 
 <!-- The old anchor stays, so that older links to it still work. -->

@@ -7,7 +7,6 @@ skills:
   - sage:principle-prove-it-works
   - sage:principle-test-behavior-not-implementation
   - sage:principle-explain-the-number
-  - sage:dictionary
 ---
 
 <!-- sage-core-role: qa -->

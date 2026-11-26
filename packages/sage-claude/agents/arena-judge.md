@@ -9,7 +9,6 @@ skills:
   - sage:principle-experience-first
   - sage:principle-laziness-protocol
   - sage:principle-prove-it-works
-  - sage:dictionary
 ---
 
 <!-- sage-core-role: arena-judge -->

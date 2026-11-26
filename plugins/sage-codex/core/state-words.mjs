@@ -49,7 +49,8 @@ export function releaseWord(words = []) {
 
 export const WORDS = ["not started", "waiting", "needs you", "in progress", "done", "stopped"];
 export const URGENCY = ["needs you", "in progress", "waiting", "not started", "done", "stopped"];
-export const FLAGS = ["failed", "blocked", "may be stuck", "running long", "run still open", "lost"];
+export const LOOK_AT_IT = "Look at it", STOPPED_NO_REPORT = "Stopped without a report", ACTIVITY_UNKNOWN = "activity unknown";
+export const FLAGS = ["failed", "blocked", LOOK_AT_IT, STOPPED_NO_REPORT];
 export const UNKNOWN = "unknown";
 export const MARKS = { "not started": "○", waiting: "⧗", "needs you": "?", "in progress": "▶", done: "✓", stopped: "■", problem: "!", unknown: "◌", milestone: "◫", release: "◎", "cannot start": "⊘" };
 export const FLAGGED = "with a problem flag";
@@ -66,16 +67,19 @@ export const OBJECTS = {
   task: { label: "Task", states: { ...each(Object.keys(DOING), "in progress"), framed: ["not started"], ...ended } },
   agent: { label: "Agent", states: {
     queued: ["waiting"], running: ["in progress"], done: ["done"], question: ["needs you"], failed: ["stopped", "failed"], blocked: ["stopped", "blocked"],
-    work: ["in progress"], wait: ["waiting"], unk: ["in progress"], stuck: ["in progress", "may be stuck"], long: ["in progress", "running long"], stop: ["stopped", "run still open"], lost: ["stopped", "lost"],
+    work: ["in progress"], wait: ["waiting"],
   } },
   question: { label: "Question", states: {} },
   "pull request": { label: "Pull request", states: {} },
   chief: { label: "Chief", states: { live: ["in progress"], quiet: ["waiting"], waits: ["needs you"], stopped: ["stopped"] } },
 };
-export const STEPS = { done: ["done"], run: ["in progress"], need: ["needs you"], wait: ["not started"], idle: ["waiting"], stale: ["in progress", "may be stuck"], fail: ["done", "failed"], blocked: ["in progress", "blocked"] };
+export const STEPS = { done: ["done"], run: ["in progress"], need: ["needs you"], wait: ["not started"], idle: ["waiting"], stale: ["in progress", LOOK_AT_IT], lost: ["in progress", STOPPED_NO_REPORT], fail: ["done", "failed"], blocked: ["in progress", "blocked"] };
 
 export const shown = ([word, flag] = []) => ({ word: word ?? UNKNOWN, flag: flag ?? null, mark: flag ? MARKS.problem : MARKS[word] ?? MARKS.unknown, text: !word ? UNKNOWN : flag ? `${word} · ${flag}` : word });
-export const runWord = (status, stale = false) => shown(status === "running" && stale ? OBJECTS.agent.states.stuck : Object.hasOwn(OBJECTS.agent.states, status) ? OBJECTS.agent.states[status] : undefined);
+export const runWord = (status, flag = null) => {
+  const word = shown(Object.hasOwn(OBJECTS.agent.states, status) ? OBJECTS.agent.states[status] : undefined);
+  return flag && word.word !== UNKNOWN ? { ...word, flag: flag.text, mark: flag.level === "calm" ? word.mark : MARKS.problem, text: `${word.text} · ${flag.text}` } : word;
+};
 export const prName = number => `PR ${number}`;
 export const chiefName = (id, provider) => [provider && `${String(provider).charAt(0).toUpperCase()}${String(provider).slice(1)}`, id].filter(Boolean).join(" · ");
 

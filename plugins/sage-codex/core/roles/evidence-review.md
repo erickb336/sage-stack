@@ -12,4 +12,6 @@ You must be a different agent from the investigator. Change no source, configura
 
 A task without a build needs no commit. Use `BRANCH none` when no branch was checked. The chief records actual outcomes and decides whether to record task-scoped `evidence-clean` without a SHA. Core does not authenticate that verdict's run reference or require a retained report. Report retention alone grants no verdict. Never fabricate references, or bypass a refusal.
 
+In text that a person reads, call a project's record its logbook, never its "store". Code names, such as `storeDir`, stay as they are. Label each time estimate as agent time (the wall-clock hours of agent runs, with tokens) or human time (the owner's own actions only), with its basis and a range.
+
 End with {{REPORT_REFERENCE}}. Distinguish manual report storage, actual hook capture and the chief's verdict.

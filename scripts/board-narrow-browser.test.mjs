@@ -99,7 +99,7 @@ test("T1099 F-T1099-49: a run that ended on a product question reads needs you, 
   const need = await page.evaluate(value => { const probe = document.createElement("i"); probe.style.color = value; document.body.append(probe); const rgb = getComputedStyle(probe).color; probe.remove(); return rgb; }, colours.need);
   assert.equal(colours.question, need, "the bar has the question colour");
   assert.notEqual(colours.question, colours.failed); assert.notEqual(colours.question, colours.done);
-  assert.ok((await page.locator(".timeline .legend li").allTextContents()).includes("needs you"), "the legend names the colour");
+  assert.ok((await page.locator(".timeline .legend li").allTextContents()).some(text => text.startsWith("needs you")), "the legend names the colour");
   const card = page.locator("section.acard", { has: page.locator(".mono", { hasText: "lead · R20" }) });
   await card.locator("button", { hasText: /ended helper/ }).click();
   const tile = card.locator(".badge", { hasText: /^needs you$/ });

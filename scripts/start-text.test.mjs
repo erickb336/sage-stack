@@ -51,3 +51,21 @@ test("T1195: each helper role starts without the tools that it never uses, and k
   }
   assert.deepEqual(walkers.sort(), ["qa", "ux-reviewer"], "qa and the ux review walk screens in the simulator");
 });
+
+test("T1243: only the roles that write for a person preload the dictionary; the six checking roles state its two rules in their own text", async () => {
+  const { readFileSync, readdirSync } = await import("node:fs");
+  const writers = ["chief-of-staff", "designer", "implementer", "investigate", "lead", "ux-reviewer"];
+  const checkers = ["arena-judge", "code-reviewer", "evidence-review", "pe", "qa", "security-reviewer"];
+  const agents = join(ROOT, "plugins/sage/agents");
+  assert.deepEqual(readdirSync(agents).map((file) => file.replace(/\.md$/, "")).sort(), [...writers, ...checkers].sort(), "each role is a writer or a checker");
+  const agent = (role) => readFileSync(join(agents, `${role}.md`), "utf8").split("\n---\n");
+  for (const role of writers) assert.match(agent(role)[0], /^ {2}- sage:dictionary$/m, `${role} writes for a person, so it preloads the dictionary`);
+  for (const role of checkers) {
+    const [head, body] = agent(role);
+    assert.doesNotMatch(head, /sage:dictionary/, `${role} does not preload the dictionary`);
+    assert.match(body, /logbook, never its "store"/, `${role} states standing order 9: a project's record is its logbook`);
+    assert.match(body, /agent time/, `${role} states standing order 23: agent time`);
+    assert.match(body, /human time/, `${role} states standing order 23: human time`);
+    assert.match(body, /basis and a range/, `${role} states standing order 23: a basis and a range`);
+  }
+});
