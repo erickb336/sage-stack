@@ -10,7 +10,7 @@ import { backed } from "./verdict-backing.mjs";
 import { QUESTION } from "./fixtures/question-message.mjs";
 import { splitTest } from "./test-split.mjs";
 
-const test = splitTest(4, globalThis.LEAD_AGENT_PART);
+const test = splitTest(10, globalThis.LEAD_AGENT_PART);
 
 const at = (path) => fileURLToPath(new URL(path, import.meta.url));
 const LAUNCHER = [at("../plugins/sage/hooks/launcher.mjs"), "sage-hook.mjs"];

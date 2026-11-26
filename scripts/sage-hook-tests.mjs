@@ -37,7 +37,7 @@ function appendRows(dir, table, rows) {
 const SHA = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
 const BRIEF = ["GOAL fix it", "SCOPE src/", "CONTEXT none", "DECISIONS none", "ACCEPTANCE it works", "VERIFY npm test", "BUDGET 20 turns", "FORBIDDEN no merge", "REPORT the usual", "STANDING 1. work in your worktree"].join("\n");
 
-const PARTS = 6;
+const PARTS = 20;
 const test = splitTest(PARTS, globalThis.SAGE_HOOK_PART, { timeout: 300_000 });
 function session(env = {}) {
   const dir = mkdtempSync(join(tmpdir(), "sage-hook-"));

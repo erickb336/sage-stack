@@ -14,7 +14,7 @@ import { TABLES } from "../packages/sage-core/logbook-fields.mjs";
 import { QUESTION, pageQuestion } from "./fixtures/question-message.mjs";
 import { splitTest } from "./test-split.mjs";
 
-const test = splitTest(6, globalThis.SAGE_TEST_PART);
+const test = splitTest(10, globalThis.SAGE_TEST_PART);
 
 const LIB = new URL("../plugins/sage/skills/sage/sage.mjs", import.meta.url).href;
 const TOOL = fileURLToPath(LIB);

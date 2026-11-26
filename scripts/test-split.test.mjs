@@ -41,6 +41,19 @@ test("npm test runs the part files of a split body, never the body itself, which
   assert.deepEqual(words.filter((word) => bodies.some((body) => word.endsWith(body))), []);
 });
 
+test("each CI shard runs the same number of part files of each split body, so that no shard runs two long parts while another runs none", () => {
+  const { scripts } = JSON.parse(readFileSync(join(SCRIPTS, "..", "package.json"), "utf8"));
+  const workflow = readFileSync(join(SCRIPTS, "..", ".github", "workflows", "check.yml"), "utf8");
+  const shards = Number(workflow.match(/TEST_SHARD: \$\{\{ matrix\.shard \}\}\/(\d+)$/m)?.[1]);
+  assert.deepEqual(workflow.match(/^ +shard: \[([\d, ]+)\]$/m)?.[1].split(", ").map(Number), Array.from({ length: shards }, (_, k) => k + 1), `the test matrix of check.yml runs shards 1 to ${shards}, the N of its TEST_SHARD`);
+  const files = scripts.test.split(/\s+/).filter((word) => word.endsWith(".test.mjs")).sort();
+  for (const body of bodies) {
+    const part = new RegExp(`^scripts/${body.replace(/-tests\.mjs$/, "")}-\\d+\\.test\\.mjs$`), per = Array(shards).fill(0);
+    files.forEach((file, k) => part.test(file) && per[k % shards]++);
+    assert.ok(per.every((n) => n === per[0]), `${body}: node --test --test-shard sorts the test files and gives file k to shard (k mod ${shards}) + 1, so the ${shards} CI shards run ${per.join(", ")} of its part files. Fix: make its part count a multiple of ${shards}, the shard count in .github/workflows/check.yml.`);
+  }
+});
+
 test("the shared selector gives node:test each test's name, options and function, also through test.skip and test.only", () => {
   const body = join(scratch, "sample-tests.mjs");
   writeFileSync(body, [
