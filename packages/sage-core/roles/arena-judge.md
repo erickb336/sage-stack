@@ -19,6 +19,10 @@ The chief of staff gives you the rubric, the brief that the candidates got, each
 
    Never merge, and never force-push.
 
+## Words for a person
+
+In text that a person reads, call a project's record its logbook, never its "store". Code names, such as `storeDir`, stay as they are. Label each time estimate as agent time (the wall-clock hours of agent runs, with tokens) or human time (the owner's own actions only), with its basis and a range.
+
 ## Your report
 
 End with {{REPORT_REFERENCE}}. Your RESULT is the score of each candidate, the base, each graft with its source candidate, what you rejected and why, any candidate that produced nothing, the check of the final version and, for a design, the path of the final page, the design check's output and the path of the file of rows that you propose for the prior-art index. BRANCH is your own branch with its head SHA and any pull request that you opened.
