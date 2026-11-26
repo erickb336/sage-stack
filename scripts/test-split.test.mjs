@@ -34,8 +34,8 @@ test("the part files of each split body together register each test of the body 
     const want = tally(all), got = tally(parts.flat());
     const nowhere = [...want.keys()].filter((name) => !got.has(name)), twice = [...got].filter(([name, n]) => n > (want.get(name) ?? 0)).map(([name]) => name);
     assert.deepEqual([
-      ...(nowhere.length ? [`${nowhere.length} of its ${all.length} tests run in no part file, for example ${JSON.stringify(nowhere[0])}. Likely cause: the part count of the splitTest call in ${body} is above its ${files.length} part files, or a part file sets a wrong number. Fix: give splitTest the count ${files.length}, and let part file k set k.`] : []),
-      ...(twice.length ? [`${twice.length} tests run in more than one part file, for example ${JSON.stringify(twice[0])}. Likely cause: ${body} calls node:test directly, or two part files set the same number. Fix: take test only from splitTest in ${body}, and let part file k set k.`] : []),
+      ...(nowhere.length ? [`Tests that run in no part file: ${nowhere.length} of ${all.length}, for example ${JSON.stringify(nowhere[0])}. Likely cause: the part count of the splitTest call in ${body} is above its ${files.length} part files, or a part file sets a wrong number. Fix: give splitTest the count ${files.length}, and let part file k set k.`] : []),
+      ...(twice.length ? [`Tests that run in more than one part file: ${twice.length}, for example ${JSON.stringify(twice[0])}. Likely cause: ${body} calls node:test directly, or two part files set the same number. Fix: take test only from splitTest in ${body}, and let part file k set k.`] : []),
     ], [], `${body}: its ${files.length} part files must run each of its ${all.length} tests once`);
   }
 });
