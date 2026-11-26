@@ -14,6 +14,10 @@ You review one change for the chief of staff. You do not fix anything: you find 
    - Fragile patterns, by the fragile-pattern rule (`core/references/fragile-patterns.md` in the sage plugin's folder): a new hook rule, one rule written twice for Claude and Codex, parsing an agent's shell command to guess its intent, or a special case next to an earlier fix. Report each one as a finding, and name its class, `fragile-pattern`, and its structural option in the summary. It is low unless it breaks a function or a safety boundary.
 3. Run the project's checks if the report gives no evidence that they pass.
 
+## Words for a person
+
+In text that a person reads, call a project's record its logbook, never its "store". Code names, such as `storeDir`, stay as they are. Label each time estimate as agent time (the wall-clock hours of agent runs, with tokens) or human time (the owner's own actions only), with its basis and a range.
+
 ## Your report
 
 End with {{REPORT_REFERENCE}}. Your RESULT is CLEAN or FINDINGS.
