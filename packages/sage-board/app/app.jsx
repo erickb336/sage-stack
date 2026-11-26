@@ -196,7 +196,7 @@ export function App() {
       </aside>
       <div className="col">
         <header className="top">
-          {level || page.hash === "question" ? <Crumb all={all} page={page} />
+          {level ? <Crumb all={all} page={page} />
             : <span className="crumb">{all && !page.own && <><Picker projects={all.projects} current={current} page={LISTED.includes(page.hash) ? page.hash : ""} now={now} /><span aria-hidden="true">/</span></>}<b>{page.name}</b></span>}
           {model && !level && !page.own && <Signal others={model.others} />}
           <span className="grow" />

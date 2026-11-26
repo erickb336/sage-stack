@@ -30,8 +30,7 @@ export function placeOf(all, page) {
     return { level: "milestone", milestone, project: milestone && all.projects.find(item => item.key === milestone.project), asked: key };
   }
   if (page.hash === "milestone") return { level: "milestone", loose: true, project: named(page.params.get("project")), asked: page.params.get("project") };
-  const asked = page.hash !== "question" ? key : [...all.needs, ...all.answered].find(item => item.key === key)?.task?.key;
-  const row = all.tasks.find(item => item.key === asked) ?? null, project = row && all.projects.find(item => item.key === row.project);
+  const row = all.tasks.find(item => item.key === key) ?? null, project = row && all.projects.find(item => item.key === row.project);
   return { level: page.hash, row, project, milestone: row?.milestone && all.milestones.find(item => item.key === row.milestone.key), loose: !!row && !row.milestone, run: page.params.get("run") };
 }
 
@@ -43,9 +42,8 @@ export function Crumb({ all, page }) {
   if (place.milestone) parts.push([place.milestone.title, milestoneLevelLink(place.milestone.key)]);
   else if (place.loose && place.project) parts.push(["No milestone", looseLink(place.project.key)]);
   else if (place.level === "milestone") parts.push([KIND.milestone]);
-  if (["task", "run", "question"].includes(place.level)) parts.push([place.row?.title ?? KIND.task, place.row && taskLink(place.row.key)]);
+  if (["task", "run"].includes(place.level)) parts.push([place.row?.title ?? KIND.task, place.row && taskLink(place.row.key)]);
   if (place.level === "run") parts.push([place.run ?? KIND.run]);
-  if (place.level === "question") parts.push(["Question"]);
   return (
     <nav className="crumb lv-crumb" aria-label="Where you are">
       {parts.map(([label, href], i) => i === parts.length - 1 ? <b key={i} aria-current="page">{label}</b> : <span key={i}><a href={href}>{label}</a><i aria-hidden="true">›</i></span>)}

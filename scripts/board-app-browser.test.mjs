@@ -36,7 +36,7 @@ async function open(t, { viewport = { width: 1440, height: 1000 }, clock = false
   page.on("console", message => { if (message.type() === "error" || /Content Security Policy|Refused to/.test(message.text())) problems.push(message.text()); });
   if (clock) await page.clock.install();
   await page.goto(`${base}${path}`);
-  await page.getByRole("heading", { name: "Needs you" }).waitFor();
+  await page.locator("main h1").first().waitFor();
   return { page, base, project, server, requests, problems };
 }
 
