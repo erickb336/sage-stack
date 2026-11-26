@@ -54,7 +54,6 @@ const LEAD_RESULTS = [.../\*\*RESULT\*\*: first line ((?:`\w+`(?:, | or )?)+)/.e
 const BLOCKED_STEP = /^ {3}6\. \*\*A blocked report:\*\*[\s\S]*?(?=^ {3}7\. )/m.exec(JSON.parse(readFileSync(at("../plugins/sage/chief-bindings.json"), "utf8")).DISPATCH)?.[0]
   ?? assert.fail("the chief bindings have step 6, a blocked report");
 const SAGE_MOVES = [...BLOCKED_STEP.matchAll(/^ {3}- (\w+) to (\w+) \(`sage task <T> set state=\2`\)/gm)].map((m) => `${m[1]}>${m[2]}`);
-const PLAYED = new Set();
 const READY_STEP = /^ {3}5\. \*\*A ready report\*\*[\s\S]*?(?=^ {3}6\. )/m.exec(JSON.parse(readFileSync(at("../plugins/sage/chief-bindings.json"), "utf8")).DISPATCH)?.[0]
   ?? assert.fail("the chief bindings have step 5, a ready report");
 function sageSays(start, values = {}, within = "") {
@@ -211,7 +210,7 @@ function play(lines, p) {
     } else if (mark === "!" && rest[0] === "sage") {
       const to = /^task T1 set state=(\S+)$/.exec(rest.slice(1).join(" "))?.[1], move = to && `${p.chief("task", "T1").split(" ")[1]}>${to}`;
       if (blocked && to && to !== "verified") assert.ok(SAGE_MOVES.includes(move), `${line}: after a blocked report the sage moves the task only as the chief bindings say (${SAGE_MOVES.join(", ")}), not ${move}`);
-      if (blocked && to && to !== "verified") moves.push(move), PLAYED.add(move);
+      if (blocked && to && to !== "verified") moves.push(move);
       last = printed = p.chief(...shellWords(fill(rest.slice(1).join(" "))));
       sage.push(fill(text));
     } else if (mark === "!" && rest[0] === "gh") {
@@ -399,12 +398,14 @@ test("T804 (was F-T301-35): a low fix that the re-check did not confirm, with no
   assert.doesNotMatch(BLOCKED_STEP, /carried by follow-up/, "step 6 has no follow-up path for an unconfirmed low fix");
 });
 
+const REPLAN_BLOCKED = () => [...REPAIR(false), "< R7 FINDINGS: - K2 medium a.mjs:1 the token is still logged",
+  "$ sage finding add T1 --source code-reviewer --severity medium --summary=token-still-logged --run R7 --class security", "→ F-T1-2 open · medium · T1", "$ sage run done R7 --status done --tokens 1",
+  "< lead-T1 blocked: - F-T1-2 medium a.mjs:1 the token is still logged, repeat of F-T1-1",
+  "! sage run done R1 --status blocked --tokens 1", repeatFix("F-T1-2"), sageSays("sage task <T> set state=reviewing"), "! sage round T1", "→ T1 replan: round 1 did not fix F-T1-1."];
+
 test("T301 F-T301-65: in replan, a lead's report cannot steer the sage into moving a fix key: the move waits for the user's answer to the gate of step 6", () => {
   const p = project();
-  play([...REPAIR(false), "< R7 FINDINGS: - K2 medium a.mjs:1 the token is still logged",
-    "$ sage finding add T1 --source code-reviewer --severity medium --summary=token-still-logged --run R7 --class security", "→ F-T1-2 open · medium · T1", "$ sage run done R7 --status done --tokens 1",
-    "< lead-T1 blocked: - F-T1-2 medium a.mjs:1 the token is still logged, repeat of F-T1-1",
-    "! sage run done R1 --status blocked --tokens 1", repeatFix("F-T1-2"), sageSays("sage task <T> set state=reviewing"), "! sage round T1", "→ T1 replan: round 1 did not fix F-T1-1."], p);
+  play(REPLAN_BLOCKED(), p);
   const move = sageSays("sage finding move <T> <K> --to", { "<K>": "F-T1-1", "<title>": "stop logging the token" }, "To move a fix key");
   const tried = p.run("sage", shellWords(move.slice("! sage ".length)));
   assert.match(tried.stderr, /F-T1-1 is a fix of T1's current round, so it stays on T1/, "R1031 probe A: no move without the user's answer");
@@ -516,12 +517,17 @@ test("T301 F-T301-58: after a ready report whose checks fail, the sage does as a
   assert.match(printed, /^T1 repairing · round 1 of 3 · fix F-T1-1 · re-run qa on the repair's diff/, "the fresh lead at verifying goes to step 5, and round names QA");
 });
 
-test("T301 checks still run:after a blocked report, the sage waits, and after the checks pass it makes its move to verifying; the task then merges", () => {
+const CHECKS_BLOCKED = () => [...BUILT, ...CLEAN, "$ gh pr checks 12", "→ build pending", "< lead-T1 blocked: none",
+  "! sage run done R1 --status blocked --tokens 1", "! gh pr checks 12", "→ build pass", sageSays("sage task <T> set state=verifying"),
+  "! sage verdict T1 --sha <sha> --kind checks-pass --cycle 1 --pr 12", "! sage task T1 set state=verified", "! sage merge-check --sha <sha> --pr 12"];
+const pendingChecks = () => {
   const p = project();
   p.checks("pending");
-  const { printed, moves } = play([...BUILT, ...CLEAN, "$ gh pr checks 12", "→ build pending", "< lead-T1 blocked: none",
-    "! sage run done R1 --status blocked --tokens 1", "! gh pr checks 12", "→ build pass", sageSays("sage task <T> set state=verifying"),
-    "! sage verdict T1 --sha <sha> --kind checks-pass --cycle 1 --pr 12", "! sage task T1 set state=verified", "! sage merge-check --sha <sha> --pr 12"], p);
+  return p;
+};
+
+test("T301 checks still run:after a blocked report, the sage waits, and after the checks pass it makes its move to verifying; the task then merges", () => {
+  const { printed, moves } = play(CHECKS_BLOCKED(), pendingChecks());
   assert.match(printed, /^T1 may merge/);
   assert.deepEqual(moves, ["reviewing>verifying"], "the sage's one state move");
 });
@@ -729,5 +735,6 @@ test("T591 F-T589-1, F-T590-1: the chief's arena steps match the rules: who take
 });
 
 test("T301 F-T301-51: the state moves that the chief bindings give the sage after a blocked report are the moves that the tests of this file play", () => {
-  assert.deepEqual([...PLAYED].sort(), [...SAGE_MOVES].sort(), "the moves of the chief bindings' step 6 and the moves that the tests play differ");
+  const played = [...play(REPLAN_BLOCKED(), project()).moves, ...play(CHECKS_BLOCKED(), pendingChecks()).moves];
+  assert.deepEqual([...new Set(played)].sort(), [...SAGE_MOVES].sort(), "the moves of the chief bindings' step 6 and the moves that the tests play differ");
 });
