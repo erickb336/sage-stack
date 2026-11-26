@@ -36,7 +36,7 @@ import { boardPort, pageFile, pageTaskFolder } from "./page-files.mjs";
 import { DESIGN_GATE, copyDesign, designFiles, designPathOk } from "./design-copy.mjs";
 import { boardAnswers, boardDownLine } from "./board-probe.mjs";
 import { DESIGN_OPTIONS, WORDS_MAX, answerOption, taskWord, withWords } from "./state-words.mjs";
-import { AST_GREP_VERSION, LINT_CONFIG, LINT_KINDS, astGrepBinary, lintBase, lintChange } from "./lint.mjs";
+import { AST_GREP_VERSION, LINT_CONFIG, LINT_KINDS, toolsAstGrep, lintBase, lintChange } from "./lint.mjs";
 import { adoptBrief, languageList, placeToolFiles, projectLanguages } from "./lint-offer.mjs";
 import { DOCS_RULE, docsNote, docsOnly, docsPathsProblem, globsOf } from "./docs-only.mjs";
 
@@ -2189,7 +2189,7 @@ function lintOffer(dir, at, tools, opt) {
   if (savedIn(dir).lint_offer === "never" || offers.some((g) => Date.now() - Date.parse(g.at) < OFFER_AGAIN_MS)) return " Nothing changed.";
   const languages = projectLanguages(at.top, at.main);
   if (!languages.length) return " Nothing changed.";
-  const install = astGrepBinary(tools) ? "" : ` The same yes installs ast-grep ${AST_GREP_VERSION} in sage's tools folder, from the lockfile that sage pins.`;
+  const install = toolsAstGrep(tools) ? "" : ` The same yes installs ast-grep ${AST_GREP_VERSION} in sage's tools folder, from the lockfile that sage pins.`;
   const g = { id: nextId(dir, "G"), task: "", question: `Add sage's no-comments lint rules to this project, for ${languageList(languages)}? A yes frames one small task that adds them through a pull request, and then the merge check needs lint-pass.${install}`, options: OFFER_OPTIONS.join("|"), recommendation: OFFER_OPTIONS[0], default: OFFER_OPTIONS[1], at: now(), kind: LINT_GATE, ...chiefTag(opt) };
   write(dir, "gates", [...read(dir, "gates"), g]);
   return `\n${g.id} open · ${g.question}\nAsk the owner to answer ${g.id}: ${OFFER_OPTIONS.join(", ")}.`;
@@ -2200,7 +2200,7 @@ function adoptTask(dir, g, opt, project, env) {
   try { at = lintBase(project); } catch (e) { refuse(`the lint offer cannot read the git checkout ${visible(project)} (${e?.message ?? e}). Give --project the project's git checkout. Nothing changed.`); }
   if (!at.main) refuse(`${visible(at.top)} has no origin/main, and sage reads the project's languages from it. Fetch origin, then answer ${g.id} again. Nothing changed.`);
   if (at.config) return ` · origin/main ${at.main.slice(0, 7)} has a root ${LINT_CONFIG} now, so sage frames no task.`;
-  const languages = projectLanguages(at.top, at.main), tools = toolsDir(dir), own = astGrepBinary(tools);
+  const languages = projectLanguages(at.top, at.main), tools = toolsDir(dir), own = toolsAstGrep(tools);
   const task = frame(dir, `Add the no-comments lint rules for ${languageList(languages) || "the project"}`, "small", [], [], { priority: "P2", ...chiefTag(opt) });
   const folder = pagesDir(project, task.id, env), page = join(folder, "brief.md");
   mkdirSync(folder, { recursive: true, mode: 0o700 });
@@ -3671,7 +3671,7 @@ function act(cmd, pos, opt, dir, env, skip, project) {
       if (!at.main && at.local) refuse(`${visible(at.top)} has a root ${LINT_CONFIG} but no origin/main, and lint reads its rules only from the tip of origin/main, so it cannot lint ${sha.slice(0, 7)}. lint needs a remote named origin with a branch named main. Nothing changed.`);
       const tools = toolsDir(dir);
       if (!at.config) return `${task.id} · ${sha.slice(0, 7)}: ${at.main ? `origin/main ${at.main.slice(0, 7)} has` : `${visible(at.top)} has no origin/main and`} no ${LINT_CONFIG} at its root, so there is nothing to lint, and the merge check needs no lint verdict.${at.main ? lintOffer(dir, at, tools, opt) : " Nothing changed."}`;
-      const binary = astGrepBinary(tools);
+      const binary = toolsAstGrep(tools);
       if (!binary) refuse(`ast-grep ${AST_GREP_VERSION} is not in sage's tools folder ${visible(tools)}, so lint cannot run, and it writes no verdict. With the owner's yes, install it in the tools folder from the lockfile that sage pins: ${installCommand(tools)}`);
       try { result = lintChange(project, sha, binary, at); } catch (e) { refuse(`lint could not check ${sha.slice(0, 7)}: ${visible(String(e?.message ?? e))}. ${e?.fix ?? "lint has no known fix for this error: tell the owner, with this message."} Nothing changed.`); }
       const short = `${sha.slice(0, 7)} · rules ${result.main.slice(0, 7)} · diff from ${result.base.slice(0, 7)}`;

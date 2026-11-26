@@ -19,7 +19,7 @@ const BIG = { maxBuffer: 1 << 28, timeout: 300_000 };
 const ALL = "all";
 const TOO_LARGE = "sage-lint-too-large-";
 
-export function astGrepBinary(tools) {
+export function toolsAstGrep(tools) {
   const path = join(tools, "node_modules", ".bin", "ast-grep");
   if (!existsSync(path)) return null;
   const run = spawnSync(path, ["--version"], { encoding: "utf8", timeout: 10_000 });
