@@ -68,11 +68,23 @@ To add a principle, add `principles/<name>.md`. A principle adapted from pstack 
 
    A branch made before the no-comments sweep (PR 540) has comments that main does not have. See [A branch from before the sweep](#a-branch-from-before-the-sweep).
 
-6. Run the tests. CI runs the check and the tests on each pull request. It runs `npm test` in 10 parts at the same time: `node --test` sorts the test files by path and gives each file to exactly one part. To run one part, set `TEST_SHARD`, for example `TEST_SHARD=2/10 npm test`. The three largest test files each run as numbered files: `scripts/sage-tests.mjs` as 6 (`scripts/sage-1.test.mjs` and on), `scripts/sage-hook-tests.mjs` as 6 and `scripts/lead-agent-tests.mjs` as 4. Each numbered file sets its number and imports the large file, which takes `test` from `splitTest` in `scripts/test-split.mjs`; so each numbered file runs every fourth or sixth test. So their tests spread over the parts, and no part waits on one long file. `scripts/test-split.test.mjs` proves that the numbered files of a large file run each of its tests exactly once. CI runs on Ubuntu 24.04, not on `ubuntu-latest`, because Playwright 1.55.1 has no headless shell for Ubuntu 26.04 (`ubuntu-latest` since 2026-10-19). The last job of the workflow, `check`, passes only when every other job passed. The protection of `main` requires that job by its name, so keep the name.
+6. Run the tests. CI runs the check and the tests on each pull request. It runs `npm test` in 10 parts at the same time: `node --test` sorts the test files by path and gives each file to exactly one part. CI runs on Ubuntu 24.04, not on `ubuntu-latest`, because Playwright 1.55.1 has no headless shell for Ubuntu 26.04 (`ubuntu-latest` since 2026-10-19). The last job of the workflow, `check`, passes only when every other job passed. The protection of `main` requires that job by its name, so keep the name.
 
    ```sh
    npm test
+   TEST_SHARD=2/10 npm test                  # one CI part
+   node --test scripts/lead-agent-2.test.mjs # one numbered file of a large test file
    ```
+
+   The three largest test files each run as numbered files: `scripts/sage-tests.mjs` as 10 (`scripts/sage-1.test.mjs` to `scripts/sage-10.test.mjs`), `scripts/lead-agent-tests.mjs` as 10 and `scripts/sage-hook-tests.mjs` as 20. Each numbered file sets its number and imports the large file. The large file takes `test` from `splitTest` in `scripts/test-split.mjs`, so numbered file k of n runs tests k, k + n, k + 2n and on. Because the count of numbered files is a multiple of the 10 CI parts, each CI part runs the same share of each large file. `scripts/test-split.test.mjs` proves that the numbered files run each test exactly once, and that each CI part gets the same count of them.
+
+   To split another large test file `scripts/<name>.test.mjs`:
+
+   1. Rename it to `scripts/<name>-tests.mjs`.
+   2. In it, replace the import of `test` from `node:test` with `const test = splitTest(10, globalThis.<NAME>_PART);`, with `splitTest` from `./test-split.mjs`. Use a multiple of 10.
+   3. Add `scripts/<name>-1.test.mjs` to `scripts/<name>-10.test.mjs`. File k has two lines: `globalThis.<NAME>_PART = k;` and `await import("./<name>-tests.mjs");`.
+   4. In the `test` script of `package.json`, replace the old file with the numbered files.
+   5. Run `node --test scripts/test-split.test.mjs`. Its message names the cause and the fix of a wrong count or number.
 
 7. Run the browser tests of the board. They are not in `npm test`, so that it stays fast. They use the Chromium headless shell of the pinned `playwright` devDependency. `npm ci` downloads no browser, so install it once:
 
