@@ -260,9 +260,9 @@ async function tourFilm(page, base, shot, st) {
   await click(nav("overview"), () => page.locator("main h1", { hasText: "Overview" }).first().waitFor());
   await caption(TOUR_CAPTIONS[9]);
   await click(page.locator("header .picker"), () => page.locator(".pick-menu summary", { hasText: "Archived" }).waitFor());
-  await click(page.locator(".pick-menu summary", { hasText: "Archived" }), () => page.getByText(ARCHIVED.name).first().waitFor());
+  await click(page.locator(".pick-menu summary", { hasText: "Archived" }), () => page.locator(".pick-menu").getByText(ARCHIVED.name).first().waitFor());
   await play(1.5);
-  await click(page.getByText(ARCHIVED.name).first(), () => page.locator("header .picker", { hasText: "archived" }).waitFor());
+  await click(page.locator(".pick-menu").getByText(ARCHIVED.name).first(), () => page.locator("header .picker", { hasText: "archived" }).waitFor());
   await play(3.5);
 }
 
