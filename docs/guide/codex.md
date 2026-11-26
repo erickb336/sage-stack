@@ -161,11 +161,12 @@ sage reads your config and tells you the state of the sandbox. The hooks keep al
    default_permissions = "sage"
 
    [permissions.sage]
-   description = "sage: the workspace, its .git folder (not its hooks and config) and ~/sage-worktrees are writable; the network is on"
+   description = "sage: the workspace, its .git folder (not its hooks and config) and ~/sage-worktrees are writable; the board config is closed; the network is on"
    extends = ":workspace"
 
    [permissions.sage.filesystem]
    "~/sage-worktrees" = "write"
+   "~/.config/sage-board" = "deny"
 
    [permissions.sage.filesystem.":workspace_roots"]
    ".git" = "write"
@@ -176,9 +177,14 @@ sage reads your config and tells you the state of the sandbox. The hooks keep al
    enabled = true
    ```
 
-4. Start a new session. In the desktop app, keep the permission mode under the composer at the default: the mode that you choose there is the mode of the chat and of its agents.
-5. Check it: run `node <the sage plugin's folder>/skills/sage/sage.mjs sandbox` in Terminal, in the project's folder (the plugin's folder is in `~/.codex/plugins/cache/sage/sage/`). The Codex line must say `on, but may run unsandboxed`, with `you can approve a command outside the sandbox` and `missing: none`. The next part tells why.
-6. To see the sandbox refuse a write, first go to the project's folder in Terminal (from your home folder, the sandbox lets this write pass), then run `codex sandbox macos --permissions-profile sage --log-denials touch ~/sandbox-probe .git/hooks/sandbox-probe`. It must fail with `Operation not permitted`. If it does not fail, delete `~/sandbox-probe` and `.git/hooks/sandbox-probe`, and check the steps again.
+4. Choose the approval policy. It tells what Codex does with a command that the sandbox blocks ([Codex: Configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference.md), key `approval_policy`; [Codex: Run without approval prompts](https://learn.chatgpt.com/docs/agent-approvals-security.md#run-without-approval-prompts)):
+   - **No `approval_policy` line** (recommended; Codex then uses `on-request`): Codex asks you before it runs such a command outside the sandbox, and you approve or refuse. sage's work in Codex was tested with prompts that you answer, and a build needs them, for example for `git push -u`.
+   - **`approval_policy = "never"`**: Codex never asks, and a command that the sandbox blocks fails. Put this line at the top of the file, next to `default_permissions = "sage"` and above the first line that starts with `[`. The cost: each command that must run outside the sandbox fails, also the ones that a build needs ([the approval prompts](#the-approval-prompts-of-each-task)), and sage has not tested its own work in Codex with this setting.
+5. Start a new session. In the desktop app, keep the permission mode under the composer at the default: the mode that you choose there is the mode of the chat and of its agents.
+6. Check it: run `node <the sage plugin's folder>/skills/sage/sage.mjs sandbox` in Terminal, in the project's folder (the plugin's folder is in `~/.codex/plugins/cache/sage/sage/`). The Codex line must end with `missing: none`, and its state depends on your choice in step 4:
+   - With no `approval_policy` line: `on, but may run unsandboxed`, with `you can approve a command outside the sandbox`. The next part tells why.
+   - With `approval_policy = "never"`: `on, fails closed`.
+7. To see the sandbox refuse a write, first go to the project's folder in Terminal (from your home folder, the sandbox lets this write pass), then run `codex sandbox macos --permissions-profile sage --log-denials touch ~/sandbox-probe .git/hooks/sandbox-probe`. It must fail with `Operation not permitted`. If it does not fail, delete `~/sandbox-probe` and `.git/hooks/sandbox-probe`, and check the steps again.
 
 What each line does:
 
@@ -189,6 +195,7 @@ What each line does:
 | `"~/sage-worktrees" = "write"` | Lets commands write in the sage worktrees folder: the task worktrees and the pages. |
 | `".git" = "write"` under `":workspace_roots"` | Lets commands write the workspace's `.git` folder, so that `git commit` and `git worktree add` can work in the sandbox. It also opens a known gap: see below. |
 | `".git/hooks" = "read"` and `".git/config" = "read"` | Keep these two read-only: git runs what they name later, outside the sandbox (a hook, or a program in a setting such as `core.fsmonitor` or `core.hooksPath`). The more specific line wins over `".git" = "write"` ([Codex: Permissions](https://learn.chatgpt.com/docs/permissions.md)). The cost: a command that writes the git config fails in the sandbox, such as `git push -u` (it records the upstream branch), `git remote add` or `git config`, and Codex asks you to run it outside. |
+| `"~/.config/sage-board" = "deny"` | Keeps commands out of the board's config folder, which holds the board's pairing data. `deny`: "Denies both reads and writes under the path" ([Codex: Permissions](https://learn.chatgpt.com/docs/permissions.md)). |
 | `enabled = true` under `network` | Lets commands reach the network directly. Without `features.network_proxy`, Codex checks no host list. |
 
 **Git metadata is a known gap.** Codex keeps only the `.git` at the top of each folder that a command may write read-only ([Codex: Agent approvals and security](https://learn.chatgpt.com/docs/agent-approvals-security.md)). With `".git" = "write"`, the two read lines keep `.git/hooks` and `.git/config` closed, but not the rest of `.git`.
@@ -205,18 +212,19 @@ The `sage sandbox` line has the same states as in [Claude Code](using-sage.md#tu
 
 - `off`: `sandbox_mode = "danger-full-access"`, or `default_permissions = ":danger-full-access"`.
 - `on, but may run unsandboxed`: Codex can run a command outside the sandbox. The line names each cause:
-  - `approval_policy` is `on-request` (the default) or a `granular` policy that lets sandbox, rule, permission or skill prompts through: Codex can ask you to run a command outside the sandbox, and you can approve it. This is the state of the steps above. Refuse a prompt that you do not expect.
+  - `approval_policy` is `on-request` (the default) or a `granular` policy that lets sandbox, rule, permission or skill prompts through: Codex can ask you to run a command outside the sandbox, and you can approve it. This is the state with no `approval_policy` line (step 4). Refuse a prompt that you do not expect.
   - `approvals_reviewer = "auto_review"`: an automatic reviewer, not you, approves these commands.
+  - A Unix socket is open: the profile, a profile that it extends, or `features.network_proxy` in a config sets `dangerously_allow_all_unix_sockets = true` or a `unix_sockets` entry with `"allow"`. Codex calls this "a local escape hatch for tools such as Docker" ([Codex: Permissions](https://learn.chatgpt.com/docs/permissions.md)): a sandboxed command can ask a program outside the sandbox, such as Docker, to write anywhere.
   - The profile makes `.git` writable without the two read lines (`".git/hooks" = "read"` and `".git/config" = "read"`): git runs a hook or a config program later, outside the sandbox.
   - A rules file has an allow rule: Codex runs the commands that it names outside the sandbox with no prompt. When you choose to always allow a command, Codex writes such a rule to `~/.codex/rules/default.rules` ([Codex: Rules](https://learn.chatgpt.com/docs/agent-configuration/rules.md)). sage counts a rule as an allow rule unless it has `decision = "prompt"` or `decision = "forbidden"` with the quoted word alone before the next `,` or `)`, because `allow` is the default.
-- `on, fails closed`: only with `approval_policy = "never"` (or a `granular` policy that turns off the sandbox, rules, permission and skill prompts) and no allow rule. Then Codex never asks to run a command outside the sandbox, and a command that the sandbox blocks fails. sage has not tested its own work in Codex with this setting.
+- `on, fails closed`: only with `approval_policy = "never"` (or a `granular` policy that turns off the sandbox, rules, permission and skill prompts), no open Unix socket and no allow rule. Then Codex never asks to run a command outside the sandbox, and a command that the sandbox blocks fails. sage has not tested its own work in Codex with this setting.
 - `strict rules`: a config or rules file cannot be read or is not valid TOML, the profile is missing, its `extends` is wrong, a value has a wrong type, a project's `.codex/config.toml` sets a sandbox key (sage reads these keys only in your own config, `/etc/codex/config.toml` and `/etc/codex/managed_config.toml`), or a config sets `profile` or a `[profiles.<name>]` table with a sandbox key (older Codex versions take these keys from the selected profile, and sage does not follow profiles).
 - With no `sandbox_mode` and no `default_permissions`, Codex chooses its default sandbox, so the line says `on`, and names the profile as missing.
 
 - **What sage reads:** your `config.toml`, `/etc/codex/config.toml`, `/etc/codex/managed_config.toml` (it is above your own config), the project's `.codex/config.toml` files, and the `.rules` files in `~/.codex/rules/`, `/etc/codex/rules/` and the project's `.codex/rules/`. Codex reads a project's rules only when you trust the project; sage reads them always.
 - **What sage cannot see:** a `--sandbox`, `--profile`, `-c` or `--yolo` option, a profile file such as `~/.codex/<name>.config.toml` (only `--profile` loads it), a change with `/permissions`, the permission mode under the composer, and the settings that your organization sends by a device profile. Codex's hook input has no field for the sandbox, so sage reads the files only.
 - **In a worktree:** a worktree's `.git` file points into the main checkout's `.git` folder. When the main checkout is not in the session's workspace, that folder stays read-only, so `git commit` in such a worktree may still need your approval, and the pilot counts these cases.
-- **To undo it:** remove the `default_permissions` line and the 4 `[permissions.sage...]` tables, and put back the line that you removed in step 2 (for example `sandbox_mode = "danger-full-access"`). Then start a new session.
+- **To undo it:** remove the `default_permissions` line, the `approval_policy` line if you added it in step 4, and the 4 `[permissions.sage...]` tables, and put back the line that you removed in step 2 (for example `sandbox_mode = "danger-full-access"`). Then start a new session.
 
 ## Check that the sage gate runs
 

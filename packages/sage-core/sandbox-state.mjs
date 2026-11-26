@@ -36,7 +36,6 @@ function shower(env, project, named = []) {
     if (name === "") return path === root ? "the project" : `the project's ${rest}`;
     return path === root ? name : `${name}/${rest}`;
   };
-  show.text = (text) => roots.filter(([, name]) => name).reduce((out, [root, name]) => out.split(root).join(name), text);
   return show;
 }
 
@@ -124,12 +123,12 @@ function claude({ env, cwd, places }) {
   }
   const network = allow.some(({ rule }) => rule === "WebFetch(domain:*)");
   const tmp = isAbsolute(env.TMPDIR ?? "") ? resolve(env.TMPDIR) : tmpdir(), roots = writes.map((root) => (root === TMPDIR ? tmp : root));
-  const plugins = join(config, "plugins"), excluded = layers.flatMap((l) => (at(l, ["sandbox", "excludedCommands"], "list") ?? []).map((entry) => ({ entry, l })));
+  const plugins = join(config, "plugins"), excluded = layers.flatMap((l) => (at(l, ["sandbox", "excludedCommands"], "list") ?? []).map((entry, i) => ({ entry, l, place: i + 1 })));
   const sageEntry = (entry) => {
     const [, dir, tool] = SAGE_ENTRY.exec(entry) ?? [];
     return dir && !dir.split("/").some((s) => s === "." || s === "..") && within(dir, plugins) && !roots.some((root) => within(dir, root) || within(root, dir)) ? tool : undefined;
   };
-  const loose = excluded.filter(({ entry }) => entry !== "gh *" && !sageEntry(entry)).map(({ entry, l }) => `${l.shown}: excludedCommands ${JSON.stringify(show.text(entry))}`);
+  const loose = excluded.filter(({ entry }) => entry !== "gh *" && !sageEntry(entry)).map(({ l, place }) => `${l.shown}: excludedCommands entry ${place}`);
   for (const l of layers) for (const [path, type] of LOOSE) {
     const v = at(l, ["sandbox", ...path], type);
     if (v === true || (type === "list" && v?.length) || (type === "number" && v !== undefined)) loose.push(`${l.shown}: sandbox.${path.join(".")}`);
@@ -195,11 +194,12 @@ function allowRules(dir, show) {
 function codex({ env, cwd, places }) {
   const home = homeOf(env), project = resolve(cwd), { user, userShown, system, managed } = places, show = shower(env, project, places.named);
   const top = gitRoots(project, show).top ?? project;
-  const ruleDirs = [join(dirname(user), "rules"), join(dirname(system), "rules")];
+  const ruleDirs = [join(dirname(user), "rules"), join(dirname(system), "rules")], sockets = [];
   for (let dir = project; ; dir = dirname(dir)) {
-    const file = join(dir, places.project), shown = show(file);
-    const keys = file === user ? [] : Object.keys(readLayer(file, shown, parseToml, "TOML") ?? {}).filter((key) => SANDBOX_KEYS.includes(key));
+    const file = join(dir, places.project), shown = show(file), data = file === user ? {} : readLayer(file, shown, parseToml, "TOML") ?? {};
+    const keys = Object.keys(data).filter((key) => SANDBOX_KEYS.includes(key));
     if (keys.length) strict(`${shown} sets ${keys.join(", ")}; sage reads these keys only in ${userShown}, ${show(system)} and ${show(managed)}`);
+    sockets.push(...socketsOpen(data.features?.network_proxy, `${shown}: features.network_proxy`));
     ruleDirs.push(join(dirname(file), "rules"));
     if (dir === top || dir === dirname(dir)) break;
   }
@@ -221,6 +221,7 @@ function codex({ env, cwd, places }) {
   const asks = !(policy === "never" || (granular && ["sandbox_approval", "rules", "request_permissions", "skill_approval"].every((key) => granular[key] === false)));
   const autoReview = merged.approvals_reviewer === "auto_review" && asks;
   const loose = [
+    ...sockets, ...socketsOpen(merged.features?.network_proxy, "features.network_proxy"), ...found.sockets ?? [],
     ...unique(ruleDirs).flatMap((dir) => allowRules(dir, show)).map((file) => `${show(file)} has an allow rule`),
     found.git && !found.gitGuard && `the profile makes .git writable without ".git/hooks" = "read" and ".git/config" = "read"`,
     asks && `${autoReview ? "an automatic reviewer" : "you"} can approve a command outside the sandbox (approval_policy ${policy === undefined ? "is on-request by default" : typeof policy === "string" ? `= "${policy}"` : "is granular"})`,
@@ -230,10 +231,19 @@ function codex({ env, cwd, places }) {
     found.git && !found.gitGuard && `".git/hooks" = "read" and ".git/config" = "read" in [permissions.${chosen}.filesystem.":workspace_roots"]`,
     !found.network && `enabled = true in [permissions.${chosen}.network]`,
     found.state !== "off" && !found.writes.some((root) => within(sage, root)) && `"${show(sage)}" = "write" in [permissions.${chosen}.filesystem]`,
+    found.state !== "off" && !found.denied.includes(join(home, ".config", "sage-board")) && `"~/.config/sage-board" = "deny" in [permissions.${chosen}.filesystem]`,
   ] : [`default_permissions = "sage", with the [permissions.sage] tables of the guide`, mode !== undefined && `no sandbox_mode line (Codex reads default_permissions only without it)`];
   if (autoReview) missing.push(`approvals_reviewer = "user"`);
   const state = found.state === "on" && loose.length ? "may-run-unsandboxed" : found.state;
   return { state, writes: found.state === "off" ? [] : unique(found.writes), network: found.network, loose: found.state === "off" ? [] : loose, missing: missing.filter(Boolean) };
+}
+
+function socketsOpen(network, where) {
+  if (!isTable(network)) return [];
+  const all = network.dangerously_allow_all_unix_sockets, list = network.unix_sockets ?? {};
+  if (all !== undefined && typeof all !== "boolean") strict(`${where}.dangerously_allow_all_unix_sockets is not true or false`);
+  if (!isTable(list) || Object.values(list).some((v) => v !== "allow" && v !== "deny")) strict(`${where}.unix_sockets is not a table of "allow" and "deny"`);
+  return [all === true && `${where}.dangerously_allow_all_unix_sockets`, Object.values(list).includes("allow") && `${where}.unix_sockets allows a socket`].filter(Boolean);
 }
 
 function merge(low, high) {
@@ -258,7 +268,7 @@ function legacy(mode, options = {}, { home, project }) {
 function profile(chosen, all = {}, { home, project }) {
   if (chosen === ":danger-full-access") return { state: "off", writes: [], network: true, git: true };
   const rules = new Map(), roots = [project], chain = [];
-  let name = chosen, network = false;
+  let name = chosen, net = {};
   while (!name.startsWith(":")) {
     const table = isTable(all) ? all[name] : undefined;
     if (!isTable(table)) strict(`the permission profile "${name}" has no [permissions.${name}] table`);
@@ -284,13 +294,12 @@ function profile(chosen, all = {}, { home, project }) {
         else rules.set(join({ ":root": "/", ":tmpdir": TMPDIR, ":slash_tmp": "/tmp", ":minimal": ":minimal" }[path] ?? (path.startsWith("/") || path.startsWith("~") ? fromHome(path, home, project) : strict(`filesystem."${path}" is not a path that sage knows`)), sub), access);
       }
     }
-    const on = table.network?.enabled;
-    if (on !== undefined && typeof on !== "boolean") strict("network.enabled is not true or false");
-    network = on ?? network;
+    if (isTable(table.network)) net = merge(net, table.network);
   }
-  const writes = [...rules].filter(([, access]) => access === "write").flatMap(([key]) => key.startsWith(":workspace_roots/") ? roots.map((root) => join(root, key.slice(17))) : [key]);
+  if (net.enabled !== undefined && typeof net.enabled !== "boolean") strict("network.enabled is not true or false");
+  const access = (want) => [...rules].filter(([, a]) => a === want).flatMap(([key]) => key.startsWith(":workspace_roots/") ? roots.map((root) => join(root, key.slice(17))) : [key]);
   const gitGuard = GIT_GUARD.every((path) => ["read", "deny"].includes(rules.get(`:workspace_roots/${path}`)));
-  return { state: "on", writes, network, git: rules.get(":workspace_roots/.git") === "write", gitGuard, base: name };
+  return { state: "on", writes: access("write"), denied: access("deny"), network: net.enabled ?? false, sockets: socketsOpen(net, `permissions.${chosen}.network`), git: rules.get(":workspace_roots/.git") === "write", gitGuard, base: name };
 }
 
 export function sandboxState(provider, { env = process.env, cwd = process.cwd(), places }) {

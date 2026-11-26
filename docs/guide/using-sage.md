@@ -455,6 +455,7 @@ What each line does:
 
 - A command that matches an entry runs outside the sandbox, with your full access.
 - So the two `node` entries name the exact files of the installed plugin, which a sandboxed command cannot change. They have no `*` before the last one, because a `*` matches any text, also a path such as `../../my-script`.
+- The state tool starts no program from a folder that a sandboxed command can write: `sage lint` runs ast-grep only from sage's tools folder, never from the project's `node_modules`. It starts `git`, `gh` and `ps` by name, and the entries start `node` by name, so keep each folder of your `PATH` out of the folders that a sandboxed command can write.
 - `gh *` is a known gap: `gh` can run a command that you or an agent set up earlier, for example with `gh alias set --shell`, and that command runs outside the sandbox too.
 
 **Git metadata is a known gap.** Inside the project's `.git` folder, Claude Code's sandbox keeps only `hooks` and `config` read-only ([Claude Code: Sandboxing](https://code.claude.com/docs/en/sandboxing.md#protected-paths)).
@@ -469,7 +470,7 @@ The states of the `sage sandbox` line:
 | State | What it means |
 | --- | --- |
 | `on, fails closed` | The sandbox is on, Claude Code stops when it cannot start, and no command can run again outside it. Only the excluded commands of the guide run outside, and git metadata stays a known gap. |
-| `on, but may run unsandboxed` | The sandbox is on, but a command can run outside it: `failIfUnavailable` is not `true`, `allowUnsandboxedCommands` is not `false`, a settings file excludes a command that is not one of the guide's 3 lines, or a settings file sets a key that opens the sandbox (`allowAppleEvents`, `allowNestedUserNamespaces`, `enableWeakerNestedSandbox`, `enableWeakerNetworkIsolation`, or under `network`: `allowAllUnixSockets`, `allowUnixSockets`, `allowMachLookup`, `allowLocalBinding`, `httpProxyPort`, `socksProxyPort`). The line names each file and entry. |
+| `on, but may run unsandboxed` | The sandbox is on, but a command can run outside it: `failIfUnavailable` is not `true`, `allowUnsandboxedCommands` is not `false`, a settings file excludes a command that is not one of the guide's 3 lines, or a settings file sets a key that opens the sandbox (`allowAppleEvents`, `allowNestedUserNamespaces`, `enableWeakerNestedSandbox`, `enableWeakerNetworkIsolation`, or under `network`: `allowAllUnixSockets`, `allowUnixSockets`, `allowMachLookup`, `allowLocalBinding`, `httpProxyPort`, `socksProxyPort`). The line names each file, and each entry by its place in the list (`excludedCommands entry 2`), not by its text, because an entry can hold a token. |
 | `off` | The sandbox is off, or its file part is off (`sandbox.filesystem.disabled`). |
 | `strict rules` | sage cannot confirm the sandbox: a settings file cannot be read or is not valid JSON, a key has a wrong type, or a path in a list has a `$`, a `~name` or nothing in it. The line names the file. The hook keeps all its rules. |
 
@@ -527,7 +528,7 @@ A repository without `sgconfig.yml` at the root of `origin/main` gets no lint ve
 
 When a YAML file in a rule folder of `origin/main` has more than 10 MiB, lint refuses, names the file and records no verdict.
 
-The check needs ast-grep 0.51.1 in the project's `node_modules/.bin`, or in sage's tools folder. When it finds neither, it refuses.
+The check needs ast-grep 0.51.1 in sage's tools folder. When it does not find it there, it refuses. It never runs a copy in the project's `node_modules`: a command in the sandbox can write that folder, and the state tool runs outside the sandbox.
 
 It then puts sage's pinned lockfile in the tools folder and prints the command that installs from it: `npm ci --ignore-scripts --prefix <tools folder>`. The chief runs it only with your yes.
 
@@ -537,7 +538,7 @@ sage offers its no-comments rules to a repository with no `sgconfig.yml` at the 
 
 | Your answer | What happens |
 | --- | --- |
-| add the rules (recommended) | The chief frames one small task, whose brief lists the repository's languages (from the files of `origin/main`, by extension) and the linter settings that require comments. The task adds a root `sgconfig.yml`, a rule with rule tests for each of those languages only, and turns those settings off, in a pull request. The same yes installs ast-grep 0.51.1 in sage's tools folder from sage's lockfile, when the project has no copy. |
+| add the rules (recommended) | The chief frames one small task, whose brief lists the repository's languages (from the files of `origin/main`, by extension) and the linter settings that require comments. The task adds a root `sgconfig.yml`, a rule with rule tests for each of those languages only, and turns those settings off, in a pull request. The same yes installs ast-grep 0.51.1 in sage's tools folder from sage's lockfile, when the tools folder has no copy. |
 | not now (the default) | Nothing changes. The offer comes back with a lint 30 days after the gate opened. |
 | never for this project | sage records `lint_offer=never` in the project's config, and the offer does not come back. `sage config lint_offer=ask` brings it back. |
 

@@ -128,7 +128,7 @@ test("F-T1241-1, F-T1241-12, F-T1241-2, F-T1241-10: an excluded command that is 
     s.write(file, JSON.stringify(settings({ excludedCommands: [entry] })));
     const found = s.state("claude");
     assert.equal(found.state, "may-run-unsandboxed", entry);
-    assert.ok(found.loose.some((item) => item.endsWith(`excludedCommands ${JSON.stringify(entry.split(s.home).join("~"))}`)), `${entry} is named: ${found.loose}`);
+    assert.ok(found.loose.some((item) => item.endsWith("excludedCommands entry 1")), `${entry} is named by its place: ${found.loose}`);
     assert.ok(s.line("claude").includes(`may run outside the sandbox: `), entry);
     rmSync(file);
   };
@@ -296,8 +296,8 @@ test("F-T1241-5: the line names a path under CLAUDE_CONFIG_DIR or SAGE_WORKTREES
   assert.match(line, /"\$SAGE_WORKTREES" in sandbox\.filesystem\.allowWrite/);
   for (const value of [config, worktrees, s.dir]) assert.ok(!line.includes(value), `no value of the environment: ${line}`);
   s.write(join(config, "settings.json"), JSON.stringify(settings({ ...FAILS_CLOSED, excludedCommands: [`node ${s.home}/x.mjs *`, `node ${config}/y.mjs *`] })));
-  assert.match(s.line("claude", more), /excludedCommands "node ~\/x\.mjs \*"; \$CLAUDE_CONFIG_DIR\/settings\.json: excludedCommands "node \$CLAUDE_CONFIG_DIR\/y\.mjs \*"/);
-  assert.ok(!s.line("claude", more).includes(s.dir), "an entry's text names a folder by its variable too");
+  assert.match(s.line("claude", more), /may run outside the sandbox: \$CLAUDE_CONFIG_DIR\/settings\.json: excludedCommands entry 1; \$CLAUDE_CONFIG_DIR\/settings\.json: excludedCommands entry 2 · /);
+  assert.ok(!s.line("claude", more).includes(s.dir), "the line prints no entry's text, so no folder of the environment");
   s.codex('default_permissions = "x"\n[permissions.x]\nextends = ":workspace"\n');
   assert.match(s.line("codex", more), /"\$SAGE_WORKTREES" = "write" in \[permissions\.x\.filesystem\]/);
   assert.ok(!s.line("codex", more).includes(s.dir));
@@ -348,7 +348,7 @@ test("Codex: the guide's sage profile reads as on but may run unsandboxed, becau
   assert.deepEqual(s.state("codex").missing, ["enabled = true in [permissions.sage.network]"]);
   s.codex(CODEX_BLOCK.replace('default_permissions = "sage"\n', 'default_permissions = "sage"\nsandbox_mode = "danger-full-access"\n'));
   assert.equal(s.state("codex").state, "off", "while sandbox_mode is set, Codex ignores default_permissions");
-  assert.match(guideSection("codex"), /The Codex line must say `on, but may run unsandboxed`, with `you can approve a command outside the sandbox` and `missing: none`/);
+  assert.match(guideSection("codex"), /The Codex line must end with `missing: none`, and its state depends on your choice in step 4:\n- With no `approval_policy` line: `on, but may run unsandboxed`, with `you can approve a command outside the sandbox`\. The next part tells why\.\n- With `approval_policy = "never"`: `on, fails closed`\./);
 });
 
 test("F-T1241-9: the guide keeps .git/hooks and .git/config read-only under a writable .git, and the line names them when they are gone", (t) => {
@@ -416,7 +416,7 @@ test("F-T1241-22: a sage entry whose plugin folder holds a write root, or whose 
   assert.equal(read(() => {}).state, "on", "the guide's lines alone");
   const inside = read((x) => x.filesystem.allowWrite.push(join(s.plugin, "skills", "sage")));
   assert.equal(inside.state, "may-run-unsandboxed", "a write root inside the plugin folder");
-  assert.ok(inside.loose.some((item) => item.includes("skills/sage/sage.mjs *")), inside.loose);
+  assert.ok(inside.loose.some((item) => item.endsWith("excludedCommands entry 2")), inside.loose);
   const plugins = join(s.home, ".claude", "plugins");
   for (const part of ["$X", "`x`"]) {
     const found = read((x) => x.excludedCommands.splice(1, 1, `node ${plugins}/${part}/skills/sage/sage.mjs *`));
@@ -573,8 +573,77 @@ test("Codex: an automatic reviewer of approvals reads as on but may run unsandbo
   assert.equal(s.state("codex").state, "on", "with no approvals, nothing runs outside");
 });
 
+test("F-T1241-36: an open Unix socket of Codex, in the profile, a profile that it extends, or features.network_proxy of any config, reads as may run unsandboxed and is named; a deny or a false closes it", (t) => {
+  const s = scratch(t);
+  const read = (text) => {
+    s.codex(`${NEVER}${CODEX_BLOCK}${text}`);
+    return s.state("codex");
+  };
+  const open = (text, named) => {
+    const found = read(text);
+    assert.equal(found.state, "may-run-unsandboxed", text);
+    assert.deepEqual(found.loose, [named], text);
+    assert.deepEqual(found.missing, [], text);
+  };
+  open('\n[permissions.sage.network.unix_sockets]\n"/var/run/docker.sock" = "allow"\n', "permissions.sage.network.unix_sockets allows a socket");
+  open("dangerously_allow_all_unix_sockets = true\n", "permissions.sage.network.dangerously_allow_all_unix_sockets");
+  s.codex(`${NEVER}${CODEX_BLOCK.replace('extends = ":workspace"', 'extends = "base"')}\n[permissions.base]\nextends = ":workspace"\n[permissions.base.network.unix_sockets]\n"/var/run/docker.sock" = "allow"\n`);
+  assert.deepEqual(s.state("codex").loose, ["permissions.sage.network.unix_sockets allows a socket"], "an allow of the profile that it extends");
+  s.codex(`${NEVER}${CODEX_BLOCK.replace('extends = ":workspace"', 'extends = "base"')}[permissions.sage.network.unix_sockets]\n"/var/run/docker.sock" = "deny"\n[permissions.base]\nextends = ":workspace"\n[permissions.base.network]\ndangerously_allow_all_unix_sockets = true\n[permissions.base.network.unix_sockets]\n"/var/run/docker.sock" = "allow"\n`);
+  assert.equal(s.state("codex").state, "may-run-unsandboxed", "an inherited allow-all, which a deny of one path does not close");
+  s.codex(`${NEVER}${CODEX_BLOCK.replace('extends = ":workspace"', 'extends = "base"')}dangerously_allow_all_unix_sockets = false\n[permissions.sage.network.unix_sockets]\n"/var/run/docker.sock" = "deny"\n[permissions.base]\nextends = ":workspace"\n[permissions.base.network]\ndangerously_allow_all_unix_sockets = true\n[permissions.base.network.unix_sockets]\n"/var/run/docker.sock" = "allow"\n`);
+  assert.equal(s.state("codex").state, "on", "the profile's own false and deny close what it extends");
+  open('\n[features.network_proxy.unix_sockets]\n"/var/run/docker.sock" = "allow"\n', "features.network_proxy.unix_sockets allows a socket");
+  open("\n[features.network_proxy]\ndangerously_allow_all_unix_sockets = true\n", "features.network_proxy.dangerously_allow_all_unix_sockets");
+  s.write(s.systemConfig, '[features.network_proxy]\ndangerously_allow_all_unix_sockets = true\n');
+  open("", "features.network_proxy.dangerously_allow_all_unix_sockets");
+  rmSync(s.systemConfig);
+  s.write(join(s.project, ".codex", "config.toml"), '[features.network_proxy.unix_sockets]\n"/var/run/docker.sock" = "allow"\n');
+  open("", "the project's .codex/config.toml: features.network_proxy.unix_sockets allows a socket");
+  rmSync(join(s.project, ".codex"), { recursive: true });
+  assert.equal(read('\n[permissions.sage.network.unix_sockets]\n"/tmp/old.sock" = "deny"\n[features]\nnetwork_proxy = true\n').state, "on", "a deny opens nothing, and network_proxy = true has no socket");
+  assert.equal(read('\n[permissions.sage.network.unix_sockets]\n"/var/run/docker.sock" = "yes"\n').state, "strict", "a socket value that is not allow or deny");
+  assert.equal(read('dangerously_allow_all_unix_sockets = "true"\n').state, "strict", "an allow-all that is not true or false");
+  assert.match(guideSection("codex"), /A Unix socket is open: .*`dangerously_allow_all_unix_sockets = true` or a `unix_sockets` entry with `"allow"`/);
+});
+
+test("F-T1241-39: the guide's Codex profile closes the board's config folder, and a profile without the deny names it as missing", (t) => {
+  const s = scratch(t);
+  s.codex(`${NEVER}${CODEX_BLOCK}`);
+  assert.equal(s.line("codex"), "Codex: on, fails closed · writes: the project, $TMPDIR, /tmp, ~/sage-worktrees, the project's .git · network: on · known gap: git metadata, which git can run later outside the sandbox · missing: none");
+  const line = '"~/.config/sage-board" = "deny"\n', item = '"~/.config/sage-board" = "deny" in [permissions.sage.filesystem]';
+  for (const text of [CODEX_BLOCK.replace(line, ""), CODEX_BLOCK.replace(line, '"~/.config/sage-board" = "read"\n')]) {
+    s.codex(`${NEVER}${text}`);
+    assert.deepEqual(s.state("codex").missing, [item], text);
+    assert.ok(s.line("codex").endsWith(`missing: ${item}`));
+  }
+});
+
+test("F-T1241-44: the Codex steps give both approval choices, where the never line goes, and the line of each; the never line fails closed only above the first table", (t) => {
+  const s = scratch(t), steps = guideSection("codex");
+  assert.match(steps, /\n4\. Choose the approval policy\. .*\n- \*\*No `approval_policy` line\*\* \(recommended; Codex then uses `on-request`\): Codex asks you .*\n- \*\*`approval_policy = "never"`\*\*: Codex never asks, and a command that the sandbox blocks fails\. Put this line at the top of the file, next to `default_permissions = "sage"` and above the first line that starts with `\[`\./);
+  assert.match(steps, /\[Codex: Configuration reference\]\(https:\/\/learn\.chatgpt\.com\/docs\/config-file\/config-reference\.md\), key `approval_policy`/);
+  s.codex(CODEX_BLOCK);
+  assert.match(s.line("codex"), /^Codex: on, but may run unsandboxed · .* · may run outside the sandbox: you can approve a command outside the sandbox \(approval_policy is on-request by default\) · missing: none$/);
+  s.codex(`${NEVER}${CODEX_BLOCK}`);
+  assert.match(s.line("codex"), /^Codex: on, fails closed · .* · missing: none$/);
+  s.codex(`${CODEX_BLOCK}${NEVER}`);
+  assert.equal(s.state("codex").state, "may-run-unsandboxed", "below a table, the line is a key of that table");
+});
+
+test("F-T1241-42: the line names a loose excluded command by its place in the list and never prints its text, so an inline token stays out", (t) => {
+  const s = scratch(t);
+  const json = s.guide(), token = "sk-FAKE-TOKEN-123";
+  json.sandbox.excludedCommands.push(`curl -H 'Authorization: Bearer ${token}' *`, `TOKEN=${token} make *`);
+  s.claude(json);
+  const found = s.state("claude"), line = s.line("claude");
+  assert.equal(found.state, "may-run-unsandboxed");
+  assert.deepEqual(found.loose, ["~/.claude/settings.json: excludedCommands entry 4", "~/.claude/settings.json: excludedCommands entry 5"]);
+  assert.ok(!line.includes("FAKE") && !line.includes("curl") && !line.includes("Bearer"), line);
+});
+
 test("F-T1241-20: the guide's check of a refused write starts from the project's folder", () => {
-  const step = /\n6\. (.*)\n/.exec(guideSection("codex"))[1];
+  const step = /\n7\. (.*)\n/.exec(guideSection("codex"))[1];
   const go = step.indexOf("first go to the project's folder");
   assert.ok(go !== -1 && go < step.indexOf("codex sandbox macos"), step);
 });
@@ -619,7 +688,7 @@ test("the guide's blocks parse: the JSON block as JSON, the TOML block with core
   assert.equal(json.sandbox.excludedCommands.length, entries().length, "the block has a line for each line of sage sandbox entries");
   const toml = parseToml(CODEX_BLOCK);
   assert.equal(toml.default_permissions, "sage", "the top line is a top-level key, not a key of a table");
-  assert.deepEqual(toml.permissions.sage.filesystem, { "~/sage-worktrees": "write", ":workspace_roots": { ".git": "write", ".git/hooks": "read", ".git/config": "read" } });
+  assert.deepEqual(toml.permissions.sage.filesystem, { "~/sage-worktrees": "write", "~/.config/sage-board": "deny", ":workspace_roots": { ".git": "write", ".git/hooks": "read", ".git/config": "read" } });
   const s = scratch(t);
   const python = spawnSync("python3", ["-I", "-c", "import json, sys, tomllib; print(json.dumps(tomllib.loads(sys.stdin.read())))"], { input: CODEX_BLOCK, env: { PATH: process.env.PATH, HOME: s.home }, encoding: "utf8" });
   if (python.error || python.status !== 0) return t.skip(`python3 with tomllib is not here: ${python.error?.message ?? python.stderr}`);
