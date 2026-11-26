@@ -207,12 +207,9 @@ test("npm run check fails when the concepts page's word table is edited by hand"
   assert.match(r.stderr, /✗ docs\/guide\/concepts\.md: out of date; run npm run build/);
 });
 
-test("every sage agent loads the dictionary skill, and the hook tells the chief to load it", async () => {
+test("the hook tells the chief to load the dictionary skill (which roles preload it: T1243 in start-text.test.mjs)", async () => {
   const { chiefText } = await import("../plugins/sage/hooks/sage-hook.mjs");
   assert.match(chiefText(), /Load these skills now: [^\n]*sage:dictionary/);
-  const c = copy();
-  c.write("plugins/sage/agents/qa.md", c.read("plugins/sage/agents/qa.md").replace("  - sage:dictionary\n", ""));
-  assert.match(c.run("check").stderr, /✗ agents\/qa\.md: must preload sage:dictionary/);
 });
 
 test("the text of an alt, a title and an aria-label counts in a page and a graphic", () => {

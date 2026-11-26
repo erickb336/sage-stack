@@ -5,7 +5,6 @@ disallowedTools: Edit, Write, MultiEdit, NotebookEdit, Skill, Agent, SendMessage
 skills:
   - sage:report
   - sage:principle-explain-the-number
-  - sage:dictionary
 ---
 
 <!-- sage-core-role: evidence-review -->
