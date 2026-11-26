@@ -50,9 +50,6 @@ async function walk(t, job, width, steps, start = "") {
 }
 const part = (page, name) => page.locator(`[data-part="${name}"]`);
 
-// The owner's eight jobs of design version 2 (T1216), from the first screen, All projects. J1 (answer on the row,
-// and a design question through its task) needs a paired browser: board-levels-browser.test.mjs counts its clicks.
-// J3 by words is the "/" search (T1225), and J5's Designs cards are T1226: here J3 opens a task through its project.
 for (const width of WIDTHS) {
   test(`J1 at ${width} px: Needs you comes first, full width, oldest first, and Open on a row shows the question with its full context`, async t => {
     const clicks = await walk(t, "J1", width, async (page, click) => {

@@ -663,7 +663,6 @@ table.sr { left: 0; top: 0; white-space: normal; }
 .hbars i { display: block; height: 10px; min-width: 1px; background: var(--bar); border-radius: 0 4px 4px 0; }
 @media (max-width: 899px) { .charts { grid-template-columns: minmax(0, 1fr); } .stat-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stat-tiles .kpi:nth-child(2n) { border-right: 0; } .stat-tiles .kpi:nth-child(n+3) { border-top: 1px solid var(--line); } .cols, .xs, .u { gap: 3px; margin-inline: 12px; } }
 
-/* The five levels (T1216, design version 2): one layout; colour only for the four row states and the three flags, each with a shape. */
 .more-h { margin: 14px 8px 4px; }
 .tree { display: grid; gap: 1px; font-size: var(--t4); }
 .tree a { display: flex; gap: var(--s2); align-items: center; padding: 5px var(--s2); border-radius: var(--r-s); color: var(--muted); text-decoration: none; min-width: 0; }

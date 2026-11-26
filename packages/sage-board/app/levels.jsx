@@ -4,7 +4,7 @@ import { RestoreButton, day } from "./archive.jsx";
 import { Start, ago, plural } from "./overview.jsx";
 import { projectNamed } from "./projects.jsx";
 import { questionLink, runLink, taskLink } from "./task.jsx";
-import { DESIGN_OPTIONS, OBJECTS, WORDS_MAX, runWord } from "../../sage-core/state-words.mjs";
+import { DESIGN_OPTIONS, OBJECTS, WORDS_MAX } from "../../sage-core/state-words.mjs";
 
 const q = encodeURIComponent;
 export const projectLink = key => `#project?key=${q(key)}`;
@@ -98,7 +98,7 @@ function TaskRow({ row, meta, project, fresh, to, indent }) {
   );
 }
 
-export const flagOf = run => run.flag ?? (run.look ? { level: run.status === "failed" ? "red" : "amber", text: run.status === "running" ? OBJECTS.agent.states[run.state]?.at(-1) ?? runWord("running").text : runWord(run.status).text } : null);
+export const flagOf = run => run.flag ?? (run.look ? { level: run.status === "failed" ? "red" : "amber", text: OBJECTS.agent.states[run.status === "running" ? run.state : run.status]?.at(-1) ?? run.status } : null);
 const Flag = ({ flag }) => <span className={`fl ${flag.level}`}>{flag.text}</span>;
 function RunRow({ run, project }) {
   const flag = flagOf(run);

@@ -24,6 +24,8 @@ const PAGES = {
   question: [`/app/#question?key=${KEY("G4")}`, "dark"],
   reader: [`/read/${b64("shared/sample-app-abc123/T10")}/question/G4`, "dark"],
   narrow: [`/app/#question?key=${KEY("G4")}`, "dark", { width: 390, height: 844 }],
+  overview: ["/app/#overview", "dark"],
+  phone: ["/app/", "dark", { width: 390, height: 844 }],
 };
 export const SHOTS = {
   ...Object.fromEntries(Object.keys(PAGES).map(name => [name, `docs/assets/board-${name}.png`])),
