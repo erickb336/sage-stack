@@ -8,5 +8,5 @@ export function splitTest(parts, part, defaults = {}) {
     return nodeTest(name, { ...defaults, ...options }, fn);
   };
   const flagged = (flag) => (name, options, fn) => (typeof options === "function" ? test(name, { [flag]: true }, options) : test(name, { ...options, [flag]: true }, fn));
-  return Object.assign(test, { skip: flagged("skip"), only: flagged("only") });
+  return Object.assign(test, { skip: flagged("skip"), only: flagged("only"), todo: flagged("todo") });
 }

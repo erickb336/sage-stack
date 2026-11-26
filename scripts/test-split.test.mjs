@@ -17,7 +17,7 @@ function registered(file) {
   assert.equal(run.status, 0, `${file} loads with a recorder in place of node:test:\n${run.stderr}`);
   return JSON.parse(readFileSync(out, "utf8"));
 }
-const names = (calls) => calls.map((call) => call.name).sort();
+const tally = (calls) => calls.reduce((counts, { name }) => counts.set(name, (counts.get(name) ?? 0) + 1), new Map());
 const bodies = readdirSync(SCRIPTS).filter((file) => file.endsWith("-tests.mjs"));
 
 test("the part files of each split body together register each test of the body exactly once, with its function", () => {
@@ -30,8 +30,13 @@ test("the part files of each split body together register each test of the body 
     assert.ok(files.length >= 2, `${body} runs as part files scripts/${body.replace(/-tests\.mjs$/, "")}-1.test.mjs and on`);
     assert.deepEqual(files.map((file) => Number(file.match(part)[1])), files.map((_, k) => k + 1), `${body}: its part files are numbered 1 to ${files.length}`);
     const parts = files.map((file) => registered(join(SCRIPTS, file)));
-    parts.forEach((calls, k) => assert.ok(calls.length > 0, `${files[k]} registers at least one test of ${body}`));
-    assert.deepEqual(names(parts.flat()), names(all), `${body}: the ${files.length} parts register each of its ${all.length} tests once, so no test runs twice or in no part`);
+    parts.forEach((calls, k) => assert.ok(calls.length > 0, `${files[k]} registers no test of ${body}. Likely cause: the file sets a number above the part count of the splitTest call in ${body}, or that count is below its ${files.length} part files. Fix: give splitTest the count ${files.length}, and let part file k set k.`));
+    const want = tally(all), got = tally(parts.flat());
+    const nowhere = [...want.keys()].filter((name) => !got.has(name)), twice = [...got].filter(([name, n]) => n > (want.get(name) ?? 0)).map(([name]) => name);
+    assert.deepEqual([
+      ...(nowhere.length ? [`${nowhere.length} of its ${all.length} tests run in no part file, for example ${JSON.stringify(nowhere[0])}. Likely cause: the part count of the splitTest call in ${body} is above its ${files.length} part files, or a part file sets a wrong number. Fix: give splitTest the count ${files.length}, and let part file k set k.`] : []),
+      ...(twice.length ? [`${twice.length} tests run in more than one part file, for example ${JSON.stringify(twice[0])}. Likely cause: ${body} calls node:test directly, or two part files set the same number. Fix: take test only from splitTest in ${body}, and let part file k set k.`] : []),
+    ], [], `${body}: its ${files.length} part files must run each of its ${all.length} tests once`);
   }
 });
 
@@ -54,7 +59,7 @@ test("each CI shard runs the same number of part files of each split body, so th
   }
 });
 
-test("the shared selector gives node:test each test's name, options and function, also through test.skip and test.only", () => {
+test("the shared selector gives node:test each test's name, options and function, also through test.skip, test.only and test.todo", () => {
   const body = join(scratch, "sample-tests.mjs");
   writeFileSync(body, [
     `import { splitTest } from ${JSON.stringify(pathToFileURL(join(SCRIPTS, "test-split.mjs")).href)};`,
@@ -64,11 +69,15 @@ test("the shared selector gives node:test each test's name, options and function
     'test("three arguments", { timeout: 9 }, fn);',
     'test.skip("skipped", fn);',
     'test.only("only", { timeout: 9 }, fn);',
+    'test.todo("todo", fn);',
+    'test.todo("todo with options", { timeout: 9 }, fn);',
   ].join("\n"));
   assert.deepEqual(registered(body), [
     { name: "two arguments", options: { timeout: 5 }, fn: true },
     { name: "three arguments", options: { timeout: 9 }, fn: true },
     { name: "skipped", options: { timeout: 5, skip: true }, fn: true },
     { name: "only", options: { timeout: 9, only: true }, fn: true },
+    { name: "todo", options: { timeout: 5, todo: true }, fn: true },
+    { name: "todo with options", options: { timeout: 9, todo: true }, fn: true },
   ]);
 });
