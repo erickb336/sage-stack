@@ -176,7 +176,7 @@ function NeedRow({ need, all, byProject, fresh, now }) {
     <div className="lv-need" data-need={need.key}>
       <Mark row="needs" />
       <span className="tt">{fresh && <Dot />}{link ? <a href={link}>{need.task?.title ?? need.question}</a> : need.question}{need.task && <span className="id">{need.task.id}</span>}</span>
-      <span className="meta">{where}</span>
+      {where && <span className="meta">{where}</span>}
       <div className="body">
         {need.task && <p className="q">{need.question}</p>}
         {need.more.length > 0 && <p className="more">{need.more.join(" ")}</p>}
