@@ -6,13 +6,18 @@ import { once } from "node:events";
 import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir, uptime } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { test } from "node:test";
+import { test as nodeTest } from "node:test";
 import { fileURLToPath } from "node:url";
 import { keepReport, keepSpend } from "../plugins/sage/skills/sage/sage.mjs";
 import { startsInSageMode } from "../plugins/sage/core/index.mjs";
 import { BACKER, backed, linkFinding, reportFor } from "./verdict-backing.mjs";
 import { TABLES } from "../packages/sage-core/logbook-fields.mjs";
 import { QUESTION, pageQuestion } from "./fixtures/question-message.mjs";
+
+const PARTS = 6;
+const part = globalThis.SAGE_TEST_PART;
+let count = 0;
+const test = (name, fn) => (part === undefined || count++ % PARTS === part - 1 ? nodeTest(name, fn) : undefined);
 
 const LIB = new URL("../plugins/sage/skills/sage/sage.mjs", import.meta.url).href;
 const TOOL = fileURLToPath(LIB);
