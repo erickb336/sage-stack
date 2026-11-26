@@ -387,6 +387,15 @@ function movedIn(project, task) {
   }
 }
 export const isOpen = task => !ENDED.includes(task.state) && !task.moved;
+export const ROW_STATES = ["needs", "work", "waits", "done"];
+export const rowState = task => task.state === "abandoned" ? "done" : task.reasons.length ? "needs" : !isOpen(task) ? "done" : task.agents.length ? "work" : "waits";
+const gateNumber = gate => Number(gate.slice(1));
+function approvedDesigns(sources, byKey) {
+  for (const project of sources.flatMap(source => source.projects)) for (const design of project.designs ?? NONE) {
+    const task = byKey.get(`${project.key}/${design.task}`), was = task?.design;
+    if (task && (!was || time(design.at) > time(was.at) || time(design.at) === time(was.at) && gateNumber(design.gate) > gateNumber(was.gate))) task.design = { key: `${project.key}/${design.task}/${design.gate}`, ...design };
+  }
+}
 const DAY_MS = 86400000, ACTIVE_DAYS = 14, OLDER_DAYS = 30;
 const PROBLEM_NEEDS = ["logbook", "milestones", "releases", "missing", "source", "unread"];
 const bookTimes = project => [...(project.tables.decisions ?? NONE).map(row => row.at), ...(project.tables.gates ?? NONE).flatMap(gate => [gate.at, boardAnswer(gate)?.at])].map(time).filter(at => at !== null);
@@ -742,6 +751,7 @@ export function buildBoardModel(input,{ now = new Date().toISOString(), landing 
   for (const task of tasks) if (task.old && movedOut.has(`${task.group} ${task.old.provider} ${task.id}`)) task.moved = true;
   namedWaits(tasks, byKey);
   markConflicts(tasks);
+  approvedDesigns(sources, byKey);
   const milestones = sources.flatMap(source => source.projects.flatMap(project => milestonesOf(source, project, groupOf.get(project.key), graphs.get(project.key), byKey)));
   const releases = sources.flatMap(source => source.projects.map(project => releasesOfBook(project, groupOf.get(project.key), graphs.get(project.key), byKey)).filter(Boolean));
   const milestoneNeeds = [...milestones.filter(milestone => milestone.need).map(milestone => milestone.need),
@@ -755,7 +765,7 @@ export function buildBoardModel(input,{ now = new Date().toISOString(), landing 
   const LISTS = ["needs", "active", "quiet", "older", "archived"];
   const projects = groups.map(group => {
     const own = tasks.filter(task => task.group === group.key), live = shown.filter(task => task.group === group.key);
-    const last = Math.max(0, ...own.map(recent), ...group.books.flatMap(book => bookTimes(book.project))), extra = milestoneNeeds.filter(need => need.group === group.key), needsOwner = live.filter(task => task.reasons.length).length + extra.length;
+    const last = Math.max(0, ...own.map(recent), ...group.books.flatMap(book => bookTimes(book.project))), extra = milestoneNeeds.filter(need => need.group === group.key), needsOwner = live.filter(task => rowState(task) === "needs").length + extra.length;
     const shared = group.books.filter(book => book.project.shared && !book.project.old);
     const pickups = shared.flatMap(({ project }) => pickupsOf(project.tables.decisions ?? NONE).filter(item => at - Date.parse(item.at) <= 7 * 86400000).map(item => ({ ...item, key: `${project.key}/${item.at}/${item.to}`, logbook: project.key })))
       .sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
@@ -765,7 +775,8 @@ export function buildBoardModel(input,{ now = new Date().toISOString(), landing 
   }).sort((a, b) => LISTS.indexOf(a.list) - LISTS.indexOf(b.list) || (a.list === "needs" ? b.needsOwner - a.needsOwner : 0) || (Date.parse(b.lastActivity ?? 0) || 0) - (Date.parse(a.lastActivity ?? 0) || 0) || a.name.localeCompare(b.name));
   const archived = projects.filter(project => project.archived).map(project => ({ key: project.key, name: project.name, tasks: project.tasks, needsOwner: project.needsOwner }));
   const agents = agentsOf(sources, groups, groupOf, byKey, at, new Set(projects.flatMap(project => project.chiefs.filter(chief => chief.stopped).map(chief => chief.key))));
+  const needsOwner = visible.filter(task => rowState(task) === "needs");
   const moved = sources.flatMap(source => source.projects.filter(project => project.movedAt && at - Date.parse(project.movedAt) >= 0 && at - Date.parse(project.movedAt) <= 7 * 86400000 && !groupOf.get(project.key)?.archived)
     .map(project => ({ project: groupOf.get(project.key)?.name ?? project.name, folder: project.name, at: project.movedAt, tasks: tasks.filter(task => task.project === project.key && task.was && task.column !== "done").length, finished: tasks.filter(task => task.project === project.key && task.was && task.column === "done").length })));
-  return { at: new Date(at).toISOString(), tasks, milestones, releases, milestoneNeeds: liveNeeds, projects, notes, agents, moved, columns: COLUMNS.map(([key, name]) => ({ key, name, tasks: columnOf(key, visible), archivedTasks: columnOf(key, shown.filter(task => task.archived)) })), needsOwner: visible.filter(task => task.reasons.length), archived, counts: { tasks: visible.length, needsOwner: visible.filter(task => task.reasons.length).length + liveNeeds.length, recordedAgents: visible.reduce((n, task) => n + task.agents.filter(agent => !agent.stale).length, 0), inferredWork: visible.filter(task => task.inferredWork).length, inReview: visible.filter(task => task.column === "review").length }, sources: sources.map(source => ({ id: source.id, label: source.label, standIn: standIn(source), diagnostics: source.diagnostics, ...(source.shared && { shared: true }) })), changing: changingOf(sources, groupOf), diagnostics: sources.flatMap(source => [...source.diagnostics.map(message => ({ source: source.id, message: plainProblem(message) })), ...source.projects.flatMap(project => project.diagnostics.map(message => ({ source: source.id, project: project.key, message: plainProblem(message) })))]), warnings: sources.flatMap(source => source.projects.flatMap(project => (project.warnings ?? []).map(message => ({ source: source.id, project: project.key, message: plainProblem(message) })))) };
+  return { at: new Date(at).toISOString(), tasks, milestones, releases, milestoneNeeds: liveNeeds, projects, notes, agents, moved, columns: COLUMNS.map(([key, name]) => ({ key, name, tasks: columnOf(key, visible), archivedTasks: columnOf(key, shown.filter(task => task.archived)) })), needsOwner, archived, counts: { tasks: visible.length, needsOwner: needsOwner.length + liveNeeds.length, recordedAgents: visible.reduce((n, task) => n + task.agents.filter(agent => !agent.stale).length, 0), inferredWork: visible.filter(task => task.inferredWork).length, inReview: visible.filter(task => task.column === "review").length }, sources: sources.map(source => ({ id: source.id, label: source.label, standIn: standIn(source), diagnostics: source.diagnostics, ...(source.shared && { shared: true }) })), changing: changingOf(sources, groupOf), diagnostics: sources.flatMap(source => [...source.diagnostics.map(message => ({ source: source.id, message: plainProblem(message) })), ...source.projects.flatMap(project => project.diagnostics.map(message => ({ source: source.id, project: project.key, message: plainProblem(message) })))]), warnings: sources.flatMap(source => source.projects.flatMap(project => (project.warnings ?? []).map(message => ({ source: source.id, project: project.key, message: plainProblem(message) })))) };
 }

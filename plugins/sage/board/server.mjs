@@ -13,6 +13,8 @@ const MARKDOWN = await import("./markdown.mjs").then(module => module.renderMark
 const NO_READER = "The reader's Markdown renderer is not in this copy of the board. Run the board from the sage plugin, or run npm ci and npm run build.";
 
 const MAX_MODEL = 8 * 1024 * 1024;
+const megabytes = bytes => `${Math.round(bytes / 104857.6) / 10} MB`;
+const TOO_BIG = (size, limit) => `The board could not send its newest read: its data is ${megabytes(size)}, and the limit is ${megabytes(limit)}. The page shows the last read that fit. Ask the chief to look, or archive a project that has many old tasks.`;
 const MAX_CLIENTS = 16;
 const own = (object, name) => Object.hasOwn(object, name);
 const SETTLE_READS = [250, 1000, 3000, 7000, 15000];
@@ -101,9 +103,10 @@ function jsonBody(request) {
   });
 }
 
-export function createBoardServer({ sources, port = BOARD_PORT, id, clock = null, settleReads = SETTLE_READS, lightEvery = LIGHT_EVERY, duringRead = null, holds = null, providerRoots = [], app = loadBoardApp(), reader = MARKDOWN !== null, stateDir = null, pairCommand = null, write = writeInWorker, onStop = null, onWatch = null } = {}) {
+export function createBoardServer({ sources, port = BOARD_PORT, id, clock = null, settleReads = SETTLE_READS, lightEvery = LIGHT_EVERY, duringRead = null, holds = null, providerRoots = [], app = loadBoardApp(), reader = MARKDOWN !== null, stateDir = null, pairCommand = null, write = writeInWorker, onStop = null, onWatch = null, maxModel = MAX_MODEL } = {}) {
   if (!Number.isSafeInteger(port) || port !== 0 && (port < 1024 || port > 65535)) throw new TypeError("board port must be an integer from 1024 through 65535, or 0 for a free port that the system picks");
   if (clock !== null && typeof clock !== "function") throw new TypeError("the board clock must be a function that gives an ISO time");
+  if (!Number.isSafeInteger(maxModel) || maxModel < 1) throw new TypeError("the board's model limit must be a positive number of bytes");
   if (holds !== null && !(holds instanceof Int32Array && holds.buffer instanceof SharedArrayBuffer && holds.length >= 4)) throw new TypeError("the board's holds must be an Int32Array of 4 or more on a SharedArrayBuffer");
   if (!Array.isArray(sources) || !sources.length || sources.length > 32) throw new TypeError("board needs 1 to 32 explicit sources");
   const ids = new Set();
@@ -169,8 +172,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = null
   function publish(client) {
     if (!modelEvent || client.sent === modelSent) return;
     client.sent = modelSent;
-    if (modelSize > MAX_MODEL) { client.response.end(); removeClient(client); return; }
-    send(client, modelEvent);
+    if (modelSize <= maxModel) send(client, modelEvent);
   }
 
   function sendActivity(client, changes) {
@@ -179,8 +181,9 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = null
     send(client, `event: activity\ndata: ${JSON.stringify(changes)}\n\n`);
   }
 
+  const shownNotice = () => modelEvent && modelSize > maxModel ? TOO_BIG(modelSize, maxModel) : notice;
   function sendNotice(client) {
-    send(client, `event: notice\ndata: ${JSON.stringify({ text: notice })}\n\n`);
+    send(client, `event: notice\ndata: ${JSON.stringify({ text: shownNotice() })}\n\n`);
   }
 
   function lightOf(path, filename) {
@@ -289,9 +292,11 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = null
     if (message.seq < shownSeq) return;
     shownSeq = message.seq;
     facts = { ...message.facts, books: new Set(message.facts.books), tasks: new Map(Object.entries(message.facts.tasks)) };
+    const shown = shownNotice();
     modelEvent = Buffer.concat([Buffer.from(`id: ${++revision}\nevent: model\ndata: `), Buffer.from(message.event), Buffer.from("\n\n")]);
     modelSize = message.event.byteLength; modelSent = message.sent;
     for (const client of clients) publish(client);
+    if (shownNotice() !== shown) for (const client of clients) sendNotice(client);
     if (message.boundary !== null) { clearTimeout(boundaryTimer); boundaryTimer = setTimeout(schedule, Math.max(0, Math.min(message.boundary - Date.now(), 2_147_483_647))); boundaryTimer.unref(); }
     lastSeed = { type: "seed", rows: message.rows, hooks };
     light?.post(lastSeed);
@@ -345,8 +350,9 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = null
 
   function setNotice(text) {
     if (notice === text) return;
+    const shown = shownNotice();
     notice = text;
-    for (const client of clients) sendNotice(client);
+    if (shownNotice() !== shown) for (const client of clients) sendNotice(client);
   }
 
   function stopped(thread) {
@@ -495,7 +501,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = null
       const client = { response, blocked: false, pending: null, activity: null, deadline: null, sent: null };
       clients.add(client); response.once("close", () => removeClient(client)); publish(client);
       sendActivity(client, Object.fromEntries(activity));
-      if (notice) sendNotice(client);
+      if (shownNotice()) sendNotice(client);
       return;
     }
     if (name.startsWith("task/")) {

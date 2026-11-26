@@ -35,12 +35,12 @@ const APP = loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", impo
 const has = (model, text) => JSON.stringify(model).includes(text);
 const BOARD_POLICY = "default-src 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'";
 
-async function fixture(t, { missing = false, id, clock, before, quiet = false, probe } = {}) {
+async function fixture(t, { missing = false, id, clock, before, quiet = false, probe, maxModel } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-server-")), root = join(dir, "source");
   if (!missing) populate(root);
   before?.(join(root, "project-abcdef"));
   const sources = [{ id: "sample", path: root, label: "Sample source" }];
-  const options = { sources, port: 0, id, app: APP, ...(clock ? { clock } : {}) };
+  const options = { sources, port: 0, id, app: APP, ...(clock ? { clock } : {}), ...(maxModel ? { maxModel } : {}) };
   const server = quiet ? quietBoard(options, probe === undefined ? {} : { probe }) : createBoardServer(options);
   t.after(async () => { await server.close(); rmSync(dir, { recursive: true, force: true }); });
   const { port } = await server.start();
@@ -627,4 +627,43 @@ test("F-T1215-16: a quiet board's ready() waits for the read that its probe file
   assert.ok(Date.parse(current.at) >= released, "ready() returned after the held read ended, and a new stream starts with that read");
   writeFileSync(join(project, "tasks.tsv"), tasks(row("Sample title after ready")));
   assert.ok(has(await stream.next(), "Sample title after ready"), "the model after the current one is the test's write, not a read of a probe file");
+});
+
+function frames(f) {
+  const seen = [], waiters = new Set();
+  let ended = false;
+  const check = () => { for (const waiter of waiters) { const found = seen.find(waiter.predicate); if (found || ended) { clearTimeout(waiter.timer); waiters.delete(waiter); found ? waiter.accept(found) : waiter.reject(new Error("event stream ended")); } } };
+  const req = request({ host: "127.0.0.1", port: f.port, path: "/app/events", agent: false, headers: { Host: `127.0.0.1:${f.port}` } }, incoming => {
+    let buffer = ""; incoming.setEncoding("utf8");
+    incoming.on("data", chunk => {
+      buffer += chunk;
+      for (let end; (end = buffer.indexOf("\n\n")) !== -1;) {
+        const frame = buffer.slice(0, end); buffer = buffer.slice(end + 2);
+        seen.push({ type: /^event: (\w+)$/m.exec(frame)?.[1] ?? null, data: /^data: (.*)$/m.exec(frame)?.[1] ?? "" });
+      }
+      check();
+    });
+    incoming.on("end", () => { ended = true; check(); });
+  });
+  req.on("error", () => { ended = true; check(); }); req.end();
+  return {
+    seen, ended: () => ended,
+    next: predicate => new Promise((accept, reject) => { const waiter = { predicate, accept, reject, timer: setTimeout(() => { waiters.delete(waiter); reject(new Error("no matching board event")); }, EVENT_GUARD) }; waiters.add(waiter); check(); }),
+    close() { req.destroy(); },
+  };
+}
+
+test("T1223: a model over the size limit sends a red notice, not an ended stream, and the next model that fits clears it", async t => {
+  const measure = await fixture(t), first = frames(measure); t.after(() => first.close());
+  const size = Buffer.byteLength((await first.next(frame => frame.type === "model")).data);
+  const wide = "Sample long title ".repeat(300);
+  const f = await fixture(t, { maxModel: size + 2000, before: project => writeFileSync(join(project, "tasks.tsv"), tasks(row(wide))) }), stream = frames(f); t.after(() => stream.close());
+  const notice = JSON.parse((await stream.next(frame => frame.type === "notice")).data).text;
+  assert.match(notice, /^The board could not send its newest read: its data is \d+(\.\d)? MB, and the limit is \d+(\.\d)? MB\./);
+  assert.deepEqual([stream.seen.some(frame => frame.type === "model"), stream.ended()], [false, false], "no model over the limit, and the stream stays open");
+  writeFileSync(join(f.project, "tasks.pending"), tasks(row("Sample short title"))); renameSync(join(f.project, "tasks.pending"), join(f.project, "tasks.tsv"));
+  const model = JSON.parse((await stream.next(frame => frame.type === "model")).data);
+  assert.ok(has(model, "Sample short title"));
+  assert.equal(JSON.parse((await stream.next(frame => frame.type === "notice" && frame !== stream.seen.find(item => item.type === "notice"))).data).text, null, "the notice clears");
+  assert.equal(stream.ended(), false);
 });

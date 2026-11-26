@@ -8,6 +8,7 @@ import { BINDING_COLUMNS, bindingRow, checkoutGone, githubRemote, linkedRows, ow
 import { chiefsWhole } from "./chiefs.mjs";
 import { LIVE_FOLDER, NAMES_FILE, chiefNames, liveRecord } from "./chief-live.mjs";
 import { MOVES } from "./shared-root.mjs";
+import { DESIGNS_FOLDER, MANIFEST } from "./design-copy.mjs";
 
 const parseJson = text => { try { return JSON.parse(text); } catch { throw new Error("invalid JSON"); } };
 const MAX_FILE = 4 * 1024 * 1024;
@@ -270,12 +271,31 @@ function readLogbook(directory, project, budget, { now, bound, chiefs = true, du
       }
     } catch (error) { project.diagnostics.push(`artifact ${record.id}: ${error.code ?? error.message}`); }
   }
+  try { project.designs = approvedDesigns(directory, budget, project); } catch (error) { project.designs = []; project.warnings.push(`${DESIGNS_FOLDER}: ${error.code ?? error.message}`); }
   duringRead?.(project.key, attempt);
   const after = lstatSync(directory);
   if (after.dev !== before.dev || after.ino !== before.ino || !after.isDirectory() || after.isSymbolicLink()) {
     project.tables = {}; project.contents = {}; project.observations = { version: 1, records: [] }; project.diagnostics.push("project changed during the read");
   }
   return project;
+}
+
+const realFolder = path => { const stat = lstatSync(path, { throwIfNoEntry: false }); return !!stat?.isDirectory() && !stat.isSymbolicLink(); };
+function approvedDesigns(directory, budget, project) {
+  const root = join(directory, DESIGNS_FOLDER), rows = [];
+  if (!realFolder(root)) return rows;
+  for (const task of readdirSync(root).filter(name => TASK_ID.test(name) && realFolder(join(root, name))).sort()) {
+    for (const gate of readdirSync(join(root, task)).filter(name => /^G[1-9]\d*$/.test(name)).sort()) {
+      const file = `${DESIGNS_FOLDER}/${task}/${gate}/${MANIFEST}`;
+      try {
+        if (!realFolder(join(root, task, gate))) throw new Error("not a folder");
+        const kept = parseJson(regular(join(directory, file), budget));
+        if (kept?.task !== task || kept.gate !== gate || typeof kept.design !== "string" || typeof kept.answer !== "string" || !Number.isFinite(Date.parse(kept.at)) || !Array.isArray(kept.files)) throw new Error("damaged manifest");
+        rows.push({ task, gate, design: kept.design, answer: kept.answer, at: kept.at, files: kept.files.length });
+      } catch (error) { project.warnings.push(`${file}: ${error.code ?? error.message}`); }
+    }
+  }
+  return rows;
 }
 
 function consistentRead(directory, base, budget, options) {
