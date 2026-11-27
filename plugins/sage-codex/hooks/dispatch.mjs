@@ -1,6 +1,6 @@
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
-import { chiefBeat } from "../core/index.mjs";
+import { boardLinkStop, chiefBeat } from "../core/index.mjs";
 import { readMode, tool } from "../skills/sage/sage.mjs";
 import { briefAnswer } from "./brief-hook.mjs";
 import { gateAnswer } from "./gate-hook.mjs";
@@ -9,11 +9,13 @@ import { reportGate } from "./report-gate.mjs";
 import { answer } from "./sage-codex-hook.mjs";
 import { startStatus } from "./session-start-hook.mjs";
 import { modeDirectory, privateDirectory, readState, saveState, stateKey } from "./hook-state.mjs";
+import { TIMEOUTS } from "./launch.mjs";
 import { markFile } from "./start-mark.mjs";
 
 const mode = (input) => answer(input, process.env);
 const stop = (input) => reportGate(input, process.env);
-const check = (input) => messageCheck(input, process.env);
+const BOARD_LINK_WAIT_MS = TIMEOUTS.Stop * 600;
+const check = (input) => { messageCheck(input, process.env); return boardLinkStop(input, { budgetMs: BOARD_LINK_WAIT_MS }); };
 const pushed = (input) => { try { tool.observePush(input.tool_input?.command, input.cwd, process.env); } catch {} };
 export const ROUTES = {
   SessionStart: [["source", /^(?:startup|resume|clear)$/, startStatus], ["source", /^(?:compact|fork)$/, mode]],
