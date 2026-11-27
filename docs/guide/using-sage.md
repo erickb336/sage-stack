@@ -175,19 +175,22 @@ The prior-art index keeps those tables, one file for each topic, in `~/.sage/pri
 
 ### Fragile patterns
 
-Each design, engineering check (PE), code review and security review looks for four code patterns that break easily and cost much to keep. The agents follow one rule, in Claude and in Codex (`core/references/fragile-patterns.md` in the plugin's folder):
+Each design, engineering check (PE), code review and security review looks for code patterns that break easily and cost much to keep. The agents follow one rule, in Claude and in Codex (`core/references/fragile-patterns.md` in the plugin's folder).
 
-| Pattern | The structural option |
-| --- | --- |
-| A new hook rule | The state tool, the merge check or a shared rule module. A new hook rule needs proof that none of them can do the job. |
-| One rule written twice, once for Claude and once for Codex | One shared implementation in core, which both providers call. |
-| Parsing an agent's shell command to guess its intent | A structural boundary, such as a state tool command or a file permission. |
-| A special case that a general rule, a table or the data could hold, such as a branch on one id or a second table of the same facts. The strongest sign: it is next to an earlier fix of the same area. | A fix of the shared cause, or the case moved into the data or the one table that owns it. |
+The first pattern applies in every project, in any language. The other three apply only to sage's own code: its hooks and its two providers.
+
+| Pattern | Where | The structural option |
+| --- | --- | --- |
+| A special case that a general rule, a table or the data could hold, such as a branch on one customer id, one plan name or one feature-flag value, or a second table of the same facts. The strongest sign: it is next to an earlier fix of the same area. | Every project | A fix of the shared cause, or the case moved into the data or the one table that owns it. |
+| A new hook rule | sage's own code | The state tool, the merge check or a shared rule module. A new hook rule needs proof that none of them can do the job. |
+| One rule written twice, once for Claude and once for Codex | sage's own code | One shared implementation in core, which both providers call. |
+| Parsing an agent's shell command to guess its intent | sage's own code | A structural boundary, such as a state tool command or a file permission. |
 
 | Role | What it does with a pattern |
 | --- | --- |
 | Designer | Names it and its structural option in the design's rules part. |
 | PE | Rates the part CHANGE and names the structural option; QUESTION only when that option changes what you see or do. |
+| Implementer | Does not write the special case: it follows the model-the-domain principle. |
 | Code reviewer, security reviewer | Reports it as a finding of the class `fragile-pattern`. It is low, with the structural option, unless it breaks a function or a safety boundary. |
 | Chief | Names each open `fragile-pattern` finding under Weak points in its report to you. |
 
