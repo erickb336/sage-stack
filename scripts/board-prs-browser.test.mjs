@@ -21,7 +21,7 @@ let browser;
 before(async () => { browser = await chromium.launch(); });
 after(async () => { await browser?.close(); });
 
-async function open(t, { edit, width = 1440, ...options } = {}, path = "/app/") {
+async function open(t, { edit, width = 1440, ...options } = {}, path = "/app/#overview") {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-prs-browser-")), saved = process.env.SAGE_WORKTREES;
   process.env.SAGE_WORKTREES = join(dir, "worktrees");
   writeTasksLogbook(join(dir, "logbooks"), join(dir, "worktrees"), new Date().toISOString(), { prs: true, ...options });

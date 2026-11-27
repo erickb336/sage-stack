@@ -15,7 +15,7 @@ import { QUESTION } from "./fixtures/question-message.mjs";
 import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const chromium = requireBrowser();
-const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
+const APP = loadBoardApp(new URL("../plugins/sage/board/app/#overview", import.meta.url).pathname);
 const SHOTS = process.env.BOARD_SHOTS ?? null;
 const gitEnv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
 const PROJECTS = ["harbor", "orchard", "quarry", "summit", "tundra", "valley", "willow"];
@@ -108,7 +108,7 @@ async function pick(page, name) {
 
 test("T1137: Archive from the picker asks first, names what the logbook keeps and what still runs; the banner, Undo, Restore and Welcome back follow; the picker finds a project", async t => {
   const w = await openBoard(t), { page } = w;
-  await page.goto(`${w.origin}/app/#?project=${basename(w.dirs.lantern)}`);
+  await page.goto(`${w.origin}/app/#overview?project=${basename(w.dirs.lantern)}`);
   await page.getByRole("heading", { name: "Overview", level: 1 }).waitFor();
 
   await picker(page).click();
@@ -173,7 +173,7 @@ test("T1137: Archive from the picker asks first, names what the logbook keeps an
   assert.equal(w.archived("lantern"), false, "Undo restores the project");
 
   const welcome = page.locator(".welcome");
-  await page.goto(`${w.origin}/app/#?project=${basename(w.dirs.lantern)}`);
+  await page.goto(`${w.origin}/app/#overview?project=${basename(w.dirs.lantern)}`);
   await needs.waitFor();
   assert.equal(await welcome.count(), 0, "F-T1137-3: Undo opens no Welcome back");
   await page.reload();
@@ -230,7 +230,7 @@ test("T1137: Archive from the picker asks first, names what the logbook keeps an
 
 test("T1137 at 390 px: the confirm and the notes clear the header; a partial archive names the logbook that did not save and tries again", async t => {
   const w = await openBoard(t, { viewport: { width: 390, height: 844 } }), { page } = w;
-  await page.goto(`${w.origin}/app/#?project=${basename(w.dirs.meadow)}`);
+  await page.goto(`${w.origin}/app/#overview?project=${basename(w.dirs.meadow)}`);
   await page.getByRole("heading", { name: "Overview", level: 1 }).waitFor();
   await page.getByPlaceholder("ABCD-EFGH").fill(await w.code());
   await page.getByRole("button", { name: "Pair", exact: true }).click();
@@ -271,7 +271,7 @@ const busy = dir => { mkdirSync(join(dir, ".lock")); writeFileSync(join(dir, ".l
 const free = dir => rmSync(join(dir, ".lock"), { recursive: true, force: true });
 async function openMeadow(t) {
   const w = await openBoard(t), { page } = w;
-  await page.goto(`${w.origin}/app/#?project=${basename(w.dirs.meadow)}`);
+  await page.goto(`${w.origin}/app/#overview?project=${basename(w.dirs.meadow)}`);
   await page.getByRole("heading", { name: "Overview", level: 1 }).waitFor();
   await page.getByPlaceholder("ABCD-EFGH").fill(await w.code());
   await page.getByRole("button", { name: "Pair", exact: true }).click();
@@ -350,6 +350,8 @@ test("T1159 F-T1159-22, -37, -38, -19: the picker keeps the focus on its button 
   const w = await openBoard(t), { page } = w;
   await page.goto(`${w.origin}/app/#pair=${startLink(w.stateDir)}&project=${basename(w.dirs.quarry)}`);
   await page.getByText(/^This browser is paired\./).waitFor();
+  await page.goto(`${w.origin}/app/#overview?project=${basename(w.dirs.quarry)}`);
+  await picker(page).waitFor();
   const onPicker = () => page.evaluate(() => document.activeElement?.matches("header .picker") ?? false);
 
   await picker(page).click();
@@ -376,10 +378,10 @@ test("T1159 F-T1159-22, -37, -38, -19: the picker keeps the focus on its button 
   await quarry.getByRole("button", { name: "Archive quarry" }).click();
   await page.getByRole("dialog", { name: "Archive quarry?" }).getByRole("button", { name: "Archive", exact: true }).click();
   await page.getByText("quarry is archived.").waitFor();
-  await page.goto(`${w.origin}/app/#?project=${basename(w.dirs.quarry)}`);
+  await page.goto(`${w.origin}/app/#overview?project=${basename(w.dirs.quarry)}`);
   await picker(page).filter({ hasText: "quarry" }).waitFor();
   await page.locator(`.banner.archived[data-archived$="${basename(w.dirs.quarry)}"]`).waitFor();
-  await page.goto(`${w.origin}/app/`);
+  await page.goto(`${w.origin}/app/#overview`);
   await page.getByRole("heading", { name: "Overview", level: 1 }).waitFor();
   await page.reload();
   await page.getByRole("heading", { name: "Overview", level: 1 }).waitFor();

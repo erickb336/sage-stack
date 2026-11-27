@@ -660,10 +660,14 @@ test("T1223: a model over the size limit sends a red notice, not an ended stream
   const f = await fixture(t, { maxModel: size + 2000, before: project => writeFileSync(join(project, "tasks.tsv"), tasks(row(wide))) }), stream = frames(f); t.after(() => stream.close());
   const notice = JSON.parse((await stream.next(frame => frame.type === "notice")).data).text;
   assert.match(notice, /^The board could not send its newest read: its data is \d+(\.\d)? MB, and the limit is \d+(\.\d)? MB\./);
+  assert.match(notice, / No read fit since this page opened, so the page has nothing to show yet\. /, "F-T1216-34: a page with no earlier read is not told that it shows one");
   assert.deepEqual([stream.seen.some(frame => frame.type === "model"), stream.ended()], [false, false], "no model over the limit, and the stream stays open");
   writeFileSync(join(f.project, "tasks.pending"), tasks(row("Sample short title"))); renameSync(join(f.project, "tasks.pending"), join(f.project, "tasks.tsv"));
   const model = JSON.parse((await stream.next(frame => frame.type === "model")).data);
   assert.ok(has(model, "Sample short title"));
   assert.equal(JSON.parse((await stream.next(frame => frame.type === "notice" && frame !== stream.seen.find(item => item.type === "notice"))).data).text, null, "the notice clears");
   assert.equal(stream.ended(), false);
+  writeFileSync(join(f.project, "tasks.pending"), tasks(row(wide))); renameSync(join(f.project, "tasks.pending"), join(f.project, "tasks.tsv"));
+  const again = JSON.parse((await stream.next(frame => frame.type === "notice" && JSON.parse(frame.data).text !== null && frame !== stream.seen.find(item => item.type === "notice"))).data).text;
+  assert.match(again, / The page shows the last read that fit\. /, "F-T1216-34: a page that has a read keeps it, and the note says so");
 });

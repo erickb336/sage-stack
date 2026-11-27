@@ -1,3 +1,4 @@
+import { optionsOf } from "./logbook-fields.mjs";
 export const title = (provider) => (provider ? provider[0].toUpperCase() + provider.slice(1) : "Unnamed");
 export const STEPS = 6;
 const DONE = ["plan saved, new logbook not built yet", "new logbook built, old logbooks not marked yet", "old logbooks marked, checkouts not linked yet", "checkouts linked, plan not removed yet"];
@@ -97,7 +98,7 @@ const OPTION_TEXT = {
   keep: "Nothing changes. Both logbooks keep working. Ask again any time.",
 };
 export function gateText(gate, lines, { unused, recommendation, why }) {
-  const options = String(gate.options).split("|");
+  const options = optionsOf(gate);
   const about = (o) => OPTION_TEXT[o] ?? `Only if you do not use ${title(unused)} on this project. Sage writes "${title(unused)}: unused" and does not wait for the ${title(unused)} plugin. This answer counts for every project of this shared root: a later move or a new project does not wait for the ${title(unused)} plugin either.`;
   return [
     `${gate.id} open · ${lines[0]}`, ...lines.slice(1),

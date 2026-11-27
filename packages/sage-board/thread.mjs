@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { lstatSync, readdirSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
-import { AGENT_QUIET_MS, DESIGNS_FOLDER, readActions, readHookNotes, readBoardSources, buildBoardModel, boardOverview, boardStats, taskPanel, landingRule, pageTaskFolder } from "../sage-core/index.mjs";
+import { AGENT_QUIET_MS, DESIGNS_FOLDER, readActions, readHookNotes, readBoardSources, buildBoardModel, boardOverview, boardStats, taskPanel, landingRule, optionsOf, pageTaskFolder } from "../sage-core/index.mjs";
 import { readJson } from "./access.mjs";
 import { gateMaterial } from "./material.mjs";
 import { failureOf, taskFiles } from "./pages.mjs";
@@ -128,7 +128,7 @@ export function serve(port, { configured, providerRoots = [], reader = false, du
     let kept = null;
     try { kept = source && LOGBOOK.test(logbook) ? readJson(join(source.path, logbook.slice(logbook.indexOf("/") + 1), "gates"), `${id}.json`, 1 << 20) : null; } catch {}
     const answered = jsonCell(gate.answered), picked = jsonCell(gate.picked), need = model.needsOwner.flatMap(item => item.reasons).find(reason => reason.key === key);
-    return json(200, { key, id, logbook, task: { key: task.key, id: task.id, title: task.title }, project: task.projectName, question: String(gate.question ?? ""), options: String(gate.options ?? "").split("|").map(option => option.trim()).filter(Boolean),
+    return json(200, { key, id, logbook, task: { key: task.key, id: task.id, title: task.title }, project: task.projectName, question: String(gate.question ?? ""), options: optionsOf(gate),
       recommendation: gate.recommendation || null, default: gate.default || null, at: gate.at || null, answer: gate.answer || null, answered: answered && { at: String(answered.at ?? ""), via: String(answered.via ?? ""), answer: answered.answer == null ? null : String(answered.answer) },
       picked: picked && { at: String(picked.at ?? ""), chief: String(picked.chief ?? "") }, digest: need?.digest ?? null, owner: (gate.kind === "replace" && gate.chief) || task.owner?.id || gate.chief || null, takeover: gate.kind === "replace", text: need?.text ?? null,
       message: kept?.message?.kind === "question" ? kept.message : null, run: /^R[1-9]\d*$/.test(gate.run ?? "") ? gate.run : null,

@@ -20,7 +20,7 @@ let browser;
 before(async () => { browser = await chromium.launch(); });
 after(async () => { await browser?.close(); });
 
-async function open(t, options = {}, { path = "/app/", theme = "dark", width = 1440, failed = [], seen, twin = false, limits = null } = {}) {
+async function open(t, options = {}, { path = "/app/#overview", theme = "dark", width = 1440, failed = [], seen, twin = false, limits = null } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-agents-page-")), saved = process.env.SAGE_WORKTREES, now = Date.now();
   process.env.SAGE_WORKTREES = join(dir, "worktrees");
   const logbook = writeTasksLogbook(join(dir, "logbooks"), join(dir, "worktrees"), new Date(now).toISOString(), { agents: true, chiefCases: true, ...options });
@@ -215,11 +215,11 @@ test("F-T1062-42, T1135: two logbooks with one display name and the same chief i
 });
 
 test("T1098 (R4165-1), T1135: two logbooks with one display name and the same chief ids: the Overview's stopped chief lists and gives only its own logbook's tasks", async t => {
-  const { page, problems } = await open(t, {}, { path: "/app/#?project=sample-app-abc123", twin: true });
+  const { page, problems } = await open(t, {}, { path: "/app/#overview?project=sample-app-abc123", twin: true });
   const owns = chief => page.locator(`li[data-stopped="${chief}"] ul.owned > li`).evaluateAll(rows => rows.map(row => `${row.querySelector("a").textContent} ${row.querySelector("a").getAttribute("href")} [${row.querySelector("button")?.textContent}]`));
   await page.locator(`li[data-stopped="${KEY("C3")}"] ul.owned`).waitFor();
   assert.deepEqual(await owns(KEY("C3")), [`T70 · Sample stopped chief #task?key=${encodeURIComponent(KEY("T70"))} [Give to another chief]`], "C3 of the first logbook lists and offers only its own T70");
-  await page.goto(page.url().replace(/#.*$/, "#?project=other-app-def456"));
+  await page.goto(page.url().replace(/#.*$/, "#overview?project=other-app-def456"));
   await page.locator('li[data-stopped="shared/other-app-def456/C3"] ul.owned').waitFor();
   assert.deepEqual(await owns("shared/other-app-def456/C3"), [`T70 · Task of the other logbook #task?key=${encodeURIComponent("shared/other-app-def456/T70")} [Give to another chief]`], "C3 of the second logbook lists and offers only its own T70");
   assert.deepEqual(problems, []);

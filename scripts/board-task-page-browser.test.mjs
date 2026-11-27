@@ -75,7 +75,7 @@ test("T1083: a card's title and About have one address, the task page; Back retu
   await page.locator(`section.acard .acard-h .ttl[data-task="${KEY("T2")}"]`).click({ modifiers: [process.platform === "darwin" ? "Meta" : "Control"] });
   const tab = await opened;
   await tab.locator(".taskpage h1", { hasText: "Sample chief records" }).waitFor();
-  assert.equal(await tab.locator(".taskpage .back").textContent(), "‹ Tasks", "a new tab has no page to go back to, so the back link opens the Tasks page");
+  assert.equal(await tab.locator(".taskpage .back").textContent(), "‹ Milestone 1: Board redesign", "F-T1216-24: a new tab has no page to go back to, so the back link goes up to the task's milestone");
   assert.equal(new URL(page.url()).hash, "#agents?project=sample-app-abc123", "the first tab stays on the Agents page");
   assert.deepEqual(problems, []);
 });
@@ -110,7 +110,7 @@ test("T1083 F-T1083-3, F-T1083-5: the question page and an old #tasks?task= addr
   const base = await board(t), { page, problems } = await open(t, base, "/app/#tasks?task=" + encodeURIComponent(KEY("T2")));
   await page.locator(".taskpage h1", { hasText: "Sample chief records" }).waitFor();
   assert.equal(new URL(page.url()).hash, `#task?key=${encodeURIComponent(KEY("T2"))}`, "an old bookmark lands on the task page");
-  await page.goto(`${base}/app/`);
+  await page.goto(`${base}/app/#overview`);
   const question = page.locator('.needs a[href^="#question?"]').first();
   await question.click();
   const link = page.locator('.fits a[href^="#task?key="]');
@@ -137,7 +137,7 @@ test("T1083 F-T1083-3, F-T1083-5: the question page and an old #tasks?task= addr
 });
 
 test("T1083 F-T1083-7, F-T1083-10: the Status trail uses the route's step words, and a merged task shows no chief activity as a task state", async t => {
-  const base = await board(t), trail = page => aboutPart(page, "Status").locator(".trail li").allTextContents();
+  const base = await board(t), trail = page => page.locator(".taskpage .trail li").allTextContents();
   const open = await openPage(t, base, "T2", "Sample chief records");
   assert.deepEqual(await trail(open), ["build (now)", "reviews (not started)", "QA (not started)"], "route build,code-review,qa: no Plan and no Merge");
   assert.match(await open.locator(".facts-line").first().textContent(), /Run by Claude · C1 \(chief active\)/, "F-T1168-8: an open task says that its chief is active, not \"chief in progress\"");

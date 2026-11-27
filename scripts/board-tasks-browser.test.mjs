@@ -19,7 +19,7 @@ let browser;
 before(async () => { browser = await chromium.launch(); });
 after(async () => { await browser?.close(); });
 
-async function openBoard(t, options = {}, path = "/app/") {
+async function openBoard(t, options = {}, path = "/app/#overview") {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-tasks-browser-")), saved = process.env.SAGE_WORKTREES;
   process.env.SAGE_WORKTREES = join(dir, "worktrees");
   const { twin, clock, source = { id: "shared", label: "Shared" }, ...fixture } = options, written = writeTasksLogbook(join(dir, "logbooks"), join(dir, "worktrees"), new Date().toISOString(), fixture);
@@ -74,22 +74,22 @@ test("T1061, T1064, T1059: J2 and J3 are within two clicks of the Overview, and 
   assert.deepEqual(await page.locator(".trail li").evaluateAll(steps => steps.map(step => [step.className, step.firstChild.textContent, step.querySelector(".sr").textContent])), [["done", "build", " (done)"], ["done", "reviews", " (done)"], ["now", "QA", " (now)"]], "T1083 F-T1083-7: the trail names the route's steps; the code review is done and QA runs, each with its word for a screen reader");
   assert.match(await page.locator(".about-s p.now").first().textContent(), /^In progress: 0 of 1 review cycle passed\./);
   await page.getByRole("tab", { name: /^Artifacts/ }).click();
-  const made = await page.locator("#tab-panel .files a").allTextContents();
+  const made = await page.locator("#tab-panel .files a:not([data-run])").allTextContents();
   assert.deepEqual(made.filter(text => !["Brief", "Report"].includes(text)), ["limits-design.html", "notes.md", "Limits design note", "R5 · code-reviewer · done"], "J3: what its agents made, one tab further (T1126: About is the first tab)");
-  assert.deepEqual(await page.locator('#tab-panel h4:text-is("Briefs and reports") + ul > li').evaluateAll(list => list.map(item => [item.firstChild.textContent, [...item.querySelectorAll("a")].map(a => a.textContent).join(" ")])), [["R5 · code-reviewer", "Report"], ["R6 · qa", "Brief"], ["R7 · implementer", ""]], "T1126 S16: a Brief or Report link only where the logbook keeps one");
+  assert.deepEqual(await page.locator('#tab-panel h4:text-is("Briefs and reports") + ul > li').evaluateAll(list => list.map(item => [item.firstChild.textContent, [...item.querySelectorAll("a:not([data-run])")].map(a => a.textContent).join(" ")])), [["R5 · code-reviewer", "Report"], ["R6 · qa", "Brief"], ["R7 · implementer", ""]], "T1126 S16: a Brief or Report link only where the logbook keeps one");
   assert.equal(await page.getByRole("link", { name: "limits-design.html" }).getAttribute("href"), "/pages/sample-app-abc123/T3/limits-design.html");
   assert.match(await page.getByRole("link", { name: "notes.md" }).getAttribute("href"), /^\/read\/[\w-]+\/page\/notes\.md$/, "a Markdown page opens in the reader");
   assert.match(await page.locator("#tab-panel").textContent(), /R5 · code-reviewer · done.*CLEAN\. The limits change is correct\..*sage_qa_t3_r6\.json/);
 
   clicks = 0;
-  await page.goto(`${base}/app/`);
+  await page.goto(`${base}/app/#overview`);
   await click(page.getByRole("link", { name: /^Tasks/ }));
   await click(page.getByRole("button", { name: "Priority", exact: true }));
   assert.equal(clicks, 2, "J2: tasks by priority");
   await settles(() => groupTitles(page), ["P0", "P1", "P2"]);
 
   clicks = 0;
-  await page.goto(`${base}/app/`);
+  await page.goto(`${base}/app/#overview`);
   await click(page.getByRole("link", { name: "Can a viewer copy a shared list into their own lists?" }));
   await page.locator("#question-h").filter({ hasText: "Can a viewer copy a shared list into their own lists?" }).waitFor();
   assert.equal(clicks, 1, "J1: the question view, the place to answer, in one click");
@@ -560,7 +560,7 @@ test("T1159 (F-T1159-51): Tasks with no since value in the address shows no NaN,
 });
 
 test("T1159 (F-T1159-54): Stats has its own scope, so its top bar shows no count of agents in all projects, no picker and no chief chips; the Overview keeps them", async t => {
-  const { page } = await open(t, { agents: true, twin: true }, "/app/#");
+  const { page } = await open(t, { agents: true, twin: true }, "/app/#overview");
   const top = () => page.locator("header.top").innerText();
   await page.locator("header.top .limit", { hasText: "in all projects" }).waitFor();
   assert.equal(await page.locator(".picker").count(), 1);
@@ -573,7 +573,7 @@ test("T1159 (F-T1159-54): Stats has its own scope, so its top bar shows no count
 });
 
 test("T1159 (F-T1159-39, F-T1159-42): with a chief chip on, the Overview's Merged count and its list agree, and a group of only merged tasks counts them, not 0 open", async t => {
-  const { page } = await open(t, {}, "/app/#");
+  const { page } = await open(t, {}, "/app/#overview");
   const merged = () => page.locator('[data-count="merged"] .n').textContent();
   assert.equal(await merged(), "1", "T1 merged 2 h ago");
   await page.locator('button.chip[data-chief="shared/sample-app-abc123/C2"]').click();

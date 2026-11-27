@@ -10,11 +10,13 @@ import { Tasks } from "./tasks.jsx";
 import { Picker, Signal, projectNamed, projectOfKey, projectView } from "./projects.jsx";
 import { ArchiveFoot, ArchiveLayer, WelcomeBack } from "./archive.jsx";
 import { useModel, useNow, when } from "./use-model.js";
+import { Crumb, Decide, LEVELS, LevelPage, Loading, Tree, milestoneLevelLink, placeOf, projectLink } from "./levels.jsx";
+import { RunPage } from "./run.jsx";
 import { OBJECTS, runWord } from "../../sage-core/state-words.mjs";
 
 const THEME_KEY = "board-theme";
 const PAGES = [
-  { hash: "", name: "Overview", Icon: OverviewIcon },
+  { hash: "overview", name: "Overview", Icon: OverviewIcon },
   { hash: "tasks", name: "Tasks", Icon: TasksIcon },
   { hash: "agents", name: "Agents", Icon: AgentsIcon },
   { hash: "pull-requests", name: "Pull requests", Icon: PullsIcon },
@@ -22,6 +24,7 @@ const PAGES = [
 ];
 const QUESTION = { hash: "question", name: OBJECTS.question.label, hidden: true };
 const TASK = { hash: "task", name: OBJECTS.task.label, hidden: true };
+const LEVEL_PAGES = [{ hash: "", name: "All projects" }, { hash: "project", name: "Project" }, { hash: "milestone", name: "Milestone" }, { hash: "run", name: "Run" }];
 const FILTER_KEY = "board-chief", PROJECT_KEY = "board-project";
 const LISTED = PAGES.map(page => page.hash);
 
@@ -29,7 +32,7 @@ const clock = at => new Date(at).toLocaleTimeString([], { hour: "2-digit", minut
 function pageOf(hash) {
   let [path, query = ""] = hash.replace(/^#\/?/, "").split("?");
   if (path.includes("=")) [path, query] = ["", path];
-  return { ...([...PAGES, QUESTION, TASK].find(page => page.hash === path) ?? PAGES[0]), params: new URLSearchParams(query) };
+  return { ...([...LEVEL_PAGES, ...PAGES, QUESTION, TASK].find(page => page.hash === path) ?? LEVEL_PAGES[0]), params: new URLSearchParams(query) };
 }
 function pageWithOldTaskLinkMoved() {
   const page = pageOf(location.hash), old = page.hash === "tasks" && page.params.get("task");
@@ -82,7 +85,8 @@ function useTheme() {
 const dataAt = (model, link, lostAt) => link === "lost" && !model.stale ? lostAt : model.at;
 const age = (at, now) => `${when(at)}, ${ago(at, now)}`;
 
-function Status({ model, link, lostAt, now }) {
+function Status({ model, link, lostAt, now, notice }) {
+  if (notice && !model) return <span className="live bad" role="status"><span className="dot" />No read to show</span>;
   if (link === "connecting" && !model) return <span className="live" role="status"><span className="dot" />Reading the logbooks</span>;
   if (!model) return <span className="live bad" role="status"><span className="dot" />Cannot reach the board</span>;
   if (link === "lost") return <span className="live bad" role="status"><span className="dot" />Not updated since {age(dataAt(model, link, lostAt), now)} · trying again</span>;
@@ -150,27 +154,38 @@ export function App() {
   const picked = model?.chiefs.find(chief => chief.key === filter);
   const shown = (logbook, id) => !filter || `${logbook}/${id}` === filter;
   const next = theme === "dark" ? "light" : "dark";
+  const level = LEVELS.includes(page.hash), old = !level && page.hash !== "question";
   const open = model ? model.tasks.filter(task => !task.ended).length : 0;
   const prs = model ? model.tasks.filter(task => task.pr && !task.ended).length : 0;
   const running = model ? model.agents.reduce((n, book) => n + book.running, 0) : 0;
-  const body = page.hash === "" ? <Overview model={model} shown={shown} chief={picked} /> : page.hash === "tasks" ? <Tasks model={model} params={page.params} chief={picked} />
+  const key = page.params.get("key") ?? "", place = all && level ? placeOf(all, page) : null;
+  const welcome = page.hash === "overview" ? current : place?.level === "project" ? place.project : null;
+  const up = place?.milestone ? { name: place.milestone.title, href: milestoneLevelLink(place.milestone.key) } : place?.project ? { name: place.project.name, href: projectLink(place.project.key) } : null;
+  const body = page.hash === "overview" ? <Overview model={model} shown={shown} chief={picked} /> : page.hash === "tasks" ? <Tasks model={model} params={page.params} chief={picked} />
     : page.hash === "pull-requests" ? <Pulls model={model} chief={picked} />
     : page.hash === "agents" ? <Agents model={model} chief={picked} />
     : page.hash === "stats" ? <Stats all={all} params={page.params} />
-    : page.hash === "question" ? <QuestionView key={page.params.get("key")} needKey={page.params.get("key") ?? ""} openId={page.params.get("open")} model={model} theme={theme} project={current} />
-    : page.hash === TASK.hash ? <TaskPage key={page.params.get("key")} taskKey={page.params.get("key") ?? ""} tab={page.params.get("tab")} at={model?.at} from={history.state?.from} /> : null;
+    : page.hash === "question" ? <QuestionView key={key} needKey={key} openId={page.params.get("open")} model={model} theme={theme} project={current} />
+    : page.hash === TASK.hash ? <TaskPage key={key} taskKey={key} tab={page.params.get("tab")} at={all?.at} from={history.state?.from} up={up}>
+      {all?.needs.filter(need => need.task?.key === key).map(need => <Decide key={need.key} need={need} archived={!!place?.project?.archived} now={all.at} theme={theme} />)}
+      {all?.answered.filter(item => item.task.key === key).map(item => <Decide key={item.key} answered={item} now={all.at} theme={theme} />)}
+    </TaskPage>
+    : page.hash === "run" ? <RunPage key={`${key} ${page.params.get("run")}`} taskKey={key} runId={page.params.get("run") ?? ""} all={all} />
+    : <LevelPage all={all} page={page} now={now} />;
   if (stopped) return <Stopped at={stopped} />;
   return (
-    <div className="app">
+    <div className={level ? "app levels" : "app"}>
       <aside className="side">
         <div className="brand"><span className="mark"><LeafIcon /></span>sage board</div>
-        <nav aria-label="Pages">
+        <Tree all={all} page={page} />
+        <nav aria-label="More pages">
+          <p className="lbl more-h">More</p>
           <ul className="nav">
             {PAGES.map(item => (
               <li key={item.hash}>
                 <a href={`#${item.hash}`} aria-current={item.hash === page.hash ? "page" : undefined}>
                   <item.Icon />{item.name}
-                  {!item.hash && model && model.needs.length > 0 && <span className={model.archived ? "count" : "count need"} aria-label={`${model.needs.length} need you`}>{model.needs.length}</span>}
+                  {item.hash === "overview" && model && model.needs.length > 0 && <span className={model.archived ? "count" : "count need"} aria-label={`${model.needs.length} need you`}>{model.needs.length}</span>}
                   {item.hash === "tasks" && model && <span className="count" aria-label={`${open} open`}>{open}</span>}
                   {item.hash === "pull-requests" && model && <span className="count" aria-label={`${prs} open`}>{prs}</span>}
                   {item.hash === "agents" && model && <span className="count" aria-label={`${running} ${runWord("running").text}`}>{running}</span>}
@@ -183,20 +198,25 @@ export function App() {
       </aside>
       <div className="col">
         <header className="top">
-          <span className="crumb">{all && !page.own && <><Picker projects={all.projects} current={current} page={LISTED.includes(page.hash) ? page.hash : ""} now={now} /><span aria-hidden="true">/</span></>}<b>{page.name}</b></span>
-          {model && !page.own && <Signal others={model.others} />}
+          {level ? <Crumb all={all} page={page} />
+            : <span className="crumb">{all && !page.own && <><Picker projects={all.projects} current={current} page={LISTED.includes(page.hash) ? page.hash : ""} now={now} /><span aria-hidden="true">/</span></>}<b>{page.name}</b></span>}
+          {model && !level && !page.own && <Signal others={model.others} />}
           <span className="grow" />
-          {model && !page.own && <LimitCounts agents={model.agents} all={all.agents} />}
-          <Status model={model} link={link} lostAt={lostAt} now={now} />
+          {model && !level && !page.own && <LimitCounts agents={model.agents} all={all.agents} />}
+          <Status model={model} link={link} lostAt={lostAt} now={now} notice={notice} />
           <button type="button" className="theme" onClick={flip} aria-label={`Switch to the ${next} theme`} title={`Switch to the ${next} theme`}>
             {theme === "dark" ? <SunIcon /> : <MoonIcon />}
           </button>
         </header>
-        {model && !page.own && page.hash !== "question" && <ChiefChips chiefs={model.chiefs} filter={filter} setFilter={setFilter} />}
+        {model && old && !page.own && <ChiefChips chiefs={model.chiefs} filter={filter} setFilter={setFilter} />}
         <main className="main">
-          {notice && <div className="banner fail" role="alert"><AlertIcon /><div>{notice}</div></div>}
-          {model ? <><Banner model={model} link={link} lostAt={lostAt} now={now} own={page.own} />{unknown && !page.own && <p className="banner" role="status">This board shows no project {unknown}, so it opened {current.name}.</p>}
-            <ArchiveLayer all={all} current={page.own || page.hash === "question" ? null : current} now={now} />{page.hash === "" && current && <WelcomeBack key={`${current.key} ${current.welcome}`} project={current} model={model} now={now} />}{body}{page.hash === "" && <ArchiveFoot project={current} />}</> : <NoData link={link} />}
+          {notice && <div className="banner fail" role="alert" data-part="too-big"><AlertIcon /><div>{notice}</div></div>}
+          {model && <Banner model={model} link={link} lostAt={lostAt} now={now} own={page.own} />}
+          {model && unknown && old && !page.own && <p className="banner" role="status">This board shows no project {unknown}, so it opened {current.name}.</p>}
+          {model && <ArchiveLayer all={all} current={page.own || page.hash === "question" ? null : level ? place?.project ?? null : current} now={now} />}
+          {model && welcome && <WelcomeBack key={`${welcome.key} ${welcome.welcome}`} project={welcome} model={projectView(all, welcome.key)} now={now} />}
+          {model || ["task", "run"].includes(page.hash) ? body : notice ? null : level && link === "connecting" ? <Loading hash={page.hash} /> : <NoData link={link} />}
+          {model && page.hash === "overview" && <ArchiveFoot project={current} />}
         </main>
       </div>
     </div>
