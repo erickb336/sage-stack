@@ -89,8 +89,8 @@ The chief of staff never edits files. It writes briefs, records verdicts and ask
 | **chief-of-staff** | Frames the work, picks routes, writes briefs, drains reports, triages findings, keeps the ledger, asks you the questions | No: the state tool only | never-block-on-the-human, encode-lessons-in-structure, contextualize-and-write-for-the-reader |
 | **designer** | One design page in the design format: ten parts in one scroll, a diagram, every state side by side with sample data, 2–3 options when the answer isn't clear | Design files, own worktree | experience-first, exhaust-the-design-space, writing-standard |
 | **pe** | Checks feasibility, data, risks and cost before the build. Verdict: OK, CHANGE or QUESTION | No | foundational-thinking, boundary-discipline, laziness-protocol |
-| **implementer** | Builds one task, runs the checks, opens the pull request, repairs findings | Code, own worktree | laziness, subtract-before-you-add, test-behaviour, prove-it-works, fix-root-causes |
-| **code-reviewer** | Correctness, data safety, regressions, test evidence | No | test-behaviour, minimize-reader-load, migrate-callers |
+| **implementer** | Builds one task, runs the checks, opens the pull request, repairs findings | Code, own worktree | laziness, subtract-before-you-add, test-behaviour, prove-it-works, fix-root-causes, model-the-domain |
+| **code-reviewer** | Correctness, data safety, regressions, test evidence | No | test-behaviour, minimize-reader-load, migrate-callers, model-the-domain |
 | **security-reviewer** | Input at the boundaries, injection, secrets, access, dependencies | No | boundary-discipline |
 | **ux-reviewer** | The flow, the states, the copy and accessibility, against the design | No | experience-first |
 | **qa** | Runs the checks and the real app, walks each changed flow as a person, tries to break it. Verdict: PASS or FAIL with evidence | No | prove-it-works, test-behaviour |

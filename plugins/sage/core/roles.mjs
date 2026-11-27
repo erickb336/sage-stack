@@ -5,11 +5,11 @@ export const ROLES = new Set(["lead", "implementer", "pe", "designer", "arena-ju
 export const ROLE_PRINCIPLES = Object.freeze({
   "chief-of-staff": ["never-block-on-the-human", "encode-lessons-in-structure", "contextualize-and-write-for-the-reader", "guard-the-context-window"],
   lead: ["never-block-on-the-human", "prove-it-works"],
-  implementer: ["laziness-protocol", "subtract-before-you-add", "test-behavior-not-implementation", "migrate-callers-then-delete-legacy-apis", "prove-it-works", "fix-root-causes", "attack-the-premise", "build-the-lever", "sequence-verifiable-units"],
+  implementer: ["laziness-protocol", "subtract-before-you-add", "test-behavior-not-implementation", "migrate-callers-then-delete-legacy-apis", "prove-it-works", "fix-root-causes", "attack-the-premise", "build-the-lever", "sequence-verifiable-units", "model-the-domain"],
   pe: ["foundational-thinking", "exhaust-the-design-space", "boundary-discipline", "laziness-protocol", "explain-the-number", "make-operations-idempotent", "model-the-domain", "outcome-oriented-execution", "redesign-from-first-principles", "separate-before-serializing-shared-state", "type-system-discipline"],
   designer: ["experience-first", "exhaust-the-design-space", "contextualize-and-write-for-the-reader"],
   "arena-judge": ["exhaust-the-design-space", "experience-first", "laziness-protocol", "prove-it-works"],
-  "code-reviewer": ["laziness-protocol", "test-behavior-not-implementation", "migrate-callers-then-delete-legacy-apis", "minimize-reader-load"],
+  "code-reviewer": ["laziness-protocol", "test-behavior-not-implementation", "migrate-callers-then-delete-legacy-apis", "minimize-reader-load", "model-the-domain"],
   "security-reviewer": ["boundary-discipline"],
   "ux-reviewer": ["experience-first"],
   qa: ["prove-it-works", "test-behavior-not-implementation", "explain-the-number"],
