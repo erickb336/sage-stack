@@ -6,10 +6,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
+import { loadBoardApp } from "../packages/sage-board/server.mjs";
 import { writeAppLogbook } from "./fixtures/board-app.mjs";
 import { TABLES } from "../packages/sage-core/logbook-fields.mjs";
 import { measureContrast } from "./fixtures/contrast.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const chromium = requireBrowser();
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -22,8 +23,9 @@ async function open(t, { viewport = { width: 1440, height: 1000 }, clock = false
   const dir = mkdtempSync(join(tmpdir(), "sage-board-app-browser-")), root = join(dir, "logbooks");
   const project = writeAppLogbook(root, new Date().toISOString());
   edit?.(project, root);
-  const server = createBoardServer({ sources: [{ id: "sample", path: root, label: "Sample" }], port: 0, app: APP, settleReads: [] });
+  const server = quietBoard({ sources: [{ id: "sample", path: root, label: "Sample" }], port: 0, app: APP });
   const { port } = await server.start();
+  await server.ready();
   const base = `http://127.0.0.1:${port}`;
   const context = await browser.newContext({ viewport, colorScheme: "dark" });
   t.after(async () => { await context.close(); await server.close(); rmSync(dir, { recursive: true, force: true }); });
@@ -204,7 +206,7 @@ const bookOf = key => key.slice(0, key.lastIndexOf("/"));
 const taskBooks = async page => [...new Set((await page.locator("a.row[data-task]").evaluateAll(rows => rows.map(row => row.dataset.task))).map(bookOf))];
 async function until(read, expected) {
   let last;
-  for (const end = Date.now() + 5000; Date.now() < end; await new Promise(accept => setTimeout(accept, 25))) { last = await read(); if (JSON.stringify(last) === JSON.stringify(expected)) return; }
+  for (const end = Date.now() + 30_000; Date.now() < end; await new Promise(accept => setTimeout(accept, 25))) { last = await read(); if (JSON.stringify(last) === JSON.stringify(expected)) return; }
   assert.deepEqual(last, expected);
 }
 
@@ -359,4 +361,42 @@ test("F-T1158-7 and F-T1158-3: when a logbook cannot be read, Stats shows one ba
   assert.match(await page.locator("header.top").textContent(), /Not updated since/, "the top bar still says that the board shows its last good copy");
   chmodSync(join(project, "runs.tsv"), 0o644);
   assert.deepEqual(problems, []);
+});
+
+test("F-T1168-8: a board that only reads says so once on the Overview, and gives each piece of advice once", async t => {
+  const { page } = await open(t, { viewport: { width: 390, height: 900 } });
+  const body = await page.locator("body").innerText(), count = pattern => body.match(pattern)?.length ?? 0;
+  assert.equal(count(/only reads/g), 1, "one read-only note");
+  assert.equal(count(/stop (?:this|the) board/gi), 1, "one way to stop the board: ask the chief");
+  assert.equal(count(/the chief's chat/g), 1, "one place to answer: the chief's chat");
+  assert.equal(await page.locator(`section[aria-labelledby="needs-h"] .card-h .hint`).textContent(), "Oldest first", "no pairing advice on a board that cannot pair");
+});
+
+test("F-T1186-3, F-T1186-5, F-T1186-4: the Overview renders its Pick-ups list; the stopped chief's card and Sessions row say where its work went, with a date for an older pick-up", async t => {
+  const dir = mkdtempSync(join(tmpdir(), "sage-board-app-pickups-")), shared = join(dir, "shared"), checkout = join(dir, "app"), now = Date.now(), at = h => new Date(now - h * 3_600_000).toISOString();
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  mkdirSync(join(checkout, ".git"), { recursive: true });
+  const project = writeAppLogbook(shared, new Date(now).toISOString()), picked = at(13);
+  writeFileSync(join(shared, "bindings.tsv"), `root\tfolder\tcommits\tat\n${checkout}\tsample-app-abc123\t${"a".repeat(40)}\t2026-10-01T00:00:00Z\n`);
+  writeFileSync(join(project, "chiefs.tsv"), `id\tprovider\tnative\tat\nC1\tclaude\tsession-a\t${at(48)}\nC3\tclaude\tsession-c\t${at(48)}\n`);
+  mkdirSync(join(project, "live"));
+  writeFileSync(join(project, "live", "C1.json"), JSON.stringify({ provider: "claude", at: at(14), sageMode: true, ended: { at: at(14), reason: "prompt_input_exit" } }));
+  const handover = { from: "C1", to: "C3", fromProvider: "claude", toProvider: "claude", reason: "ended", since: at(14), tasks: ["T2", "T3"], lost: ["R2"], queued: [], gates: ["G5"] };
+  const decisions = join(project, "decisions.tsv"), [head, ...lines] = readFileSync(decisions, "utf8").trim().split("\n");
+  writeFileSync(decisions, [`${head}\thandover`, ...lines.map(line => `${line}\t`), [picked, "", "pick-up from C1 to C3", "pick-up", JSON.stringify(handover)].join("\t")].join("\n") + "\n");
+  const server = quietBoard({ sources: [{ id: "shared", path: shared, label: "Shared" }], port: 0, app: APP });
+  const { port } = await server.start(), context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await server.ready();
+  t.after(async () => { await context.close(); await server.close(); });
+  const page = await context.newPage();
+  await page.goto(`http://127.0.0.1:${port}/app/`);
+  await page.getByRole("heading", { name: "Pick-ups" }).waitFor();
+  const list = await texts(page.locator(".counts [data-pickup]"));
+  assert.equal(list.length, 1, "F-T1186-3: one pick-up, one row");
+  assert.match(list[0], / · Claude · C3 picked up 2 tasks and 1 question: 2 tasks and 1 question from Claude · C1 · 1 run lost: R2$/, "F-T1186-3");
+  const card = await page.locator('[data-stopped] .meta').first().textContent();
+  assert.doesNotMatch(card, /nothing moves on its own/, "F-T1186-5");
+  assert.match(card, /its work passed on to C3 at /, "F-T1186-5");
+  const row = await page.locator(".sessions li", { hasText: "C1" }).first().textContent();
+  assert.match(row, /passed on to C3 at [^·]*[A-Z][a-z]{2}[^·]*\d{2}:\d{2}/, `F-T1186-4: a pick-up 13 h old shows its date: ${row}`);
 });

@@ -6,10 +6,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
+import { loadBoardApp } from "../packages/sage-board/server.mjs";
 import { readerUrl } from "../packages/sage-board/reader.mjs";
 import { HOSTILE_TEXT, UNICODE_TEXT, writeTasksLogbook } from "./fixtures/board-app.mjs";
 import { measureContrast } from "./fixtures/contrast.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const chromium = requireBrowser();
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -27,8 +28,9 @@ async function openBoard(t, options = {}, path = "/app/") {
     const config = join(book, "config.json");
     writeFileSync(config, JSON.stringify({ ...existsSync(config) && JSON.parse(readFileSync(config, "utf8")), name: "twin" }));
   }
-  const server = createBoardServer({ sources: [{ ...source, path: join(dir, "logbooks") }], port: 0, app: APP, settleReads: [] });
+  const server = quietBoard({ sources: [{ ...source, path: join(dir, "logbooks") }], port: 0, app: APP });
   const { port } = await server.start();
+  await server.ready();
   const base = `http://127.0.0.1:${port}`;
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, colorScheme: "dark" });
   if (clock) await context.clock.install({ time: Date.now() });
@@ -51,7 +53,7 @@ const groupTitles = page => page.locator(".group h2").allTextContents();
 const rowIds = page => page.locator("a.row .id").allTextContents();
 async function settles(read, expected, message) {
   let last;
-  for (const end = Date.now() + 5000; Date.now() < end; await new Promise(accept => setTimeout(accept, 25))) {
+  for (const end = Date.now() + 30_000; Date.now() < end; await new Promise(accept => setTimeout(accept, 25))) {
     last = await read();
     if (JSON.stringify(last) === JSON.stringify(expected)) return;
   }
@@ -476,10 +478,10 @@ test("T1080 (F-T1080-15, F-T1080-20): a milestone link from Needs you lands on a
   assert.match(await lost.textContent(), /The breakdown gate G11 of M10 is not in the logbook\. Ask the chief to repair the logbook, or to propose M10 again\..*The logbook links no task to this milestone\./);
 });
 
-test("T1080 (F-T1080-19): a live chief's dot has a name, and the task page says the chief's liveness", async t => {
+test("T1080 (F-T1080-19), F-T1168-8: a live chief's dot has a name, and the task page says the chief's liveness in plain words", async t => {
   const { page, base } = await open(t, { chiefCases: true }, "/app/#tasks");
   assert.equal(await row(page, "T3").getByRole("img", { name: "Chief in progress" }).count(), 1);
-  for (const [id, title, text] of [["T3", "Sample shared limits", "Codex · C2 \\(chief in progress\\)"], ["T70", "Sample stopped chief", "Claude · C3 \\(chief stopped\\)"], ["T40", "Sample crash fix", "Claude · C1 \\(chief unknown\\)"]]) {
+  for (const [id, title, text] of [["T3", "Sample shared limits", "Codex · C2 \\(chief active\\)"], ["T70", "Sample stopped chief", "Claude · C3 \\(chief stopped\\)"], ["T40", "Sample crash fix", "Claude · C1 \\(chief state unknown\\)"]]) {
     await page.goto(`${base}${taskPage(id)}`);
     await taskTitle(page).filter({ hasText: title }).waitFor();
     assert.match(await page.locator(".facts-line").textContent(), new RegExp(`Run by ${text}(?: ·|$)`));

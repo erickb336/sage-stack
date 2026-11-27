@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { buildBoardModel, readBoardSources, renderBoardText, taskWord } from "../packages/sage-core/index.mjs";
+import { QUESTION } from "./fixtures/question-message.mjs";
 
 const TOOL = fileURLToPath(new URL("../plugins/sage/skills/sage/sage.mjs", import.meta.url));
 const SPY = fileURLToPath(new URL("kill-spy.mjs", import.meta.url));
@@ -27,12 +28,12 @@ function setState(dir, id, state) {
   writeFileSync(join(dir, "tasks.tsv"), [head, ...lines.map(line => { const v = line.split("\t"); if (v[0] === id) v[at] = state; return v.join("\t"); })].join("\n") + "\n");
 }
 
-test("T1009: the T997 example, a milestone whose tasks need you and wait, is in progress on the board model, the chat board and status", () => {
+test("T1009: the T997 example, a milestone whose tasks need you and wait, is in progress on the board model and status, and the chat digest gives its count (T1217)", () => {
   const s = logbook();
   for (const n of [1, 2, 3]) s.ok("task", "add", "--title", `Sample task ${n}`, "--size", "small", "--priority", "P2");
   s.ok("milestone", "propose", "--name", "Sage feel", "--goal", "A sample goal", "--pilot", "T1", "--tasks", "T2");
   s.ok("gate", "answer", "G1", "--option", "1");
-  s.ok("gate", "add", "T1", "--question", "Sample: which layout?", "--options", "first|second", "--recommend", "first");
+  s.ok("gate", "add", "--message", QUESTION, "T1", "--question", "Sample: which layout?", "--options", "first|second", "--recommend", "first");
   s.ok("release", "add", "--name", "1.0");
   s.ok("milestone", "M1", "set", "release=1.0");
   s.ok("task", "T3", "set", "release=1.0");
@@ -41,15 +42,15 @@ test("T1009: the T997 example, a milestone whose tasks need you and wait, is in 
   const card = id => board.tasks.find(task => task.id === id);
   assert.deepEqual(["T1", "T2", "T3"].map(id => taskWord(card(id)).word), ["needs you", "waiting", "not started"], "the cards of the T997 example");
   assert.deepEqual([board.milestones[0].id, board.milestones[0].state], ["M1", "active"]);
-  const frame = renderBoardText(board).match(/│ ╭─ Milestone 1: Sage feel ─+╮ │\n│ │ (.+?) · 0 of 2 tasks done/)?.[1];
+  const chat = renderBoardText(board).split("### Milestones\n")[1].split("\n\n")[0];
   const status = s.ok("status"), statusWord = name => status.match(new RegExp(`^${name} · (?:release 1\\.0 · )?(.+?) · `, "m"))?.[1];
   assert.deepEqual({
-    board: board.milestones[0].word, chat: frame?.toLowerCase(), status: statusWord("milestone M1"),
+    board: board.milestones[0].word, chat, status: statusWord("milestone M1"),
     releaseOnBoard: board.releases[0].releases[0].word, releaseInStatus: statusWord("release 1\\.0"),
-  }, { board: "in progress", chat: "in progress", status: "in progress", releaseOnBoard: "in progress", releaseInStatus: "in progress" });
+  }, { board: "in progress", chat: "- Release 1.0: 0 of 3 tasks done.\n- Sage feel: 0 of 2 merged. Next, Sample task 1.", status: "in progress", releaseOnBoard: "in progress", releaseInStatus: "in progress" });
 });
 
-test("T1009: a milestone whose only open task waits after its briefing has not started, on the board model, the chat board and status", () => {
+test("T1009: a milestone whose only open task waits after its briefing has not started, on the board model and status, and the chat digest names its next task (T1217)", () => {
   const s = logbook();
   for (const n of [1, 2]) s.ok("task", "add", "--title", `Sample task ${n}`, "--size", "small", "--priority", "P2");
   s.ok("milestone", "propose", "--name", "Sage feel", "--goal", "A sample goal", "--pilot", "T1", "--tasks", "T2");
@@ -60,7 +61,7 @@ test("T1009: a milestone whose only open task waits after its briefing has not s
   assert.deepEqual(["T1", "T2"].map(id => taskWord(board.tasks.find(task => task.id === id)).word), ["not started", "waiting"]);
   assert.deepEqual({
     board: board.milestones[0].word,
-    chat: renderBoardText(board).match(/^- Milestone 1\\: Sage feel · (.+?) · 0 of 2 merged/m)?.[1],
+    chat: renderBoardText(board).split("### Milestones\n")[1].split("\n\n")[0],
     status: s.ok("status").match(/^milestone M1 · (.+?) · /m)?.[1],
-  }, { board: "not started", chat: "not started", status: "not started" });
+  }, { board: "not started", chat: "- Sage feel: 0 of 2 merged. Next, Sample task 1.", status: "not started" });
 });

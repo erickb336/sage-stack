@@ -81,6 +81,7 @@ before(async () => {
   process.env.SAGE_WORKTREES = join(dir, "worktrees");
   board = createBoardServer({ sources: [{ id: "sample", path: join(dir, "source") }], port: 0, app: loadBoardApp(fileURLToPath(new URL("../plugins/sage/board/app", import.meta.url))) });
   ({ port: boardPort } = await board.start());
+  await board.ready();
   const otherSite = `http://localhost:${otherPort}`;
   writeFileSync(join(pages, "hostile.html"), hostile(otherSite));
   writeFileSync(join(pages, "refresh.html"), `<!DOCTYPE html><title>SAMPLE</title><meta http-equiv="refresh" content="0; url=${otherSite}/refresh?data=SAMPLE"><p>SAMPLE refresh</p>`);
@@ -170,7 +171,7 @@ test("F-T1130-1: in a page with scripts, the warning line's link opens the task'
   const { page } = await context(t);
   await page.goto(at("designs/final/tabs.html"));
   await (await inner(page)).locator("#sibling").click();
-  await page.waitForTimeout(300);
+  await (await inner(page)).waitForURL(at("research.html"));
   assert.equal((await inner(page)).url(), at("research.html"));
   assert.match(await (await inner(page)).textContent("body"), /SAMPLE research page/);
   assert.equal(page.url(), at("designs/final/tabs.html"), "the top window stays");

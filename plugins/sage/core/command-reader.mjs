@@ -213,7 +213,7 @@ function wrapperArguments(words, next, wrapper, path, dir) {
 function readPrograms(command, dir, path, depth, found, uncertainDirectory = false) {
   const emit = (run, wrapper = false, uncertain = false) => found.contexts.push({ run, wrapper, uncertainDirectory: uncertain });
   const inner = (text, at, here, uncertain) => {
-    if (depth === 3) throw new Error("commands nested more than 3 levels deep");
+    if (depth === 3) throw new Error("commands nested 4 levels deep; the hook reads 3 levels, such as bash -c in bash -c in bash -c");
     readPrograms(text, at, here, depth + 1, found, uncertain);
   };
   const commands = shellCommands(command);
@@ -434,6 +434,7 @@ function program(word, dir, path, uncertain = false) {
 }
 
 const FLOWS = new WeakMap();
+export const flowOf = (commands) => FLOWS.get(commands);
 const COMMAND_CONTEXT = new WeakMap();
 const REDIRECT_PARTS = new WeakMap();
 

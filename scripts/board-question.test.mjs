@@ -9,13 +9,15 @@ import { fileURLToPath } from "node:url";
 import { buildBoardModel } from "../packages/sage-core/board-model.mjs";
 import { runFailure } from "../packages/sage-core/board-overview.mjs";
 import { headingId } from "../packages/sage-core/state-words.mjs";
+import * as stateWords from "../packages/sage-core/state-words.mjs";
 import { readBoardSources } from "../packages/sage-core/board-reader.mjs";
 import { renderMarkdown } from "../packages/sage-board/markdown.mjs";
 import { MAX, gateMaterial } from "../packages/sage-board/material.mjs";
 import { failureOf } from "../packages/sage-board/pages.mjs";
 import { readerPage, readerUrl } from "../packages/sage-board/reader.mjs";
-import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
+import { loadBoardApp } from "../packages/sage-board/server.mjs";
 import { writeTasksLogbook } from "./fixtures/board-app.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const NOW = "2026-11-13T12:00:00.000Z";
@@ -161,9 +163,11 @@ const get = (base, path, headers = {}) => new Promise((accept, reject) => {
   req.on("error", reject); req.end();
 });
 async function serve(t, w) {
-  const server = createBoardServer({ sources: w.sources, port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), settleReads: [], clock: () => NOW });
+  const server = quietBoard({ sources: w.sources, port: 0, app: loadBoardApp(join(ROOT, "plugins/sage/board/app")), clock: () => NOW });
   t.after(() => server.close());
-  return `http://127.0.0.1:${(await server.start()).port}`;
+  const { port } = await server.start();
+  await server.ready();
+  return `http://127.0.0.1:${port}`;
 }
 
 test("T1121 R5: the app may frame only reader pages and the pages folder; a reader page opens in a frame only with ?in=board, without its top bar, and its links leave the frame; a pages file only in a frame of the board", async t => {
@@ -253,4 +257,11 @@ test("T1121 S7: the task panel and the Agents rows show a failed run's reason, a
   assert.ok(panel.runs.filter(item => item.status !== "failed").every(item => !("failure" in item)));
   const [other, bare] = failed.find(([, item]) => item.id !== run.id);
   assert.equal(JSON.parse((await get(base, `/app/task/${b64(other.key)}`)).body).runs.find(item => item.id === bare.id).failure, null, `${bare.id} has no reason recorded, so the panel gives none`);
+});
+
+test("T1222 F-T1222-6: the board marks the option that an answer picked: choice 2 of a design question also when the answer holds the owner's words", () => {
+  const design = ["Approve", "Approve with your words", "New version"], picked = answer => stateWords.answerOption?.(design, answer);
+  assert.deepEqual(["Approve", "Approve with your words: Use the shop's logo.", "New version", "other: something else", undefined].map(picked), [0, 1, 2, -1, -1]);
+  assert.equal(stateWords.answerOption(["A: yes", "B: no"], "B: no"), 1, "a plain question marks the option that equals the answer");
+  assert.equal(stateWords.answerOption(["A: yes", "B: no"], "B: no, later"), -1);
 });

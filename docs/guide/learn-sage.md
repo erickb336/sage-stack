@@ -43,11 +43,16 @@ What the app shows for an empty search is a product choice, so the chief asks yo
 
 T1's task page on the board shows where T1 is: Plan, then the steps of its route, then Merge. In Plan, the chief frames the task and writes the brief for the agents. T1 needs you, because gate G1 is open, and the Overview lists G1 under "Needs you".
 
-`show board` prints the question in the chat too:
+`show board` prints the question in the chat too, in its Needs you part. The ids, such as the question's key, go on the last line, Ref, for the chief (SAMPLE DATA):
 
-> claude/ramen-finder-a1b2c3/G1 · An empty search: what does Ramen Finder show?\
-> Options: 1: a hint to type a name · 2: all ramen shops\
-> Recommended: a hint to type a name
+```text
+### 🔴 Needs you
+- Fix the crash on an empty search. An empty search: what does Ramen Finder show?
+  Options: 1 a hint to type a name · 2 all ramen shops.
+  Recommended: a hint to type a name.
+
+Ref: T1 claude/ramen-finder-a1b2c3/G1
+```
 
 You pick option 1. Engineering choices, such as the name of the helper function, are the chief's: it decides and logs them.
 
@@ -65,7 +70,7 @@ The implementer opens PR 41. Fresh agents review it: a code reviewer, and QA, wh
 
 One full set of fresh reviews and QA on one commit is a cycle, and a new commit starts again from cycle 1. T1 needs 1 clean cycle, so its step line shows "Review 1 of 1".
 
-A small task needs 1 clean cycle; a large task, or a task with a risk flag, needs 2 before autopilot merges it. A tiny task without a risk flag or an arena has no review and no QA, so it has no cycle: it is clean when its checks pass.
+A small task needs 1 clean cycle; a large task, or a task with a risk flag, needs 2 before autopilot merges it. A tiny task without a risk flag or an arena has no review and no QA, so it has no cycle: it is clean when its checks pass. A pull request that changes only documentation has no cycle either, whatever its size.
 
 ### 6. The result comes to you
 

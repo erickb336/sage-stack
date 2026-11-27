@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { PROJECT, when } from "./use-model.js";
-import { SCRIPT_PAGE_NOTE, UNKNOWN, chiefName, runWord } from "../../sage-core/state-words.mjs";
+import { PROJECT, answerOf, problemOf, when } from "./use-model.js";
+import { DESIGN_OPTIONS, SCRIPT_PAGE_NOTE, UNKNOWN, WORDS_MAX, answerOption, chiefName, runWord } from "../../sage-core/state-words.mjs";
 import { RestoreButton, day } from "./archive.jsx";
 import { chiefState, chiefSub, encodeKey, questionLink, taskLink } from "./task.jsx";
 import { othersLine, projectHref } from "./projects.jsx";
@@ -89,7 +89,7 @@ export function CopyCommand({ text }) {
 export function PairBox({ id = "pair-h" }) {
   const writes = useAccess(), [code, setCode] = useState(""), [problem, setProblem] = useState(null);
   if (writes === "paired") return null;
-  if (writes === "off") return <p className="note">This board only reads. Answer in the chief's chat, or stop this board and ask for it again.</p>;
+  if (writes === "off") return <p className="note">This board only reads. Answer in the chief's chat.</p>;
   const pair = async event => {
     event.preventDefault();
     const result = await post("pair", { code });
@@ -158,8 +158,8 @@ document.addEventListener("visibilitychange", () => {
 });
 export const useSeen = () => useShared(seen.listeners, () => seen.previous || null);
 
-const dot = chief => chief.stopped ? "stopped" : chief.waitsForOwner ? "waits" : chief.stopped === false ? "live" : "unknown";
-const STATE = { live: chiefState("live"), stopped: chiefState("stopped"), waits: chiefState("waits"), unknown: UNKNOWN };
+const dot = chief => chief.stopped ? "stopped" : chief.waitsForOwner ? "waits" : chief.session ?? "unknown";
+const STATE = { live: chiefState("live"), quiet: chiefState("quiet"), stopped: chiefState("stopped"), waits: chiefState("waits"), unknown: UNKNOWN };
 
 function ChiefMenu({ chief, onFilter, close }) {
   const [name, setName] = useState(chief.named ? chief.name.replace(new RegExp(` · ${chief.id}$`), "") : ""), [said, setSaid] = useState(null);
@@ -272,9 +272,9 @@ function useGate(key, at) {
   useEffect(() => {
     const controller = new AbortController();
     fetch(`/app/gate/${encodeKey(key)}`, { signal: controller.signal })
-      .then(response => response.ok ? response.json() : Promise.reject(response.status))
+      .then(answerOf)
       .then(gate => setState({ key, gate, problem: null }))
-      .catch(error => { if (!controller.signal.aborted) setState(previous => ({ key, gate: previous.key === key ? previous.gate : null, problem: error === 404 ? "gone" : "read" })); });
+      .catch(error => { if (!controller.signal.aborted) setState(previous => ({ key, gate: previous.key === key ? previous.gate : null, problem: problemOf(error) })); });
     return () => controller.abort();
   }, [key, at]);
   return state.key === key ? state : { gate: null, problem: null };
@@ -391,7 +391,7 @@ function Next({ model, gate }) {
 
 export function QuestionView({ needKey, openId, model, theme, project }) {
   const { gate, problem } = useGate(needKey, model.at), writes = useAccess(), archived = !!project?.archived;
-  const [pick, setPickState] = useState(() => keptPick(needKey)), [said, setSaid] = useState(null), [busy, setBusy] = useState(false), sending = useRef(false), closed = useRef(null), was = useRef(archived), bar = useRef(null);
+  const [pick, setPickState] = useState(() => keptPick(needKey)), [words, setWords] = useState(""), [said, setSaid] = useState(null), [busy, setBusy] = useState(false), sending = useRef(false), closed = useRef(null), was = useRef(archived), bar = useRef(null);
   const setPick = n => { setPickState(n); keepPick(needKey, n); };
   const setOpen = id => {
     if (!id) closed.current = openId;
@@ -413,18 +413,21 @@ export function QuestionView({ needKey, openId, model, theme, project }) {
     watch.observe(box);
     return () => { watch.disconnect(); page.style.removeProperty("--qbar"); };
   }, [openId, !gate]);
-  if (!gate) return <div className="page-h"><a href="#" className="back">‹ Needs you</a><h1 id="question-h" tabIndex={-1}>{problem === "gone" ? "This question is not on the board" : problem ? "The board cannot read this question now" : "Reading the question"}</h1></div>;
+  if (!gate) return <div className="page-h"><a href="#" className="back">‹ Needs you</a><h1 id="question-h" tabIndex={-1}>{problem === "gone" ? "This question is not on the board" : problem ? "The board cannot read this question now" : "Reading the question"}</h1>{problem && !["gone", "read"].includes(problem) && <p className="none" role="alert">{problem}</p>}</div>;
   const rows = answerRows(gate.message), unanswered = !gate.answer && !gate.answered, chief = chiefOf(model.chiefs, gate.logbook, gate.owner), owner = chief ? chiefName(chief.id, chief.provider) : gate.owner ?? "the chief";
   const item = itemOf(gate, openId), ready = unanswered && writes === "paired" && !archived && !said?.ok;
   const tone = !said ? null : said.ok ? "done" : said.json?.pending ? "note" : "refused";
   const kept = archived ? `The project is archived now, so it waits until you restore it. Then ${owner} picks it up.` : `It waits for ${owner} to pick it up, at its next step.`;
   const result = !said ? null : said.ok ? (said.text.startsWith(gate.id) ? `You answered ${gate.id}: ${gate.options[pick]}. Recorded in the logbook. ${kept}` : said.text) : `${tone === "note" ? "" : "Not recorded. "}${said.text}`;
+  const needsWords = gate.options[pick] === DESIGN_OPTIONS[1], cannotSend = pick === null || busy || needsWords && !words.trim();
   const send = async () => {
-    if (sending.current) return;
+    if (sending.current || cannotSend) return;
     sending.current = true; setBusy(true);
-    setSaid(await post("answer", { logbook: gate.logbook, gate: gate.id, option: pick + 1, digest: gate.digest }));
+    setSaid(await post("answer", { logbook: gate.logbook, gate: gate.id, option: pick + 1, digest: gate.digest, ...(needsWords && { words }) }));
     sending.current = false; setBusy(false);
   };
+  const wordsField = ready && needsWords && <label className="words"><span><b>{DESIGN_OPTIONS[1]}</b>: type your words. They go with your choice, as one answer.</span>
+    <textarea value={words} maxLength={WORDS_MAX} rows={3} onChange={event => setWords(event.target.value)} /></label>;
   const blocks = gate.message?.blocks ?? [], table = blocks.findIndex(holdsAnswers);
   const field = label => block => block.t === "field" && same(block.label, label);
   const where = blocks.find(field("Where"))?.text, before = withoutAnswers(blocks.slice(0, table < 0 ? blocks.length : table + 1).filter(block => !field("Where")(block))), after = table < 0 ? [] : withoutAnswers(blocks.slice(table + 1));
@@ -440,7 +443,7 @@ export function QuestionView({ needKey, openId, model, theme, project }) {
         : writes !== "paired" ? <PairBox />
         : <p>{pick === null ? "Pick one answer." : <>Your answer: <b>{gate.options[pick]}</b></>} <span className="grow" />
             <button type="button" className="btn" onClick={() => setPick(null)}>Clear</button>
-            <button type="button" className="btn primary" disabled={pick === null || busy} onClick={send}>Send answer</button></p>}
+            <button type="button" className="btn primary" disabled={cannotSend} onClick={send}>Send answer</button></p>}
       {said && !said.ok && <p className={tone} role="alert" id="said" tabIndex={-1}>{result}</p>}
       {ready && <p className="hint">The first answer wins: from the board or from the chief's chat. A later answer is refused and names the first one.</p>}
     </div>;
@@ -449,7 +452,7 @@ export function QuestionView({ needKey, openId, model, theme, project }) {
     <div className="answers" role="radiogroup" aria-label="Answers">
       {gate.options.map((option, i) => {
         const row = rows.rows.find(item => same(item[0], option) || same(item[0].replace(/^[A-Z]\s*[·:.)-]\s*/, ""), option));
-        const chosen = gate.answer === option || gate.answered?.answer === option, drawn = gate.material.items.find(item => shows(item, option, i));
+        const chosen = [gate.answer, gate.answered?.answer].some(answer => answer && answerOption(gate.options, answer) === i), drawn = gate.material.items.find(item => shows(item, option, i));
         return (
           <label key={option} className={`answer${pick === i ? " picked" : ""}${chosen ? " chosen" : ""}`}>
             <input type="radio" name="answer" disabled={!ready} checked={pick === i} onChange={() => setPick(i)} />
@@ -460,6 +463,7 @@ export function QuestionView({ needKey, openId, model, theme, project }) {
         );
       })}
     </div>
+    {wordsField}
     {!(top && !item) && sendBox}
   </div>;
   return (
@@ -483,7 +487,8 @@ export function QuestionView({ needKey, openId, model, theme, project }) {
       </aside>
       {item && <div className="qbar" ref={bar}><p><button type="button" className="btn" onClick={() => setOpen(null)}>‹ Question</button><button type="button" className="btn" onClick={() => document.getElementById("material-h")?.scrollIntoView({ block: "start" })}>Material</button><span className="grow" />
         {ready && <>{gate.options.map((option, i) => <button type="button" key={option} className="btn" aria-pressed={pick === i} aria-label={option} title={option} onClick={() => setPick(i)}>{String.fromCharCode(65 + i)}</button>)}
-          <button type="button" className="btn primary" disabled={pick === null || busy} onClick={send}>Send</button></>}</p>
+          <button type="button" className="btn primary" disabled={cannotSend} onClick={send}>Send</button></>}</p>
+        {wordsField}
         {archived && unanswered && !said ? <p className="said">{project.name} is archived: restore it to answer.</p>
           : said && <><p className={`said ${tone}`}>{result} {said.ok && waiting}</p>{said.ok && <Next model={model} gate={gate} />}</>}</div>}
     </article>

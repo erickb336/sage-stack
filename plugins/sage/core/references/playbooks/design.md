@@ -15,5 +15,6 @@ The chief reads this playbook at the moment that its line in the chief's text na
 3. **The owner's moment:** message kind `design`, with the design page as its page. Before you send it, run the design check on the page: a page that fails goes back to the designer. The message says what changes for the owner, the options and the cost. The recommendation is first.
    - Answers: pick A, B or C, or pick one and mark the parts of the others to keep.
    - If the owner does not answer: nothing is built. Other tasks go on.
-4. **After the answer:** the gate's answer records the pick. The pick and the dropped options stay in the task's pages folder. The task moves to the build, and the UX review compares the build with the pick.
+   - For the approval of the final design, open a design question (`sage gate add <T> --design <its page or folder>`): Approve, Approve with your words, or New version. After choice 2, ask for the words.
+4. **After the answer:** the gate's answer records the pick. The pick and the dropped options stay in the task's pages folder. An approval keeps a copy of the design in the logbook and moves the task to the build; New version sends it back to the designer. The UX review compares the build with the approved design.
 5. **The owner learns:** **sample data.** A prototype uses made-up data, so that the owner judges the experience, not the numbers. Example: the autopilot design used made-up tasks. The owner approved the design only; the build was a separate step.

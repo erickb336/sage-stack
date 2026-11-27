@@ -8,6 +8,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { askingRun, keptUsersText } from "../plugins/sage/core/index.mjs";
 import { TABLES } from "../packages/sage-core/logbook-fields.mjs";
+import { QUESTION } from "./fixtures/question-message.mjs";
 
 const TOOL = fileURLToPath(new URL("../plugins/sage/skills/sage/sage.mjs", import.meta.url));
 const SHA = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
@@ -62,15 +63,15 @@ test("T1124 R1: gate add --run records the run of the gate's task that asked; a 
   w.ok("run", "add", "T1", "--role", "designer", "--branch", "sage/t1-design");
   w.ok("run", "add", "T2", "--role", "pe");
   assert.equal(w.table("gates").rows.length, 0);
-  w.ok("gate", "add", "T1", ...ASK);
+  w.ok("gate", "add", "--message", QUESTION, "T1", ...ASK);
   assert.ok(!w.table("gates").cols.includes("run"), "a gate without --run keeps the old header");
-  assert.match(w.ok("gate", "add", "T1", ...ASK, "--run", "R1"), /^G2 open · Which layout\?/);
+  assert.match(w.ok("gate", "add", "--message", QUESTION, "T1", ...ASK, "--run", "R1"), /^G2 open · Which layout\?/);
   const { cols, rows } = w.table("gates");
   assert.ok(cols.includes("run"));
   assert.deepEqual(rows.map((g) => [g.id, g.run]), [["G1", ""], ["G2", "R1"]], "the old row reads as no run");
-  assert.equal(w.no("gate", "add", "T1", ...ASK, "--run", "R2"), "sage: --run R2 is a run of T2, not of T1: name the run of T1 that asked this question. Nothing changed.");
-  assert.match(w.no("gate", "add", "T1", ...ASK, "--run", "R9"), /^sage: no run R9\. /);
-  assert.match(w.no("gate", "add", ...ASK, "--run", "R1"), /^sage: --run names the run that asked this question, and a run belongs to a task: give the gate its task/);
+  assert.equal(w.no("gate", "add", "--message", QUESTION, "T1", ...ASK, "--run", "R2"), "sage: --run R2 is a run of T2, not of T1: name the run of T1 that asked this question. Nothing changed.");
+  assert.match(w.no("gate", "add", "--message", QUESTION, "T1", ...ASK, "--run", "R9"), /^sage: no run R9\. /);
+  assert.match(w.no("gate", "add", "--message", QUESTION, ...ASK, "--run", "R1"), /^sage: --run names the run that asked this question, and a run belongs to a task: give the gate its task/);
   assert.equal(w.table("gates").rows.length, 2, "each refusal adds no gate");
 });
 
@@ -80,7 +81,7 @@ test("T1124 R1: an old gates.tsv without the run column still reads, and the nex
   w.ok("run", "add", "T1", "--role", "investigate");
   writeFileSync(join(w.logbook, "gates.tsv"), `${TABLES.gates.join("\t")}\nG1\tT1\tOld?\tyes|no\tyes\t\t\t2026-11-01T00:00:00Z\n`);
   assert.match(w.ok("status"), /G1/);
-  w.ok("gate", "add", "T1", ...ASK, "--run", "R1");
+  w.ok("gate", "add", "--message", QUESTION, "T1", ...ASK, "--run", "R1");
   assert.deepEqual(w.table("gates").rows.map((g) => [g.id, g.question, g.run]), [["G1", "Old?", ""], ["G2", "Which layout?", "R1"]]);
 });
 

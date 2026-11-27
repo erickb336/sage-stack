@@ -5,9 +5,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
+import { loadBoardApp } from "../packages/sage-board/server.mjs";
 import { APP_SOURCE, BUDGET, budgetProblems, licencesOf } from "./board-app.mjs";
 import { writeAppLogbook } from "./fixtures/board-app.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PLUGINS = ["plugins/sage", "plugins/sage-codex"];
@@ -15,9 +16,10 @@ const PLUGINS = ["plugins/sage", "plugins/sage-codex"];
 async function board(t, { app = loadBoardApp(join(ROOT, "plugins/sage/board/app")), now = new Date().toISOString() } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "sage-board-app-")), root = join(dir, "logbooks");
   const project = writeAppLogbook(root, now);
-  const server = createBoardServer({ sources: [{ id: "sample", path: root, label: "Sample" }], port: 0, app, settleReads: [] });
+  const server = quietBoard({ sources: [{ id: "sample", path: root, label: "Sample" }], port: 0, app });
   t.after(async () => { await server.close(); rmSync(dir, { recursive: true, force: true }); });
   const { port } = await server.start();
+  await server.ready();
   return { base: `http://127.0.0.1:${port}`, project };
 }
 
@@ -154,7 +156,7 @@ test("F-T1065-14: the app stream sends a model only when it changed, and refuses
   });
   assert.deepEqual(frames.map(frame => frame.stale), [false, true, false], "a second read of the same damaged table, with the same last good data, sent nothing");
   const { base: fresh } = await board(t), streams = [];
-  t.after(() => Promise.all(streams.map(stream => stream.body.cancel())));
+  t.after(() => Promise.allSettled(streams.map(stream => stream.body.cancel())));
   for (let count = 0; count < 16; count++) {
     streams.push(await fetch(`${fresh}/app/events`));
     assert.equal(streams.at(-1).status, 200);

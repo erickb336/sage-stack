@@ -58,3 +58,42 @@ export function keptUsersText(logbook, task) {
   } catch { return null; }
   finally { if (fd !== undefined) closeSync(fd); }
 }
+
+const MERGES_MAX = 100, FILES_MAX = 3000, REPO = "repos/{owner}/{repo}";
+const ghRead = (cwd, env) => (args) => {
+  const { GH_HOST, GH_REPO, ...rest } = env;
+  const r = spawnSync("gh", args, { cwd, encoding: "utf8", timeout: 15000, killSignal: "SIGKILL", maxBuffer: 2 ** 24, stdio: ["ignore", "pipe", "pipe"], env: { ...rest, GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1" } });
+  if (r.error) throw new Error(r.error.code === "ETIMEDOUT" ? `gh ${args.slice(0, 2).join(" ")} did not answer in 15 seconds` : r.error.message);
+  if (r.status !== 0) throw new Error(`gh ${args.slice(0, 2).join(" ")} failed: ${(r.stderr || r.stdout).trim().split("\n")[0]}`);
+  return args.includes("--paginate") ? r.stdout.split("\n").filter(Boolean).map((line) => JSON.parse(line)) : JSON.parse(r.stdout);
+};
+const isTime = (text) => typeof text === "string" && !Number.isNaN(Date.parse(text));
+
+function changedFiles(gh, n, count) {
+  const list = gh(["api", `${REPO}/pulls/${n}/files?per_page=100`, "--paginate", "--jq", ".[] | .filename | @json"]);
+  if (!Array.isArray(list) || list.some((path) => typeof path !== "string")) throw new Error(`GitHub gave no list of the changed files of PR ${n}`);
+  if (count !== undefined && list.length < count) throw new Error(`GitHub listed only ${list.length} of the ${count} changed files of PR ${n}`);
+  if (count === undefined && list.length >= FILES_MAX) throw new Error(`PR ${n} has ${FILES_MAX} or more changed files, and GitHub lists only ${FILES_MAX}`);
+  return list;
+}
+
+export function mainOverlap(pr, sha, cwd, env = process.env, gh = ghRead(cwd, env)) {
+  let base, since, closed, after, hits;
+  try {
+    const view = gh(["api", `${REPO}/pulls/${pr}`, "--jq", "{base: .base.ref, changed: .changed_files}"]);
+    since = gh(["api", `${REPO}/commits/${sha}`, "--jq", "{date: .commit.committer.date}"]).date;
+    if (typeof view?.base !== "string" || !Number.isInteger(view.changed) || !isTime(since)) throw new Error("GitHub gave no base branch, count of changed files or commit time");
+    base = view.base;
+    closed = gh(["api", `${REPO}/pulls?state=closed&base=${encodeURIComponent(base)}&sort=updated&direction=desc&per_page=${MERGES_MAX}`, "--jq", "[.[] | {number, merged: .merged_at, updated: .updated_at}]"]);
+    if (!Array.isArray(closed) || closed.some((m) => !Number.isInteger(m?.number) || !isTime(m.updated) || (m.merged !== null && !isTime(m.merged)))) throw new Error("GitHub gave a closed pull request with no number, update time or merge time");
+    if (closed.length >= MERGES_MAX && closed.every((m) => Date.parse(m.updated) >= Date.parse(since))) return `${MERGES_MAX} or more pull requests into ${base} closed or changed after the head ${sha.slice(0, 7)} of PR ${pr}, so the merge check refuses: CI may never have run on a head that holds their merges. Merge ${base} into the branch, wait for CI to pass on the new head, then check again.`;
+    after = closed.filter((m) => m.merged && m.number !== Number(pr) && Date.parse(m.merged) > Date.parse(since)).sort((a, b) => a.number - b.number);
+    if (!after.length) return "";
+    const mine = new Set(changedFiles(gh, pr, view.changed));
+    hits = after.map((m) => ({ n: m.number, files: changedFiles(gh, m.number).filter((p) => mine.has(p)) })).filter((m) => m.files.length);
+  } catch (e) {
+    return `the merge check cannot read from GitHub which merges into the base branch came after the last CI of PR ${pr} (${e?.message ?? e}), so it refuses the merge. Check that gh is logged in, then check again.`;
+  }
+  if (!hits.length) return "";
+  return `PR ${pr} changes files that ${hits.length === 1 ? "a merge" : "merges"} into ${base} after its last CI also changed: ${hits.map((m) => `PR ${m.n} (${m.files.join(", ")})`).join("; ")}. CI never ran on a head that holds both changes. Merge ${base} into the branch, wait for CI to pass on the new head, record checks-pass on it, then check again.`;
+}

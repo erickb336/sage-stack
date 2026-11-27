@@ -10,6 +10,8 @@ import * as claude from "../plugins/sage/skills/sage/sage.mjs";
 import { startLink } from "../plugins/sage/board/access.mjs";
 import { createBoardServer, loadBoardApp } from "../plugins/sage/board/server.mjs";
 import { HOSTILE_MARKDOWN } from "./fixtures/board-app.mjs";
+import { QUESTION, questionFile } from "./fixtures/question-message.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const chromium = requireBrowser();
 const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
@@ -74,14 +76,15 @@ async function openBoard(t, viewport = { width: 1440, height: 1000 }, { refuse, 
   as("C1", "run", "add", "T1", "--role", "pe");
   writeFileSync(join(base, "question.json"), JSON.stringify(MESSAGE));
   as("C1", "gate", "add", "T1", "--question", TITLE, "--options", "A: yes|B: no", "--recommend", "A: yes", "--default", "A: yes", "--message", join(base, "question.json"), "--run", "R1");
-  as("C2", "gate", "add", "T2", "--question", "Crash reports: send them on their own, or ask each time?", "--options", "ask each time|send them", "--recommend", "ask each time");
+  as("C2", "gate", "add", "--message", questionFile("Crash reports: send them on their own, or ask each time?"), "T2", "--question", "Crash reports: send them on their own, or ask each time?", "--options", "ask each time|send them", "--recommend", "ask each time");
   setup?.(as);
   const stateDir = join(base, "home", ".config", "sage-board", "state"), writes = [];
   mkdirSync(stateDir, { recursive: true, mode: 0o700 });
   const { writeInWorker } = await import("../plugins/sage/board/writes.mjs");
-  const server = createBoardServer({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port: 0, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair",
-    write: job => { writes.push(job.argv); before?.(job); return refuse ? { code: 1, text: refuse } : writeInWorker(job); } });
+  const server = quietBoard({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port: 0, app: APP, stateDir, pairCommand: "node /sample/board/cli.mjs board --pair",
+    write: job => { writes.push(job.argv); before?.(job); return refuse ? { code: 1, text: refuse } : writeInWorker(job); } }, { create: createBoardServer });
   const { port } = await server.start();
+  await server.ready();
   const context = await browser.newContext({ viewport, colorScheme: "dark", timezoneId: "America/New_York" });
   t.after(async () => {
     await context.close(); await server.close();
@@ -132,6 +135,49 @@ test("T1121: one click on Needs you opens the question with its material; a page
   await left.click();
   await page.getByRole("heading", { name: "Crash reports: send them on their own, or ask each time?", level: 1 }).waitFor();
   assert.equal(await page.locator(".viewer").count(), 0, "the next question opens on its answers, not on the last file");
+  assert.deepEqual(w.outside, [], "no outside request");
+});
+
+const DESIGN = "Approve design v1 of the share sheet?";
+const askDesign = as => as("C1", "gate", "add", "T1", "--design", "designs/v1", "--question", DESIGN, "--recommend", "1", "--message", questionFile(DESIGN, { task: "T1", file: "notes.md" }));
+
+test("T1222: a design question's choice 2 opens a words field; Send waits for the words, and the words reach the logbook with the choice as one answer; the answer mark then shows on choice 2", async t => {
+  const w = await openBoard(t, undefined, { setup: askDesign }), { page } = w;
+  await page.getByRole("link", { name: DESIGN }).click();
+  await page.getByRole("heading", { name: DESIGN, level: 1 }).waitFor();
+  assert.equal(await page.getByRole("textbox", { name: /type your words/ }).count(), 0, "no words field before choice 2");
+  await page.getByRole("radio", { name: /^Approve with your words/ }).check();
+  const send = page.getByRole("button", { name: "Send answer" }), words = page.getByRole("textbox", { name: /type your words/ });
+  await words.waitFor();
+  assert.equal(await send.isDisabled(), true, "choice 2 sends only with words");
+  await words.fill("Use the shop's logo in the header.");
+  await w.shot("question-design-words");
+  await send.click();
+  await page.getByText(/^You answered G3: Approve with your words\. Recorded in the logbook\./).waitFor();
+  assert.equal(JSON.parse(w.gate("G3").answered).answer, "Approve with your words: Use the shop's logo in the header.");
+  assert.deepEqual(w.writes.at(-1).slice(0, 8), ["gate", "answer", "G3", "--via", "board", "--option", "2", "--other-hex"]);
+  await page.reload();
+  await page.locator("label.answer.chosen").first().waitFor();
+  assert.deepEqual(await page.locator("label.answer.chosen .what b").allTextContents(), ["Approve with your words"], "F-T1222-6: the answer mark shows on choice 2, also when the answer holds the owner's words");
+  assert.deepEqual(w.outside, [], "no outside request");
+});
+
+test("T1222 F-T1222-11: on a 390 px window with a file open, choice 2 in the answer bar shows the words field in the bar; Send waits for the words", async t => {
+  const w = await openBoard(t, { width: 390, height: 844 }, { setup: askDesign }), { page } = w;
+  await page.goto(`${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G3`)}`);
+  await page.locator(".mat").first().click();
+  const bar = page.locator(".qbar");
+  await bar.waitFor();
+  assert.equal(await bar.getByRole("textbox").count(), 0, "no words field before choice 2");
+  await bar.getByRole("button", { name: "Approve with your words" }).click();
+  const words = bar.getByRole("textbox", { name: /type your words/ }), send = bar.getByRole("button", { name: "Send" });
+  await inView(page, words, "the words field shows in the bar, where the owner picks choice 2");
+  assert.equal(await send.isDisabled(), true, "choice 2 sends only with words");
+  await words.fill("Use the shop's logo in the header.");
+  await w.shot("question-phone-design-words");
+  await send.click();
+  await inView(page, bar.getByText(/^You answered G3: Approve with your words\. Recorded in the logbook\./), "the bar shows that the answer is sent");
+  assert.equal(JSON.parse(w.gate("G3").answered).answer, "Approve with your words: Use the shop's logo in the header.");
   assert.deepEqual(w.outside, [], "no outside request");
 });
 
@@ -321,7 +367,7 @@ test("T1156 F-T1156-15, -16: after Send, the line counts every need of the proje
   for (const name of ["other-app", "third-app"]) {
     const other = projects[name] = w.addProject(name);
     other.as("C1", "task", "add", "--title", `Sample ${name} task`, "--size", "small", "--priority", "P1");
-    other.as("C1", "gate", "add", "T1", "--question", `A question of ${name}?`, "--options", "yes|no", "--recommend", "yes");
+    other.as("C1", "gate", "add", "--message", QUESTION, "T1", "--question", `A question of ${name}?`, "--options", "yes|no", "--recommend", "yes");
   }
   w.as("C2", "gate", "answer", "G2", "--option", "1", "--via", "chat");
   setTaskCells(w.dir, "T2", { state: "verified", pr: "12" });
@@ -355,7 +401,7 @@ test("T1156 F-T1156-18: a PDF in the material shows a note and a link that opens
 });
 
 test("T1156 F-T1156-36, -43, -45: the picker counts each need as Needs you does, also in the archived list; the archived banner names the agent that still runs, as the header counts it", async t => {
-  const w = await openBoard(t, undefined, { setup: as => as("C1", "gate", "add", "T1", "--question", "A second question on T1?", "--options", "yes|no", "--recommend", "yes") }), { page } = w;
+  const w = await openBoard(t, undefined, { setup: as => as("C1", "gate", "add", "--message", questionFile("A second question?", { task: "T1", file: "notes.md" }), "T1", "--question", "A second question on T1?", "--options", "yes|no", "--recommend", "yes") }), { page } = w;
   await page.goto(`${w.origin}/app/#?project=${encodeURIComponent(basename(w.dir))}`);
   await page.locator(".nav .count.need").filter({ hasText: "3" }).waitFor();
   await page.locator("header .picker").click();
@@ -501,7 +547,7 @@ test("T1156 F-T1156-40, -47: an answer sent while the Archive write lands is ref
   await page.goto(`${w.origin}/app/#question?key=${encodeURIComponent(`shared/${basename(w.dir)}/G1`)}`);
   await page.getByRole("radio", { name: /^A: yes/ }).check();
   await page.getByRole("button", { name: "Send answer" }).click();
-  await page.getByText("Not recorded. This project is archived, so it takes no answer. Restore it, then answer again. Nothing changed.").waitFor();
+  await page.getByText("Not recorded. This project is archived, so it takes no answer and no other owner write. Restore it first, on the board or with sage config archived=no in its own chat when the owner asks for it, then try again. Nothing changed.").waitFor();
   assert.equal(w.gate("G1").answered ?? "", "", "the archived project keeps no answer");
   await page.locator(".send").getByRole("button", { name: "Restore" }).waitFor();
   await w.shot("t1156-archived-refused-1440");
@@ -518,7 +564,7 @@ test("T1156 F-T1156-40, -47: an answer sent while the Archive write lands is ref
   w.config("archived=yes");
   await page.getByText(/^You answered G2: send them\. Recorded in the logbook\. The project is archived now, so it waits until you restore it\. Then Codex · C2 picks it up\./).waitFor();
   assert.equal(await page.locator(".send").getByRole("button", { name: "Undo" }).count(), 0, "F-T1156-46: no Undo that the archive would refuse");
-  await page.locator(".send").getByRole("button", { name: "Restore" }).waitFor({ timeout: 5000 });
+  await page.locator(".send").getByRole("button", { name: "Restore" }).waitFor();
   await page.reload();
   await page.getByText(/so it waits until you restore it/).waitFor();
   assert.equal(await page.locator(".send").getByRole("button", { name: "Restore" }).count(), 1, "T1159 F-T1159-52: the line that says to restore offers Restore, also after a reload");
@@ -538,7 +584,8 @@ test("T1159 F-T1159-4: when the message holds its answers in a section, the answ
     { t: "field", label: "Where", text: "The sample task sets the copy rule." },
     { t: "field", label: "Approve", text: "The copy rule." }, { t: "field", label: "Choice", text: "Does a viewer copy?" },
     { t: "section", label: "Question 1: Copy rule", body: [{ t: "p", text: "Sample text before the answers." }, { t: "table", head: ["Answer", "Next", "Cost"], rows: [["A: copy", "The chief adds it.", "1 h"], ["B: no copy", "View only.", "none"]], pick: 0 }] },
-    { t: "field", label: "Default", text: "Sample default after the answers." }, { t: "field", label: "Due", text: "Sample: no time." }, { t: "field", label: "Next", text: "The chief builds the task." }] };
+    { t: "field", label: "Default", text: "Sample default after the answers." }, { t: "field", label: "Due", text: "Sample: no time." }, { t: "field", label: "Next", text: "The chief builds the task." },
+    { t: "page", title: "Sample notes", task: "T1", file: "notes.md" }] };
   const w = await openBoard(t, SIZES[2], { setup: as => {
     writeFileSync(join(tmpdir(), `t1159-nested-${process.pid}.json`), JSON.stringify(nested));
     as("C1", "gate", "add", "T1", "--question", "Which copy rule?", "--options", "A: copy|B: no copy", "--recommend", "A: copy", "--message", join(tmpdir(), `t1159-nested-${process.pid}.json`));

@@ -1,7 +1,8 @@
-import { shellCommands, programsRun } from "./command-reader.mjs";
-import { ghTargets, outputDispatchWrites } from "./output-writes.mjs";
+import { flowOf, shellCommands, programsRun } from "./command-reader.mjs";
+import { curlTargets, ghTargets, outputDispatchWrites } from "./output-writes.mjs";
 import { GIT_VALUE, gitSubcommand, programName } from "./command-policy.mjs";
-import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { pythonRead } from "./python-read.mjs";
+import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 
 const CODE = /^-(?:[a-z]*[ce]|p|-eval|-print|command)$/;
@@ -77,10 +78,12 @@ export function uniqWrites(words, base) {
   }
   return operands > 1;
 }
-const runsCode = (base, low) => base.some((w) => /^(?:node|deno|bun|python[\d.]*|perl|ruby|php|osascript|sh|bash|zsh|dash|ksh|fish|pwsh|powershell)$/.test(w)) && low.some((w) => CODE.test(w));
+const INTERPRETER = /^(?:node|deno|bun|python[\d.]*|perl|ruby|php|osascript|sh|bash|zsh|dash|ksh|fish|pwsh|powershell)$/;
+const runsCode = (words) => words.some((word, i) => INTERPRETER.test(programName(word)) && words.slice(i + 1).some((arg) => CODE.test(arg.toLowerCase())));
+const writesCode = (words) => words.some((word, i) => INTERPRETER.test(programName(word)) && words.slice(i + 1).some((arg) => CODE.test(arg.toLowerCase())) && !pythonRead(programName(word), words.slice(i + 1)));
 export function inlineCode(text) {
   try {
-    return shellCommands(text).some(({ words }) => runsCode(words.map(programName), words.map((w) => w.toLowerCase())));
+    return shellCommands(text).some(({ words }) => runsCode(words));
   } catch {
     return false;
   }
@@ -92,7 +95,7 @@ function placedTargets(name, args) {
   if (!operands.length || options.some((a) => /^-[^-]*t|^--t/.test(a))) return true;
   return name === "cp" ? operands.slice(-1) : operands;
 }
-function writesIn({ words }, runs, placed) {
+function writesIn({ words }, runs, placed, protect) {
   const low = words.map((w) => w.toLowerCase());
   const base = words.map(programName);
   const at = low.findIndex((w) => !/^\w+=/.test(w)), program = base[at] ?? "";
@@ -101,14 +104,15 @@ function writesIn({ words }, runs, placed) {
   const has = (re) => base.some((w) => re.test(w) && runs.has(w));
   return (
     base.some((w) => WRITE_NAMES.has(w) && runs.has(w) && !(placed && PLACED.has(w))) || (runs.has("uniq") && uniqWrites(words, base)) ||
-    (has(/^g?sed$|^perl$|^ruby$/) && low.some((w) => /^-[a-z]*i|^--in-place/.test(w))) ||
+    (has(protect ? /^perl$|^ruby$/ : /^g?sed$|^perl$|^ruby$/) && low.some((w) => /^-[a-z]*i|^--in-place/.test(w))) ||
     (has(/^[gmn]?awk$/) && (low.includes("inplace") || words.some(awkWrites))) ||
     (has(/^g?sort$/) && low.some((w) => /^-[a-z]*o|^--o/.test(w))) ||
-    (has(/^find$/) && low.some((w) => /^-(?:delete|exec|execdir|ok|okdir|fprint|fprintf|fls)$/.test(w))) ||
-    runsCode(base, low) ||
+    (has(/^find$/) && low.some((w, k) => /^-(?:delete|fprint|fprint0|fprintf|fls)$/.test(w) || (/^-(?:exec|execdir|ok|okdir)$/.test(w) && !FIND_READS.test(programName(low[k + 1] ?? ""))))) ||
+    writesCode(words) ||
     /^(?:eval|source|\.|exec)$/.test(base[low.findIndex((w) => !/^\w+=/.test(w))] ?? "")
   );
 }
+const FIND_READS = /^(?:ls|cat|head|tail|wc|stat|grep|egrep|fgrep|echo|printf|jq|cut)$/;
 const AWK_RUNS = /\|&?\s*getline\b|\bsystem\s*\(/;
 const AWK_PRINTS = /\bprintf?\b[^;{}\n]*[>|]/;
 const awkWrites = (word) => {
@@ -161,6 +165,8 @@ function gitDestroys(sub, rest) {
   }
   return worktree || !staged;
 }
+const CLONE_VALUE = /^(?:-[obucj]|--(?:origin|branch|initial-branch|upload-pack|reference|reference-if-able|depth|shallow-since|shallow-exclude|config|template|jobs|filter|server-option|bundle-uri|ref-format|object-format|revision))$/;
+const repoName = (url) => url && basename(url.replace(/\/+$/, "").replace(/\/\.git$/, "").replace(/^[^/]*:/, "")).replace(/\.(?:git|bundle)$/, "") || undefined;
 function gitTargets(args, destroys = false) {
   let tree = ".", k = 0, other = false;
   for (; args[k]?.startsWith("-"); k++) {
@@ -192,6 +198,31 @@ function gitTargets(args, destroys = false) {
     change ||= /^(?:set|unset|rename-section|remove-section|edit)$/.test(operands[0] ?? "") || (operands.length > 1 && !/^(?:get|list)$/.test(operands[0]));
     return !change ? [] : rest.some((a) => /^--(?:global|system)$/.test(a)) ? true : [tree];
   }
+  const into = (paths) => paths.map((p) => (isAbsolute(p) ? p : join(tree, p)));
+  if (sub === "clone" || sub === "init") {
+    const operands = [], gitDirs = [];
+    for (let i = 0; i < rest.length; i++) {
+      const separate = /^--separate-git-dir(?:=(.*))?$/.exec(rest[i]);
+      if (rest[i] === "--") { operands.push(...rest.slice(i + 1)); break; }
+      if (separate) gitDirs.push(separate[1] ?? rest[++i]);
+      else if (CLONE_VALUE.test(rest[i])) i++;
+      else if (!rest[i].startsWith("-")) operands.push(rest[i]);
+    }
+    const dir = sub === "init" ? operands[0] ?? "." : operands[1] ?? repoName(operands[0]);
+    return dir === undefined || gitDirs.includes(undefined) ? true : into([dir, ...gitDirs]);
+  }
+  if (sub === "archive" || sub === "format-patch") {
+    const option = sub === "archive" ? /^(?:-o|--output)(?:=(.*))?$/ : /^(?:-o|--output-directory|--output)(?:=(.*))?$/;
+    for (let i = 0; i < rest.length && rest[i] !== "--"; i++) {
+      const out = option.exec(rest[i]);
+      if (out) return out[1] ?? rest[i + 1] ? into([out[1] ?? rest[i + 1]]) : true;
+    }
+    return sub === "format-patch" && !rest.includes("--stdout") ? [tree] : [];
+  }
+  if (sub === "bundle" && rest[0] === "create") {
+    const file = rest.slice(1).find((a) => !a.startsWith("-"));
+    return file === undefined ? true : file === "-" ? [] : into([file]);
+  }
   if (sub === "worktree" && /^(?:add|move|remove)$/.test(rest[0] ?? "")) {
     const paths = [];
     for (let i = 1; i < rest.length; i++) {
@@ -199,22 +230,47 @@ function gitTargets(args, destroys = false) {
       else if (!rest[i].startsWith("-")) paths.push(rest[i]);
     }
     const changed = rest[0] === "move" ? paths.slice(0, 2) : paths.slice(0, 1);
-    return changed.length ? changed.map((p) => (isAbsolute(p) ? p : join(tree, p))) : true;
+    return changed.length ? into(changed) : true;
   }
   return [];
 }
-function realPath(path) {
-  try { return realpathSync.native(path); } catch { return dirname(path) === path ? path : join(realPath(dirname(path)), basename(path)); }
+function realPath(path, links = 40) {
+  try { return realpathSync.native(path); } catch {}
+  let target;
+  try { if (links && lstatSync(path).isSymbolicLink()) target = readlinkSync(path); } catch {}
+  if (target !== undefined) return realPath(isAbsolute(target) ? target : `${realPath(dirname(path), links - 1)}/${target}`, links - 1);
+  return dirname(path) === path ? path : join(realPath(dirname(path), links), basename(path));
 }
-function intoScratch({ target, dir, uncertainDirectory }, cwd, scratch, { home, guard = [] } = {}) {
+const under = (path, folder) => path.startsWith(folder.endsWith(sep) ? folder : folder + sep);
+const meets = (path, folder) => path === folder || under(path, folder) || under(folder, path);
+function intoScratch({ target, dir, uncertainDirectory }, cwd, scratch, place = {}) {
+  const { home, guard = [], protect } = place;
   const word = home && /^~(?:\/|$)/.test(target) ? home + target.slice(1) : target;
-  if (!scratch.length || uncertainDirectory || /[$`*?[\]{}~!]/.test(word)) return false;
-  const absolute = resolve(dir ?? cwd, word), project = mainCheckout(realPath(resolve(cwd)));
-  return [...new Set([join(realPath(dirname(absolute)), basename(absolute)), realPath(absolute)])].every((path) => {
-    const under = (folder) => path.startsWith(folder.endsWith(sep) ? folder : folder + sep);
-    return path !== project && !under(project) && !project.startsWith(path.endsWith(sep) ? path : path + sep) &&
-      scratch.some((folder) => under(realPath(resolve(folder)))) && !inWorkTree(path, guard);
-  });
+  if ((!protect && !scratch.length) || uncertainDirectory || /[$`*?[\]{}~!]/.test(word)) return false;
+  const written = isAbsolute(word) ? word : `${resolve(dir ?? cwd)}/${word}`;
+  const paths = [...new Set([resolve(written), written].flatMap((absolute) => [join(realPath(dirname(absolute)), basename(absolute)), realPath(absolute)]))];
+  if (protect) {
+    const open = scratch.map((folder) => realPath(resolve(folder)));
+    const places = [...checkouts(cwd, scratch).map((path) => ({ path, name: "the project's checkout" })), ...protect.map((p) => ({ ...p, path: realPath(resolve(p.path)), prefix: p.prefix && join(realPath(dirname(resolve(p.path))), basename(p.path)) }))];
+    const hits = ({ path: folder, prefix }, path) => (meets(path, folder) || (prefix && path.startsWith(prefix))) && !open.some((inner) => under(inner, folder) && under(path, inner));
+    const hit = paths.flatMap((path) => places.filter((p) => hits(p, path)))[0];
+    place.hit ??= hit?.name;
+    return !hit;
+  }
+  const project = mainCheckout(realPath(resolve(cwd)));
+  return paths.every((path) => !meets(path, project) && scratch.some((folder) => under(path, realPath(resolve(folder)))) && !inWorkTree(path, guard));
+}
+function checkouts(cwd, scratch) {
+  const main = mainCheckout(realPath(resolve(cwd))), list = join(main, ".git", "worktrees"), folders = [main];
+  let names = [];
+  try { names = readdirSync(list); } catch {}
+  for (const name of names) {
+    let gitdir;
+    try { gitdir = readFileSync(join(list, name, "gitdir"), "utf8").trim(); } catch { continue; }
+    const tree = realPath(dirname(resolve(list, name, gitdir)));
+    if (!scratch.some((folder) => under(tree, realPath(resolve(folder))))) folders.push(tree);
+  }
+  return folders;
 }
 const WALK_MAX = 2000;
 function inWorkTree(path, guard) {
@@ -251,26 +307,125 @@ function inProject({ target, dir, uncertainDirectory }, cwd) {
   const path = realPath(resolve(dir ?? cwd, literal || ".")), project = realPath(resolve(cwd));
   return path === project || path.startsWith(project.endsWith(sep) ? project : project + sep);
 }
-export function commandWrites(text, cwd, scratch = [], { readOnly = false, placed = false, home, guard } = {}) {
-  const place = { home, guard };
-  if (typeof text !== "string") return true;
+export const commandWrites = (...args) => commandWritePart(...args) !== undefined;
+export function commandWritePart(text, cwd, scratch = [], { readOnly = false, placed = false, home, guard, protect, known } = {}) {
+  if (typeof text === "string" && HOME_SET.test(text)) home = null;
+  const place = { home, guard, protect }, part = writePart(text, cwd, scratch, { readOnly, placed, home, protect, known }, place);
+  return part === undefined ? undefined : { part, place: place.hit, ...(place.error ? { error: place.error } : {}) };
+}
+function writePart(text, cwd, scratch, { readOnly, placed, home, protect, known }, place) {
+  const whole = String(text);
+  placed ||= Boolean(protect);
+  if (typeof text !== "string") return whole;
   try {
+    if (protect && CDPATH_SET.test(text) && /\b(?:cd|pushd|popd)\b/.test(text)) return whole;
+    if (known) text = literalNames(text, known);
     const commands = shellCommands(text);
-    const evidence = programsRun(text, cwd, undefined, { contextEvidence: true, redirectParts: true });
+    const evidence = programsRun(text, cwd, undefined, { contextEvidence: true, redirectParts: true, ...(home !== undefined ? { home } : {}) });
     const runs = new Set(evidence.programs.map(({ run }) => programName(run.word)));
-    if (commands.some((command) => writesIn(command, runs, placed))) return true;
+    const command = commands.find((command) => writesIn(command, runs, placed, Boolean(protect)));
+    if (command) return command.words.join(" ");
     const placeWrites = (entry, i) => {
-      const name = programName(entry.run.word);
-      if (placed && PLACED.has(name)) return Boolean(evidence.programs[i - 1]?.wrapper) || outsideScratch(placedTargets(name, entry.run.args), entry, cwd, scratch, place);
+      const name = programName(entry.run.word), wrapped = Boolean(evidence.programs[i - 1]?.wrapper);
+      if (placed && PLACED.has(name)) return wrapped || outsideScratch(placedTargets(name, entry.run.args), entry, cwd, scratch, place);
+      if (protect && /^g?sed$/.test(name)) { const files = sedTargets(entry.run.args, name === "sed"); return (wrapped && files !== EMPTY) || outsideScratch(files, entry, cwd, scratch, place); }
       if (/^(?:chmod|chown|chgrp|chflags)$/.test(name)) return modeTargets(name, entry.run.args).some((target) => inProject(at(entry, target), cwd));
-      return outsideScratch(name === "gh" ? ghTargets(entry.run.args) : readOnly && name === "git" ? gitTargets(entry.run.args) : [], entry, cwd, scratch, place);
+      return outsideScratch(name === "gh" ? ghTargets(entry.run.args) : name === "curl" ? curlTargets(entry.run.args) : readOnly && name === "git" ? gitTargets(entry.run.args) : [], entry, cwd, scratch, place);
     };
-    return evidence.redirects.some(r => toFile(r) && !intoScratch(r, cwd, scratch, place)) || evidence.programs.some((entry, i) => readerDispatch(entry) || outputDispatchWrites(entry) || placeWrites(entry, i));
-  } catch {
-    return true;
+    const redirect = evidence.redirects.find(r => toFile(r) && !intoScratch(r, cwd, scratch, place));
+    if (redirect) return `${redirect.operator} ${redirect.target}`;
+    const entry = evidence.programs.find((entry, i) => readerDispatch(entry) || writesCode([entry.run.word, ...entry.run.args]) || outputDispatchWrites(entry) || placeWrites(entry, i));
+    return entry && [entry.run.word, ...entry.run.args].join(" ");
+  } catch (error) {
+    place.error = error;
+    return whole;
   }
 }
+const EMPTY = [], SED_FLAGS = new Set(["--quiet", "--silent", "--regexp-extended", "--separate", "--unbuffered", "--null-data", "--posix", "--debug", "--sandbox", "--follow-symlinks", "--binary"]);
+function sedTargets(args, bsd) {
+  let inPlace = false, script = false;
+  const operands = [], suffixes = [];
+  for (let k = 0; k < args.length; k++) {
+    const arg = args[k];
+    if (arg === "--") { operands.push(...args.slice(k + 1)); break; }
+    if (arg.startsWith("--")) {
+      const equals = arg.indexOf("="), name = equals < 0 ? arg : arg.slice(0, equals);
+      if (name === "--in-place") inPlace = true;
+      else if (name === "--expression" || name === "--file" || name === "--line-length") { script ||= name !== "--line-length"; if (equals < 0) k++; }
+      else if (!SED_FLAGS.has(arg)) return true;
+    } else if (arg.length > 1 && arg.startsWith("-")) {
+      for (let j = 1; j < arg.length; j++) {
+        const option = arg[j], last = j === arg.length - 1;
+        if (option === "i" || option === "I") { inPlace = true; if (bsd && last && /^(?:|\.[\w.~-]*)$/.test(args[k + 1] ?? "-")) { k++; if (args[k]) suffixes.push(args[k]); } break; }
+        if ("efl".includes(option)) { script ||= option !== "l"; if (last) k++; break; }
+        if (!"nErsuz".includes(option)) return true;
+      }
+    } else operands.push(arg);
+  }
+  return !inPlace ? EMPTY : [...suffixes, ...(script ? operands : operands.slice(1))];
+}
+
+const SAFE_VALUE = /^[\w./@%+,:=-]+$/, KEPT_NAMES = /^(?:HOME|CDPATH|PWD|OLDPWD|IFS|PATH|ENV|BASH_ENV|ZDOTDIR)$/;
+const setsName = (name) => new RegExp(String.raw`(?<![\w$])${name}\+?=|\$\{${name}:?[=?]|\b(?:export|declare|typeset|local|readonly|read|unset|for|select|getopts|mapfile|readarray|printf|vared|zparseopts)\b[^;&|\n]*(?<![\w$])(?<!\$\{)${name}(?!\w)`);
+const HOME_SET = setsName("HOME"), CDPATH_SET = setsName("CDPATH");
+function scanNames(text) {
+  const bare = new Map(), uses = [], bad = new Set(), add = (name, at) => bare.set(name, [...(bare.get(name) ?? []), at]);
+  let state = "plain";
+  for (let i = 0; i < text.length;) {
+    const c = text[i];
+    if (state === "single") { if (c === "'") state = "plain"; }
+    else if (c === "\\") { i += 2; continue; }
+    else if (c === '"') state = state === "plain" ? "double" : "plain";
+    else if (state === "plain" && c === "'") state = "single";
+    else if (state === "plain" && c === "#" && (i === 0 || /[\s;&|()]/.test(text[i - 1]))) { while (i < text.length && text[i] !== "\n") i++; continue; }
+    else if (state === "plain" && text.startsWith("<<", i)) { if (text[i + 2] !== "<") return undefined; i += 3; continue; }
+    else if (state === "double" && (c === "`" || text.startsWith("$(", i))) return undefined;
+    else if (c === "$") {
+      if (state === "plain" && text[i + 1] === "'") return undefined;
+      const use = /^\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))/.exec(text.slice(i));
+      if (use) {
+        const name = use[1] ?? use[2], end = i + use[0].length;
+        if (use[2] && /[:[]/.test(text[end] ?? "")) bad.add(name);
+        uses.push({ name, at: i, end });
+        i = end;
+        continue;
+      }
+      i += text[i + 1] === "$" ? 2 : 1;
+      continue;
+    }
+    const word = /^[A-Za-z_]\w*/.exec(text.slice(i));
+    if (word && !/\w/.test(text[i - 1] ?? "")) { add(word[0], i); i += word[0].length; continue; }
+    i++;
+  }
+  return state === "plain" ? { bare, uses, bad } : undefined;
+}
+export function literalNames(text, known = {}) {
+  if (!text.includes("$")) return text;
+  const scan = scanNames(text);
+  if (!scan || scan.bare.has("IFS")) return text;
+  const commands = shellCommands(text), nodes = flowOf(commands)?.nodes ?? [], values = new Map();
+  nodes.forEach((node, k) => {
+    const c = node.cmd, before = nodes[k - 1]?.after;
+    if (!c || c.host || c.grouped || c.piped || /^(?:\||&)$/.test(node.after ?? "") || (k && !/^(?:;|&)?$/.test(before ?? ""))) return;
+    const start = c.words[0] === "export" && !c.syntax[0].quoted ? 1 : 0;
+    if (start === c.words.length || !c.syntax.slice(start).every((s) => s.assignment)) return;
+    for (const word of c.words.slice(start)) {
+      const name = word.slice(0, word.indexOf("=")), value = word.slice(name.length + 1), at = scan.bare.get(name);
+      values.set(name, at?.length === 1 && text[at[0] + name.length] === "=" && SAFE_VALUE.test(value) && !KEPT_NAMES.test(name) && !values.has(name) && !scan.bad.has(name) ? { value, at: at[0] } : null);
+    }
+  });
+  for (const [name, value] of Object.entries(known)) {
+    if (!values.has(name) && !scan.bare.has(name) && !scan.bad.has(name) && typeof value === "string" && isAbsolute(value) && SAFE_VALUE.test(value)) values.set(name, { value, at: -1 });
+  }
+  let out = text;
+  for (const use of [...scan.uses].sort((a, b) => b.at - a.at)) {
+    const known = values.get(use.name);
+    if (known && scan.uses.every((other) => other.name !== use.name || other.at > known.at)) out = out.slice(0, use.at) + known.value + out.slice(use.end);
+  }
+  return out;
+}
 const at = ({ run, uncertainDirectory }, target) => ({ target, dir: run.dir, uncertainDirectory });
+export const scratchTarget = (path, cwd, scratch, guard = []) => intoScratch({ target: path }, cwd, scratch, { guard });
 const outsideScratch = (targets, entry, cwd, scratch, place) => targets === true || targets.some((target) => !intoScratch(at(entry, target), cwd, scratch, place));
 export function gitDestroysWork(text, cwd, scratch = [], guard = []) {
   try {

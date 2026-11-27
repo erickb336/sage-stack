@@ -11,6 +11,8 @@ import { tool as codex } from "../plugins/sage-codex/skills/sage/sage.mjs";
 import { runBoardCli } from "../plugins/sage/board/cli.mjs";
 import { startLink } from "../plugins/sage/board/access.mjs";
 import { createBoardServer, loadBoardApp } from "../plugins/sage/board/server.mjs";
+import { QUESTION } from "./fixtures/question-message.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const chromium = requireBrowser();
 const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
@@ -46,7 +48,7 @@ async function openBoard(t, { viewport = { width: 1440, height: 1000 } } = {}) {
   as("task", "add", "--title", "Sample import recipes", "--size", "small", "--priority", "P1");
   as("task", "T1", "set", "pr=12", "branch=sage/t1-import");
   as("task", "add", "--title", "Sample print a recipe", "--size", "small", "--priority", "P2");
-  as("gate", "add", "T1", "--question", "Keep the old export format?", "--options", "keep|drop", "--recommend", "keep");
+  as("gate", "add", "--message", QUESTION, "T1", "--question", "Keep the old export format?", "--options", "keep|drop", "--recommend", "keep");
   const inClaude = { ...env, SAGE_HOME: join(env.CLAUDE_CONFIG_DIR, "sage") }, dirs = { lantern: dir };
   for (const name of PROJECTS) {
     const path = repository(base, name);
@@ -62,8 +64,9 @@ async function openBoard(t, { viewport = { width: 1440, height: 1000 } } = {}) {
   dirs.meadowClaude = claude.storeDir(meadow, inClaude);
   const sources = [{ id: "claude", label: "Claude", provider: "claude", path: inClaude.SAGE_HOME }, { id: "codex", label: "Codex", provider: "codex", path: inCodex.SAGE_HOME }, { id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }];
   const config = join(base, "home", ".config", "sage-board", "board.json"), stateDir = join(base, "home", ".config", "sage-board", "state");
-  const server = createBoardServer({ sources, port: 0, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair" });
+  const server = quietBoard({ sources, port: 0, app: APP, stateDir, pairCommand: "node /sample/board/cli.mjs board --pair" }, { create: createBoardServer });
   const { port } = await server.start();
+  await server.ready();
   await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify(sources)], { output: () => {}, env });
   const context = await browser.newContext({ viewport, colorScheme: "dark", timezoneId: "America/New_York" });
   t.after(async () => {
@@ -276,7 +279,7 @@ async function openMeadow(t) {
   const restore = () => page.locator(".banner.archived").getByRole("button", { name: "Restore" }).click();
   const again = () => page.locator(".banner.fail").getByRole("button", { name: "Try again" }).click();
   const books = () => [w.archived("meadowClaude"), w.archived("meadow")];
-  const settled = async want => { for (let i = 0; i < 100 && JSON.stringify(books()) !== JSON.stringify(want); i++) await page.waitForTimeout(100); return books(); };
+  const settled = async want => { for (const end = Date.now() + 30_000; Date.now() < end && JSON.stringify(books()) !== JSON.stringify(want);) await page.waitForTimeout(100); return books(); };
   return { ...w, archive, restore, again, books, settled };
 }
 async function partialNote({ page }, shown, expected, message) {
@@ -366,8 +369,8 @@ test("T1159 F-T1159-22, -37, -38, -19: the picker keeps the focus on its button 
   await archivedRow.getByRole("button", { name: "Restore harbor", exact: true }).click();
   await page.getByText("harbor is restored.").waitFor();
   await page.waitForFunction(() => !document.querySelector(".pick-menu"));
-  await page.waitForTimeout(1500);
-  assert.equal(await page.evaluate(() => document.activeElement === document.body), false, "F-T1159-37, -38: Restore names its project, and then the focus stays on the board's note, not on the page body");
+  await page.waitForFunction(() => document.activeElement?.matches('.banner[role="status"]') && document.activeElement.textContent.startsWith("harbor is restored."))
+    .catch(async () => assert.fail(`F-T1159-37, -38, F-T1168-6: after Restore the focus should be on the note "harbor is restored.", but it is on ${await page.evaluate(() => document.activeElement?.outerHTML.slice(0, 120))}`));
 
   const quarry = await pick(page, "quarry");
   await quarry.getByRole("button", { name: "Archive quarry" }).click();

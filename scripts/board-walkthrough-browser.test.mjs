@@ -1,14 +1,15 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { requireBrowser } from "./browser-prerequisite.mjs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { startLink } from "../packages/sage-board/access.mjs";
-import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
+import { loadBoardApp } from "../packages/sage-board/server.mjs";
 import { writeTasksLogbook } from "./fixtures/board-app.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const chromium = requireBrowser();
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -50,8 +51,9 @@ async function board(t, { empty = false, noTasks = false, judge = null } = {}) {
   }
   const stateDir = join(dir, "state"), stops = [];
   mkdirSync(stateDir);
-  const server = createBoardServer({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port: 0, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair", onStop: () => { stops.push(Date.now()); } });
+  const server = quietBoard({ sources: [{ id: "shared", path: join(dir, "logbooks"), label: "Shared" }], port: 0, app: APP, stateDir, pairCommand: "node /sample/board/cli.mjs board --pair", onStop: () => { stops.push(Date.now()); } });
   const { port } = await server.start();
+  await server.ready();
   t.after(async () => { await server.close(); if (saved === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = saved; rmSync(dir, { recursive: true, force: true }); });
   return { base: `http://127.0.0.1:${port}`, stateDir, stops, logbook };
 }
@@ -334,4 +336,46 @@ test("T1159 F-T1159-41, F-T1159-43: Back to the Overview from a page that a link
     await page.locator("main h1", { hasText: "Overview" }).waitFor();
     await page.waitForFunction(() => Math.abs(scrollY - 260) < 2);
   }
+});
+
+test("F-T1084-1: the walkthrough recorder stops at a frame with local text and writes no GIF; a clean run writes the GIF where it is told", async t => {
+  const dir = mkdtempSync(join(tmpdir(), "sage-walk-record-")), fake = join(dir, "ffmpeg"), calls = join(dir, "ffmpeg.log");
+  writeFileSync(fake, `#!/usr/bin/env node\nconst fs = require("fs"), a = process.argv.slice(2);\nif (a.includes("-version")) { console.log("ffmpeg version 7.1 sample"); process.exit(0); }\nfs.appendFileSync(${JSON.stringify(calls)}, a.join(" ") + "\\n");\nfs.writeFileSync(a[a.length - 1], "GIF89a sample");\n`, { mode: 0o755 });
+  const saved = Object.fromEntries(["FFMPEG", "HOME", "USER", "LOGNAME"].map(name => [name, process.env[name]]));
+  t.after(() => { for (const [name, value] of Object.entries(saved)) if (value === undefined) delete process.env[name]; else process.env[name] = value; rmSync(dir, { recursive: true, force: true }); });
+  Object.assign(process.env, { FFMPEG: fake, HOME: join(dir, "home"), LOGNAME: "zz" });
+  const { record } = await import("./board-walkthrough.mjs");
+
+  process.env.USER = "Sample";
+  const refused = join(dir, "refused.gif");
+  await assert.rejects(record({ theme: "light", out: refused, framesDir: join(dir, "refused-frames") }), /a frame shows the local text "Sample"/);
+  assert.equal(existsSync(refused), false, "no GIF after the guard stops the run");
+  assert.equal(existsSync(calls), false, "ffmpeg never encoded");
+
+  process.env.USER = "nobody-on-the-board";
+  const out = join(dir, "walk.gif"), frames = join(dir, "frames");
+  const done = await record({ theme: "light", out, framesDir: frames });
+  assert.equal(readFileSync(out, "utf8"), "GIF89a sample", "the GIF is at the out path");
+  assert.equal(done.bytes, Buffer.byteLength("GIF89a sample"));
+  assert.equal(done.frames, readdirSync(frames).filter(name => name.endsWith(".png")).length, "the count is the frames kept");
+  assert.ok(done.frames > 100, `${done.frames} frames`);
+  assert.equal(readFileSync(calls, "utf8").trim().split("\n").length, 1, "one encode");
+});
+
+test("T1185: the tour shows every board page under its own caption, with sample data, and writes the video where it is told (at 2 fps, so CI stays fast)", async t => {
+  const dir = mkdtempSync(join(tmpdir(), "sage-walk-tour-")), fake = join(dir, "ffmpeg"), calls = join(dir, "ffmpeg.log");
+  writeFileSync(fake, `#!/usr/bin/env node\nconst fs = require("fs"), a = process.argv.slice(2);\nif (a.includes("-version")) { console.log("ffmpeg version 7.1 sample"); process.exit(0); }\nfs.appendFileSync(${JSON.stringify(calls)}, a.join(" ") + "\\n");\nfs.writeFileSync(a[a.length - 1], "sample video");\n`, { mode: 0o755 });
+  const saved = Object.fromEntries(["FFMPEG", "HOME", "USER", "LOGNAME"].map(name => [name, process.env[name]]));
+  t.after(() => { for (const [name, value] of Object.entries(saved)) if (value === undefined) delete process.env[name]; else process.env[name] = value; rmSync(dir, { recursive: true, force: true }); });
+  Object.assign(process.env, { FFMPEG: fake, HOME: join(dir, "home"), USER: "nobody-on-the-board", LOGNAME: "zz" });
+  const { record } = await import("./board-walkthrough.mjs");
+
+  const out = join(dir, "tour.mp4"), done = await record({ tour: true, fps: 2, out, framesDir: join(dir, "frames") });
+  assert.equal(readFileSync(out, "utf8"), "sample video", "the video is at the out path");
+  assert.equal(readFileSync(calls, "utf8").trim().split("\n").length, 1, "one encode");
+  const pages = { Overview: "Overview", "Needs you": "Overview", Sessions: "Overview", Tasks: "Tasks", "A task": "Sample sync design", Agents: "Agents", "Pull requests": "Pull requests", Stats: "Stats", Archive: "Overview" };
+  assert.deepEqual([...new Set(done.scenes.map(scene => scene.caption))], Object.keys(pages), "each page has its caption, in the order of the tour");
+  for (const [caption, heading] of Object.entries(pages)) assert.ok(done.scenes.some(scene => scene.caption === caption && scene.heading.startsWith(heading)), `${caption}: the page ${heading} shows under its caption`);
+  assert.ok(done.scenes.some(scene => scene.caption === "Archive" && /^Sample notes\s*archived/.test(scene.project)), "Archive: the tour opens the archived sample project");
+  assert.ok(done.seconds >= 30, `${done.seconds} s: a full tour, longer than the short GIF`);
 });

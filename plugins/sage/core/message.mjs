@@ -207,13 +207,14 @@ export const pageType = (file) => {
 export const pagePath = (logbook, task, file) => `/pages/${logbook}/${task}/${file}`;
 export const pageUrl = (logbook, task, file, port = BOARD_PORT) => `http://127.0.0.1:${port}${pagePath(logbook, task, file)}`;
 
-export const pageBlock = ({ title, url, path, file }, width = WIDTH) => [...wrap(`Page · ${plain(title)}`, width), ...(url ? [`  ${url}`] : []), `  ${path ?? file}`];
+export const pageBlock = ({ title, url, path, file }, width = WIDTH, down) => [...wrap(`Page · ${plain(title)}`, width),
+  ...(down ? [path ?? file, down, url] : [url, path ?? file]).filter(Boolean).map((line) => `  ${line}`)];
 
-export function messageText(msg, { width = WIDTH, page, full = false, today = false } = {}) {
-  const own = page ? [pageBlock(page)] : [], ref = msg.ref ? [[`Ref: ${msg.ref}`]] : [];
+export function messageText(msg, { width = WIDTH, page, full = false, today = false, down } = {}) {
+  const own = page ? [pageBlock(page, WIDTH, down)] : [], ref = msg.ref ? [[`Ref: ${msg.ref}`]] : [];
   const parts = msg.long !== undefined && !full
     ? [[headOf(msg)], wrap(plain(msg.long.title), WIDTH), wrap(`Main point: ${plain(msg.long.main)}`, WIDTH), ...own, ...ref]
-    : [[headOf(msg)], wrap(plain(msg.title), width), ...msg.blocks.map((b) => [...(b.t === "table" && KINDS[msg.kind].tableLabel ? [heading(KINDS[msg.kind].tableLabel, 0), ""] : []), ...blockText(b, width, today)]), ...own, ...ref];
+    : [[headOf(msg)], wrap(plain(msg.title), width), ...msg.blocks.map((b) => [...(b.t === "table" && KINDS[msg.kind].tableLabel ? [heading(KINDS[msg.kind].tableLabel, 0), ""] : []), ...blockText(b, width, { today, down })]), ...own, ...ref];
   return parts.map((p) => p.join("\n")).join("\n\n");
 }
 
@@ -222,12 +223,12 @@ const bullet = (text, width, mark = "- ", ind = 0) => wrap(plain(text), width - 
 
 const heading = (label, depth) => `${"#".repeat(Math.min(3 + depth, 6))} ${plain(label)}`;
 
-function blockText(b, width, today = false, depth = 0) {
+function blockText(b, width, { today = false, down } = {}, depth = 0) {
   switch (b.t) {
     case "field": return [heading(b.label, depth), "", ...wrap(plain(b.text), width)];
     case "p": return wrap(plain(b.text), width);
     case "section": {
-      const body = b.body.map((x) => (x.t === "field" ? bullet(`${x.label}: ${x.text}`, width) : blockText(x, width, today, depth + 1)));
+      const body = b.body.map((x) => (x.t === "field" ? bullet(`${x.label}: ${x.text}`, width) : blockText(x, width, { today, down }, depth + 1)));
       return [heading(b.label, depth), "", ...body.flatMap((rows, k) => (k && !(b.body[k].t === "field" && b.body[k - 1].t === "field") ? ["", ...rows] : rows))];
     }
     case "list": return b.items.flatMap((item, i) => bullet(item, width, b.ordered ? `${i + 1}. ` : "- "));
@@ -243,7 +244,7 @@ function blockText(b, width, today = false, depth = 0) {
     }
     case "changes": return b.rows.flatMap((r, i) => [...(i ? [""] : []), ...bullet(r.where, width, `${i + 1}. `),
       ...[["Today", r.today], ["After", r.after], ["Why", r.why]].flatMap(([label, text]) => bullet(`${label}: ${text}`, width, "- ", 3))]);
-    case "page": return pageBlock(b, width);
+    case "page": return pageBlock(b, width, down);
     case "code": return [FENCE, ...b.lines, FENCE];
     case "steps": return b.items.flatMap((s, i) => [...(i ? [""] : []), ...bullet(s.text, width, `${i + 1}. `),
       ...(s.cmd ? ["", ...indentRows([FENCE, ...s.cmd, FENCE], 3)] : []), ...(s.see ? ["", ...indentRows(wrap(plain(s.see), width - 3), 3)] : [])]);

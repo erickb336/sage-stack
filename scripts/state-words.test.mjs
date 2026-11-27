@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildBoardModel, milestoneWord, releaseWord, renderBoardText, renderTaskText, taskWord } from "../packages/sage-core/index.mjs";
-import { FLAGS, KINDS, MARKS as MARKS_TABLE, OBJECTS, STEPS, URGENCY, WORDS, chiefName, prName, shown } from "../packages/sage-core/state-words.mjs";
+import { FLAGS, KINDS, MARKS as MARKS_TABLE, OBJECTS, STEPS, URGENCY, WORDS, chiefName, prName, runWord, shown } from "../packages/sage-core/state-words.mjs";
+import * as words from "../packages/sage-core/state-words.mjs";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createRequire } from "node:module";
@@ -179,11 +180,10 @@ test("T997: the board model gives each card its word, one card for each of the s
   assert.deepEqual(Object.fromEntries(Object.keys(SHOWN).map(id => [id, board.tasks.find(card => card.id === id).word])), SHOWN);
 });
 
-test("T997: each chat board line shows its word after the title, and a wait names the word of the task that it waits for", () => {
+test("T997, T1217: the chat digest puts a task that needs you, one in progress and one done in their parts, and leaves out the backlog's not started, waiting and stopped tasks", () => {
   const board = sixBoard(), text = renderBoardText(board);
-  for (const [id, word] of Object.entries(SHOWN).filter(([id]) => id !== "T6")) assert.ok(text.includes(`**Sample** ${id} · ${word} · one · `), `${id}: ${text}`);
-  assert.ok(text.includes("**1 · Sample** T4 · needs you · one · "), "the Needs you item too");
-  assert.ok(text.includes("⧗ Waits for T3 \\(in progress\\)\\.") && text.includes("⊘ Waits for T6 \\(stopped\\)\\: it cannot start\\."), text);
+  assert.ok(text.includes("### 🔴 Needs you\n- Sample. Sample: which layout?\n  Recommended: the first.\n\n### Moving now\n- Sample. Building.\n\n### Done since yesterday\n- Sample. Merged at "), text);
+  assert.equal(text.split("\n").filter(line => line.startsWith("- Sample")).length, 3, "T1, T2, T6 and T7 are not started, waiting or stopped: no line");
   assert.equal(renderTaskText(board.tasks.find(card => card.id === "T6")).split("\n")[1], "one · sample · stopped · small", "the chat lookup of one task");
 });
 
@@ -202,17 +202,21 @@ test("T1096: each primary object has its label, and each tool state and step giv
   const pairs = [...Object.values(OBJECTS).flatMap(object => Object.entries(object.states)), ...Object.entries(STEPS)];
   for (const [state, [word, flag, ...rest]] of pairs) assert.ok(WORDS.includes(word) && (flag === undefined || FLAGS.includes(flag)) && !rest.length, state);
   assert.deepEqual(Object.entries(OBJECTS.task.states).filter(([state]) => taskWord({ state }).word !== OBJECTS.task.states[state][0]), [], "the task map agrees with taskWord");
-  assert.deepEqual([shown(OBJECTS.agent.states.stuck), shown(OBJECTS.agent.states.failed), shown([])],
-    [{ word: "in progress", flag: "may be stuck", mark: "!", text: "in progress · may be stuck" }, { word: "stopped", flag: "failed", mark: "!", text: "stopped · failed" }, { word: "unknown", flag: null, mark: "◌", text: "unknown" }]);
+  assert.deepEqual([runWord("running", { level: "amber", text: "Look at it" }), runWord("work", { level: "calm", text: "Codex: activity unknown" }), shown(OBJECTS.agent.states.failed), shown([])],
+    [{ word: "in progress", flag: "Look at it", mark: "!", text: "in progress · Look at it" }, { word: "in progress", flag: "Codex: activity unknown", mark: "▶", text: "in progress · Codex: activity unknown" }, { word: "stopped", flag: "failed", mark: "!", text: "stopped · failed" }, { word: "unknown", flag: null, mark: "◌", text: "unknown" }]);
+  assert.deepEqual(Object.keys(OBJECTS.agent.states).filter(state => !["queued", "running", "done", "question", "failed", "blocked", "work", "wait"].includes(state)), [], "T1224: a flag is not an agent state");
   assert.deepEqual([prName(44), chiefName("C1", "claude"), chiefName("C2", null), chiefName(null, "codex")], ["PR 44", "Claude · C1", "C2", "Codex"]);
 });
 
-test("T1096: the guide's mark key and Agents page key show the table's marks and words", () => {
+test("T1096, F-T1182-4: the guide's mark key and Agents page key show the table's marks and words, and the guide names no offer line", () => {
   const guide = readFileSync(new URL("../docs/guide/board.md", import.meta.url), "utf8");
   for (const word of WORDS) assert.ok(guide.includes(`| ${word} | ${MARKS_TABLE[word]} |`), word);
-  for (const state of ["work", "wait", "stuck", "long", "stop"]) { const { mark, text } = shown(OBJECTS.agent.states[state]); assert.ok(guide.includes(`| ${mark} ${text} |`), state); }
+  for (const [state, flag] of [["work"], ["wait"], ["work", { level: "red", text: "Stopped without a report" }], ["work", { level: "amber", text: "Look at it" }], ["work", { level: "calm", text: "Codex: activity unknown" }]]) { const { mark, text } = runWord(state, flag); assert.ok(guide.includes(`| ${mark} ${text} |`), text); }
   assert.ok(guide.includes(`\`${MARKS_TABLE.problem}\` is a problem: ${FLAGS.slice(0, -1).join(", ")} or ${FLAGS.at(-1)}.`) && guide.includes(`\`${MARKS_TABLE.unknown}\` is a state that the board does not know.`), "the two more marks");
   const render = readFileSync(new URL("../packages/sage-core/board-render.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(guide, /offer line|⇄/, "F-T1182-4: the guide names no offer line: the board shows none");
+  assert.match(guide, /"picked up 146 tasks at 15:59"/, "F-T1182-4: the guide shows the pick-up note of a session row");
+  assert.ok(guide.includes(`"${words.pickupLine?.({ at: "2026-11-20T15:59:00Z", to: "C3", toProvider: "claude", tasks: 146, lost: [], sources: [{ from: "C1", fromProvider: "claude", tasks: 69 }, { from: "C2", fromProvider: "codex", tasks: 2 }, { from: "", fromProvider: "", tasks: 75 }] }, () => "20 Nov, 15:59")}"`), "F-T1182-4: the guide's pick-up line is the board's line");
   for (const mark of [MARKS_TABLE["cannot start"], "🔴"]) assert.ok((mark === "🔴" ? render.includes(mark) : render.includes('MARKS["cannot start"]')) && new RegExp(`^- \`?${mark}\`? `, "m").test(guide), `F-T1099-58: the guide's key explains ${mark}, which the boards show`);
 });
 
@@ -231,14 +235,10 @@ test("F-T1096-1, F-T1096-12, F-T1099-49: the task page and the chat lookup show 
   assert.deepEqual(chat.split("**Agent runs**\n")[1].split("\n\n")[0].split("\n").map(line => line.split(" · ")[2] === "stopped" ? line.split(" · ").slice(2, 4).join(" · ") : line.split(" · ")[2]), Object.values(STATUSES));
 });
 
-test("F-T1096-2: no mark has two meanings, also across the kind tags and the offer line, on the web board and in the chat", () => {
+test("F-T1096-2: no mark has two meanings, also across the kind tags, on the web board and in the chat", () => {
   const meanings = new Map();
   for (const [meaning, mark] of [...Object.entries(MARKS_TABLE), ...Object.entries(KINDS).map(([kind, [mark]]) => [`kind ${kind}`, mark])]) meanings.set(mark, [...meanings.get(mark) ?? [], meaning]);
   assert.deepEqual([...meanings].filter(([, list]) => list.length > 1), []);
-  const board = model({ row: task("T1", "building", { kind: "orchestration" }) });
-  board.tasks[0].offer = "Offered to Codex · C2.";
-  const text = renderBoardText(board);
-  assert.ok(text.includes(`${MARKS_TABLE.offer} Offered to Codex`), "the chat board");
   for (const [kind, [mark]] of Object.entries(KINDS)) assert.ok(!Object.values(MARKS_TABLE).includes(mark), kind);
 });
 

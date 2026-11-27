@@ -9,6 +9,7 @@ import { reportGate } from "./report-gate.mjs";
 import { answer } from "./sage-codex-hook.mjs";
 import { startStatus } from "./session-start-hook.mjs";
 import { modeDirectory, privateDirectory, readState, saveState, stateKey } from "./hook-state.mjs";
+import { markFile } from "./start-mark.mjs";
 
 const mode = (input) => answer(input, process.env);
 const stop = (input) => reportGate(input, process.env);
@@ -35,13 +36,15 @@ function routed(event, input, context) {
 }
 
 function beat(input, env = process.env) {
-  if (env.SAGE_HOOKS === "off" || !ROUTES[input?.hook_event_name] || "agent_id" in input || typeof input.cwd !== "string" || !stateKey(input)) return;
+  if (env.SAGE_HOOKS === "off" || !ROUTES[input?.hook_event_name] || typeof input.cwd !== "string" || !stateKey(input)) return;
   try {
-    const dir = join(modeDirectory(env), "live"), file = join(dir, `${stateKey(input)}.json`);
-    let last;
+    const session = { session_id: input.session_id }, dir = join(modeDirectory(env), "live"), file = join(dir, `${stateKey(session)}.json`);
+    let last, pid;
     try { last = readState(file); } catch {}
+    try { pid = readState(markFile(modeDirectory(env), input.session_id)).pid; } catch {}
+    if (pid !== process.ppid) pid = undefined;
     const { sage, autopilot } = readMode({ session: input.session_id }, env);
-    const next = chiefBeat({ last, mode: { sageMode: sage, autopilot }, now: Date.now(), project: input.cwd, native: input.session_id, provider: "codex", tool, env });
+    const next = chiefBeat({ last, mode: { sageMode: sage, autopilot }, now: Date.now(), project: input.cwd, native: input.session_id, provider: "codex", tool, env, pid });
     if (next === last) return;
     privateDirectory(dir);
     saveState(file, next);

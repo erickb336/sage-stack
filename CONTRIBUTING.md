@@ -24,7 +24,7 @@ Edit only the sources. The build makes everything else, and `npm run check` fail
 | `packages/` (shared code, and each provider's hooks, agents and skills) | `instructions/core.md` (built from `preferences/` and `writing/`) |
 | `scripts/graphics.mjs` (draws the README's graphics) | `docs/assets/*.svg` (drawn by the script) |
 | `scripts/board-shots.mjs` (takes the board screenshots) | `docs/assets/board-*.png` and `learn-*.png` (taken by the script) |
-| `scripts/board-walkthrough.mjs` (records the board walkthrough) | `docs/assets/board-walkthrough-*.gif` (recorded by the script) |
+| `scripts/board-walkthrough.mjs` (records the board walkthrough and the tour) | `docs/assets/board-walkthrough-*.gif` and `board-tour.mp4` (recorded by the script) |
 
 To add a principle, add `principles/<name>.md`. A principle adapted from pstack has `source: pstack principle-<name>`, with the credit and the pstack version and commit that it was checked against (see [Credit](#credit)).
 
@@ -68,11 +68,23 @@ To add a principle, add `principles/<name>.md`. A principle adapted from pstack 
 
    A branch made before the no-comments sweep (PR 540) has comments that main does not have. See [A branch from before the sweep](#a-branch-from-before-the-sweep).
 
-6. Run the tests. CI runs the check and the tests on each pull request. It runs `npm test` in 4 parts at the same time: `node --test` sorts the test files by path and gives each file to exactly one part. To run one part, set `TEST_SHARD`, for example `TEST_SHARD=2/4 npm test`. CI runs on Ubuntu 24.04, not on `ubuntu-latest`, because Playwright 1.55.1 has no headless shell for Ubuntu 26.04 (`ubuntu-latest` since 2026-10-19). The last job of the workflow, `check`, passes only when every other job passed. The protection of `main` requires that job by its name, so keep the name.
+6. Run the tests. CI runs the check and the tests on each pull request. It runs `npm test` in 10 parts at the same time: `node --test` sorts the test files by path and gives each file to exactly one part. CI runs on Ubuntu 24.04, not on `ubuntu-latest`, because Playwright 1.55.1 has no headless shell for Ubuntu 26.04 (`ubuntu-latest` since 2026-10-19). The last job of the workflow, `check`, passes only when every other job passed. The protection of `main` requires that job by its name, so keep the name.
 
    ```sh
    npm test
+   TEST_SHARD=2/10 npm test                  # one CI part
+   node --test scripts/lead-agent-2.test.mjs # one numbered file of a large test file
    ```
+
+   The three largest test files each run as numbered files: `scripts/sage-tests.mjs` as 10 (`scripts/sage-1.test.mjs` to `scripts/sage-10.test.mjs`), `scripts/lead-agent-tests.mjs` as 10 and `scripts/sage-hook-tests.mjs` as 20. Each numbered file sets its number and imports the large file. The large file takes `test` from `splitTest` in `scripts/test-split.mjs`, so numbered file k of n runs tests k, k + n, k + 2n and on. Because the count of numbered files is a multiple of the 10 CI parts, each CI part runs the same share of each large file. `scripts/test-split.test.mjs` proves that the numbered files run each test exactly once, and that each CI part gets the same count of them.
+
+   To split another large test file `scripts/<name>.test.mjs`:
+
+   1. Rename it to `scripts/<name>-tests.mjs`.
+   2. In it, replace the import of `test` from `node:test` with `const test = splitTest(10, globalThis.<NAME>_PART);`, with `splitTest` from `./test-split.mjs`. Use a multiple of 10.
+   3. Add `scripts/<name>-1.test.mjs` to `scripts/<name>-10.test.mjs`. File k has two lines: `globalThis.<NAME>_PART = k;` and `await import("./<name>-tests.mjs");`.
+   4. In the `test` script of `package.json`, replace the old file with the numbered files.
+   5. Run `node --test scripts/test-split.test.mjs`. Its message names the cause and the fix of a wrong count or number.
 
 7. Run the browser tests of the board. They are not in `npm test`, so that it stays fast. They use the Chromium headless shell of the pinned `playwright` devDependency. `npm ci` downloads no browser, so install it once:
 
@@ -133,13 +145,20 @@ The README's board walkthrough, `docs/assets/board-walkthrough-dark.gif` and `bo
 npm run walkthrough
 ```
 
+The full tour of every board page, `docs/assets/board-tour.mp4`, comes from the same script. The README links it under the walkthrough. Make it again after a board change:
+
+```sh
+npm run tour
+```
+
 - It writes the sample logbook of the screenshots (`scripts/fixtures/board-app.mjs`) to a temporary folder and starts a board server on a free port, with the built app.
 - It pairs a Playwright browser at 1320 by 800 pixels and plays one fixed path of three scenes: the Overview, a zoom on Needs you, and a click that opens one task. The clip is about 9 s long and loops.
 - It records frame by frame, 20 frames a second: for each frame it sets the zoom, the cursor, the click ring, the caption and any fade, then takes one screenshot. So the clip does not depend on the speed of the machine, and the text stays sharp in a zoom.
-- Each frame carries a caption and a SAMPLE DATA label. ffmpeg puts a window frame around each frame, with the title "sage board · sample data".
+- ffmpeg puts a window frame around each frame: a title bar with a SAMPLE DATA label, and a caption band under the board. So the label and the caption never cover board text.
 - The board server of the walkthrough refuses every write, so the script never runs the state tool.
 - It stops when a frame shows the temporary folder, the home folder or the user name.
-- It needs ffmpeg 6 or later, to write the GIF: on PATH, or its path in `FFMPEG` (macOS: `brew install ffmpeg`; Debian or Ubuntu: `sudo apt-get install ffmpeg`).
+- The tour adds an archived sample project, and plays nine scenes in the dark theme: the Overview, zooms on Needs you and Sessions, then Tasks, one task, Agents, Pull requests, Stats and the Archive. It is about 53 s long, an H.264 MP4 of about 1.6 MB. A video in the repository does not play in a GitHub README, so the README links the file.
+- It needs ffmpeg 6 or later, to write the GIF and the MP4: on PATH, or its path in `FFMPEG` (macOS: `brew install ffmpeg`; Debian or Ubuntu: `sudo apt-get install ffmpeg`).
 - It uses Playwright's Chromium, or the browser in `--browser <path>` or `BOARD_BROWSER_PATH`. `--theme dark` or `--theme light` makes one GIF; `--frames <folder>` keeps the frames in a new or empty folder, to compare two runs.
 - Each GIF is about 5 MB. CI does not run it. Two runs make the same frames, except for the clock times on the board.
 

@@ -213,8 +213,9 @@ test("T51: built hook normalizes agent stash, process, reader and writer executa
     assert.match(decide(`${executable} stash`)?.hookSpecificOutput?.permissionDecisionReason ?? "", /never runs git stash/, executable);
     assert.notEqual(decide(`${executable} status`)?.hookSpecificOutput?.permissionDecision, "deny", executable);
   }
-  for (const name of ["PS", "PGREP.exe", "KiLlAll.EXE", "/tools/GET-PROCESS.exe"])
-    assert.match(decide(`${name} sample`)?.hookSpecificOutput?.permissionDecisionReason ?? "", /process list/, name);
+  for (const name of ["PKILL", "KILL.exe", "KiLlAll.EXE", "/tools/GET-PROCESS.exe"])
+    assert.match(decide(`${name} sample`)?.hookSpecificOutput?.permissionDecisionReason ?? "", /never signals or controls a real process/, name);
+  for (const name of ["PS", "PGREP.exe", "/usr/sbin/LSOF"]) assert.notEqual(decide(`${name} -ax`)?.hookSpecificOutput?.permissionDecision, "deny", `a look (G233): ${name}`);
   const fake = join(f.dir, "PS.EXE"); writeFileSync(fake, "#!/bin/sh\nexit 0\n"); chmodSync(fake, 0o755);
   assert.notEqual(decide(`'${fake}' sample`)?.hookSpecificOutput?.permissionDecision, "deny", "a real temporary fake remains allowed");
   for (const command of [`CP.exe source '${logbook}/tasks.tsv'`, `RG.exe --pre cat '${logbook}/tasks.tsv'`, `FILE.exe -C '${logbook}/tasks.tsv'`])
@@ -407,9 +408,10 @@ test("provider packages are complete outside the checkout, with no opposite adap
     const task = run("task", "add", "--priority", "P2", "--title", "Shared behavior", "--size", "small");
     assert.equal(task.status, 0, task.stderr);
     assert.match(run("status").stdout, /tasks\s+1 · framed 1/);
+    assert.equal(run("task", "T1", "set", "state=briefed").status, 0);
     const board = run("board", "this");
     assert.equal(board.status, 0, board.stderr);
-    assert.match(board.stdout, /Shared behavior/);
+    assert.match(board.stdout, /\n- Shared behavior\. Briefed\.\n/);
     const mod = await import(pathToFileURL(join(plugin, "skills/sage/sage.mjs")).href);
     const tool = provider === "codex" ? mod.tool : mod;
     assert.equal(tool.sageRoot({ HOME: join(dir, "home") }), join(dir, "home", `.${provider}`, "sage"));
@@ -424,13 +426,13 @@ test("T216, T1054, T1063, T1064: each plugin's board is a cross-provider reader:
     const { dir, plugin } = isolated(t, provider);
     const files = filesUnder(join(plugin, "board")), app = join(plugin, "board/app");
     const manifest = JSON.parse(readFileSync(join(app, "manifest.json"), "utf8")), built = [manifest.script, manifest.style, manifest.vendor, manifest.graph];
-    assert.deepEqual(files.map((file) => relative(join(plugin, "board"), file)).sort(), ["access.mjs", "cli.mjs", "install.mjs", "markdown.mjs", "material.mjs", "pages.mjs", "reader.mjs", "server.mjs", "writes.mjs", ...["manifest.json", ...built].map((name) => `app/${name}`)].sort());
+    assert.deepEqual(files.map((file) => relative(join(plugin, "board"), file)).sort(), ["access.mjs", "cli.mjs", "install.mjs", "markdown.mjs", "material.mjs", "pages.mjs", "reader.mjs", "server.mjs", "thread.mjs", "writes.mjs", ...["manifest.json", ...built].map((name) => `app/${name}`)].sort());
     for (const name of built) assert.match(name, /^(?:app|vendor|graph)-[A-Z0-9]{8}\.(?:js|css)$/);
     const { parse } = await import("es-module-lexer/minimal");
     for (const file of files.filter((path) => path.endsWith(".mjs"))) {
       const [imports] = parse(readFileSync(file, "utf8"));
       for (const { n: name } of imports.filter((item) => item.d !== -2)) {
-        const allowed = name?.startsWith("node:") || name === "../core/index.mjs" || /^\.\/(?:access|cli|install|markdown|material|pages|reader|server|writes)\.mjs$/.test(name ?? "");
+        const allowed = name?.startsWith("node:") || name === "../core/index.mjs" || /^\.\/(?:access|cli|install|markdown|material|pages|reader|server|thread|writes)\.mjs$/.test(name ?? "");
         assert.ok(allowed, `${provider} ${relative(plugin, file)} imports ${name}`);
       }
     }

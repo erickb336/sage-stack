@@ -13,10 +13,10 @@ import { backed, reportFor } from "./verdict-backing.mjs";
 const TOOL = fileURLToPath(new URL("../plugins/sage/skills/sage/sage.mjs", import.meta.url));
 const SPY = fileURLToPath(new URL("kill-spy.mjs", import.meta.url));
 
-function world(t) {
+function world(t, name = "project") {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "sage-carry-")));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const project = join(dir, "project");
+  const project = join(dir, name);
   execFileSync("git", ["init", "-q", "-b", "main", project]);
   const git = (...args) => execFileSync("git", ["-C", project, "-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   const work = (files, message = "work") => {
@@ -176,14 +176,16 @@ test("f: both boards agree with the merge check on a head whose cycles carry, an
   const sources = [{ id: "current", path: w.env.SAGE_HOME }];
   const card = () => buildBoardModel(readBoardSources(sources), { landing: landingRule(sources) }).tasks.find((c) => c.id === "T1").mergeCheck;
   assert.deepEqual(card(), { ok: true, text: `The merge check passes on ${h2.slice(0, 7)}. The board does not check the PR's head branch.` }, "the rich board");
-  assert.match(w.cli("board", "all"), /\n> The board cannot tell if autopilot is on, so review and merge PR 41\\\.\n/, "the chat board");
+  const board = w.cli("board", "all");
+  assert.match(board, /\. The board cannot tell if autopilot is on, so review and merge its PR\.\n/, "the chat board");
+  assert.match(board, /\nRef: T1 PR 41$/, "the chat board keeps the PR number for the Ref line (T1217)");
   w.git("update-ref", "-d", "refs/remotes/origin/main");
   assert.equal(w.refused(h2), notCarried(h1, GONE));
   assert.deepEqual(card(), { ok: false, text: `The merge check refuses ${h2.slice(0, 7)}. T1: 0 of 1 clean cycles on this SHA; never recorded: review-clean, qa-pass.` });
   const chat = w.cli("board", "all");
-  assert.ok(chat.includes(`Now: The merge check refuses ${h2.slice(0, 7)}\\. T1\\: 0 of 1 clean cycles on this SHA; never recorded\\: review-clean, qa-pass\\.`), chat);
-  assert.ok(chat.includes("No recorded task needs you."), "F-T1096-8: a refused merge is the chief's to fix, so it is not in Needs you");
-  assert.doesNotMatch(chat, /review and merge PR 41/, "the chat board");
+  assert.ok(chat.includes("\n### Moving now\n- t. The merge check refuses its last commit; the chief repairs it.\n"), chat);
+  assert.ok(chat.includes("### Needs you\nNothing waits for you."), "F-T1096-8: a refused merge is the chief's to fix, so it is not in Needs you");
+  assert.doesNotMatch(chat, /review and merge/, "the chat board");
 });
 
 test("g: a carried refusal says that a verdict on this SHA replaces the carried cycles, and the next refusal says why (F-T805-2)", (t) => {
@@ -276,4 +278,30 @@ test("F-T1159-9: the carry's merge-tree writes no object into the checkout, from
   const sources = [{ id: "current", path: w.env.SAGE_HOME }];
   assert.equal(buildBoardModel(readBoardSources(sources), { landing: landingRule(sources) }).tasks.find((c) => c.id === "T1").mergeCheck.ok, false, "the board read the same merge");
   assert.equal(objects(), before, "the board wrote no object into the checkout");
+});
+
+test("F-T1168-4: the cycles carry when the checkout path has a colon (the list separator of Git's alternate object folders), a quote or a backslash", (t) => {
+  const w = world(t, "with:colon \"quote\\back");
+  const h1 = w.work({ "src.js": "x\n" });
+  w.reviewed(h1);
+  w.main({ "other.js": "m\n" });
+  const h2 = w.merge();
+  w.verdicts(h2, "checks-pass");
+  assert.equal(w.check(h2), carried(h1, h2));
+});
+
+test("T1197: a merge into main after the head's last CI that changed the same file refuses the head; after a clean merge of main and CI on the new head, the cycles carry and the check passes", (t) => {
+  const w = world(t);
+  const h1 = w.work({ "src.js": "x\n", "a.txt": "1p\n2\n3\n4\n5\n6\n7\n8\n9\n" });
+  w.reviewed(h1);
+  w.main({ "a.txt": "1\n2\n3\n4\n5\n6\n7\n8\n9m\n" });
+  const h2 = w.merge();
+  const answers = join(w.project, "..", "github.json");
+  writeFileSync(answers, JSON.stringify({ files: ["src.js", "a.txt"], dates: { [h1]: "2026-11-21T02:00:00Z", [h2]: "2026-11-21T03:00:00Z" }, merged: [{ number: 50, merged: "2026-11-21T02:30:00Z", files: ["a.txt", "b.txt"] }] }));
+  w.env.SAGE_TEST_GH = answers;
+  assert.match(w.refused(h1), /^sage: PR 41 changes files that a merge into main after its last CI also changed: PR 50 \(a\.txt\)\. .*Merge main into the branch, wait for CI to pass on the new head/);
+  w.verdicts(h2, "checks-pass");
+  assert.equal(w.check(h2), carried(h1, h2));
+  writeFileSync(answers, JSON.stringify({ fail: "pulls?state=closed" }));
+  assert.match(w.refused(h2), /^sage: the merge check cannot read from GitHub .*fake gh: pulls\?state=closed failed.*so it refuses the merge/);
 });

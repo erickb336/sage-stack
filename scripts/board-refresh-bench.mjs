@@ -2,6 +2,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSy
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 if (process.argv.includes("--help")) { console.log("node scripts/board-refresh-bench.mjs [--repo <checkout of sage>] [--runs 1000] [--events 100]: times one full board refresh on a sample logbook, and counts the full reads that slot renewals and action appends cause. It writes only a new folder under the temporary folder, and deletes it."); process.exit(0); }
 const arg = (name, fallback) => { const at = process.argv.indexOf(`--${name}`); return at === -1 ? fallback : process.argv[at + 1]; };
@@ -50,8 +51,9 @@ try {
   console.log(`one full refresh (read every table, build the model and the overview, as the board server does for the app): ${stats(times)}`);
 
   let reads = 0;
-  const server = createBoardServer({ sources, port: 0, settleReads: [], duringRead: () => { reads++; } });
+  const server = quietBoard({ sources, port: 0, duringRead: () => { reads++; } });
   await server.start();
+  await server.ready();
   try {
     await wait(1500);
     for (const [label, change] of [

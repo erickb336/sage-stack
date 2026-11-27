@@ -1,12 +1,12 @@
 import { folderProblems, isOpen } from "./board-model.mjs";
 import { projectNames } from "./board-overview.mjs";
 import { WORDS } from "./state-words.mjs";
+import { measureTotals, runMeasure } from "./usage.mjs";
 
 const STATS_WEEKS = 8;
 const DAY = 86400000, WEEK = 7 * DAY;
 const time = value => typeof value === "number" ? value : Number.isFinite(Date.parse(value)) ? Date.parse(value) : null;
 const title = text => text.charAt(0).toUpperCase() + text.slice(1);
-const TOKENS = /^[1-9]\d{0,11}$/;
 const mondayOf = at => { const day = new Date(at); day.setUTCHours(0, 0, 0, 0); return day.getTime() - ((day.getUTCDay() + 6) % 7) * DAY; };
 const hours = ms => Math.round(ms / 360000) / 10;
 const LEFT_OUT_BY_TABLE = { runs: "the agent time and tokens", decisions: "the merges", gates: "the questions" };
@@ -19,7 +19,7 @@ export function boardStats(model, project = null) {
   const shown = (model.projects ?? []).filter(item => project === null || item.key === project);
   if (project !== null && !shown.length) return null;
   const names = projectNames(model), week = ms => ms === null || ms < first || ms > at ? -1 : Math.floor((ms - first) / WEEK);
-  const total = { merged: 0, undated: 0, open: 0, needs: 0, ms: 0, tokens: 0, runs: 0, noTokens: 0, noTime: 0 };
+  const total = { merged: 0, undated: 0, open: 0, needs: 0, ms: 0, tokens: 0, runs: 0, noTime: 0 }, counted = [];
   const perWeek = { merged: Array(STATS_WEEKS).fill(0), ms: Array(STATS_WEEKS).fill(0), tokens: Array(STATS_WEEKS).fill(0) };
   const open = Object.fromEntries(WORDS.filter(word => !["done", "stopped"].includes(word)).map(word => [word, 0])), rounds = [0, 0, 0, 0], roundList = [];
   const projects = shown.map(item => {
@@ -36,7 +36,10 @@ export function boardStats(model, project = null) {
         if (w < 0) continue;
         total.runs++;
         if (start !== null && end >= start) { row.ms += end - start; perWeek.ms[w] += end - start; } else total.noTime++;
-        if (TOKENS.test(run.tokens ?? "")) { row.tokens += Number(run.tokens); perWeek.tokens[w] += Number(run.tokens); } else total.noTokens++;
+        const weighted = runMeasure(run).weighted ?? 0;
+        counted.push(run);
+        row.tokens += weighted;
+        perWeek.tokens[w] += weighted;
       }
     }
     for (const key of ["merged", "open", "needs", "ms", "tokens"]) total[key] += row[key];
@@ -48,7 +51,7 @@ export function boardStats(model, project = null) {
     at: model.at, project, weeks: Array.from({ length: STATS_WEEKS }, (_, i) => new Date(first + i * WEEK).toISOString().slice(0, 10)),
     logbooks: shown.reduce((n, item) => n + (item.books?.length ?? 0), 0), gaps,
     empty: !shown.some(item => item.tasks > 0) && !gaps.length,
-    total: { merged: total.merged, undated: total.undated, open: total.open, needs: total.needs, hours: hours(total.ms), tokens: total.tokens, runs: total.runs, noTokens: total.noTokens, noTime: total.noTime, rounds: median(roundList) },
+    total: { merged: total.merged, undated: total.undated, open: total.open, needs: total.needs, hours: hours(total.ms), tokens: total.tokens, runs: total.runs, measure: measureTotals(counted), noTime: total.noTime, rounds: median(roundList) },
     perWeek: { merged: perWeek.merged, hours: perWeek.ms.map(hours), tokens: perWeek.tokens },
     open: Object.entries(open).filter(([word, count]) => count || word !== "unknown").map(([word, count]) => ({ word, count })),
     rounds: ["0", "1", "2", "3 or more"].map((label, i) => ({ label, count: rounds[i] })),

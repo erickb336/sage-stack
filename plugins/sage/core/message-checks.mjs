@@ -164,13 +164,14 @@ export function pageProblems(html) {
   return problems;
 }
 
-export function renderMessage(input, { pagePath = (name) => name, pageUrl = () => undefined } = {}) {
+export function renderMessage(input, { pagePath = (name) => name, pageUrl = () => undefined, down = () => undefined } = {}) {
   const { problems, msg, width } = prepareMessage(input);
   if (problems.length) return { problems };
-  const pictured = msg.long !== undefined || msg.blocks.some(function has(b) { return b.t === "picture" || b.t === "toggle" || (b.t === "section" && b.body.some(has)); });
+  const has = (kinds) => msg.blocks.some(function walk(b) { return kinds.includes(b.t) || (b.t === "section" && b.body.some(walk)); });
+  const pictured = msg.long !== undefined || has(["picture", "toggle"]);
   const name = `${msg.kind.replace(/ /g, "-")}-${createHash("sha256").update(JSON.stringify(msg)).digest("hex").slice(0, 8)}.html`;
   const page = pictured ? { title: msg.title, url: pageUrl(name), path: pagePath(name), name } : undefined;
-  const text = messageText(msg, { width, page });
+  const text = messageText(msg, { width, page, down: page || has(["page"]) ? down() : undefined });
   const html = page && messagePage(msg, messageText(msg, { width, full: true, today: true }));
   const found = [...textProblems(text), ...(html ? pageProblems(html) : [])];
   return found.length ? { problems: found } : { text, page: page && { ...page, html } };

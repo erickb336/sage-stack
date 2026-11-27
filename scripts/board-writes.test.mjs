@@ -13,6 +13,8 @@ import { startLink } from "../plugins/sage/board/access.mjs";
 import { createBoardServer, loadBoardApp, withoutPaths } from "../plugins/sage/board/server.mjs";
 import { writeInWorker } from "../plugins/sage/board/writes.mjs";
 import { boardCommandPort } from "./fixtures/board-port.mjs";
+import { QUESTION, pageQuestion } from "./fixtures/question-message.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
 const CLI = new URL("../plugins/sage/board/cli.mjs", import.meta.url).pathname, TEST_CHILD = new URL("./board-test-child.mjs", import.meta.url).pathname;
@@ -36,7 +38,7 @@ function call(port, path, { method = "POST", headers = {}, body } = {}) {
   });
 }
 
-async function board(t, options = {}) {
+async function board(t, { ready = true, ...options } = {}) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-writes-")));
   const saved = { ...process.env };
   t.after(async () => {
@@ -59,12 +61,13 @@ async function board(t, options = {}) {
   writeFileSync(join(dir, "chiefs.tsv"), `id\tprovider\tnative\tat\nC1\tclaude\tclaude-1\t${new Date().toISOString()}\nC2\tcodex\tcodex-1\t${new Date().toISOString()}\n`);
   const as = (...args) => claude.sage([...args, "--project", project, "--chief", "C1"], env);
   as("task", "add", "--title", "Sample share sheet", "--size", "small", "--priority", "P1");
-  as("gate", "add", "T1", "--question", "Can a viewer copy a shared list?", "--options", "yes|no", "--recommend", "yes");
+  as("gate", "add", "--message", QUESTION, "T1", "--question", "Can a viewer copy a shared list?", "--options", "yes|no", "--recommend", "yes");
   const config = join(base, "home", ".config", "sage-board", "board.json");
   const stateDir = join(base, "home", ".config", "sage-board", "state");
-  const server = createBoardServer({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port: 0, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair", ...options });
+  const server = quietBoard({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port: 0, app: APP, stateDir, pairCommand: "node /sample/board/cli.mjs board --pair", ...options }, { create: createBoardServer });
   t.after(() => server.close());
   const { port } = await server.start();
+  if (ready) await server.ready();
   await runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify([{ id: "shared", path: env.SAGE_SHARED_HOME }])], { output: () => {}, env });
   const origin = `http://127.0.0.1:${port}`;
   const own = { Origin: origin, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" };
@@ -229,6 +232,107 @@ test("the owner answers, undoes and answers again from the board; a changed ques
   const detail = await call(w.port, `/app/gate/${Buffer.from(`${w.logbook}/G1`).toString("base64url")}`, { method: "GET" });
   await waitFor(async () => (await call(w.port, `/app/gate/${Buffer.from(`${w.logbook}/G1`).toString("base64url")}`, { method: "GET" })).json?.answer === "yes", "the gate detail shows the chat answer");
   assert.equal(detail.status, 200);
+});
+
+test("T1222: a board answer to a design question sends the owner's words with choice 2 as hex, and the state tool keeps them as one answer", async t => {
+  const w = await board(t), p = await pair(w);
+  const pages = w.as("pages", "T1");
+  mkdirSync(join(pages, "designs", "final"), { recursive: true });
+  writeFileSync(join(pages, "designs", "final", "index.html"), "<p>SAMPLE receipt mail</p>");
+  w.as("gate", "add", "T1", "--design", "designs/final", "--question", "Approve design v1 of the receipt mail?", "--recommend", "1", "--message", pageQuestion("T1", "designs/final/index.html"));
+  let need;
+  await waitFor(async () => (need = (await needs(w)).needs.find(item => item.gate === "G2")), "the model lists the design question");
+  assert.deepEqual(need.options, ["Approve", "Approve with your words", "New version"]);
+  const body = extra => ({ logbook: w.logbook, gate: "G2", option: 2, digest: need.digest, ...extra });
+  const bare = await call(w.port, "/api/answer", { headers: p.headers, body: body({}) });
+  assert.equal(bare.status, 409);
+  assert.match(bare.json.text, /^G2 is a design question, so its answer is one of its three choices: .* after choice 2, ask the owner for the words\. Nothing changed\.$/);
+  const long = await call(w.port, "/api/answer", { headers: p.headers, body: body({ words: "x".repeat(1001) }) });
+  assert.equal(long.status, 400, "words over the limit do not reach the state tool");
+  assert.equal(w.gate("G2").answered ?? "", "", "a refused answer writes nothing");
+  const sent = await call(w.port, "/api/answer", { headers: p.headers, body: body({ words: "Use the shop's logo, not \"Shop\"; keep — the dash." }) });
+  assert.equal(sent.status, 200, sent.text);
+  assert.match(sent.json.text, /^G2 recorded · Approve with your words: Use the shop's logo, not "Shop"; keep — the dash\. · from the board/);
+  assert.equal(JSON.parse(w.gate("G2").answered).answer, "Approve with your words: Use the shop's logo, not \"Shop\"; keep — the dash.");
+});
+
+test("T1219: each owner write that reaches the state tool after an archive, while the board's read still shows the project as not archived, is refused by the state tool with one text and writes nothing", async t => {
+  let w, during = false;
+  const archive = word => claude.sage(["config", `archived=${word}`, "--project", w.project], w.env);
+  w = await board(t, { write: async job => {
+    if (!during) return writeInWorker(job);
+    archive("yes");
+    try { return await writeInWorker(job); } finally { archive("no"); }
+  } });
+  const p = await pair(w), need = (await needs(w)).needs.find(item => item.gate === "G1");
+  const send = (job, body) => call(w.port, `/api/${job}`, { headers: p.headers, body });
+  const answer = { logbook: w.logbook, gate: "G1", option: 2, digest: need.digest }, shut = "This project is archived, so it takes no answer and no other owner write. Restore it first, on the board or with sage config archived=no in its own chat when the owner asks for it, then try again. Nothing changed.";
+  const tables = () => ["gates", "tasks"].map(table => readFileSync(join(w.dir, `${table}.tsv`), "utf8")).join("\n");
+  const open = () => waitFor(async () => (({ projects = [] }) => projects.length === 1 && !projects[0].archived)(await needs(w)), "the board reads the project as not archived");
+  const refusedDuringArchive = async (job, body) => {
+    await open();
+    const before = tables();
+    during = true;
+    const got = await send(job, body).finally(() => { during = false; });
+    assert.deepEqual([got.status, got.json.text], [409, shut], `${job}: the state tool refuses it, not the board's own check`);
+    assert.equal(tables(), before, `${job}: a refused write writes nothing`);
+  };
+
+  await refusedDuringArchive("answer", answer);
+  await open();
+  const recorded = await send("answer", answer);
+  assert.equal(recorded.status, 200, `with no archive, the same answer records: ${recorded.text}`);
+  await refusedDuringArchive("undo", { logbook: w.logbook, gate: "G1" });
+  await refusedDuringArchive("give", { logbook: w.logbook, task: "T1", to: "C2" });
+  await refusedDuringArchive("name", { logbook: w.logbook, chief: "C2", name: "Codex desk" });
+  assert.equal(existsSync(join(w.dir, "chief-names.json")), false, "the refused name is not kept");
+  await open();
+  const undo = await send("undo", { logbook: w.logbook, gate: "G1" });
+  assert.equal(undo.status, 200, `with no archive, the undo lands: ${undo.text}`);
+});
+
+async function readHeld(holds) {
+  for (let seen; (seen = Atomics.load(holds, 1)) < 1;) {
+    const { async, value } = Atomics.waitAsync(holds, 1, seen, 30_000);
+    if (async && await value === "timed-out") assert.fail("no read reached the hold");
+  }
+}
+const release = holds => { Atomics.store(holds, 0, 0); Atomics.notify(holds, 0); };
+
+test("T1215 (C5): a write before the board's first read ends gets 503 Reading the logbooks and writes nothing; after the read, it lands", async t => {
+  const holds = new Int32Array(new SharedArrayBuffer(16));
+  Atomics.store(holds, 0, 1);
+  t.after(() => release(holds));
+  const w = await board(t, { holds, ready: false }), p = await pair(w);
+  await readHeld(holds);
+  const before = w.gates(), reading = "Reading the logbooks. The board answers when its first read ends.";
+  for (const [job, body] of [["answer", { logbook: w.logbook, gate: "G1", option: 1, digest: "0".repeat(16) }], ["undo", { logbook: w.logbook, gate: "G1" }], ["name", { logbook: w.logbook, chief: "C2", name: "Codex desk" }], ["archive", { project: "project" }]]) {
+    const refused = await call(w.port, `/api/${job}`, { headers: p.headers, body });
+    assert.deepEqual([refused.status, refused.json.problem], [503, reading], job);
+  }
+  assert.equal(w.gates(), before, "nothing reached the logbook");
+  release(holds);
+  await w.server.ready();
+  const need = (await needs(w)).needs.find(item => item.gate === "G1");
+  const answered = await call(w.port, "/api/answer", { headers: p.headers, body: { logbook: w.logbook, gate: "G1", option: 1, digest: need.digest } });
+  assert.equal(answered.status, 200, answered.text);
+});
+
+test("T1215 (C1): a write sent during the read that follows an archive gets the state tool's refusal; after that read ends, the board refuses it itself", async t => {
+  const holds = new Int32Array(new SharedArrayBuffer(16));
+  t.after(() => release(holds));
+  const w = await board(t, { holds }), p = await pair(w), need = (await needs(w)).needs.find(item => item.gate === "G1");
+  const answer = { logbook: w.logbook, gate: "G1", option: 1, digest: need.digest }, before = w.gates();
+  Atomics.store(holds, 0, 1);
+  claude.sage(["config", "archived=yes", "--project", w.project], w.env);
+  await readHeld(holds);
+  const during = await call(w.port, "/api/answer", { headers: p.headers, body: answer });
+  assert.deepEqual([during.status, during.json.text], [409, "This project is archived, so it takes no answer and no other owner write. Restore it first, on the board or with sage config archived=no in its own chat when the owner asks for it, then try again. Nothing changed."], "the board still shows the last read, so the state tool refuses it");
+  release(holds);
+  await waitFor(async () => (await needs(w)).projects[0]?.archived, "the board reads the archive");
+  const after = await call(w.port, "/api/answer", { headers: p.headers, body: answer });
+  assert.deepEqual([after.status, after.json.text], [409, "project is archived, so the board records no answer or other write for it. Restore it first, then try again. Nothing changed."]);
+  assert.equal(w.gates(), before, "no answer reached the logbook");
 });
 
 test("the owner renames a chief and gives a task to another chief", async t => {

@@ -13,6 +13,8 @@ import { startLink } from "../plugins/sage/board/access.mjs";
 import { createBoardServer, loadBoardApp } from "../plugins/sage/board/server.mjs";
 import { writeInWorker } from "../plugins/sage/board/writes.mjs";
 import { boardCommandPort } from "./fixtures/board-port.mjs";
+import { QUESTION } from "./fixtures/question-message.mjs";
+import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const chromium = requireBrowser();
 const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
@@ -46,13 +48,13 @@ async function openBoard(t, { write, copy = false } = {}) {
   const dir = claude.storeDir(project, env), now = Date.now(), iso = ms => new Date(ms).toISOString();
   writeFileSync(join(dir, "chiefs.tsv"), `id\tprovider\tnative\tat\nC1\tclaude\tclaude-1\t${iso(now - 3 * 3600_000)}\nC2\tcodex\tcodex-1\t${iso(now - 2 * 3600_000)}\nC3\tclaude\tclaude-3\t${iso(now - 5 * 3600_000)}\nC4\tcodex\tcodex-4\t${iso(now - 4 * 3600_000)}\n`);
   mkdirSync(join(dir, "live"));
-  for (const [id, ago, autopilot] of [["C1", 0, true], ["C2", 0, false], ["C3", 2 * 3600_000, false]]) writeFileSync(join(dir, "live", `${id}.json`), JSON.stringify({ provider: id === "C2" ? "codex" : "claude", checkout: project, sageMode: true, autopilot, at: iso(now - ago) }));
+  for (const [id, ago, autopilot] of [["C1", 0, true], ["C2", 0, false], ["C3", 9 * 3600_000, false]]) writeFileSync(join(dir, "live", `${id}.json`), JSON.stringify({ provider: id === "C2" ? "codex" : "claude", checkout: project, sageMode: true, autopilot, at: iso(now - ago) }));
   const as = (chief, ...args) => claude.sage([...args, "--project", project, "--chief", chief], env);
   as("C1", "task", "add", "--title", "Sample shared list permissions", "--size", "small", "--priority", "P1");
   writeFileSync(join(base, "question.json"), JSON.stringify(MESSAGE));
   as("C1", "gate", "add", "T1", "--question", MESSAGE.title, "--options", "yes|no", "--recommend", "yes", "--message", join(base, "question.json"));
   as("C2", "task", "add", "--title", "Sample crash report screen", "--size", "small", "--priority", "P2");
-  as("C2", "gate", "add", "T2", "--question", "Crash reports: send them on their own, or ask each time?", "--options", "ask each time|send them", "--recommend", "ask each time");
+  as("C2", "gate", "add", "--message", QUESTION, "T2", "--question", "Crash reports: send them on their own, or ask each time?", "--options", "ask each time|send them", "--recommend", "ask each time");
   as("C3", "task", "add", "--title", "Sample export a list as CSV", "--size", "small", "--priority", "P2");
   const config = join(base, "home", ".config", "sage-board", "board.json"), stateDir = join(base, "home", ".config", "sage-board", "state");
   const setup = port => runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify([{ id: "shared", path: env.SAGE_SHARED_HOME }])], { output: () => {}, env });
@@ -64,8 +66,9 @@ async function openBoard(t, { write, copy = false } = {}) {
     for (const part of ["board", "core"]) cpSync(new URL(`../plugins/sage/${part}/`, import.meta.url), join(base, copy, part), { recursive: true });
     server = await (await import(pathToFileURL(cli).href)).runBoardCli(["board", "--serve", "--config", config], { output: () => {}, env });
   } else {
-    server = createBoardServer({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port: 0, app: APP, settleReads: [], stateDir, pairCommand: "node /sample/board/cli.mjs board --pair", ...(write && { write }) });
+    server = quietBoard({ sources: [{ id: "shared", label: "Shared", path: env.SAGE_SHARED_HOME }], port: 0, app: APP, stateDir, pairCommand: "node /sample/board/cli.mjs board --pair", ...(write && { write }) }, { create: createBoardServer });
     ({ port } = await server.start());
+    await server.ready();
     await setup(port);
   }
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, colorScheme: "dark", timezoneId: "America/New_York", permissions: ["clipboard-read", "clipboard-write"] });
@@ -500,8 +503,10 @@ test("F-T1059-36: the Read the full question link follows a theme switch on an o
   await link.waitFor();
   assert.doesNotMatch(await link.getAttribute("href"), /theme=/);
   await page.getByRole("button", { name: "Switch to the light theme" }).click();
+  await page.locator('.facts-line a[href$="?theme=light"]').waitFor();
   assert.match(await link.getAttribute("href"), /\?theme=light$/);
   await page.getByRole("button", { name: "Switch to the dark theme" }).click();
+  await page.locator('.facts-line a:not([href*="theme="])').waitFor();
   assert.doesNotMatch(await link.getAttribute("href"), /theme=/);
 });
 

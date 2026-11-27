@@ -32,7 +32,9 @@ else process.exit(1);
 `, { mode: 0o755 });
 const SYSTEM = String(process.env.PATH).split(":").filter(Boolean);
 symlinkSync(SYSTEM.map((dir) => join(dir, "git")).find((file) => existsSync(file)), join(FAKES, "git"));
-const PATH = [FAKES, ...SYSTEM.filter((dir) => !existsSync(join(dir, "gh")) && !existsSync(join(dir, "gh.exe")) && !dir.startsWith("/opt/homebrew"))].join(":");
+const TEMP_FOLDERS = [tmpdir(), "/tmp"].map((dir) => realpathSync(dir));
+const tempFakeFolder = (dir) => { try { const real = realpathSync(dir); return TEMP_FOLDERS.some((temp) => real === temp || real.startsWith(`${temp}/`)); } catch { return false; } };
+const PATH = [FAKES, ...SYSTEM.filter((dir) => !existsSync(join(dir, "gh")) && !existsSync(join(dir, "gh.exe")) && !dir.startsWith("/opt/homebrew") && !tempFakeFolder(dir))].join(":");
 const env = { ...process.env, PATH, HOME: join(BASE, "home"), CLAUDE_CONFIG_DIR: join(BASE, "claude"), CODEX_HOME: join(BASE, "codex"),
   SAGE_SHARED_HOME: join(BASE, "shared"), SAGE_WORKTREES: join(BASE, "worktrees"), SAGE_HOOKS_STATE: join(BASE, "hooks"), SAGE_TEST_PIDS: "{}" };
 delete env.SAGE_HOME;
@@ -98,7 +100,7 @@ const WHY = {
   state: /state tool|writes the logbook/,
 };
 const CODEX_WHY = { logbook: /^sage: no agent writes, moves or removes a logbook file from the shell/, board: /^sage: the board config rule/,
-  process: /^sage: an agent never reads or signals the real process list/, stash: /^sage: an agent never runs git stash/,
+  process: /^sage: an agent never signals or controls a real process/, stash: /^sage: an agent never runs git stash/,
   "chief git": /^sage: sage mode is on, so the chief does not throw away uncommitted work/ };
 
 const T = TREE, L = LOGBOOK;
@@ -158,9 +160,9 @@ const REFUSED = [
   ["board", "cat ~/.config/sage-board/board.json"],
   ["board", "echo x > ~/.config/sage-board/board.json"],
   ["board", "grep -r token ~/.config"],
-  ["process", "ps aux", AGENT],
+  ["process", "killall node", AGENT],
   ["process", "kill 1", AGENT],
-  ["process", "pgrep node", AGENT],
+  ["process", "lsof -t -i :3000 | xargs kill", AGENT],
   ["process", "launchctl list", AGENT],
   ["process", "pkill node", AGENT],
   ["board", "find ~ -name board.json -exec cat {} +"],
@@ -264,15 +266,16 @@ test("T815: the one merge form passes the merge rule, and the role and autopilot
 });
 
 test("T931: the stash, process and board rules give the same plain reason in both hooks, and the chiefs' own commands pass", () => {
-  const STASH = "sage: an agent never runs git stash: every worktree of a repo shares one stash list, so another agent can pop or drop your work (standing order 16). To test old code, use git worktree add --detach <scratch> <sha>, or git show <sha>:<path> into your scratch folder";
+  const STASH = "sage: an agent never runs git stash: every worktree of a repo shares one stash list, so another agent can pop or drop your work. To test old code, use git worktree add --detach <scratch> <sha>, or git show <sha>:<path> into your scratch folder";
   assert.equal(ROLES["codex agent"](`git -C ${T} stash`), STASH);
   assert.equal(ROLES["claude agent"](`git -C ${T} stash`), `${STASH}.`);
-  for (const command of ["ps aux", "pgrep node", "kill 1", "pkill node", "launchctl list", "cat ~/.config/sage-board/board.json"]) {
+  for (const command of ["ps aux", "pgrep node", "lsof -i :3000"]) for (const role of AGENT) assert.equal(ROLES[role](command), undefined, `${role} looks at the processes (G233): ${command}`);
+  for (const command of ["kill 1", "pkill node", "launchctl list", "cat ~/.config/sage-board/board.json"]) {
     const claudeWhy = ROLES["claude agent"](command);
     assert.match(claudeWhy ?? "passed", /process list|board config rule/, command);
     assert.equal(ROLES["codex agent"](command), claudeWhy.replace(/\.$/, ""), command);
   }
-  assert.match(ROLES["codex agent"]("launchctl list"), /^sage: an agent never reads or signals the real process list \(standing order 14\), so "launchctl" is refused\./);
+  assert.match(ROLES["codex agent"]("launchctl list"), /^sage: an agent never signals or controls a real process, so "launchctl" is refused: /);
   for (const role of CHIEFS) for (const command of [`git -C ${T} stash list`, "ps aux", "kill 1", "launchctl list"]) assert.equal(ROLES[role](command), undefined, `${role} · ${command}`);
   const fakes = join(BASE, "fake-bin");
   mkdirSync(fakes);

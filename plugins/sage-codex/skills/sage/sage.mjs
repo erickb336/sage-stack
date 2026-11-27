@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { balancedModels, createStateTool, readModeFile } from "../../core/index.mjs";
 import { modeDirectory, readState, stateKey } from "../../hooks/hook-state.mjs";
-import { claimStep, legacyRoots, replaceStep } from "../../runtime/logbook-env.mjs";
+import { legacyRoots, replaceStep } from "../../runtime/logbook-env.mjs";
 import { verifyInstall } from "./verify-install.mjs";
 import { hooksCommand } from "../../hooks/entries.mjs";
 
@@ -17,7 +17,7 @@ export function readMode({ session }, env = process.env) {
 }
 
 export const EFFORTS = { opus: "high", sonnet: "medium", haiku: "low" };
-export const tool = createStateTool({ provider: "codex", claimStep, replaceStep, legacyRoots,
+export const tool = createStateTool({ provider: "codex", replaceStep, legacyRoots,
   queueWait: () => "Codex has no wait for a place: after a run ends, call spawn_agent again with the same task name. The gate names the run's place again, or lets it start.", autopilot: (session, env) => readMode({ session }, env).autopilot,
   models: ["opus", "sonnet", "haiku", "fable", "inherit"], modelDefaults: balancedModels("opus", "sonnet"),
   spawnFields: (model) => (Object.hasOwn(EFFORTS, model) ? { reasoning_effort: EFFORTS[model] } : {}), usageInterfaces: [

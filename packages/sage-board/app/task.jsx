@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { AgentRing, age, span, stateText, tokens } from "./agent.jsx";
+import { AgentRing, age, otherCounts, span, stateText, tokens } from "./agent.jsx";
 import { MARKS, OBJECTS, UNKNOWN, chiefName as nameOf, prName, shown, taskWord } from "../../sage-core/state-words.mjs";
+import { answerOf, problemOf } from "./use-model.js";
 
 export const questionLink = key => `#question?key=${encodeURIComponent(key)}`;
 export const taskLink = (key, tab) => `#task?key=${encodeURIComponent(key)}${tab && tab !== "about" ? `&tab=${tab}` : ""}`;
@@ -10,6 +11,7 @@ export const chiefName = chief => chief ? chief.old ?? nameOf(chief.id ?? `chief
 export const chiefState = key => Object.hasOwn(OBJECTS.chief.states, key) ? shown(OBJECTS.chief.states[key]).text : UNKNOWN;
 export const chiefSub = chief => { const head = `${nameOf(null, chief.provider)} · `, tail = ` · ${chief.id}`, name = chief.name.startsWith(head) ? chief.name.slice(head.length) : chief.name; return name.endsWith(tail) ? name.slice(0, -tail.length) : name; };
 const liveness = stopped => stopped === false ? "live" : stopped ? "stopped" : "unknown";
+const CHIEF_FACT = { live: "chief active", stopped: "chief stopped", unknown: "chief state unknown" };
 export function ChiefDot({ stopped }) {
   const state = liveness(stopped);
   return state === "stopped" ? <span className="dot" aria-hidden="true" /> : <span className={`dot ${state}`} role="img" aria-label={`Chief ${chiefState(state)}`} title={`Chief ${chiefState(state)}`} />;
@@ -43,9 +45,9 @@ function useTask(key, at) {
   useEffect(() => {
     const controller = new AbortController();
     fetch(`/app/task/${encodeKey(key)}`, { signal: controller.signal })
-      .then(response => response.ok ? response.json() : Promise.reject(response.status))
+      .then(answerOf)
       .then(data => setState({ key, data, problem: null }))
-      .catch(error => { if (!controller.signal.aborted) setState(previous => ({ key, data: previous.key === key ? previous.data : null, problem: error === 404 ? "gone" : "read" })); });
+      .catch(error => { if (!controller.signal.aborted) setState(previous => ({ key, data: previous.key === key ? previous.data : null, problem: problemOf(error) })); });
     return () => controller.abort();
   }, [key, at]);
   return state.key === key ? state : { data: null, problem: null };
@@ -128,7 +130,8 @@ function Cost({ task, brief }) {
   return (
     <Section label="Cost" extra={cost.runs === 1 ? "1 run" : `${cost.runs} runs`}>
       <p>Agent time: {cost.timed ? <><strong>{hours(cost.ms)}</strong>{of(cost.ms, budget?.ms, hours, "time")}</> : <><strong>{UNKNOWN}</strong> <span className="faint">· no run of this task has a start time</span></>}</p>
-      <p>Tokens: {cost.counted ? <><strong>{tokens(cost.tokens)}</strong>{of(cost.tokens, budget?.tokens, tokens, "tokens")}</> : <><strong>{UNKNOWN}</strong> <span className="faint">· no run of this task recorded its tokens</span></>}</p>
+      <p>Weighted tokens: {cost.counted ? <><strong>{tokens(cost.weighted)}</strong>{of(cost.weighted, budget?.tokens, tokens, "tokens")}</> : <><strong>{UNKNOWN}</strong> <span className="faint">· no run of this task has a weighted count</span></>}</p>
+      {otherCounts(cost) && <p className="faint">{otherCounts(cost)}</p>}
     </Section>
   );
 }
@@ -234,13 +237,13 @@ export function TaskPage({ taskKey, tab: asked, at, from }) {
     <article className="taskpage">
       <a className="back" href={back ? `#${from}` : "#tasks"} onClick={event => { if (back && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); history.back(); } }}><span aria-hidden="true">‹ </span>{back ?? BACK_NAMES.tasks}</a>
       <h1 ref={heading} tabIndex={-1}>{task ? controlsShown(task.title) : problem === "gone" ? "This task is not on the board" : problem ? "The board cannot read this task now" : "Reading the task"}{task && <span className="mono faint tid">{task.id}</span>}</h1>
-      {problem && !task && <p className="none" role="alert">{problem === "gone" ? "The logbook has no task with this name. Go back and pick a task from a list." : "It tries again when the logbook changes."}</p>}
-      {problem && task && <p className="stale" role="status">{problem === "gone" ? "This task is no longer on the board. The page shows what it read last." : "The page could not refresh. It shows what it read last, and tries again when the logbook changes."}</p>}
+      {problem && !task && <p className="none" role="alert">{problem === "gone" ? "The logbook has no task with this name. Go back and pick a task from a list." : problem === "read" ? "It tries again when the logbook changes." : problem}</p>}
+      {problem && task && <p className="stale" role="status">{problem === "gone" ? "This task is no longer on the board. The page shows what it read last." : problem === "read" ? "The page could not refresh. It shows what it read last, and tries again when the logbook changes." : `${problem} The page shows what it read last.`}</p>}
       {!task && !problem && <div className="about-skel" role="status" aria-label="Reading the task">{["Milestone", "Before and after", "Goal", "Why", "Criteria", "Status", "Cost"].map(label => <section className="about-s" key={label}><h3>{label}</h3><i /></section>)}</div>}
       {task && <>
         <p className="facts-line">
           <span className={`badge word ${(task.word ?? UNKNOWN).replace(" ", "-")}`}>{task.word ?? UNKNOWN}</span>
-          {[task.priority ?? "no priority", task.size ?? `size ${UNKNOWN}`, task.risk && `risk flag ${task.risk}`, task.kind, task.step?.label, `${task.chief ? "Run by " : ""}${chiefName(task.chief)}${task.chief?.id && !task.chief.old && !task.ended ? ` (chief ${chiefState(liveness(task.chief.stopped))})` : ""}`].filter(Boolean).join(" · ")}
+          {[task.priority ?? "no priority", task.size ?? `size ${UNKNOWN}`, task.risk && `risk flag ${task.risk}`, task.kind, task.step?.label, `${task.chief ? "Run by " : ""}${chiefName(task.chief)}${task.chief?.id && !task.chief.old && !task.ended ? ` (${CHIEF_FACT[liveness(task.chief.stopped)]})` : ""}`].filter(Boolean).join(" · ")}
           {task.branch && <> · <code>{controlsShown(task.branch)}</code></>}
         </p>
         <AtWork task={task} />
