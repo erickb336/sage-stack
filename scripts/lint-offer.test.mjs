@@ -49,9 +49,9 @@ function project(files, { binary = "none" } = {}) {
   ok("task", "add", "--priority", "P2", "--title", "a change", "--size", "tiny");
   const logbook = ok("logbook");
   const tools = join(dirname(logbook), "tools");
-  if (binary === "project") {
-    mkdirSync(join(folder, "node_modules", ".bin"), { recursive: true });
-    symlinkSync(AST_GREP, join(folder, "node_modules", ".bin", "ast-grep"));
+  for (const where of { project: [folder], tools: [tools] }[binary] ?? []) {
+    mkdirSync(join(where, "node_modules", ".bin"), { recursive: true });
+    symlinkSync(AST_GREP, join(where, "node_modules", ".bin", "ast-grep"));
   }
   const sha = commit({ "src/c.js": "f();\n" });
   const lint = () => ok("lint", "T1", "--sha", sha);
@@ -81,8 +81,9 @@ test("lint on a project with no sgconfig.yml gives the note and opens one lint o
   assert.equal(p.table("ledger").length, 0, "the offer writes no lint verdict");
 });
 
-test("with ast-grep at the pin in the project, the offer does not name an install", () => {
-  const p = project(JS, { binary: "project" });
+test("F-T1241-40: with ast-grep at the pin in sage's tools folder, the offer does not name an install; a copy in the project does not count", () => {
+  assert.match(project(JS, { binary: "project" }).lint(), /The same yes installs ast-grep /, "the project's node_modules, which a sandboxed command can write, does not count");
+  const p = project(JS, { binary: "tools" });
   assert.doesNotMatch(p.lint(), /installs ast-grep/);
   assert.equal(p.offers().length, 1);
 });
