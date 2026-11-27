@@ -182,7 +182,7 @@ Each design, engineering check (PE), code review and security review looks for f
 | A new hook rule | The state tool, the merge check or a shared rule module. A new hook rule needs proof that none of them can do the job. |
 | One rule written twice, once for Claude and once for Codex | One shared implementation in core, which both providers call. |
 | Parsing an agent's shell command to guess its intent | A structural boundary, such as a state tool command or a file permission. |
-| A special case next to an earlier fix of the same area | A fix of the shared cause. |
+| A special case that a general rule, a table or the data could hold, such as a branch on one id or a second table of the same facts. The strongest sign: it is next to an earlier fix of the same area. | A fix of the shared cause, or the case moved into the data or the one table that owns it. |
 
 | Role | What it does with a pattern |
 | --- | --- |
@@ -540,7 +540,7 @@ Nothing reaches main without a pull request, so a stopped task leaves at most a 
 
 ## The lint check
 
-A repository can have lint rules of its own: an [ast-grep](https://ast-grep.github.io) project file, `sgconfig.yml`, at its root. When the main branch has one, sage checks each pull request with those rules before it merges. Sage's own rules refuse code comments ([the no-comments rule set](../../packages/sage-core/lint/README.md)).
+A repository can have lint rules of its own: an [ast-grep](https://ast-grep.github.io) project file, `sgconfig.yml`, at its root. When the main branch has one, sage checks each pull request with those rules before it merges. Sage's own rules refuse code comments ([the no-comments rule set](../../packages/sage-core/lint/README.md)), and a hard-coded task, run or gate id such as `"T1216"` in sage's product code (`lint/rules/no-hard-coded-ids.yml`, pattern 4 of the [fragile patterns](#fragile-patterns)).
 
 - **What it checks:** only the lines that the pull request adds, also a moved or an edited line. A line that the pull request does not touch never fails.
 - **Whose rules:** the rules, `sgconfig.yml` and `.gitattributes` of the tip of `origin/main`, also when the pull request started before they changed. A pull request that changes a rule does not change its own check.
