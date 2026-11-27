@@ -2,6 +2,7 @@
 import { spawn } from "node:child_process";
 import { accessSync, chmodSync, closeSync, constants, fstatSync, mkdirSync, lstatSync, statSync, openSync, readSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
+import { request } from "node:http";
 import { createServer as createNetServer } from "node:net";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -141,6 +142,46 @@ async function ensureBoard(configPath, config, env, link = false, project = null
   }
   if (!exited && served()) throw Object.assign(new Error(`the board started, but this shell cannot reach 127.0.0.1 (for example a sandbox); open ${address()} in a browser.${pairs}`), { exitCode: UNREACHABLE_EXIT });
   throw new Error(`the board server ${exited ? "did not start" : "did not answer within 10 s"}. See its log: ${log}`);
+}
+const linkAnswer = (url, port, timeout, hops = 2) => new Promise(done => {
+  const req = request({ host: "127.0.0.1", port, path: `${url.pathname}${url.search}`, method: "GET", agent: false, timeout, headers: { Host: url.host } }, response => {
+    response.resume();
+    let next;
+    try { next = response.headers.location && new URL(response.headers.location, url); } catch {}
+    if (hops && response.statusCode >= 300 && response.statusCode < 400 && next?.origin === url.origin) done(linkAnswer(next, port, timeout, hops - 1));
+    else done(response.statusCode);
+  });
+  req.once("timeout", () => req.destroy(Object.assign(new Error("timeout"), { code: "TIMEOUT" })));
+  req.once("error", error => done({ ECONNREFUSED: "none", TIMEOUT: "timeout", EPERM: "blocked" }[error.code] ?? "other"));
+  req.end();
+});
+const SAID = { none: "no answer: nothing listens on the port", timeout: "no answer within 2 s", other: "a failed connection", 404: "404, no such page" };
+export async function checkBoardLinks(links, { env = process.env, budgetMs = 20_000, configPath = defaultConfigPath(env) } = {}) {
+  let config = null, setup = null;
+  try { config = readBoardConfig(configPath); } catch (error) { setup = error.code === "ENOENT" ? "the board has no config yet" : `the board config cannot be read (${error.message})`; }
+  const port = config?.port ?? BOARD_PORT, end = Date.now() + budgetMs;
+  const ownLink = link => { try { const url = new URL(link); return url.protocol === "http:" && ["127.0.0.1", "localhost"].includes(url.hostname) && Number(url.port) === port ? [url.href] : []; } catch { return []; } };
+  let left = [...new Set(links.flatMap(ownLink))].slice(0, 5).map(href => ({ url: new URL(href) })), started = null;
+  while (left.length) {
+    const timeout = Math.max(100, Math.min(2000, end - Date.now()));
+    await Promise.all(left.map(async link => { link.answer = await linkAnswer(link.url, port, timeout); }));
+    left = left.filter(link => link.answer !== 200);
+    if (!left.length || left.some(link => link.answer === "blocked")) return null;
+    if (!started && left.some(link => link.answer === "none")) {
+      started = config ? await ensureBoard(configPath, config, env).then(() => "started", error => `the board did not start: ${error.message}`) : setup;
+      if (started === "started") continue;
+      break;
+    }
+    if (!left.some(link => link.answer === 503 || link.answer === "none") || Date.now() + 250 >= end) break;
+    await new Promise(wake => setTimeout(wake, 250));
+  }
+  if (!left.length) return null;
+  const answers = left.map(({ url, answer }) => `${url.href} gives ${answer === 503 ? `503 after ${Math.round(budgetMs / 1000)} s, because the board still reads its logbooks` : SAID[answer] ?? answer}`).join("; ");
+  const todo = left.every(link => link.answer === 404) ? "Fix the path of the link (the logbook, the task or the file name)"
+    : left.every(link => link.answer === 503) ? "Wait a few seconds, then check the link again"
+    : `Run ${boardCommand("--ensure", configPath, env)} and read its message`;
+  const why = started && started !== "started" ? ` ${started[0].toUpperCase()}${started.slice(1)}.` : "";
+  return `sage: a board link in your message does not work: ${answers}.${why} ${todo}, then send the message again. This check stops a message once: your next stop passes.`;
 }
 function logSince(log, from) {
   let fd;

@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { request } from "node:http";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { Worker, isMainThread, workerData } from "node:worker_threads";
 
 export const probeBoard = ({ port }, timeout = 2000) => new Promise(done => {
@@ -26,10 +26,24 @@ export function boardAnswers(port, timeout = 1000) {
   return Atomics.load(flag, 0) === 1;
 }
 
+const boardCli = () => ["../board/cli.mjs", "../sage-board/cli.mjs"].map(path => fileURLToPath(new URL(path, import.meta.url))).find(path => existsSync(path));
+
 export function boardDownLine() {
-  const cli = ["../board/cli.mjs", "../sage-board/cli.mjs"].map(path => fileURLToPath(new URL(path, import.meta.url))).find(path => existsSync(path));
+  const cli = boardCli();
   const ensure = cli ? `node ${/\s/.test(cli) ? `"${cli}"` : cli} board --ensure` : "board --ensure";
   return `The board does not answer now; open the file, or start the board with \`${ensure}\`.`;
+}
+
+const LOCAL_LINK = /http:\/\/(?:127\.0\.0\.1|localhost)(?::\d{1,5})?(?:[/?#][^\s<>"'`()[\]{}|\\^]*)?/gi;
+export async function boardLinkStop(input, { budgetMs, env = process.env } = {}) {
+  if (input?.hook_event_name !== "Stop" || "agent_id" in input || input.stop_hook_active === true || typeof input.last_assistant_message !== "string") return undefined;
+  const links = (input.last_assistant_message.match(LOCAL_LINK) ?? []).map(link => link.replace(/[.,;:!?*_~]+$/, ""));
+  if (!links.length) return undefined;
+  try {
+    const { checkBoardLinks } = await import(pathToFileURL(boardCli()).href);
+    const reason = await checkBoardLinks(links, { env, budgetMs });
+    return reason ? { decision: "block", reason } : undefined;
+  } catch { return undefined; }
 }
 
 if (!isMainThread && workerData?.probe) {
