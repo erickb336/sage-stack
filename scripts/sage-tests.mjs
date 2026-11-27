@@ -19,7 +19,7 @@ const test = splitTest(10, globalThis.SAGE_TEST_PART);
 
 const LIB = new URL("../plugins/sage/skills/sage/sage.mjs", import.meta.url).href;
 const TOOL = fileURLToPath(LIB);
-const TASK_HEADER = TABLES.tasks.join("\t");
+const TASK_HEADER = [...TABLES.tasks, "name"].join("\t");
 const SHA = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
 const BOOT = (() => {
   try {
@@ -698,7 +698,7 @@ test("T584: a logbook that an older sage wrote still reads and writes: its candi
   };
   const now = (...args) => spawnSync("node", [TOOL, ...args, "--project", project], { encoding: "utf8", env, timeout });
   const dir = old("init").replace(/^\S+ /, "");
-  old("task", "add", "--name", tname(), "--title", "t", "--size", "small", "--add", "arena", "--why", "no clear answer");
+  old("task", "add", "--title", "t", "--size", "small", "--add", "arena", "--why", "no clear answer");
   old("run", "add", "T1", "--role", "designer", "--branch", "sage/t1-c1", "--candidate", "1");
   old("run", "done", "R1", "--status", "done");
   assert.match(now("run", "add", "T1", "--role", "arena-judge", "--branch", "sage/t1-c1").stderr, /^sage: R1 \(designer, candidate 1\) is on sage\/t1-c1, and an arena's judge/, "the old row counts as a candidate");
@@ -1496,7 +1496,7 @@ test("config, gates, standing orders and status", () => {
   const lines = s.ok("status").split("\n");
   assert.equal(lines[1], "tasks   1 · framed 1");
   assert.equal(lines[2], "gates   1 open · G1 Include deleted trips? (default: no)");
-  assert.match(readFileSync(join(s.dir, "status.md"), "utf8"), /\| T1 \| framed \| large \| 0 \|  \| Export trips \|/);
+  assert.match(readFileSync(join(s.dir, "status.md"), "utf8"), /\| T1 \| task \d+ \| framed \| large \| 0 \|  \| Export trips \|/);
   s.ok("gate", "answer", "G1", "--option", "2");
   assert.match(s.ok("status"), /gates   0 open/);
   assert.match(readFileSync(join(s.dir, "decisions.tsv"), "utf8"), /Include deleted trips\? → no\tthe user's answer/);
@@ -1516,7 +1516,7 @@ test("a command without a logbook tells how to make one", () => {
 test("fixes from dry run 1: a value may start with --, status.md never lags, and a clean verdict lists open fix findings", () => {
   const s = store();
   s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "t", "--size", "small");
-  assert.match(readFileSync(join(s.dir, "status.md"), "utf8"), /\| T1 \| framed \|/, "status.md follows a change without a status command");
+  assert.match(readFileSync(join(s.dir, "status.md"), "utf8"), /\| T1 \| task \d+ \| framed \|/, "status.md follows a change without a status command");
   finding(s, "T1", "--source", "code-reviewer", "--severity", "medium", "--summary", "--since=DATE is ignored");
   assert.match(readFileSync(join(s.dir, "findings.tsv"), "utf8"), /\t--since=DATE is ignored\t/);
   s.ok("finding", "triage", "T1", "F-T1-1", "fix");
@@ -2535,7 +2535,7 @@ test("unknown-columns: a logbook that a newer sage wrote refuses every write com
 
 test("unknown-options: a command refuses an option that it does not take, and an option without its value", () => {
   const s = store();
-  assert.equal(s.no("task", "add", "--name", tname(), "--title", "x", "--size", "small", "--sprint", "S1"), "sage: task add takes no --sprint. Its options: --title, --size, --risk, --add, --no-arena, --why, --priority, --kind, --waits, --milestone, --project.");
+  assert.equal(s.no("task", "add", "--name", tname(), "--title", "x", "--size", "small", "--sprint", "S1"), "sage: task add takes no --sprint. Its options: --title, --name, --size, --risk, --add, --no-arena, --why, --priority, --kind, --waits, --milestone, --project.");
   assert.deepEqual(rows(s.dir, "tasks"), [], "a refused command writes nothing");
   s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "x", "--size", "small");
   assert.equal(s.no("verdict", "T1", "--sha", SHA, "--kind", "checks-pass", "--cycles", "2"), "sage: verdict takes no --cycles. Its options: --sha, --kind, --cycle, --pr, --run, --project.");
@@ -3125,7 +3125,7 @@ test("T314: task add takes --priority and --kind, and task set takes priority= a
   assert.equal(s.ok("task", "T2", "set", "priority=P0", "kind=docs"), "T2 framed · tiny · round 0 · route build · P0 · kind docs");
   assert.equal(s.ok("task", "T1", "set", "kind=none"), "T1 framed · small · round 0 · route build,code-review,qa · P1");
   assert.deepEqual(rows(s.dir, "tasks").map((t) => [t.id, t.priority, t.kind]), [["T1", "P1", ""], ["T2", "P0", "docs"]]);
-  assert.match(s.no("task", "T2", "set", "colour=red"), /^sage: task set takes state=, branch=, pr=, title=, request=, priority=, kind=, waits=, milestone=, release= or approval=$/);
+  assert.match(s.no("task", "T2", "set", "colour=red"), /^sage: task set takes state=, branch=, pr=, title=, name=, request=, priority=, kind=, waits=, milestone=, release= or approval=$/);
 });
 
 test("T1083: task set request= keeps the owner's request on one line, in a column that the logbook adds when a task first has one; none clears it", () => {
@@ -3734,8 +3734,8 @@ test("T336: an older logbook gets the waits column at its next write with no val
   writeFileSync(tasks, "id\ttitle\tsize\trisk\troute\tstate\tbranch\tpr\tround\tkeys\thold\textra\tpriority\tkind\nT1\ta\tsmall\t\tbuild,code-review,qa\tframed\t\t\t0\t\t\t\tP1\tdocs\n");
   assert.equal(s.ok("status").split("\n")[1], "tasks   1 · framed 1", "it reads with the column empty");
   assert.equal(s.ok("task", "T1"), "T1 framed · small · round 0 · route build,code-review,qa · P1 · kind docs");
-  s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "b", "--size", "small", "--waits", "T1");
-  assert.equal(readFileSync(tasks, "utf8"), "id\ttitle\tsize\trisk\troute\tstate\tbranch\tpr\tround\tkeys\thold\textra\tpriority\tkind\twaits\tmilestone\tadoption\tapprovals\nT1\ta\tsmall\t\tbuild,code-review,qa\tframed\t\t\t0\t\t\t\tP1\tdocs\t\t\t\t\nT2\tb\tsmall\t\tbuild,code-review,qa\tframed\t\t\t0\t\t\t\tP2\t\tT1\t\t\t\n");
+  s.ok("task", "add", "--name", "Second task", "--priority", "P2", "--title", "b", "--size", "small", "--waits", "T1");
+  assert.equal(readFileSync(tasks, "utf8"), "id\ttitle\tsize\trisk\troute\tstate\tbranch\tpr\tround\tkeys\thold\textra\tpriority\tkind\twaits\tmilestone\tadoption\tapprovals\tname\nT1\ta\tsmall\t\tbuild,code-review,qa\tframed\t\t\t0\t\t\t\tP1\tdocs\t\t\t\t\t\nT2\tb\tsmall\t\tbuild,code-review,qa\tframed\t\t\t0\t\t\t\tP2\t\tT1\t\t\t\tSecond task\n");
 });
 
 const propose = (s, pilot = "T1", name = "Codex support", tasks) => s.ok("milestone", "propose", "--name", name, "--goal", "Codex runs sage too.", "--pilot", pilot, ...(tasks ? ["--tasks", tasks] : []));
