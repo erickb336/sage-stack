@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -175,7 +176,7 @@ function twoProjects() {
     const path = join(dir, name);
     execFileSync("git", ["init", "-q", path]);
     sage(path, "init");
-    sage(path, "task", "add", "--priority", "P2", "--title", `${name} task`, "--size", "tiny");
+    sage(path, "task", "add", "--name", tname(), "--priority", "P2", "--title", `${name} task`, "--size", "tiny");
     sage(path, "gate", "add", "--message", QUESTION, "T1", "--question", `${name}: give the bot access?`, "--options", "yes|no access", "--recommend", "yes");
     return path;
   });
@@ -190,7 +191,7 @@ function twoProjects() {
 
 test("T72-S5-WRONGLOGBOOK: rich hook offers no bare project map for gate answers", () => {
   const w = twoProjects();
-  w.sage(w.beta, "task", "add", "--priority", "P2", "--title", "beta task 2", "--size", "tiny");
+  w.sage(w.beta, "task", "add", "--name", tname(), "--priority", "P2", "--title", "beta task 2", "--size", "tiny");
   rmSync(join(storeDir(w.beta, w.env), "checkout.txt"));
   const blind = w.hook("show board for beta", w.alpha);
   assert.match(blind, /full source\/project\/gate key/);

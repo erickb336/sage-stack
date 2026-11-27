@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -50,12 +51,12 @@ async function openBoard(t, { write, copy = false } = {}) {
   mkdirSync(join(dir, "live"));
   for (const [id, ago, autopilot] of [["C1", 0, true], ["C2", 0, false], ["C3", 9 * 3600_000, false]]) writeFileSync(join(dir, "live", `${id}.json`), JSON.stringify({ provider: id === "C2" ? "codex" : "claude", checkout: project, sageMode: true, autopilot, at: iso(now - ago) }));
   const as = (chief, ...args) => claude.sage([...args, "--project", project, "--chief", chief], env);
-  as("C1", "task", "add", "--title", "Sample shared list permissions", "--size", "small", "--priority", "P1");
+  as("C1", "task", "add", "--name", tname(), "--title", "Sample shared list permissions", "--size", "small", "--priority", "P1");
   writeFileSync(join(base, "question.json"), JSON.stringify(MESSAGE));
   as("C1", "gate", "add", "T1", "--question", MESSAGE.title, "--options", "yes|no", "--recommend", "yes", "--message", join(base, "question.json"));
-  as("C2", "task", "add", "--title", "Sample crash report screen", "--size", "small", "--priority", "P2");
+  as("C2", "task", "add", "--name", tname(), "--title", "Sample crash report screen", "--size", "small", "--priority", "P2");
   as("C2", "gate", "add", "--message", QUESTION, "T2", "--question", "Crash reports: send them on their own, or ask each time?", "--options", "ask each time|send them", "--recommend", "ask each time");
-  as("C3", "task", "add", "--title", "Sample export a list as CSV", "--size", "small", "--priority", "P2");
+  as("C3", "task", "add", "--name", tname(), "--title", "Sample export a list as CSV", "--size", "small", "--priority", "P2");
   const config = join(base, "home", ".config", "sage-board", "board.json"), stateDir = join(base, "home", ".config", "sage-board", "state");
   const setup = port => runBoardCli(["board", "--setup", "--config", config, "--port", String(port), "--sources", JSON.stringify([{ id: "shared", path: env.SAGE_SHARED_HOME }])], { output: () => {}, env });
   let server, cli = null, port;

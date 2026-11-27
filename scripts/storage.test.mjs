@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, renameSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -37,7 +38,7 @@ function world(t) {
   };
   const wt = {};
   const task = (id, state, path = join(folder, id.toLowerCase())) => {
-    ok(["task", "add", "--title", `task ${id}`, "--size", "small", "--priority", "P2"]);
+    ok(["task", "add", "--name", tname(), "--title", `task ${id}`, "--size", "small", "--priority", "P2"]);
     git(project, "worktree", "add", "-q", "-b", `claude/${id.toLowerCase()}`, path, "main");
     ok(["task", id, "set", "state=briefed", `branch=claude/${id.toLowerCase()}`]);
     cell(id, "state", state);

@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { spawnSync as rawSpawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
@@ -124,7 +125,7 @@ function project({ size = "small", config = [], framed = false, add = [], file, 
   send({ hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
   chief("init");
   if (config.length) chief("config", ...config);
-  chief("task", "add", "--priority", "P2", "--title", "example", "--size", size, ...add.flatMap((block) => ["--add", block, "--why", "a-screen-first"]));
+  chief("task", "add", "--name", tname(), "--priority", "P2", "--title", "example", "--size", size, ...add.flatMap((block) => ["--add", block, "--why", "a-screen-first"]));
   if (!framed) chief("task", "T1", "set", "state=briefed");
   chief("run", "add", "T1", "--role", "lead");
   assert.equal(p.startLead(), undefined, "the sage starts lead-T1");
@@ -327,7 +328,7 @@ test("T600: a lead's round from repairing acts only on its own task: another tas
   const p = project();
   play([...REPAIR(true), "< R7 FINDINGS: - K3 medium a.mjs:2 the log line still has no label",
     "$ sage finding add T1 --source code-reviewer --severity medium --summary=log-line-still-has-no-label --run R7 --class copy", "→ F-T1-3 open · medium · T1", "$ sage run done R7 --status done --tokens 1"], p);
-  p.chief("task", "add", "--priority", "P2", "--title", "other", "--size", "small");
+  p.chief("task", "add", "--name", tname(), "--priority", "P2", "--title", "other", "--size", "small");
   for (const state of ["briefed", "building", "reviewing"]) p.chief("task", "T2", "set", `state=${state}`);
   const run = p.chief("run", "add", "T2", "--role", "qa").split(" ")[0];
   p.chief("finding", "add", "T2", "--source", "qa", "--severity", "medium", "--summary", "other", "--run", run, "--class", "other");
@@ -658,7 +659,7 @@ test("T301: the lead file's helper cap is the hook's, and with the default agent
   p.send({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command }, tool_response: { stdout: out, stderr: "", interrupted: false }, ...p.lead });
   const spawn = () => denied(p.send({ hook_event_name: "PreToolUse", tool_name: "Agent", tool_input: { subagent_type: "sage:qa", name: id, description: `${id} qa`, prompt: BRIEF, run_in_background: true }, tool_use_id: `spawn-${id}`, ...p.lead }));
   assert.match(spawn() ?? "", new RegExp(`^sage: ${id} is queued, place 1 of 1: the project runs ${DEFAULT_CAP} of its ${DEFAULT_CAP} agents, .* Run node \\S+wait\\.mjs --slot ${id} .*Then start this helper again\\.$`));
-  p.chief("task", "add", "--priority", "P2", "--title", "second", "--size", "small");
+  p.chief("task", "add", "--name", tname(), "--priority", "P2", "--title", "second", "--size", "small");
   p.chief("task", "T2", "set", "state=briefed");
   const second = p.chief("run", "add", "T2", "--role", "lead");
   assert.match(second, new RegExp(`^R${DEFAULT_CAP + 3} is queued, place 2 · lead on T2`), "a second lead waits behind it");

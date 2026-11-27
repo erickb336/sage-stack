@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -28,7 +29,7 @@ function world(t) {
   const as = (...args) => claude.sage([...args, "--project", project, "--chief", chief], env);
   const owner = (...args) => claude.sage([...args, "--project", project], env);
   const refused = (run) => { try { run(); } catch (error) { return error.message; } return assert.fail("no refusal"); };
-  as("task", "add", "--title", "Receipt mail", ...ADD);
+  as("task", "add", "--name", tname(), "--title", "Receipt mail", ...ADD);
   as("task", "T1", "set", "state=designing");
   const pages = as("pages", "T1");
   mkdirSync(join(pages, "designs", "final", "shots"), { recursive: true });

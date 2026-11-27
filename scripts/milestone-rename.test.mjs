@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -36,7 +37,7 @@ function oldLogbook({ answer = "approve", floor = true, stopped = [], pr = false
   const ok = (...args) => { const r = run(...args); assert.equal(r.status, 0, `sage ${args.join(" ")}: ${r.stderr}`); return r.stdout.trim(); };
   const no = (...args) => { const r = run(...args); assert.equal(r.status, 1, `sage ${args.join(" ")} should be refused: ${r.stdout}`); return r.stderr.trim(); };
   const dir = ok("init").replace(/^\S+ /, "");
-  ok("task", "add", "--title", "template", "--size", "small", "--priority", "P1");
+  ok("task", "add", "--name", tname(), "--title", "template", "--size", "small", "--priority", "P1");
   const route = rowsOf(dir, "tasks")[0].route;
   const task = (id, state, { waits = "", program = "", size = "small", path = route, ...rest } = {}) => ({ id, title: `Sample ${id}`, size, route: path, state, round: "0", priority: "P1", waits, program, ...rest });
   const tasks = [task("T977", "concluded", { size: "investigate", path: INVESTIGATE }), task("T978", "concluded", { size: "investigate", path: INVESTIGATE }),
@@ -146,7 +147,7 @@ test("T995: an answered old gate stays as it is, and a drop in it still counts t
 test("T995: the old words program, --program and program= still work for one version, each with a note", () => {
   const s = oldLogbook();
   const note = (word) => new RegExp(`\\nnote: ${word}\\. The old words work for one more version\\.$`);
-  assert.match(s.ok("task", "add", "--title", "joins", "--size", "small", "--priority", "P2", "--program", "M5"), note("--program is --milestone now"));
+  assert.match(s.ok("task", "add", "--name", tname(), "--title", "joins", "--size", "small", "--priority", "P2", "--program", "M5"), note("--program is --milestone now"));
   assert.equal(rowsOf(s.dir, "tasks").at(-1).milestone, "M5");
   assert.match(s.ok("task", "T993", "set", "program=M5"), note("program= is milestone= now"));
   assert.equal(rowsOf(s.dir, "tasks").find((t) => t.id === "T993").milestone, "M5");
@@ -258,7 +259,7 @@ test("F-T995-16: after the migration, program=PG1, --program PG1 and milestone p
   const s = oldLogbook({ answer: "change" });
   s.ok("log", "-", "a note", "--why", "the first write of this version");
   assert.match(s.ok("task", "T993", "set", "program=PG1"), /^T993 framed · [^\n]* · milestone M5\b[\s\S]*\nnote: program= is milestone= now\./);
-  assert.match(s.ok("task", "add", "--title", "joins", "--size", "small", "--priority", "P2", "--program", "PG1"), /^T996 framed · [^\n]* · milestone M5\b[\s\S]*\nnote: --program is --milestone now\./);
+  assert.match(s.ok("task", "add", "--name", tname(), "--title", "joins", "--size", "small", "--priority", "P2", "--program", "PG1"), /^T996 framed · [^\n]* · milestone M5\b[\s\S]*\nnote: --program is --milestone now\./);
   assert.deepEqual(rowsOf(s.dir, "tasks").filter((t) => ["T993", "T996"].includes(t.id)).map((t) => t.milestone), ["M5", "M5"]);
   assert.match(s.ok("milestone", "propose", "PG1"), /^M5 /);
   assert.equal(rowsOf(s.dir, "gates").at(-1).question.split(L)[0], "Approve milestone M5 (round 2)? No task builds before you approve.");

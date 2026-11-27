@@ -24,7 +24,7 @@ The board and status phrases work at the start of your message. [Ask for the boa
 | `show board for all` or `sage board for all projects` | The board of every project. |
 | `show board for <project>` or `sage board for <project>` | The board of one project. |
 | `show board <task id>`, `sage board <task id>` or `board <task id>` | One task in full, for example `show board T1`. |
-| `show status` or `sage status` | The task states, the agents and what needs you, and the open tasks with no priority. |
+| `show status` or `sage status` | The task states, the agents and what needs you, and the open tasks with no priority or no name. |
 
 These words work inside a request. They switch nothing:
 
@@ -775,7 +775,7 @@ A moved folder with no Git commits, or that is no Git repository, has no first c
 
 | Who | Writes |
 | --- | --- |
-| The owning chief | Its own task: `task <T> set`, `round`, `run add`, `run done`, `finding add`, `triage`, `close`, `move`, `verdict`, `gate add <T>`, `milestone propose` for its pilot and each of its tasks, `log <T>` and `unclaim`. |
+| The owning chief | Its own task: `task <T> set`, `task names` for each task of its file, `round`, `run add`, `run done`, `finding add`, `triage`, `close`, `move`, `verdict`, `gate add <T>`, `milestone propose` for its pilot and each of its tasks, `log <T>` and `unclaim`. |
 | A lead | What the chief of its lead run may write, on the task of that run only, while that run runs. |
 | Any chief | `task add`, `pickup`, `gate add` with no task, `gate replace`, `init`, `standing add`, `standing retire`, `standing chief`, `config`, `log -`, `pages <T> record`, `observe`, `run usage`, `release add` and `milestone <M> set release=`. |
 | You | `gate answer`, in your own words, from either provider, `gate undo`, `gate give`, each form of `logbook repair` (`--accept-loss`, `--accept-change-loss`, or both), `projects rebuild` and `chief name`: each is your act and names no chief, so the line that sage prints works in your terminal. |

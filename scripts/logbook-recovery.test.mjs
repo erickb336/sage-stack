@@ -1,4 +1,5 @@
 import './test-env.mjs';
+import { tname } from "./task-names.mjs";
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -23,7 +24,7 @@ function fixture(t, names = ['one']) {
     const project = join(base, name); mkdirSync(project);
     const run = (provider, ...args) => provider([...args, '--project', project], env);
     const dir = run(codex, 'init').replace(/^logbook /, '');
-    run(codex, 'task', 'add', '--priority', 'P2', '--title', `Task of ${name}`, '--size', 'tiny');
+    run(codex, 'task', 'add', '--name', tname(), '--priority', 'P2', '--title', `Task of ${name}`, '--size', 'tiny');
     return [name, { project, run, dir }];
   }));
   return { env, ...projects };
@@ -60,7 +61,7 @@ for (const [starter, settler, name] of [[claude, codex, 'Claude to Codex'], [cod
     const stop = stopAt(t, dir, step, after);
     assert.throws(() => run(starter, 'run', 'usage', 'R1', ...usage), /Injected stop/);
     stop();
-    run(settler, 'task', 'add', '--priority', 'P2', '--title', 'The other provider', '--size', 'tiny');
+    run(settler, 'task', 'add', '--name', tname(), '--priority', 'P2', '--title', 'The other provider', '--size', 'tiny');
     assert.equal(existsSync(join(dir, MARKER)), false);
     assert.equal(row(dir, 'tasks', 'T2').title, 'The other provider');
     assert.equal(row(dir, 'runs', 'R1').tokens, step === 'intent' && !after ? '' : '50');
@@ -95,10 +96,10 @@ for (const [change, value] of [['schema', 99], ['hash', '0'.repeat(64)]]) test(`
   const bytes = JSON.stringify(record) + '\n';
   writeFileSync(file, bytes);
   const before = tables(one.dir);
-  assert.throws(() => one.run(claude, 'task', 'add', '--priority', 'P2', '--title', 'Stopped', '--size', 'tiny'), { message: STUCK });
+  assert.throws(() => one.run(claude, 'task', 'add', '--name', tname(), '--priority', 'P2', '--title', 'Stopped', '--size', 'tiny'), { message: STUCK });
   assert.equal(readFileSync(file, 'utf8'), bytes);
   assert.deepEqual(tables(one.dir), before);
-  assert.match(two.run(claude, 'task', 'add', '--priority', 'P2', '--title', 'Goes on', '--size', 'tiny'), /T2/);
+  assert.match(two.run(claude, 'task', 'add', '--name', tname(), '--priority', 'P2', '--title', 'Goes on', '--size', 'tiny'), /T2/);
 });
 
 const snapshot = dir => Object.fromEntries(readdirSync(dir, { withFileTypes: true, recursive: true })
@@ -117,7 +118,7 @@ function stuck(t, f) {
 for (const [name, provider] of [['Claude', claude], ['Codex', codex]]) {
   test(`T593 ${name}: after the owner accepts the loss, the marker is kept, the decision names it, and the next write works`, t => {
     const { one } = fixture(t), file = stuck(t, one), bytes = readFileSync(file, 'utf8');
-    assert.throws(() => one.run(provider, 'task', 'add', '--priority', 'P2', '--title', 'Stopped', '--size', 'tiny'), { message: STUCK });
+    assert.throws(() => one.run(provider, 'task', 'add', '--name', tname(), '--priority', 'P2', '--title', 'Stopped', '--size', 'tiny'), { message: STUCK });
     const out = one.run(provider, ...REPAIR), kept = `${file}.lost-1`;
     assert.equal(out, `The saved change (request R1) is lost: ${MARKER} moved to ${kept}, and the decision is in decisions.tsv. A half-published update can leave mixed tables, where some tables hold the change and others do not. Sage does not repair them, so read the rows of the last work. The logbook check passes, and writes work again. The check reads each table alone, so it cannot show that the tables agree.`);
     assert.equal(existsSync(file), false);
@@ -125,7 +126,7 @@ for (const [name, provider] of [['Claude', claude], ['Codex', codex]]) {
     const { decision, why, task } = tool.read(one.dir, 'decisions').at(-1);
     assert.deepEqual({ decision, why, task }, { decision: `saved change (request R1) moved aside to ${kept}`, why: 'the owner accepts the loss of this saved change', task: '' });
     assert.equal(row(one.dir, 'runs', 'R1').tokens, '', 'the lost change stays lost');
-    assert.match(one.run(provider, 'task', 'add', '--priority', 'P2', '--title', 'Saves again', '--size', 'tiny'), /T2/);
+    assert.match(one.run(provider, 'task', 'add', '--name', tname(), '--priority', 'P2', '--title', 'Saves again', '--size', 'tiny'), /T2/);
     assert.equal(row(one.dir, 'tasks', 'T2').title, 'Saves again');
   });
 
@@ -191,7 +192,7 @@ for (const [name, damage] of Object.entries(MARKERS)) test(`T593 the repair move
   one.run(claude, ...REPAIR);
   assert.equal(existsSync(file), false);
   assert.deepEqual(lostFiles(one.dir), [`${MARKER}.lost-1`]);
-  assert.match(one.run(claude, 'task', 'add', '--priority', 'P2', '--title', 'Saves again', '--size', 'tiny'), /T2/);
+  assert.match(one.run(claude, 'task', 'add', '--name', tname(), '--priority', 'P2', '--title', 'Saves again', '--size', 'tiny'), /T2/);
 });
 
 test('T593 a table that the stuck change left damaged still fails the check: writes stop, and the table repair is the way on', t => {
@@ -201,9 +202,9 @@ test('T593 a table that the stuck change left damaged still fails the check: wri
   assert.throws(() => one.run(claude, 'init'), { message: STUCK });
   const out = one.run(claude, ...REPAIR);
   assert.match(out, /The saved change \(request R1\) is lost: .* The logbook check fails, so writes still stop: \S+runs\.tsv is empty \(0 bytes\).*logbook repair --accept-loss runs /);
-  assert.throws(() => one.run(claude, 'task', 'add', '--priority', 'P2', '--title', 'Stopped', '--size', 'tiny'), /runs\.tsv is empty/);
+  assert.throws(() => one.run(claude, 'task', 'add', '--name', tname(), '--priority', 'P2', '--title', 'Stopped', '--size', 'tiny'), /runs\.tsv is empty/);
   one.run(claude, 'logbook', 'repair', '--accept-loss', 'runs');
-  assert.match(one.run(claude, 'task', 'add', '--priority', 'P2', '--title', 'Saves again', '--size', 'tiny'), /T2/);
+  assert.match(one.run(claude, 'task', 'add', '--name', tname(), '--priority', 'P2', '--title', 'Saves again', '--size', 'tiny'), /T2/);
 });
 
 test('T593 mixed tables that are each whole stay as they are: the repair says so, and it does not restore them', t => {
@@ -240,7 +241,7 @@ test('T593 a stuck change with a damaged decisions table: the repair refuses wit
   assert.deepEqual(lostFiles(one.dir), [`${MARKER}.lost-1`]);
   assert.deepEqual(tool.read(one.dir, 'decisions').map(line => line.why), ['the user accepts the loss of its rows', 'the owner accepts the loss of this saved change']);
   assert.equal(existsSync(file), false);
-  assert.match(one.run(claude, 'task', 'add', '--priority', 'P2', '--title', 'Saves again', '--size', 'tiny'), /T2/);
+  assert.match(one.run(claude, 'task', 'add', '--name', tname(), '--priority', 'P2', '--title', 'Saves again', '--size', 'tiny'), /T2/);
 });
 
 for (const [name, provider, file] of [['Claude', claude, '../plugins/sage/skills/sage/sage.mjs'], ['Codex', codex, '../plugins/sage-codex/skills/sage/sage.mjs']]) {
@@ -255,7 +256,7 @@ for (const [name, provider, file] of [['Claude', claude, '../plugins/sage/skills
     provider(['link', '--separate', '--project', project], env);
     const dir = tool.storeDir(project, env), chief = tool.chiefFor(project, 'session-a', env);
     const run = (who, ...args) => who([...args, '--project', project, '--chief', chief], env);
-    run(codex, 'task', 'add', '--priority', 'P2', '--title', 'First', '--size', 'tiny');
+    run(codex, 'task', 'add', '--name', tname(), '--priority', 'P2', '--title', 'First', '--size', 'tiny');
     const marker = stuck(t, { dir, run }), people = readFileSync(join(dir, 'chiefs.tsv'), 'utf8');
     writeFileSync(join(dir, 'decisions.tsv'), '');
     const terminal = (...args) => spawnSync(process.execPath, [fileURLToPath(new URL(file, import.meta.url)), ...args], { cwd: base, env, encoding: 'utf8', timeout: 60_000 });
@@ -268,7 +269,7 @@ for (const [name, provider, file] of [['Claude', claude, '../plugins/sage/skills
     assert.match(repair.stdout, /^decisions\.tsv started again without rows; .* The saved change \(request R1\) is lost: /);
     assert.equal(existsSync(marker), false);
     assert.equal(readFileSync(join(dir, 'chiefs.tsv'), 'utf8'), people, 'the repair names no chief, so it adds none');
-    assert.match(run(provider, 'task', 'add', '--priority', 'P2', '--title', 'Saves again', '--size', 'tiny'), /T2 framed .* · chief C1/);
+    assert.match(run(provider, 'task', 'add', '--name', tname(), '--priority', 'P2', '--title', 'Saves again', '--size', 'tiny'), /T2 framed .* · chief C1/);
   });
 }
 
@@ -330,7 +331,7 @@ function linkedProjects(t) {
   const dir = one.run(codex, 'logbook');
   two.run(claude, 'link', '--to', basename(dir));
   actor = ['--chief', tool.chiefFor(first, 'test-chief', env)];
-  one.run(codex, 'task', 'add', '--priority', 'P2', '--title', 'Task of the project', '--size', 'tiny');
+  one.run(codex, 'task', 'add', '--name', tname(), '--priority', 'P2', '--title', 'Task of the project', '--size', 'tiny');
   Object.assign(one, { dir }); Object.assign(two, { dir });
   const logbooks = root => existsSync(root) ? readdirSync(root).filter(name => existsSync(join(root, name, 'tasks.tsv'))) : [];
   const providerLogbooks = () => [...logbooks(join(env.CLAUDE_CONFIG_DIR, 'sage')), ...logbooks(join(env.CODEX_HOME, 'sage'))];
@@ -342,7 +343,7 @@ for (const [name, provider] of [['Claude', claude], ['Codex', codex]]) {
     const { dir, one, two, shared, providerLogbooks } = linkedProjects(t), file = stuck(t, one), bytes = readFileSync(file, 'utf8');
     assert.equal(dirname(dir), shared, 'the logbook is in the shared root');
     assert.equal(two.run(provider, 'logbook'), dir, 'the clone finds the same logbook');
-    assert.throws(() => two.run(provider, 'task', 'add', '--priority', 'P2', '--title', 'Stopped', '--size', 'tiny'), { message: STUCK });
+    assert.throws(() => two.run(provider, 'task', 'add', '--name', tname(), '--priority', 'P2', '--title', 'Stopped', '--size', 'tiny'), { message: STUCK });
     const out = two.run(provider, ...REPAIR), kept = `${file}.lost-1`;
     assert.match(out, /^The saved change \(request R1\) is lost: .*The logbook check passes, and writes work again\./);
     assert.equal(existsSync(file), false);
@@ -350,8 +351,8 @@ for (const [name, provider] of [['Claude', claude], ['Codex', codex]]) {
     const { decision, why } = tool.read(dir, 'decisions').at(-1);
     assert.deepEqual({ decision, why }, { decision: `saved change (request R1) moved aside to ${kept}`, why: 'the owner accepts the loss of this saved change' });
     assert.deepEqual(providerLogbooks(), [], 'the repair wrote no logbook in a provider root');
-    assert.match(two.run(provider, 'task', 'add', '--priority', 'P2', '--title', 'From the clone', '--size', 'tiny'), /T2/);
-    assert.match(one.run(provider, 'task', 'add', '--priority', 'P2', '--title', 'From the first checkout', '--size', 'tiny'), /T3/);
+    assert.match(two.run(provider, 'task', 'add', '--name', tname(), '--priority', 'P2', '--title', 'From the clone', '--size', 'tiny'), /T2/);
+    assert.match(one.run(provider, 'task', 'add', '--name', tname(), '--priority', 'P2', '--title', 'From the first checkout', '--size', 'tiny'), /T3/);
     assert.deepEqual(tool.read(dir, 'tasks').map(task => task.title), ['Task of the project', 'From the clone', 'From the first checkout']);
   });
 }
@@ -383,7 +384,7 @@ test('T593 a linked project: the repair refuses a change that can finish, and a 
   const saved = snapshot(shared);
   assert.throws(() => two.run(claude, ...REPAIR), { message: 'This saved change can finish, so it needs no repair: any write in this project finishes it. Nothing changed.' });
   assert.deepEqual(snapshot(shared), saved);
-  two.run(claude, 'task', 'add', '--priority', 'P2', '--title', 'Finishes it', '--size', 'tiny');
+  two.run(claude, 'task', 'add', '--name', tname(), '--priority', 'P2', '--title', 'Finishes it', '--size', 'tiny');
   assert.equal(row(dir, 'runs', 'R1').tokens, '50', 'the refused repair kept the change, and a write finishes it');
   assert.equal(existsSync(join(dir, MARKER)), false);
 });
@@ -391,7 +392,7 @@ test('T593 a linked project: the repair refuses a change that can finish, and a 
 test('T593 a shared root reached through a link: the repair refuses, and the setting that the line names finishes the change', t => {
   const { actor, base, dir, env, one, two, shared } = linkedProjects(t);
   savedUsage(t, one);
-  const link = join(base, 'shared-link'), linked = { ...env, SAGE_SHARED_HOME: link }, write = ['task', 'add', '--priority', 'P2', '--title', 'Saved', '--size', 'tiny', '--project', two.project, ...actor], saved = snapshot(shared);
+  const link = join(base, 'shared-link'), linked = { ...env, SAGE_SHARED_HOME: link }, write = ['task', 'add', '--name', tname(), '--priority', 'P2', '--title', 'Saved', '--size', 'tiny', '--project', two.project, ...actor], saved = snapshot(shared);
   symlinkSync(shared, link);
   assert.throws(() => claude(write, linked), { message: STUCK });
   assert.throws(() => claude([...REPAIR, '--project', two.project, ...actor], linked), { message: LINKED(dir, join(link, basename(dir)), shared, 'SAGE_SHARED_HOME') });
@@ -430,7 +431,7 @@ for (const schema of [2, 3, 4, 5, 6, 8]) test(`T914 a saved change of schema ${s
   const { one } = fixture(t);
   savedUsage(t, one);
   rewrite(join(one.dir, MARKER), value => { value.schema = schema; });
-  const add = ['task', 'add', '--priority', 'P2', '--title', 'Saves again', '--size', 'tiny'];
+  const add = ['task', 'add', '--name', tname(), '--priority', 'P2', '--title', 'Saves again', '--size', 'tiny'];
   for (const provider of [claude, codex]) assert.throws(() => one.run(provider, ...add), { message: STUCK });
   assert.match(one.run(claude, ...REPAIR), /^The saved change \(request R1\) is lost: .* The logbook check passes, and writes work again\./);
   assert.deepEqual(lostFiles(one.dir), [`${MARKER}.lost-1`]);
@@ -569,7 +570,7 @@ test('T578 a read asks for any write, and the CLI prints the short line with no 
   assert.equal(existsSync(join(one.dir, MARKER)), false);
   assert.equal(row(one.dir, 'runs', 'R1').tokens, '50');
   writeFileSync(join(one.dir, MARKER), '{}');
-  const stuck = tool.command(['task', 'add', '--priority', 'P2', '--title', 'Stopped', '--size', 'tiny', '--project', one.project], env);
+  const stuck = tool.command(['task', 'add', '--name', tname(), '--priority', 'P2', '--title', 'Stopped', '--size', 'tiny', '--project', one.project], env);
   assert.deepEqual(stuck, { code: 1, text: `sage: ${STUCK}` });
   for (const provider of [claude, codex]) assert.equal(one.run(provider, 'logbook').replace(/^logbook /, '').trim(), one.dir);
 });
@@ -602,9 +603,9 @@ for (const step of ['runs', 'decisions', 'receipt', 'clear']) for (const after o
   const { one } = fixture(t);
   savedUsage(t, one);
   const stop = stopAt(t, one.dir, step, after);
-  assert.throws(() => one.run(claude, 'task', 'add', '--priority', 'P2', '--title', 'Second', '--size', 'tiny'), /file error \(EIO\)/);
+  assert.throws(() => one.run(claude, 'task', 'add', '--name', tname(), '--priority', 'P2', '--title', 'Second', '--size', 'tiny'), /file error \(EIO\)/);
   stop();
-  one.run(codex, 'task', 'add', '--priority', 'P2', '--title', 'Third', '--size', 'tiny');
+  one.run(codex, 'task', 'add', '--name', tname(), '--priority', 'P2', '--title', 'Third', '--size', 'tiny');
   assert.equal(existsSync(join(one.dir, MARKER)), false);
   assert.equal(row(one.dir, 'runs', 'R1').tokens, '50');
   assert.equal(tool.read(one.dir, 'decisions').filter(line => line.decision === 'R1 usage measured').length, 1);

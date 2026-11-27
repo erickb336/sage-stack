@@ -30,10 +30,10 @@ Read `skills/sage/references/commands.md` for the full row of a command before y
 | --- | --- |
 | `init` | Makes the project's logbook and its standing orders. |
 | `standing [--chief C<n>] [--all]` · `standing add\|retire\|chief` | Reads or changes the orders. |
-| `task add --title "<t>" --size tiny\|small\|large\|investigate [--risk auth,data,schema,money,secrets,input] [--add <blocks> --why "<reason>"] --priority P0\|P1\|P2\|P3 [--kind <kind>] [--waits <T,T>] [--milestone <M>]` | Frames a task and its route. |
-| `task <T> set priority=P0\|P1\|P2\|P3` · `task <T> set kind=<kind>\|none` | Sets the task's priority, or sets or clears (`none`) its kind, from the lists of `task add`. |
+| `task add --title "<t>" --name "<name>" --size tiny\|small\|large\|investigate [--risk auth,data,schema,money,secrets,input] [--add <blocks> --why "<reason>"] --priority P0\|P1\|P2\|P3 [--kind <kind>] [--waits <T,T>] [--milestone <M>]` | Frames a task and its route. |
+| `task <T> set priority=P0\|P1\|P2\|P3` · `kind=<kind>\|none` · `name="<name>"` · `task names --file <file>` | Sets the priority, the kind (`none` clears it) or the name, by the rules of `task add`. |
 | `task <T> set waits=<T,T>` · `waits=` (or `waits=none`) | Sets or clears the tasks that this task waits for. |
-| `config name="<name>"` · `config archived=yes\|no` · `config start=sage-mode\|normal` · `config lint_offer=never\|ask` · `config commit_email=<email> commit_name="<name>"` | Sets a key of the project's own logbook, in `config.json` of its logbook folder (not the config for all projects). `archived=yes|no` needs no chief, only the owner's request, and only for this chat's own project: an archived project takes no task or run, starts no agent and merges nothing, while running agents finish. When the owner asks in this chat, after the archive, for new work there, run `config archived=no` first and tell the owner in one line that you restored it. |
+| `config name="<name>"` · `config archived=yes\|no` · `config start=sage-mode\|normal` · `config lint_offer=never\|ask` · `config commit_email=<email> commit_name="<name>"` | Sets a key of this project's own logbook, only when the owner asks; `archived` only for this chat's own project. Read its row in `skills/sage/references/commands.md` before you set a key. |
 | `task <T> set state=<state> [branch=<b>] [pr=<n>]` | Moves the task. |
 | `round <T> [--why "<reason>"]` | Starts a repair round on the open findings marked fix, also on low findings only, and names the roles to re-run on the repair's diff. |
 | `run add <T> --role <role> [--branch <b>] [--candidate <k>]` · `run done <R> --status done\|blocked\|question\|failed [--tokens <n>] [--report <path>] [--why "<reason>"]` | Records an agent run. `--why "<reason>"` is needed with `--status failed`: one line of at most 200 characters that the board shows. |
@@ -43,8 +43,8 @@ Read `skills/sage/references/commands.md` for the full row of a command before y
 | `verdict <T> --sha <sha> --kind <kind> [--cycle <n>] [--pr <n>] [--run <R>]` | Records a verdict on a head SHA. |
 | `gate add <T> --question "<q>" --options "<a\|b>" --recommend <a> [--default <a>] [--run R<n>]` · `gate answer <G> --option <n> --project <folder>` · `gate answer <G> --other-hex <hex> --project <folder>` | Parks a question for the user, with your recommendation and the default. `--run` names the run of the task that asked it. |
 | `log <T\|-> "<decision>" --why "<reason>"` | Adds a line to the decision trail. |
-| `pages <T>` · `pages <T> record <file>` · `pages <T> record --run <R> --text <report>` | Makes (mode 700) and prints the folder where agents save the task's pages (research, designs, findings pages). |
-| `prior-art` · `prior-art <topic>` · `prior-art <topic> add --file '<path>'` | Lists the topics of the prior-art index (`prior-art/` in the shared root, the same for Claude and Codex), prints one topic's rows for a brief's CONTEXT, or adds the rows from the file that a report names. Read `core/references/prior-art.md` before a design, PE or investigate brief. |
+| `pages <T>` · `pages <T> record <file>` · `pages <T> record --run <R> --text <report>` | Makes (mode 700) and prints the folder where agents save the task's pages. |
+| `prior-art` · `prior-art <topic>` · `prior-art <topic> add --file '<path>'` | Lists the topics of the prior-art index, prints one topic's rows for a brief's CONTEXT, or adds the rows from the file that a report names. Read `core/references/prior-art.md` before a design, PE or investigate brief. |
 | `board [this\|all\|<project>\|<T>] [--view chat\|task\|status]` · `board --name-hex <hex>` | Prints the board: the chat board by default. |
 | `stats [--task <T>]` | Prints the 50 tasks with the most review tokens, largest first. |
 | `worktrees` · `worktrees prune --yes` | Lists the git worktrees of the project's repository, one line each. |

@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -598,7 +599,7 @@ function files(...roots) {
 }
 test("T1233: each read that agents may run prints what it reads and leaves every file of the logbook byte-identical, through both providers' state tools", (t) => {
   const w = world(t);
-  for (const args of [["init"], ["task", "add", "--priority", "P2", "--title", "t", "--size", "small"], ["finding", "add", "T1", "--source", "sage", "--severity", "low", "--summary", "a low note"], ["log", "T1", "decided to read", "--why", "because"]]) {
+  for (const args of [["init"], ["task", "add", "--name", tname(), "--priority", "P2", "--title", "t", "--size", "small"], ["finding", "add", "T1", "--source", "sage", "--severity", "low", "--summary", "a low note"], ["log", "T1", "decided to read", "--why", "because"]]) {
     const r = w.sage(...args);
     assert.equal(r.status, 0, r.stderr);
   }
@@ -1041,7 +1042,7 @@ test("T115: the hook process refuses merges with saved state and passing ledger 
   assert.equal(denied(w.send(pre("Bash", MERGE))), OWNER_MERGE, "no verdicts yet");
   assert.equal(w.send(ask(MERGE)), undefined, "a failing check leaves the prompt to Codex");
   assert.equal(w.sage("init").status, 0);
-  assert.equal(w.sage("task", "add", "--priority", "P2", "--title", "t", "--size", "small").status, 0);
+  assert.equal(w.sage("task", "add", "--name", tname(), "--priority", "P2", "--title", "t", "--size", "small").status, 0);
   for (const kind of ["checks-pass", "review-clean", "qa-pass"]) assert.equal(w.sage("verdict", "T1", "--sha", SHA, "--kind", kind, "--cycle", "1", "--pr", "41").status, 0);
   assert.equal(denied(w.send(pre("Bash", MERGE))), OWNER_MERGE, "passing verdicts grant no authority");
   assert.equal(w.send(ask(MERGE)), undefined);
@@ -1059,7 +1060,7 @@ test("T115: legacy, owning and replaced chiefs all receive the merge refusal", (
   const run = (...args) => codexTool.sage([...args, "--project", w.project], w.env);
   const verified = (...chief) => {
     const cli = (...args) => run(...args, ...chief), keep = (fields) => codexTool.keepReport(w.project, fields, w.env);
-    cli("task", "add", "--priority", "P2", "--title", "t", "--size", "small");
+    cli("task", "add", "--name", tname(), "--priority", "P2", "--title", "t", "--size", "small");
     for (const kind of ["checks-pass", "review-clean", "qa-pass"]) cli(...backed(["verdict", "T1", "--sha", SHA, "--kind", kind, "--cycle", "1", "--pr", "41"], { cli, keep }));
   };
   run("init");
@@ -1104,7 +1105,7 @@ test("T115: saved and replayed autopilot never unlock a merge", (t) => {
   w.mode({ sage: true, autopilot: true });
   const initialized = w.sage("init");
   assert.equal(initialized.status, 0, initialized.stderr);
-  assert.equal(w.sage("task", "add", "--priority", "P2", "--title", "t", "--size", "small").status, 0);
+  assert.equal(w.sage("task", "add", "--name", tname(), "--priority", "P2", "--title", "t", "--size", "small").status, 0);
   for (const kind of ["checks-pass", "review-clean", "qa-pass"]) assert.equal(w.sage("verdict", "T1", "--sha", SHA, "--kind", kind, "--cycle", "1", "--pr", "41").status, 0);
   const cases = [["no transcript", null], ["no typed phrase", []], ["sage mode only", ["sage mode"]], ["autopilot before sage mode", ["autopilot on", "sage mode"]],
     ["autopilot off last", ["sage mode", "autopilot on", "autopilot off"]], ["sage mode off last", ["sage mode", "autopilot on", "sage mode off"]], ["a phrase inside a message", ["sage mode", "please autopilot on now"]], ["typed", ["sage mode", "autopilot on"]]];
@@ -1137,7 +1138,7 @@ test("a mode file, a record and a ledger that an agent writes under /tmp turn on
     return result.stdout.trim();
   };
   assert.equal(tool("init").status, 0);
-  assert.equal(tool("task", "add", "--priority", "P2", "--title", "t", "--size", "small").status, 0);
+  assert.equal(tool("task", "add", "--name", tname(), "--priority", "P2", "--title", "t", "--size", "small").status, 0);
   for (const kind of ["checks-pass", "review-clean", "qa-pass"]) {
     const args = ["verdict", "T1", "--sha", SHA, "--kind", kind, "--cycle", "1", "--pr", "41"];
     const result = tool(...backed(args, { cli, keep: fields => codexTool.keepReport(w.project, fields, forgedEnv) }));
@@ -1299,7 +1300,7 @@ test("in sage mode a read-only role writes no file from the shell either; it sti
 test("only the chief records the logbook: a child's sage tool that writes is denied with one line, in any mode; reads pass (R1664-1, R1664-2)", async (t) => {
   const writes = [["verdict", { task: "T1", kind: "review-clean", sha: SHA, cycle: 1, pr: 41 }], ["gate_answer", { gate: "G1", option: 1 }], ["brief", { task_name: "sage_qa_t1", brief: "GOAL x" }],
     ["finding_add", { task: "T1", source: "qa", severity: "low" }], ["finding_triage", { task: "T1", key: "F-T1-1", decision: "dismiss", reason: "x" }], ["finding_close", { task: "T1", key: "F-T1-1" }],
-    ["task_set", { task: "T1", fields: { state: "verified" } }], ["task_add", { title: "x", size: "tiny" }], ["standing_add", { order: "x" }], ["run_add", { task: "T1", role: "qa" }],
+    ["task_set", { task: "T1", fields: { state: "verified" } }], ["task_add", { name: tname(), title: "x", size: "tiny" }], ["standing_add", { order: "x" }], ["run_add", { task: "T1", role: "qa" }],
     ["run_done", { run: "R1", status: "done" }], ["round", { task: "T1" }], ["log", { task: "T1", decision: "x", why: "y" }], ["gate_add", { message: QUESTION, task: "T1", question: "q", options: "a|b", recommend: "a" }],
     ["finding_move", { task: "T1", key: "F-T1-1", to: "x" }], ["init", {}], ["pages", { task: "T1", record: "/p/page.html" }],
     ["pages", { task: "T1", run: "R1", text: "STATUS done" }], ["pages", { task: "T1", text: "STATUS done" }], ["unknown_tool", {}]];
@@ -1326,7 +1327,7 @@ test("T1110: child pages require the assigned shared project and preserve that i
   a.env.SAGE_SHARED_HOME = b.env.SAGE_SHARED_HOME = join(a.dir, "shared");
   for (const w of [a, b]) {
     codexTool.sage(["link", "--separate", "--project", w.project], w.env);
-    codexTool.sage(["task", "add", "--title", "same id", "--size", "small", "--priority", "P2", "--project", w.project, "--chief", codexTool.chiefFor(w.project, base.session_id, w.env)], w.env);
+    codexTool.sage(["task", "add", "--name", tname(), "--title", "same id", "--size", "small", "--priority", "P2", "--project", w.project, "--chief", codexTool.chiefFor(w.project, base.session_id, w.env)], w.env);
   }
   const child = a.child("/root/sage_implementer_t1_r1"), meta = { callId: "call_1", sessionId: base.session_id };
   const call = project => gate(mcp("pages", { project, task: "T1" }, { ...child, cwd: a.project }), { env: a.env });
@@ -1375,7 +1376,7 @@ const briefed = (w, ...names) => {
 const leadOnT1 = (w) => {
   w.sage("init");
   for (const n of [1, 2]) {
-    w.sage("task", "add", "--title", `task ${n}`, "--size", "small", "--priority", "P2");
+    w.sage("task", "add", "--name", tname(), "--title", `task ${n}`, "--size", "small", "--priority", "P2");
     w.sage("task", `T${n}`, "set", "state=briefed");
     w.sage("run", "add", `T${n}`, "--role", "lead");
   }
@@ -1826,7 +1827,7 @@ test("T49: task, config and board reads leave the fixture logbook unchanged", (t
   const w = world(t);
   w.env.SAGE_TEST_PIDS = "{}";
   assert.equal(w.sage("init").status, 0);
-  assert.equal(w.sage("task", "add", "--priority", "P2", "--title", "Scoped read sample", "--size", "small").status, 0);
+  assert.equal(w.sage("task", "add", "--name", tname(), "--priority", "P2", "--title", "Scoped read sample", "--size", "small").status, 0);
   for (const name of ["projects.tsv", "projects.made"]) rmSync(join(w.env.SAGE_HOME, name), { force: true });
   const snapshot = () => readdirSync(w.env.SAGE_HOME, { recursive: true }).sort().map(name => {
     const file = join(w.env.SAGE_HOME, name), stat = statSync(file);
@@ -1899,7 +1900,7 @@ test("T49: a task board selects its exact logbook, including through a worktree"
   const w = world(t);
   w.env.SAGE_TEST_PIDS = "{}";
   assert.equal(w.sage("init").status, 0);
-  assert.equal(w.sage("task", "add", "--priority", "P2", "--title", "Only this project", "--size", "small").status, 0);
+  assert.equal(w.sage("task", "add", "--name", tname(), "--priority", "P2", "--title", "Only this project", "--size", "small").status, 0);
   const linked = join(w.dir, "linked"), missing = join(w.dir, "other", "project");
   assert.equal(spawnSync("git", ["-C", w.project, "worktree", "add", "-q", "-b", "feature", linked]).status, 0);
   mkdirSync(missing, { recursive: true });
@@ -2257,8 +2258,8 @@ test("the gate saves a proof of each sage tool call that it lets through, and no
 test("T552: the proof of a lead's call carries its role, task, run and project, and a call that the gate refuses leaves none", (t) => {
   const w = world(t);
   w.sage("init");
-  w.sage("task", "add", "--title", "a", "--size", "small", "--priority", "P2");
-  w.sage("task", "add", "--title", "b", "--size", "small", "--priority", "P2");
+  w.sage("task", "add", "--name", tname(), "--title", "a", "--size", "small", "--priority", "P2");
+  w.sage("task", "add", "--name", tname(), "--title", "b", "--size", "small", "--priority", "P2");
   w.sage("task", "T1", "set", "state=briefed");
   w.sage("run", "add", "T1", "--role", "lead");
   const proofs = () => { try { return readdirSync(join(w.env.SAGE_HOME, ".hooks", "codex", "proofs")); } catch { return []; } };

@@ -10,7 +10,7 @@ const READ = { kind: "read" }, ANY = { kind: "any" }, NEW = { kind: "new" }, OWN
 const onTask = (task) => ({ kind: "task", task });
 export function writerClass(cmd, [sub, id] = []) {
   switch (cmd) {
-    case "task": return sub === "add" ? NEW : id === "set" ? onTask(sub) : READ;
+    case "task": return sub === "add" || sub === "names" ? NEW : id === "set" ? onTask(sub) : READ;
     case "unclaim": return onTask(sub);
     case "pickup": return ANY;
     case "release": return sub === "add" ? ANY : READ;
