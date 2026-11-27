@@ -846,9 +846,9 @@ test("T1255: a Claude chief and a Codex chief add the same name at once: one add
     child.stderr.on("data", (b) => { out += b; });
     child.on("close", (code) => done({ code, out: out.trim() }));
   });
-  const race = () => Promise.all([add(TOOL, w.chief, "from Claude"), add(CODEX_TOOL, w.rival, "from Codex")]);
-  let outs = await race();
-  for (let k = 0; k < 3 && outs.some((o) => /logbook is busy/.test(o.out)); k++) outs = await race();
+  const jobs = [() => add(TOOL, w.chief, "from Claude"), () => add(CODEX_TOOL, w.rival, "from Codex")];
+  const outs = await Promise.all(jobs.map((job) => job()));
+  for (let k = 0; k < 3; k++) for (const [i, o] of outs.entries()) if (/logbook is busy/.test(o.out)) outs[i] = await jobs[i]();
   const won = outs.filter((o) => o.code === 0), lost = outs.filter((o) => o.code === 1);
   assert.equal(won.length, 1, outs.map((o) => o.out).join("\n"));
   assert.match(won[0].out, /^T1 framed .* · chief C[12]$/);
