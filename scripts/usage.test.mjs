@@ -13,7 +13,7 @@ function fixture(t) {
   const project = join(base, 'project');
   const run = (...args) => tool.sage([...args, '--project', project], env);
   const dir = run('init').replace(/^logbook /, '');
-  run('task','add', '--priority', 'P2','--title','Usage test','--size','small');
+  run('task','add', '--name', 'Usage test', '--priority', 'P2','--title','Usage test','--size','small');
   const bytes = () => ['runs','decisions'].map(table => readFileSync(join(dir, table+'.tsv'),'utf8'));
   const rows = () => {
     const [head,...lines] = bytes()[0].trimEnd().split('\n');
@@ -130,7 +130,7 @@ test('T28 other provider cannot select the Codex registry',async t=>{
   const before=s.bytes();assert.throws(()=>other.sage(['run','add','T1','--role','qa',...binding,'--project',join(s.dir,'..','..','project')],{...process.env,SAGE_HOME:join(s.dir,'..'),SAGE_TEST_PIDS:'{}'}),/Unknown usage interface/);assert.deepEqual(s.bytes(),before);
 });
 test('T28 status shows exact per-task measured totals with incomplete accounting',t=>{
-  const s=fixture(t);s.run('task','add', '--priority', 'P2','--title','Second','--size','small');
+  const s=fixture(t);s.run('task','add', '--name', 'Second', '--priority', 'P2','--title','Second','--size','small');
   s.run('run','add','T1','--role','qa');s.run('run','done','R1','--status','done','--tokens','1000');
   s.run('run','add','T2','--role','qa');s.run('run','done','R2','--status','done','--tokens','2400');
   s.run('run','add','T2','--role','qa');s.run('run','done','R3','--status','blocked','--tokens','9000');
@@ -146,7 +146,7 @@ test('T954 a Claude lead run that ends with a report needs its tokens; a lead wi
   const env={...process.env,SAGE_HOME:join(base,'home'),HOME:join(base,'home'),SAGE_TEST_PIDS:'{}'},project=join(base,'project');
   const run=(...args)=>claude.sage([...args,'--project',project],env);
   const dir=run('init').replace(/^logbook /,'');
-  run('task','add','--priority','P2','--title','Lead tokens','--size','small');run('task','T1','set','state=briefed');
+  run('task','add','--name','Lead tokens','--priority','P2','--title','Lead tokens','--size','small');run('task','T1','set','state=briefed');
   const tokens=()=>readFileSync(join(dir,'runs.tsv'),'utf8').trimEnd().split('\n').slice(1).map(line=>line.split('\t')[7]);
   for(const status of ['done','blocked','question']){
     const id=run('run','add','T1','--role','lead').split(' ')[0];
@@ -164,7 +164,7 @@ test('T969 a Claude lead with a report and no usage in its notice ends as unavai
   const env={...process.env,SAGE_HOME:join(base,'home'),HOME:join(base,'home'),SAGE_TEST_PIDS:'{}'},project=join(base,'project');
   const run=(...args)=>claude.sage([...args,'--project',project],env);
   const dir=run('init').replace(/^logbook /,'');
-  run('task','add','--priority','P2','--title','Lead tokens','--size','small');run('task','T1','set','state=briefed');
+  run('task','add','--name','Lead tokens','--priority','P2','--title','Lead tokens','--size','small');run('task','T1','set','state=briefed');
   const rows=()=>{const [head,...lines]=readFileSync(join(dir,'runs.tsv'),'utf8').trimEnd().split('\n');return lines.map(line=>Object.fromEntries(head.split('\t').map((k,i)=>[k,line.split('\t')[i]??''])));};
   const why=['--usage','unavailable','--usage-source','claude task notice','--usage-evidence','the notice had no usage after a restart','--report','pages/lead.md'];
   const ids=[];
