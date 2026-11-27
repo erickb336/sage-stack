@@ -22,6 +22,8 @@ This procedure applies to every dispatch: the chief's agents, a lead's helpers, 
 
 Before dispatch, inspect the absolute Node executable and installed skill folder. In the checked brief, name the recorded role, task and run. Give the exact command with those inspected paths and the recorded role: `"<absolute Node path>" "<absolute installed skill folder>/role.mjs" <role>`. Do not send unresolved placeholders.
 
+Resolve each relative document link from the folder of the document that contains it, not the working directory.
+
 Require these actions in the brief:
 
 1. As the first task-specific tool action, run that exact command in its own top-level `functions.exec` call. Include exactly one `exec_command` shell read. Set explicit `max_output_tokens` budgets on both calls, each sufficient for the complete role output.
