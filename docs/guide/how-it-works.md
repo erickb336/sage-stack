@@ -76,9 +76,13 @@ A task is **verified** after 1 clean cycle. With autopilot on, it **merges** aft
 
 Every task has a priority, from P0 (your current focus and what blocks it) to P3 (parked but kept). The chief sets it when it adds the task.
 
-Every task has a name too: 1 to 4 words, such as "Board names", so that you can tell one task from another without its id. The chief sets it when it adds the task, and no two open tasks share one. The chief can rename a task, and the decision trail keeps the old name.
+Every task has a name too: 1 to 4 words, such as "Board names", so that you can tell one task from another without its id. The chief sets it when it adds the task, and no two open tasks share one. The chief can rename a task with `sage task <T> set name="<name>"`, and the decision trail keeps the old name.
 
-A task that sage frames itself, such as the follow-up task of a finding, has no name: it shows the title's words before the first colon, or else the first words of its title.
+To name many tasks at once, such as the open tasks of an older logbook, the chief runs `sage task names --file <file>`. The file has one task id, a space and its name on each line (`T12 Board names`). A bad line changes nothing.
+
+In Codex, the chief uses the tools `task_set` and `task_names`.
+
+A task that sage frames itself, such as the follow-up task of a finding, has no name. It shows the title's words before the first colon, or else the first words of its title. When these words break a name rule or another open task shows them too, it shows its id.
 
 A tiny task's route is only the build: it has no review and no QA, so it has no cycle. It is clean when its checks pass on its commit.
 

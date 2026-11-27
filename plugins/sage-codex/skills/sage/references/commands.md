@@ -116,7 +116,7 @@ Every task needs a name too: 1 to 4 words of at most 32 characters, such as "Boa
 ## Waits
 
 ```sh
-node "$SAGE_CLI" task add --title "Describe the task" --size small --priority P2 --waits T7,T9 --project "$PROJECT"
+node "$SAGE_CLI" task add --title "Describe the task" --name "Board rows" --size small --priority P2 --waits T7,T9 --project "$PROJECT"
 node "$SAGE_CLI" task T8 set waits=T7 --project "$PROJECT"
 node "$SAGE_CLI" task T8 set waits= --project "$PROJECT"
 ```
@@ -129,7 +129,7 @@ A task may wait for other tasks of the same logbook. A wait is met when that tas
 node "$SAGE_CLI" milestone propose --name "Codex support" --goal "Codex runs sage too." --pilot T7 --tasks T8,T9 --project "$PROJECT"
 node "$SAGE_CLI" milestone propose M1 --tasks T8 --project "$PROJECT"
 node "$SAGE_CLI" milestone propose M1 --pilot T9 --project "$PROJECT"
-node "$SAGE_CLI" task add --title "Describe the task" --size small --priority P2 --milestone M1 --waits T7 --project "$PROJECT"
+node "$SAGE_CLI" task add --title "Describe the task" --name "Chat rows" --size small --priority P2 --milestone M1 --waits T7 --project "$PROJECT"
 node "$SAGE_CLI" task T8 set milestone=M1 --project "$PROJECT"
 node "$SAGE_CLI" task T8 set milestone=none --project "$PROJECT"
 ```
