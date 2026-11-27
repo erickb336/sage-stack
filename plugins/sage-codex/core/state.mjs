@@ -1876,8 +1876,9 @@ function taskNameOf(value, tasks, self) {
 
 function nameTasks(dir, file, chief) {
   let text;
-  try { text = readRegular(resolve(file), { link: false, max: 1 << 20 }); } catch { text = undefined; }
-  if (text === undefined) refuse(`${visible(file)} is not a text file of at most 1 MiB that sage can read. Nothing changed.`);
+  const path = resolve(file);
+  try { text = readRegular(path, { link: false, max: 1 << 20 }); } catch { text = undefined; }
+  if (text === undefined) refuse(`${visible(path)} is not a text file of at most 1 MiB that sage can read${isAbsolute(file) ? "" : ` (sage looked for ${visible(file)} in the folder ${visible(process.cwd())}): give the file's absolute path`}. Nothing changed.`);
   const tasks = read(dir, "tasks"), byId = new Map(tasks.map((t) => [t.id, t])), lines = new Map(), bad = [];
   text.split(/\r?\n/).forEach((raw, i) => {
     const line = raw.trim(), at = `line ${i + 1}`, [, id, given] = /^(\S+)\s+(.+)$/u.exec(line) ?? [];
@@ -2499,7 +2500,7 @@ function status(dir, save) {
     const own = runsOf.get(t.id) ?? [];
     return `usage ${t.id} · ${spendText(own)} · ${usageSummary(own)}`;
   }));
-  const nameCell = ({ name, given }) => (given ? name : `*${name}*`);
+  const nameCell = ({ name, given }) => { const text = name.replace(/[\\|*_<>`]/g, "\\$&"); return given ? text : `*${text}*`; };
   const table = ["", "| Task | Name | State | Size | Round | PR | Title |", "| --- | --- | --- | --- | --- | --- | --- |", ...tasks.map((t) => `| ${t.id} | ${nameCell(names.get(t.id))} | ${t.state} | ${t.size} | ${t.round} | ${t.pr} | ${t.title} |`)];
   if (save) put(join(dir, "status.md"), [`# ${lines[0]}`, "", ...lines.slice(1).map((l) => `    ${l}`), ...table].join("\n") + "\n");
   return lines.join("\n");

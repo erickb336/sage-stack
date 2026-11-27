@@ -23,11 +23,12 @@ const renames = (dir) => rowsOf(dir, "decisions").filter((d) => d.decision.start
 function logbook() {
   const home = mkdtempSync(join(tmpdir(), "sage-name-")), project = mkdtempSync(join(tmpdir(), "sage-name-project-"));
   const env = { ...process.env, HOME: home, SAGE_HOME: home, NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${JSON.stringify(SPY)}`.trim(), SAGE_TEST_KILLS: join(home, "kills"), SAGE_TEST_PIDS: "{}" };
-  const run = (args) => spawnSync(process.execPath, [TOOL, ...args, "--project", project], { encoding: "utf8", env, timeout: 60_000 });
+  const run = (args, cwd) => spawnSync(process.execPath, [TOOL, ...args, "--project", project], { encoding: "utf8", env, cwd, timeout: 60_000 });
   const ok = (...args) => { const r = run(args); assert.equal(r.status, 0, `sage ${args.join(" ")}: ${r.stderr}`); return r.stdout.trim(); };
   const no = (...args) => { const r = run(args); assert.equal(r.status, 1, `sage ${args.join(" ")} should be refused: ${r.stdout}`); return r.stderr.trim(); };
+  const noIn = (cwd, ...args) => { const r = run(args, cwd); assert.equal(r.status, 1, `sage ${args.join(" ")} should be refused: ${r.stdout}`); return r.stderr.trim(); };
   const file = (text) => { const path = join(home, `names-${Math.random().toString(16).slice(2)}.txt`); writeFileSync(path, text); return path; };
-  return { home, dir: ok("init").replace(/^\S+ /, ""), ok, no, file };
+  return { home, dir: ok("init").replace(/^\S+ /, ""), ok, no, noIn, file };
 }
 
 test("T1255: task add needs a name, refuses each bad one with what is wrong and how to fix it, writes nothing then, and keeps a good one", () => {
@@ -41,6 +42,7 @@ test("T1255: task add needs a name, refuses each bad one with what is wrong and 
     T12: /has the form of a sage id \(such as T12 or M3\)/, m3: /has the form of a sage id/, "Ｔ１２": /has the form of a sage id/, PG4: /has the form of a sage id/,
     None: /is none, which sage reads as no name: give it words/,
     "Board: names": /has a colon, a middle dot \(·\) or a comma/, "Board · names": /has a colon, a middle dot/, "Board, names": /has a colon, a middle dot/,
+    "Board：names": /has a colon, a middle dot/, "Board，names": /has a colon, a middle dot/, "Board、names": /has a colon, a middle dot/, "Board・names": /has a colon, a middle dot/, "Board∶names": /has a colon, a middle dot/,
     " Board": /has a space at its start or end/, "Board\tnames": /has a control, format or hidden character/,
   };
   for (const [name, why] of Object.entries(bad)) {
@@ -125,4 +127,42 @@ test("T1255: the name that each task shows: its own, else the title before its c
     T5: "Reviews faster", T6: "Reviews", T7: "Hooks (own)", T8: "Hooks second",
     T9: "Lint old", T10: "Anextremelylongwordthatcannotfi…", T11: "A five word title",
   });
+});
+
+test("T1255: a name that each task shows from its title follows the name rules and no other open task shows it; when no title words do, the task shows its id", () => {
+  const t = (id, title, more = {}) => ({ id, title, state: "framed", ...more });
+  const tasks = [
+    t("T1", "Board, names"), t("T2", "Board names: rows"), t("T3", "None"), t("T4", "T12"), t("T5", "Board names"), t("T6", "x", { name: "Board names" }),
+    t("T7", "Hooks、first"), t("T8", "Lint"), t("T9", "Lint: the offer"), t("T10", "Lint", { state: "merged" }),
+  ];
+  const names = taskNames(tasks), shown = Object.fromEntries([...names].map(([id, { name }]) => [id, name]));
+  assert.deepEqual(shown, { T1: "T1", T2: "Board names rows", T3: "T3", T4: "T4", T5: "T5", T6: "Board names", T7: "Hooks first", T8: "Lint", T9: "Lint the offer", T10: "T10" });
+  const open = tasks.filter((x) => x.state === "framed").map((x) => shown[x.id].toLowerCase());
+  assert.equal(new Set(open).size, open.length, "no two open tasks show one name");
+  assert.deepEqual(Object.fromEntries([...taskNames([t("T1", "Board, names"), t("T2", "Board names: rows", { state: "merged" })])].map(([id, { name }]) => [id, name])),
+    { T1: "Board names", T2: "Board names rows" }, "a closed task's name gives way to an open task's");
+});
+
+test("T1255: a closed task's name need not be unique, in task names and in set name=; a relative --file refusal names where sage looked; status.md escapes the name cell", () => {
+  const s = logbook();
+  s.ok("task", "add", "--name", "Alpha", "--title", "a", ...ADD);
+  s.ok("task", "add", "--name", "Beta", "--title", "b", ...ADD);
+  s.ok("task", "T2", "set", "state=abandoned", "--why", "a sample");
+  assert.match(s.ok("task", "names", "--file", s.file("T2 Alpha\n")), /^1 task named: T2\./, "a closed target may take an open task's name");
+  assert.match(s.ok("task", "names", "--file", s.file("T1 Alpha\nT2 Gamma\n")), /^1 task named: T2/);
+  assert.match(s.ok("task", "T2", "set", "name=Alpha"), /^T2 abandoned/, "set name= on a closed task skips the twin check too");
+  assert.match(s.ok("task", "names", "--file", s.file("T1 Gamma\n")), /^1 task named: T1/, "a closed holder does not block an open task");
+  assert.deepEqual(rowsOf(s.dir, "tasks").map((t) => t.name), ["Gamma", "Alpha"]);
+
+  const said = s.noIn(s.home, "task", "names", "--file", "missing.txt");
+  assert.ok(said.includes(join(s.home, "missing.txt")), `the refusal names the full path that sage tried: ${said}`);
+  assert.match(said, /sage looked for missing\.txt in the folder .*: give the file's absolute path\. Nothing changed\.$/);
+
+  s.ok("task", "add", "--name", "a | b", "--title", "c", ...ADD);
+  s.ok("task", "add", "--name", "*Board*", "--title", "d", ...ADD);
+  s.ok("task", "add", "--name", "<i>x</i>", "--title", "e", ...ADD);
+  const md = readFileSync(join(s.dir, "status.md"), "utf8");
+  assert.match(md, /^\| T3 \| a \\\| b \| framed \|/m, "a bar in a name does not split the row");
+  assert.match(md, /^\| T4 \| \\\*Board\\\* \| framed \|/m, "a given name in stars does not look like a name from the title");
+  assert.match(md, /^\| T5 \| \\<i\\>x\\<\/i\\> \| framed \|/m, "a tag in a name is text");
 });
