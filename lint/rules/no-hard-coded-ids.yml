@@ -1,0 +1,10 @@
+id: no-hard-coded-ids
+language: JavaScript
+severity: error
+message: A hard-coded task, run or gate id is a special case for one record. Take the id from the input, or move the case into the data or the one table that owns it (packages/sage-core/references/fragile-patterns.md, pattern 4).
+files: ["packages/**"]
+ignores: ["**/*.test.*", "**/fixtures/**"]
+rule:
+  any:
+    - { kind: string_fragment, regex: '^[TRG][0-9]+$' }
+    - { kind: property_identifier, regex: '^[TRG][0-9]+$' }

@@ -1,0 +1,17 @@
+id: no-hard-coded-ids
+valid:
+  - 'if (/^T[1-9]\d*$/.test(task)) f(task);'
+  - 'const stamp = `${day}T00:00:00Z`;'
+  - 'refuse("waits takes task ids such as T7, separated by commas");'
+  - 'deny(`one run is backed by one child (F-T284-9)`);'
+  - 'const lead = `lead-${task}`;'
+  - 'const table = { merged: "done", T: 1, R2D2: 2 };'
+  - 'const result = { task: run.task, at: now() };'
+invalid:
+  - 'validateUsageWrite({ reference, result: { task: "T1", at: now() } });'
+  - 'if (task === "T1216") return skip();'
+  - 'if (run.id !== `R5647`) f();'
+  - 'switch (gate) { case "G402": return 1; }'
+  - 'const late = ["T1216", "T1225"].includes(task);'
+  - 'const kinds = { T1255: "table" };'
+  - "const kinds = { 'G402': 1 };"
