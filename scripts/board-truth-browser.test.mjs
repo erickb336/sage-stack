@@ -38,7 +38,7 @@ const part = (page, label) => page.locator(".about-s").filter({ has: page.locato
 
 test("T1120 S2, S8: the Overview's problem count opens the Agents page, which uses the same label; a failed check asks the owner nothing", async t => {
   const { page, go, problems } = await board(t);
-  await go("");
+  await go("#overview");
   const count = page.locator('[data-count="stuck"]');
   await count.waitFor();
   const link = count.getByRole("link", { name: "With a problem flag" });

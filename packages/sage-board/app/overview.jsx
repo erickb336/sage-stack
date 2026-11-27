@@ -204,7 +204,7 @@ function Milestones({ milestones, hiddenDone }) {
 }
 
 const MODE = "sage mode";
-function Start({ started }) {
+export function Start({ started }) {
   return (
     <section className="card start" aria-labelledby="start-h">
       <h2 id="start-h">Start your first task</h2>

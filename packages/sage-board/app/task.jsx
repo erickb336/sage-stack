@@ -4,6 +4,7 @@ import { MARKS, OBJECTS, UNKNOWN, chiefName as nameOf, prName, shown, taskWord }
 import { answerOf, problemOf } from "./use-model.js";
 
 export const questionLink = key => `#question?key=${encodeURIComponent(key)}`;
+export const runLink = (task, run) => `#run?key=${encodeURIComponent(task)}&run=${encodeURIComponent(run)}`;
 export const taskLink = (key, tab) => `#task?key=${encodeURIComponent(key)}${tab && tab !== "about" ? `&tab=${tab}` : ""}`;
 export const milestoneLink = key => `#tasks?milestone=${encodeURIComponent(key)}`;
 export const ofChief = (task, chief) => !chief || task.chief?.id === chief.id && task.key === `${chief.logbook}/${task.id}`;
@@ -40,7 +41,7 @@ export function readLink(key, kind, arg) {
 }
 const TABS = ["About", "Artifacts", "Log", "Decisions"];
 
-function useTask(key, at) {
+export function useTask(key, at) {
   const [state, setState] = useState({ key, data: null, problem: null });
   useEffect(() => {
     const controller = new AbortController();
@@ -109,7 +110,7 @@ function Criteria({ brief }) {
 }
 
 function Status({ task }) {
-  const { clean, required, reviews } = task.cycles, word = task.word ?? UNKNOWN, trail = trailOf(task);
+  const { clean, required, reviews } = task.cycles, word = task.word ?? UNKNOWN;
   const where = `${word.charAt(0).toUpperCase()}${word.slice(1)}:`;
   const said = task.ended ? taskWord(task).reason.replace(/\.$/, "") : !task.route.length ? `the logbook records no route for this task` : !reviews ? "this route has no review cycle" : clean === null ? `${required} review ${required === 1 ? "cycle" : "cycles"} to pass; the count of passed cycles is ${UNKNOWN}` : `${clean} of ${required} review ${required === 1 ? "cycle" : "cycles"} passed`;
   return (
@@ -119,7 +120,6 @@ function Status({ task }) {
         {task.now.slice(1).map((line, i) => <p className="now" key={i}>{controlsShown(line)}</p>)}
         {task.next && <p className="now">Next: {controlsShown(task.next)}</p>}
       </> : <p className="now"><strong>{where}</strong> {controlsShown(said)}.{task.next && !task.ended && <> Next: {controlsShown(task.next)}</>}</p>}
-      {trail.length > 0 && <ol className="trail" aria-label="Steps">{trail.map(step => <li key={step.label} className={step.mark}>{step.label}{step.mark === "done" && <span className="ok" aria-hidden="true"> {MARKS.done}</span>}<span className="sr"> ({step.mark || "not started"})</span></li>)}</ol>}
     </Section>
   );
 }
@@ -202,23 +202,28 @@ function About({ task }) {
   );
 }
 
+function Trail({ task }) {
+  const trail = trailOf(task);
+  return trail.length > 0 && <ol className="trail" aria-label="Steps">{trail.map(step => <li key={step.label} className={step.mark}>{step.label}{step.mark === "done" && <span className="ok" aria-hidden="true"> {MARKS.done}</span>}<span className="sr"> ({step.mark || "not started"})</span></li>)}</ol>;
+}
+
 function AtWork({ task }) {
   const now = Date.parse(task.at) || Date.now(), live = task.runs.filter(run => ["running", "queued"].includes(run.status)), ended = task.runs.length - live.length;
   return (
     <div className="atwork">
       <span className="lbl">At work now</span>
-      {live.length ? live.map(run => <span className="chipa" key={run.id}><AgentRing run={{ ...run, task }} now={now} small /><strong>{run.role}</strong><span className="faint">{stateText(run)}{run.status === "running" && ` · ${age(run, now)}`}</span></span>) : <span className="faint">No agent works on this task now.</span>}
+      {live.length ? live.map(run => <a className="chipa" key={run.id} href={runLink(task.key, run.id)} data-run={run.id}><AgentRing run={{ ...run, task }} now={now} small /><strong>{run.role}</strong><span className="faint">{stateText(run)}{run.status === "running" && ` · ${age(run, now)}`}</span></a>) : <span className="faint">No agent works on this task now.</span>}
       {ended > 0 && <span className="faint">+{ended} ended</span>}
     </div>
   );
 }
 
-const BACK_NAMES = { "": "Overview", tasks: "Tasks", agents: "Agents", "pull-requests": "Pull requests", question: OBJECTS.question.label };
+const BACK_NAMES = { "": "All projects", project: "Project", milestone: "Milestone", run: "Run", overview: "Overview", tasks: "Tasks", agents: "Agents", "pull-requests": "Pull requests", question: OBJECTS.question.label };
 const backName = from => {
   const [path, query] = from.split("?"), key = path === "task" && new URLSearchParams(query).get("key");
   return key ? `${OBJECTS.task.label} ${key.split("/").pop()}` : Object.hasOwn(BACK_NAMES, path) ? BACK_NAMES[path] : null;
 };
-export function TaskPage({ taskKey, tab: asked, at, from }) {
+export function TaskPage({ taskKey, tab: asked, at, from, up, children }) {
   const { data: task, problem } = useTask(taskKey, at);
   const [tab, setTab] = useState(TABS.find(name => name.toLowerCase() === asked) ?? TABS[0]);
   const heading = useRef(null), tabs = useRef([]);
@@ -235,7 +240,7 @@ export function TaskPage({ taskKey, tab: asked, at, from }) {
   const counts = task && { Artifacts: task.runs.length + (task.files.designs.versions || hasArena(task) ? 1 : 0) + task.files.recorded.length + task.artifacts.length + (task.files.pages?.length ?? 0) + task.files.kept.length, Log: task.log.length + task.logMore, Decisions: task.decisions.length };
   return (
     <article className="taskpage">
-      <a className="back" href={back ? `#${from}` : "#tasks"} onClick={event => { if (back && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); history.back(); } }}><span aria-hidden="true">‹ </span>{back ?? BACK_NAMES.tasks}</a>
+      <a className="back" href={back ? `#${from}` : up?.href ?? "#"} onClick={event => { if (back && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); history.back(); } }}><span aria-hidden="true">‹ </span>{back ?? up?.name ?? BACK_NAMES[""]}</a>
       <h1 ref={heading} tabIndex={-1}>{task ? controlsShown(task.title) : problem === "gone" ? "This task is not on the board" : problem ? "The board cannot read this task now" : "Reading the task"}{task && <span className="mono faint tid">{task.id}</span>}</h1>
       {problem && !task && <p className="none" role="alert">{problem === "gone" ? "The logbook has no task with this name. Go back and pick a task from a list." : problem === "read" ? "It tries again when the logbook changes." : problem}</p>}
       {problem && task && <p className="stale" role="status">{problem === "gone" ? "This task is no longer on the board. The page shows what it read last." : problem === "read" ? "The page could not refresh. It shows what it read last, and tries again when the logbook changes." : `${problem} The page shows what it read last.`}</p>}
@@ -246,6 +251,8 @@ export function TaskPage({ taskKey, tab: asked, at, from }) {
           {[task.priority ?? "no priority", task.size ?? `size ${UNKNOWN}`, task.risk && `risk flag ${task.risk}`, task.kind, task.step?.label, `${task.chief ? "Run by " : ""}${chiefName(task.chief)}${task.chief?.id && !task.chief.old && !task.ended ? ` (${CHIEF_FACT[liveness(task.chief.stopped)]})` : ""}`].filter(Boolean).join(" · ")}
           {task.branch && <> · <code>{controlsShown(task.branch)}</code></>}
         </p>
+        <Trail task={task} />
+        {children}
         <AtWork task={task} />
         <section className="card records">
           <div className="tabs" role="tablist" aria-label="Task records" onKeyDown={move}>
@@ -281,7 +288,7 @@ function Artifacts({ task }) {
       </>}
       {task.runs.length > 0 && <>
         <h4>Briefs and reports</h4>
-        <ul className="files">{task.runs.map(run => <li key={run.id}><span>{run.id} · {run.role}</span><span>{run.brief ? <a href={read("brief", run.id)}>Brief</a> : <span className="faint">No brief</span>} · {run.report ? <a href={read("report", run.id)}>Report</a> : <span className="faint">{run.status === "running" ? "Report when it ends" : "No report"}</span>}</span></li>)}</ul>
+        <ul className="files">{task.runs.map(run => <li key={run.id}><a href={runLink(task.key, run.id)} data-run={run.id}>{run.id} · {run.role}</a><span>{run.brief ? <a href={read("brief", run.id)}>Brief</a> : <span className="faint">No brief</span>} · {run.report ? <a href={read("report", run.id)}>Report</a> : <span className="faint">{run.status === "running" ? "Report when it ends" : "No report"}</span>}</span></li>)}</ul>
       </>}
       {files.pages?.length > 0 && <>
         <h4>Pages folder</h4>

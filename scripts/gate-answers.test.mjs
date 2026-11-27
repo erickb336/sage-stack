@@ -493,6 +493,23 @@ test("old gates.tsv rows still read and answer once; a logbook with no chiefs ge
   assert.ok(gates.some((g) => g.id === "G2" && g.answer === "yes"), "the board's reader reads a gates.tsv with the new columns");
 });
 
+test("F-T1216-49: with an empty option in the stored text (|yes|no, yes||no), the board shows no empty button, and its number for an option records that option", (t) => {
+  const w = shared(t);
+  w.as("claude", "task", "add", "--title", "a", ...ADD);
+  const stored = ["|yes|no", "yes||no"];
+  for (const options of stored) w.as("claude", "gate", "add", "--message", QUESTION, "T1", "--question", "Ship it?", "--options", options, "--recommend", "yes");
+  assert.deepEqual(claude.read(w.dir, "gates").map((g) => g.options), stored, "gate add keeps the options text as given");
+  const sources = [{ id: "claude", path: dirname(w.dir), label: "claude" }];
+  const needs = () => buildBoardModel(readBoardSources(sources), { now: new Date().toISOString() }).needsOwner.flatMap((item) => item.reasons);
+  for (const [gate, pick] of [["G1", "yes"], ["G2", "no"]]) {
+    const need = needs().find((reason) => reason.gateId === gate);
+    const option = need.options.indexOf(pick) + 1;
+    w.owner("claude", "gate", "answer", gate, "--option", String(option), "--via", "board", "--seen", need.digest);
+    assert.equal(w.gate(gate).answered.answer, pick, `${gate}: the board's option ${option} is "${pick}", and the logbook records "${pick}"`);
+    assert.deepEqual(need.options, ["yes", "no"], `${gate}: one button for each option, and no empty button`);
+  }
+});
+
 for (const [from, to] of [["claude", "codex"], ["codex", "claude"]]) {
   test(`after the owner hands a ${from} task to the ${to} chief, the ${to} chief owns the task's older gates: its hook picks up their board answers, and its gates wait and the Stop note list them`, (t) => {
     const w = shared(t);

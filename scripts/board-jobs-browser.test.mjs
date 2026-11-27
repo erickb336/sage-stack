@@ -31,7 +31,7 @@ before(async () => {
 });
 after(async () => { await browser?.close(); await close?.(); });
 
-async function walk(t, job, width, steps) {
+async function walk(t, job, width, steps, start = "") {
   const context = await browser.newContext({ viewport: { width, height: 900 }, colorScheme: "dark", reducedMotion: "reduce" });
   t.after(() => context.close());
   await context.route("**/*", route => route.request().url().startsWith(`${base}/`) ? route.continue() : route.abort());
@@ -39,89 +39,101 @@ async function walk(t, job, width, steps) {
   page.on("pageerror", error => problems.push(String(error)));
   let clicks = 0;
   const click = async locator => { clicks++; await locator.click(); };
-  await page.goto(`${base}/`);
-  assert.equal(new URL(page.url()).pathname, "/app/", "the board's address opens the app");
-  await page.locator("main h1", { hasText: "Overview" }).waitFor();
+  await page.goto(`${base}/${start}`);
+  if (!start) assert.equal(new URL(page.url()).pathname, "/app/", "the board's address opens the app");
+  await page.locator("main h1", { hasText: start ? /./ : "All projects" }).first().waitFor();
   await steps(page, click);
-  assert.ok(clicks <= 2, `${job} at ${width} px took ${clicks} clicks from the Overview`);
+  assert.ok(clicks <= 2, `${job} at ${width} px took ${clicks} clicks from All projects`);
   assert.deepEqual(problems, []);
   if (SHOTS) { mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: join(SHOTS, `${job}-${width}.png`), fullPage: width < 1000 ? false : true }); }
   return clicks;
 }
+const part = (page, name) => page.locator(`[data-part="${name}"]`);
 
 for (const width of WIDTHS) {
-  test(`J1 at ${width} px: one click on a Needs you row opens the question with its full context and its answers`, async t => {
+  test(`J1 at ${width} px: Needs you comes first, full width, oldest first, and Open on a row shows the question with its full context`, async t => {
     const clicks = await walk(t, "J1", width, async (page, click) => {
-      const needs = page.locator("section", { has: page.locator("h2", { hasText: "Needs you" }) }).first();
-      await click(needs.locator(`a[href="#question?key=${encodeURIComponent(KEY("G4"))}"]`));
+      const first = await page.locator("main [data-part]").first().getAttribute("data-part");
+      assert.ok(["since", "needs"].includes(first), `the first part is the since line, then Needs you: ${first}`);
+      const needs = part(page, "needs");
+      assert.ok((await needs.boundingBox()).width > width * (width < 1000 ? .85 : .6), "Needs you takes the full width");
+      await click(needs.locator(`[data-need="${decodeURIComponent(KEY("G4"))}"]`).getByRole("link", { name: "Open", exact: true }));
       await page.locator("main h1", { hasText: "Can a viewer copy a shared list into their own lists?" }).waitFor();
       await page.locator("main h2", { hasText: "Answers" }).waitFor();
-      assert.ok(await page.locator("main").getByText("A: yes, as a new private list").count() > 0, "the answers show");
-      await page.locator("main a", { hasText: "Read the full question" }).waitFor();
     });
     assert.equal(clicks, 1);
   });
 
-  test(`J2 at ${width} px: the milestones stand by priority on the Overview, and Tasks groups the tasks by priority in two clicks`, async t => {
+  test(`J2 at ${width} px: At work shows one line for each project with no click; the line opens its tasks in place, and a task opens in a second click`, async t => {
     const clicks = await walk(t, "J2", width, async (page, click) => {
-      const rows = await page.locator("li[data-milestone]").evaluateAll(list => list.map(item => item.textContent));
-      assert.ok(rows.length === 3 && /P0/.test(rows[0]) && /P1/.test(rows[1]) && /done/.test(rows[2]), rows.join(" | "));
-      await click(page.locator('nav a[href="#tasks"]').first());
-      await page.locator("main h1", { hasText: "Tasks" }).waitFor();
-      await click(page.locator("main button", { hasText: /^Priority$/ }));
-      await page.waitForFunction(() => /^P0/.test(document.querySelector("main section.group h2")?.textContent ?? ""));
-      const groups = await page.locator("main section.group h2").allTextContents();
-      assert.deepEqual(groups.map(text => text.slice(0, 2)).filter(text => /^P\d$/.test(text)), ["P0", "P1", "P2", "P3"], groups.join(" | "));
+      const line = part(page, "work").locator("button[data-work]").first();
+      assert.match(await line.textContent(), /^sample-app\d+ tasks · \d+ agents · /);
+      await click(line);
+      assert.equal(await line.getAttribute("aria-expanded"), "true");
+      await click(part(page, "work").locator(`a[data-row][data-task="${decodeURIComponent(KEY("T2"))}"]`));
+      await page.locator(".taskpage h1", { hasText: "Sample chief records" }).waitFor();
     });
     assert.equal(clicks, 2);
   });
 
-  test(`J3 at ${width} px: a milestone, then a task, shows the task's dev cycle and what its agents made`, async t => {
+  test(`J3 at ${width} px: a task opens through its project in two clicks`, async t => {
     const clicks = await walk(t, "J3", width, async (page, click) => {
-      const milestone = page.locator(`a[href="#tasks?milestone=${encodeURIComponent(KEY("M1"))}"]`);
-      await click(milestone);
-      await page.locator("main h1", { hasText: "Tasks" }).waitFor();
-      await click(page.locator(`a.row[href="#task?key=${encodeURIComponent(KEY("T3"))}"]`));
-      await page.locator(".taskpage h1", { hasText: "Sample shared limits" }).waitFor();
-      assert.deepEqual((await page.locator(".taskpage [role=tab]").allTextContents()).map(text => text.replace(/\s*\d*$/, "")), ["About", "Artifacts", "Log", "Decisions"]);
-      await page.locator(".taskpage").getByText("Build", { exact: false }).first().waitFor();
-      assert.match(await page.getByRole("tab", { name: /^Artifacts/ }).textContent(), /^Artifacts [1-9]\d*$/, "T1126: About is the first tab; the Artifacts tab counts what the agents made, one click away");
+      await click(page.locator(".tree a[data-project]").first());
+      await page.locator("main h1", { hasText: "sample-app" }).waitFor();
+      await click(part(page, "waits").locator(`a[data-task="${decodeURIComponent(KEY("T4"))}"]`));
+      await page.locator(".taskpage h1", { hasText: "Sample queue" }).waitFor();
     });
     assert.equal(clicks, 2);
   });
 
-  test(`J4 at ${width} px: the top bar counts the agents of each chief against the limit, and one click opens the Agents page`, async t => {
+  test(`J4 at ${width} px: Progress shows each milestone with no click, and one click opens it`, async t => {
     const clicks = await walk(t, "J4", width, async (page, click) => {
-      const limit = page.locator("a.limit", { hasText: /^Agents/ });
-      assert.match(await limit.textContent(), /^Agents \d+ of \d+ · C1 \d+ · C2 \d+/);
-      assert.match(await page.locator("a.limit", { hasText: /^Leads/ }).textContent(), /^Leads \d+ of \d+$/);
-      await click(limit);
-      await page.locator("main h1", { hasText: "Agents" }).waitFor();
-      assert.ok(await page.locator(".chief-box").count() >= 2, "a box for each chief");
+      const rows = await part(page, "progress").locator("a[data-milestone]").allTextContents();
+      assert.ok(rows.length >= 2 && rows.every(row => /\d+ of \d+$/.test(row)), rows.join(" | "));
+      await click(part(page, "progress").locator(`a[data-milestone="${decodeURIComponent(KEY("M1"))}"]`));
+      await page.locator("main h1", { hasText: "Board redesign" }).waitFor();
+      assert.match(await part(page, "progress").textContent(), /\d+ of \d+ merged/);
     });
     assert.equal(clicks, 1);
   });
 
-  test(`J5 at ${width} px: Pull requests groups each PR by its next action, and the graph shows what waits for what`, async t => {
-    const clicks = await walk(t, "J5", width, async (page, click) => {
-      await click(page.locator('nav a[href="#pull-requests"]').first());
-      await page.locator("main h1", { hasText: "Pull requests" }).waitFor();
-      const groups = await page.locator("main h2").allTextContents();
-      for (const group of ["In review", "Ready to merge", "Waiting for another task", "Merged recently"]) assert.ok(groups.includes(group), `${group}: ${groups.join(" | ")}`);
-      await click(page.locator("main button", { hasText: /^Graph$/ }));
-      await page.locator("section.graph .g-title", { hasText: "Sample sync build" }).first().waitFor();
+  test(`J6 at ${width} px: the tree switches to a project in one click`, async t => {
+    const clicks = await walk(t, "J6", width, async (page, click) => {
+      await click(page.locator(".tree a[data-project]").first());
+      await page.locator("main h1", { hasText: "sample-app" }).waitFor();
+      assert.match(await page.locator("header .lv-crumb").textContent(), /^All projects›sample-app$/);
     });
-    assert.equal(clicks, 2);
+    assert.equal(clicks, 1);
   });
 
-  test(`J6 at ${width} px: the Overview counts what changed, with no click`, async t => {
-    const clicks = await walk(t, "J6", width, async page => {
-      const counts = page.locator("section.counts");
-      assert.match(await counts.locator("h2").textContent(), /In the last 24 hours|Since you looked/);
-      assert.match(await counts.textContent(), /\d+\s*Merged/);
-      assert.match(await counts.textContent(), /\d+\s*With a problem flag/);
+  test(`J7 at ${width} px: the since line and Done in the last 7 days say what was done, with no click`, async t => {
+    const clicks = await walk(t, "J7", width, async page => {
+      assert.match(await part(page, "since").textContent(), /^(Since you looked at .+|In the last 24 hours): \d+ merged · \d+ new questions? · \d+ with a flag now/);
+      assert.ok(await part(page, "done").locator("a[data-task]").count() > 0);
     });
     assert.equal(clicks, 0);
+  });
+
+  test(`J8 at ${width} px: a flagged agent has its own row under its project, and one click opens its run with what happened first`, async t => {
+    const clicks = await walk(t, "J8", width, async (page, click) => {
+      const flagged = part(page, "work").locator("a[data-run]").first();
+      await click(flagged);
+      await page.locator("main .kind", { hasText: "Run" }).waitFor();
+      assert.equal(await page.locator("main [data-part]").first().getAttribute("data-part"), "facts", "What happened comes first");
+      await page.locator("[data-part=facts]").getByText("What next").waitFor();
+    });
+    assert.equal(clicks, 1);
+  });
+
+  test(`More at ${width} px: the Agents and Pull requests pages stay one click away under More`, async t => {
+    const clicks = await walk(t, "More", width, async (page, click) => {
+      await click(page.locator('nav a[href="#agents"]'));
+      await page.locator("main h1", { hasText: "Agents" }).waitFor();
+      assert.ok(await page.locator(".chief-box").count() >= 2, "a box for each chief");
+      await click(page.locator('nav a[href="#pull-requests"]'));
+      await page.locator("main h1", { hasText: "Pull requests" }).waitFor();
+    });
+    assert.equal(clicks, 2);
   });
 
   test(`F-T1158-6 and F-T1158-9 at ${width} px: on Stats, the page's own Show list is the only scope: no project picker and no chief chips`, async t => {
@@ -133,12 +145,12 @@ for (const width of WIDTHS) {
       assert.deepEqual([await page.locator("header.top button.picker").count(), await page.locator(".chips").count(), await page.locator("header.top .crumb").textContent()], [0, 0, "Stats"]);
       assert.deepEqual(await page.getByLabel("Show").locator("option").allTextContents(), ["All projects", "sample-app"]);
       assert.match(await page.locator("header.top").textContent(), /Live · read/, "the top bar keeps its other parts");
-    });
+    }, "app/#overview");
     assert.equal(clicks, 1);
   });
 
-  test(`J7 at ${width} px: each chief's chip says whether it runs and whether its autopilot is on, with no click`, async t => {
-    const clicks = await walk(t, "J7", width, async page => {
+  test(`J7 of the Overview at ${width} px: each chief's chip says whether it runs and whether its autopilot is on, with no click`, async t => {
+    const clicks = await walk(t, "chiefs", width, async page => {
       if (width < 760) {
         const fold = page.locator(".chips .chip.fold");
         assert.match(await fold.textContent(), /^C1 · autopilot on C2 · autopilot off ▾$/, "T1126 S14: on a phone the folded chip still says each chief's state");
@@ -149,8 +161,7 @@ for (const width of WIDTHS) {
       assert.equal(chips.length, 2, chips.join(" | "));
       assert.ok(chips.some(text => /Claude · C1/.test(text) && /autopilot on/.test(text)), chips.join(" | "));
       assert.ok(chips.some(text => /Codex · C2/.test(text) && /autopilot off/.test(text)), chips.join(" | "));
-      assert.equal(await page.locator(".chips button.chip[data-chief] .dot.live").count(), 2, "both chiefs run");
-    });
+    }, "app/#overview");
     assert.equal(clicks, 0);
   });
 }

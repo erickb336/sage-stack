@@ -54,6 +54,7 @@ A ux review of a board page checks each line. A line that fails is a finding.
 | 12 | Text and controls meet WCAG AA contrast in the dark and the light theme. | – |
 | 13 | Each control is reachable by the keyboard, in reading order, with a visible focus ring. | – |
 | 14 | The page fits a desktop window from 1024 px wide. | – |
+| 15 | The page works at 390 px wide (a phone): each job that it serves takes two clicks or fewer, nothing scrolls sideways, and each control is large enough for a finger. | – |
 
 ### What T1054 built
 

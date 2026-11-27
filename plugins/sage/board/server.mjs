@@ -14,7 +14,7 @@ const NO_READER = "The reader's Markdown renderer is not in this copy of the boa
 
 const MAX_MODEL = 8 * 1024 * 1024;
 const megabytes = bytes => `${Math.round(bytes / 104857.6) / 10} MB`;
-const TOO_BIG = (size, limit) => `The board could not send its newest read: its data is ${megabytes(size)}, and the limit is ${megabytes(limit)}. The page shows the last read that fit. Ask the chief to look, or archive a project that has many old tasks.`;
+const TOO_BIG = (size, limit, fit) => `The board could not send its newest read: its data is ${megabytes(size)}, and the limit is ${megabytes(limit)}. ${fit ? "The page shows the last read that fit." : "No read fit since this page opened, so the page has nothing to show yet."} Ask the chief to look, or archive a project that has many old tasks.`;
 const MAX_CLIENTS = 16;
 const own = (object, name) => Object.hasOwn(object, name);
 const SETTLE_READS = [250, 1000, 3000, 7000, 15000];
@@ -172,7 +172,7 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = null
   function publish(client) {
     if (!modelEvent || client.sent === modelSent) return;
     client.sent = modelSent;
-    if (modelSize <= maxModel) send(client, modelEvent);
+    if (modelSize <= maxModel) { send(client, modelEvent); client.fit = true; }
   }
 
   function sendActivity(client, changes) {
@@ -181,9 +181,9 @@ export function createBoardServer({ sources, port = BOARD_PORT, id, clock = null
     send(client, `event: activity\ndata: ${JSON.stringify(changes)}\n\n`);
   }
 
-  const shownNotice = () => modelEvent && modelSize > maxModel ? TOO_BIG(modelSize, maxModel) : notice;
+  const shownNotice = client => modelEvent && modelSize > maxModel ? TOO_BIG(modelSize, maxModel, client?.fit) : notice;
   function sendNotice(client) {
-    send(client, `event: notice\ndata: ${JSON.stringify({ text: shownNotice() })}\n\n`);
+    send(client, `event: notice\ndata: ${JSON.stringify({ text: shownNotice(client) })}\n\n`);
   }
 
   function lightOf(path, filename) {

@@ -17,7 +17,7 @@ import { QUESTION } from "./fixtures/question-message.mjs";
 import { quietBoard } from "./fixtures/quiet-board.mjs";
 
 const chromium = requireBrowser();
-const APP = loadBoardApp(new URL("../plugins/sage/board/app/", import.meta.url).pathname);
+const APP = loadBoardApp(new URL("../plugins/sage/board/app/#overview", import.meta.url).pathname);
 const SHOTS = process.env.BOARD_SHOTS ?? null;
 const gitEnv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
 let browser;
@@ -83,7 +83,7 @@ async function openBoard(t, { write, copy = false } = {}) {
   const page = await context.newPage();
   page.on("pageerror", error => problems.push(String(error)));
   page.on("console", message => { if (message.type() === "error" || /Content Security Policy|Refused to/.test(message.text())) problems.push(message.text()); });
-  await page.goto(`${origin}/app/`);
+  await page.goto(`${origin}/app/#overview`);
   await page.locator("main h1").waitFor();
   const pairText = async () => {
     const lines = [];
@@ -128,7 +128,7 @@ test("T1059: the owner pairs once, then answers with full context, undoes, renam
   assert.equal(JSON.parse(w.gate("G1").answered).answer, "no");
   await w.shot("t1059-answered");
 
-  await page.goto(`${w.origin}/app/`);
+  await page.goto(`${w.origin}/app/#overview`);
   const waits = page.locator(`[data-answered$="/G1"]`);
   await waits.waitFor();
   clicks = 0;
@@ -174,7 +174,7 @@ test("T1059: the owner pairs once, then answers with full context, undoes, renam
 
   await page.goto("about:blank");
   const later = await w.context.newPage();
-  await later.goto(`${w.origin}/app/`);
+  await later.goto(`${w.origin}/app/#overview`);
   await later.getByRole("heading", { name: /^Since you looked/ }).waitFor();
   assert.match(await later.locator("#counts-h").textContent(), /^Since you looked · you left the board at /);
   assert.equal(await later.locator('[data-count="added"] .n').textContent(), "0", "no task was added since the last look");
@@ -306,19 +306,19 @@ test("T1125: the last visit lives in each browser, also an unpaired one: a reloa
   assert.match(await heading(), /^In the last 24 hours/, "a move inside the app is the same visit");
   await page.goto("about:blank");
   const later = await w.context.newPage();
-  await later.goto(`${w.origin}/app/`);
+  await later.goto(`${w.origin}/app/#overview`);
   await later.getByRole("heading", { name: /^Since you looked/ }).waitFor();
   assert.match(await later.locator("#counts-h").textContent(), /^Since you looked · you left the board at /, "the time when you left is kept in this browser");
   if (SHOTS) await later.screenshot({ path: join(SHOTS, "t1125-since-you-looked.png") });
   const other = await w.context.browser().newContext();
   t.after(() => other.close());
   const fresh = await other.newPage();
-  await fresh.goto(`${w.origin}/app/`);
+  await fresh.goto(`${w.origin}/app/#overview`);
   await fresh.locator("#counts-h").waitFor();
   assert.match(await fresh.locator("#counts-h").textContent(), /^In the last 24 hours/, "another browser has its own last visit");
   const back = await other.newPage();
   await back.addInitScript(() => { if (!sessionStorage.getItem("primed")) { sessionStorage.setItem("primed", "1"); localStorage.setItem("board-seen", new Date(Date.now() - 9 * 86_400_000).toISOString()); } });
-  await back.goto(`${w.origin}/app/`);
+  await back.goto(`${w.origin}/app/#overview`);
   await back.locator("#counts-h").waitFor();
   assert.match(await back.locator("#counts-h").textContent(), /^In the last 7 days · you last looked more than 7 days ago/, "the board keeps 7 days, so an older visit counts the last 7 days");
   assert.equal(w.posts("seen"), 0, "no visit goes to the server");
@@ -337,9 +337,9 @@ test("T1125: one click on the chief's link pairs a fresh browser, takes the key 
   assert.equal(page.url(), "about:blank", "no history entry keeps the key: the entry before the board is the new tab's blank page");
   await page.goForward();
   assert.match(page.url(), new RegExp(`^${w.origin}/app/(#\\?project=[a-z0-9-]+)?$`), "the board's own entry has no key");
-  await page.locator("#counts-h").waitFor();
+  await page.locator("main h1", { hasText: "All projects" }).waitFor();
   assert.equal(await page.getByRole("heading", { name: "Pair this browser to act from the board" }).count(), 0, "the pairing card is gone");
-  await page.getByRole("link", { name: MESSAGE.title }).click();
+  await page.locator('[data-need$="/G1"]').getByRole("link", { name: "Open", exact: true }).click();
   await page.getByRole("button", { name: "Send answer" }).waitFor();
   assert.equal(w.posts("pair"), 1, "the link is sent once");
 
@@ -372,7 +372,7 @@ test("F-T1159-11, F-T1159-12: a link pasted into a board tab that is open pairs 
   const other = await w.context.browser().newContext();
   t.after(() => other.close());
   const page = await other.newPage();
-  await page.goto(`${w.origin}/app/`);
+  await page.goto(`${w.origin}/app/#overview`);
   await page.getByRole("heading", { name: "Pair this browser to act from the board" }).waitFor();
   const key = startLink(w.stateDir);
   await page.evaluate(key => { location.hash = `#pair=${key}`; }, key);
@@ -435,7 +435,7 @@ test("F-T1125-9: after a newer link exists, the owner still finds Unpair every b
   if (SHOTS) await replaced.screenshot({ path: join(SHOTS, "t1125-replaced.png") });
   await replaced.getByRole("button", { name: "Unpair every browser" }).click();
   await replaced.getByText(/^Every browser is unpaired: each one reads only now\./).waitFor();
-  await unknown.getByRole("link", { name: MESSAGE.title }).click();
+  await unknown.locator('[data-need$="/G1"]').getByRole("link", { name: "Open", exact: true }).click();
   await unknown.getByRole("radio", { name: /^no/ }).check();
   await unknown.getByRole("button", { name: "Send answer" }).click();
   await unknown.getByRole("heading", { name: "Pair this browser to act from the board" }).waitFor();
@@ -465,7 +465,7 @@ test("F-T1059-26: a tab opened before the pairing picks up a pairing made in ano
   const w = await openBoard(t), { page } = w;
   await page.getByRole("heading", { name: "Pair this browser to act from the board" }).waitFor();
   const other = await w.context.newPage();
-  await other.goto(`${w.origin}/app/`);
+  await other.goto(`${w.origin}/app/#overview`);
   await other.getByPlaceholder("ABCD-EFGH").fill(/Pairing code: (\S+)/.exec(await w.pairText())[1]);
   await other.getByRole("button", { name: "Pair", exact: true }).click();
   await page.getByRole("heading", { name: "Pair this browser to act from the board" }).waitFor({ state: "detached" });

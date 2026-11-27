@@ -151,7 +151,7 @@ async function film(page, base, shot, st) {
   const files = new Map(), { play, box, moveCamera, moveCursor, caption: show } = director(page, shot, st), caption = key => show(CAPTIONS[key]);
   await page.context().route(`${base}/__walk/*`, route => route.fulfill({ status: 200, contentType: "image/png", body: readFileSync(files.get(new URL(route.request().url()).pathname.split("/").pop())) }));
 
-  await page.goto(`${base}/app/`);
+  await page.goto(`${base}/app/#overview`);
   await page.locator("main h1", { hasText: "Overview" }).first().waitFor();
   await page.mouse.move(-10, -10);
   await page.waitForTimeout(500);
@@ -230,7 +230,7 @@ async function tourFilm(page, base, shot, st) {
   };
   const nav = hash => page.locator(`nav a[href="#${hash}"]`);
 
-  await page.goto(`${base}/app/`);
+  await page.goto(`${base}/app/#overview`);
   await page.locator("main h1", { hasText: "Overview" }).first().waitFor();
   await page.mouse.move(-10, -10);
   await page.waitForTimeout(500);
@@ -257,12 +257,12 @@ async function tourFilm(page, base, shot, st) {
   await scroll(360, 1.6);
   await play(2);
 
-  await click(nav(""), () => page.locator("main h1", { hasText: "Overview" }).first().waitFor());
+  await click(nav("overview"), () => page.locator("main h1", { hasText: "Overview" }).first().waitFor());
   await caption(TOUR_CAPTIONS[9]);
-  await click(page.locator("header .picker"), () => page.locator("summary", { hasText: "Archived" }).waitFor());
-  await click(page.locator("summary", { hasText: "Archived" }), () => page.getByText(ARCHIVED.name).first().waitFor());
+  await click(page.locator("header .picker"), () => page.locator(".pick-menu summary", { hasText: "Archived" }).waitFor());
+  await click(page.locator(".pick-menu summary", { hasText: "Archived" }), () => page.locator(".pick-menu").getByText(ARCHIVED.name).first().waitFor());
   await play(1.5);
-  await click(page.getByText(ARCHIVED.name).first(), () => page.locator("header .picker", { hasText: "archived" }).waitFor());
+  await click(page.locator(".pick-menu").getByText(ARCHIVED.name).first(), () => page.locator("header .picker", { hasText: "archived" }).waitFor());
   await play(3.5);
 }
 
