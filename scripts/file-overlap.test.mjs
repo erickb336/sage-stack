@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -33,7 +34,7 @@ function fixture(t) {
   const run = (...args) => spawnSync(process.execPath, [TOOL, ...args, "--project", project], { env, encoding: "utf8", timeout: 60_000 });
   const ok = (...args) => { const out = run(...args); assert.equal(out.status, 0, out.stderr); return out.stdout.trim(); };
   const dir = ok("init").replace(/^logbook /, "");
-  ok("task", "add", "--priority", "P2", "--title", "Sample task", "--size", "small");
+  ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "Sample task", "--size", "small");
   const records = () => JSON.parse(readFileSync(join(dir, "observations.json"), "utf8")).records;
   const hook = (command) => spawnSync(process.execPath, [CLAUDE_HOOK], { env, input: JSON.stringify({ hook_event_name: "PostToolUse", session_id: "s1", cwd: project, tool_name: "Bash", tool_input: { command }, tool_response: { stdout: "" } }), encoding: "utf8", timeout: 60_000 });
   const runner = join(temp, "codex-post.mjs");

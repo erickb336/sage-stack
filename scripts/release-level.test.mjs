@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -32,7 +33,7 @@ function logbook(tasks = 5) {
   const ok = (...args) => { const r = run(TOOL, args); assert.equal(r.status, 0, `sage ${args.join(" ")}: ${r.stderr}`); return r.stdout.trim(); };
   const no = (...args) => { const r = run(TOOL, args); assert.equal(r.status, 1, `sage ${args.join(" ")} should be refused: ${r.stdout}`); return r.stderr.trim(); };
   const dir = ok("init").replace(/^\S+ /, "");
-  for (let n = 1; n <= tasks; n++) ok("task", "add", "--title", `Sample task ${n}`, "--size", "small", "--priority", "P2");
+  for (let n = 1; n <= tasks; n++) ok("task", "add", "--name", tname(), "--title", `Sample task ${n}`, "--size", "small", "--priority", "P2");
   const levels = () => ok("status").split("\n").filter((l) => /^(release|milestone) /.test(l));
   return { home, dir, run, ok, no, levels };
 }
@@ -41,7 +42,7 @@ test("T1003: a logbook without releases reads and writes as before: no release l
   const s = logbook(2);
   rmSync(join(s.dir, "releases.tsv"));
   s.ok("milestone", "propose", "--name", "Sage feel", "--goal", "A sample goal", "--pilot", "T1", "--tasks", "T2");
-  s.ok("task", "add", "--title", "Sample task 3", "--size", "tiny", "--priority", "P3");
+  s.ok("task", "add", "--name", tname(), "--title", "Sample task 3", "--size", "tiny", "--priority", "P3");
   assert.deepEqual(s.levels(), ["milestone M1 · needs you · pilot T1: 0 of 2 merged · breakdown waits for you (G1) · name: Sage feel"]);
   assert.match(s.ok("task", "T3"), /^T3 framed · tiny · round 0 · route build · P3$/);
   assert.equal(headOf(s.dir, "tasks").includes("release"), false);
@@ -120,7 +121,7 @@ test("T1003: a release name in the form of a finding move does not move the id f
   s.ok("task", "T1", "set", `release=${name}`);
   s.ok("task", "T1", "set", "release=none");
   assert.deepEqual(rowsOf(s.dir, "decisions").filter((d) => d.decision !== "task added").filter((d) => d.task === "T1").map((d) => d.decision).slice(-2), [`release none → ${name}`, `release ${name} → none`]);
-  assert.match(s.ok("task", "add", "--title", "Sample task 2", "--size", "tiny", "--priority", "P3"), /^T2 framed /);
+  assert.match(s.ok("task", "add", "--name", tname(), "--title", "Sample task 2", "--size", "tiny", "--priority", "P3"), /^T2 framed /);
 });
 
 test("T1003: a single task goes into a release; a task of a milestone is refused with the way out; a task that joins a milestone leaves its own release, with a decision row", () => {
@@ -207,7 +208,7 @@ test("T1003: a missing releases table reads as empty while no cell names a relea
   s.ok("task", "T1", "set", "release=1.0");
   rmSync(join(s.dir, "releases.tsv"));
   const before = snapshot(s.dir);
-  assert.match(s.no("task", "add", "--title", "x", "--size", "tiny", "--priority", "P3"), /releases\.tsv is missing or is a link to nothing, but every table of a logbook has at least its header line, so its rows are lost\.[\s\S]*sage logbook repair --accept-loss releases/);
+  assert.match(s.no("task", "add", "--name", tname(), "--title", "x", "--size", "tiny", "--priority", "P3"), /releases\.tsv is missing or is a link to nothing, but every table of a logbook has at least its header line, so its rows are lost\.[\s\S]*sage logbook repair --accept-loss releases/);
   assert.deepEqual(snapshot(s.dir), before);
   s.ok("logbook", "repair", "--accept-loss", "releases");
   assert.deepEqual(rowsOf(s.dir, "releases"), []);
@@ -227,6 +228,8 @@ test("T1003: the sage of T995 in an open session reads a logbook with releases, 
   execFileSync("tar", ["-x", "-C", old], { input: execFileSync("git", ["-C", REPO, "archive", OLDER, "plugins/sage/core", "plugins/sage/skills/sage"], { maxBuffer: 64 * 1024 * 1024 }) });
   const s = logbook(2), olderTool = join(old, "plugins/sage/skills/sage/sage.mjs");
   const older = (...args) => s.run(olderTool, args);
+  const [head, ...lines] = readFileSync(join(s.dir, "tasks.tsv"), "utf8").split("\n"), named = head.split("\t").indexOf("name");
+  writeFileSync(join(s.dir, "tasks.tsv"), [head, ...lines].map((l) => l.split("\t").filter((_, k) => k !== named).join("\t")).join("\n"));
   s.ok("release", "add", "--name", "1.0", "--goal", "Ship the first version");
   s.ok("milestone", "propose", "--name", "Sage feel", "--goal", "A sample goal", "--pilot", "T1", "--tasks", "none");
   const releases = readFileSync(join(s.dir, "releases.tsv"), "utf8");

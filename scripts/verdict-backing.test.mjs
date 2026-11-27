@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync } from "node:fs";
@@ -49,7 +50,7 @@ function logbook() {
 
 test("T483: a FINDINGS report never backs review-clean, in every form in which the state tool can be run", () => {
   const s = logbook();
-  s.ok("task", "add", "--priority", "P2", "--title", "a", "--size", "small");
+  s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "a", "--size", "small");
   const run = s.reviewed("T1", "code-reviewer", FINDINGS);
   const copy = join(temp("sage-copy-"), "plugin");
   cpSync(PLUGIN, copy, { recursive: true });
@@ -74,7 +75,7 @@ test("T483: a FINDINGS report never backs review-clean, in every form in which t
 
 test("T483: a FINDINGS report backs a clean verdict after triage of each of its findings: dismissed, moved or closed", () => {
   const s = logbook();
-  s.ok("task", "add", "--priority", "P2", "--title", "a", "--size", "small");
+  s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "a", "--size", "small");
   const r1 = s.reviewed("T1", "code-reviewer", FINDINGS);
   s.ok("finding", "add", "T1", "--source", "code-reviewer", "--severity", "medium", "--summary", "a wrong claim", "--run", r1, "--class", "other");
   assert.match(s.no("verdict", "T1", "--kind", "review-clean", "--sha", SHA, "--run", r1), new RegExp(`^sage: ${r1}'s report has findings \\(RESULT FINDINGS with medium findings\\), and F-T1-1 \\(medium\\) is still open: so it backs findings, or review-clean after each one is dismissed with a reason, moved or closed\\. Nothing changed\\.$`));
@@ -84,7 +85,7 @@ test("T483: a FINDINGS report backs a clean verdict after triage of each of its 
   s.ok("finding", "add", "T1", "--source", "qa", "--severity", "medium", "--summary", "a slow page", "--run", r2, "--class", "speed");
   s.ok("finding", "move", "T1", "F-T1-2", "--to", "Make the page fast");
   assert.match(s.ok("verdict", "T1", "--kind", "qa-pass", "--sha", SHA, "--run", r2), /^T1 qa-pass · a1b2c3d · cycle 1$/);
-  s.ok("task", "add", "--priority", "P2", "--title", "b", "--size", "small");
+  s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "b", "--size", "small");
   const r4 = s.reviewed("T1", "qa", reportFor("qa-fail"));
   s.ok("finding", "add", "T1", "--source", "qa", "--severity", "medium", "--summary", "a lost filter", "--run", r4, "--class", "other");
   s.ok("finding", "move", "T1", "F-T1-3", "--into", "T2");
@@ -97,8 +98,8 @@ test("T483: a FINDINGS report backs a clean verdict after triage of each of its 
 
 test("T483: each review or QA verdict that no kept report backs is refused, with what to do", () => {
   const s = logbook();
-  s.ok("task", "add", "--priority", "P2", "--title", "a", "--size", "small");
-  s.ok("task", "add", "--priority", "P2", "--title", "b", "--size", "small");
+  s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "a", "--size", "small");
+  s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "b", "--size", "small");
   const verdict = (kind, run, sha = SHA) => s.no("verdict", "T1", "--kind", kind, "--sha", sha, ...(run ? ["--run", run] : []));
   const before = s.ledger(), runs = s.runs();
   assert.equal(verdict("review-clean"), "sage: review-clean is a review or QA verdict, so it names the run whose kept report backs it: add --run with the code-reviewer run of T1 whose helper ended with its report. Nothing changed.");
@@ -147,7 +148,7 @@ test("T483: each review or QA verdict that no kept report backs is refused, with
 
 test("T483 R1909-1: a CLEAN report that lists a medium finding backs findings, not review-clean (severity wins)", () => {
   const s = logbook();
-  s.ok("task", "add", "--priority", "P2", "--title", "a", "--size", "small");
+  s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "a", "--size", "small");
   const run = s.reviewed("T1", "code-reviewer", reportFor("review-clean", { findings: "\n- K1 medium src/a.js:1 an empty name saves a row" }));
   assert.match(s.no("verdict", "T1", "--kind", "review-clean", "--sha", SHA, "--run", run), new RegExp(`^sage: ${run}'s report has 1 medium or high finding \\(RESULT CLEAN with medium findings\\)`));
   s.ok("finding", "add", "T1", "--source", "code-reviewer", "--severity", "medium", "--summary", "an empty name saves a row", "--run", run, "--class", "state-edge");
@@ -156,7 +157,7 @@ test("T483 R1909-1: a CLEAN report that lists a medium finding backs findings, n
 
 test("T483 full report: complete plain, Markdown and multiline fields still back clean verdicts", () => {
   const s = logbook();
-  s.ok("task", "add", "--priority", "P2", "--title", "a", "--size", "small");
+  s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "a", "--size", "small");
   const lines = reportFor("review-clean").split("\n");
   const forms = [lines, lines.map(line => `| ${line} |`), lines.map(line => {
     const field = REPORT_FIELDS.find(name => line.startsWith(`${name} `));
@@ -174,7 +175,7 @@ test("T483 full report: complete plain, Markdown and multiline fields still back
 for (const field of REPORT_FIELDS) for (const empty of [false, true]) {
   test(`T483 full report: ${empty ? "empty" : "missing"} ${field} backs no verdict`, () => {
     const s = logbook();
-    s.ok("task", "add", "--priority", "P2", "--title", "a", "--size", "small");
+    s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "a", "--size", "small");
     const text = reportFor("review-clean").split("\n").flatMap(line => line.startsWith(`${field} `) ? (empty ? [field] : []) : [line]).join("\n");
     const run = s.reviewed("T1", "code-reviewer", text);
     s.ok("finding", "add", "T1", "--source", "code-reviewer", "--severity", "medium", "--summary", "a recorded problem", "--run", run, "--class", "other");
@@ -188,7 +189,7 @@ for (const field of REPORT_FIELDS) for (const empty of [false, true]) {
 
 test("T483: a kept report stays as it was first kept, and only a run of its task and role keeps one", () => {
   const s = logbook();
-  s.ok("task", "add", "--priority", "P2", "--title", "a", "--size", "small");
+  s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "a", "--size", "small");
   const run = s.ok("run", "add", "T1", "--role", "code-reviewer").split(" ")[0];
   assert.throws(() => keepReport(s.project, { task: "T1", run, role: "qa", sha: "", text: FINDINGS }, s.env), /is not a qa run of T1, so no report is kept/);
   assert.throws(() => keepReport(s.project, { task: "T1", run, role: "code-reviewer", sha: "abc", text: FINDINGS }, s.env), /the full SHA of its commit or none/);
@@ -209,8 +210,8 @@ const found = (s, run, severity, summary) => s.ok("finding", "add", "T1", "--sou
 
 test("T947: a triage with --proof needs a done proof check of the task, on the head of the finding's report, that lists the finding with an outcome that fits", () => {
   const s = logbook();
-  s.ok("task", "add", "--priority", "P2", "--title", "a", "--size", "small");
-  s.ok("task", "add", "--priority", "P2", "--title", "b", "--size", "small");
+  s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "a", "--size", "small");
+  s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "b", "--size", "small");
   const review = s.reviewed("T1", "code-reviewer", proven("K1 medium a", "K2 medium b", "K3 high c", "K4 medium d"));
   const [gone, real, high, skipped] = [found(s, review, "medium", "a"), found(s, review, "medium", "b"), found(s, review, "high", "c"), found(s, review, "medium", "d")];
   const lines = [`- ${gone} not reproduced`, "  npm test", "  ok 1", `- ${real} reproduced`, `- ${high} could not run`];
@@ -241,7 +242,7 @@ test("T947: a triage with --proof needs a done proof check of the task, on the h
 
 test("T947: a proof check's report backs no verdict, and a run whose medium findings were all dropped by it backs review-clean", () => {
   const s = logbook();
-  s.ok("task", "add", "--priority", "P2", "--title", "a", "--size", "small");
+  s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "a", "--size", "small");
   const review = s.reviewed("T1", "code-reviewer", proven("K1 medium a", "K2 medium b"));
   const keys = [found(s, review, "medium", "a"), found(s, review, "medium", "b")];
   const check = s.reviewed("T1", "qa", proofCheck(keys.map((key) => `- ${key} not reproduced`)));
@@ -257,7 +258,7 @@ test("T947: a proof check's report backs no verdict, and a run whose medium find
 
 test("F-T947-1: a proof check that gives its first outcome on the EVIDENCE line, or a near form, is read: it backs its --proof triage and no verdict", () => {
   const s = logbook();
-  s.ok("task", "add", "--priority", "P2", "--title", "a", "--size", "small");
+  s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "a", "--size", "small");
   const review = s.reviewed("T1", "code-reviewer", proven("K1 medium a", "K2 medium b"));
   const [gone, real] = [found(s, review, "medium", "a"), found(s, review, "medium", "b")];
   const check = s.reviewed("T1", "qa", proofCheck([]).replace("EVIDENCE", `EVIDENCE      - ${gone} not reproduced\n1. **${real}**: reproduced (saw not ok 1)`));

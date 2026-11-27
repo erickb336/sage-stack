@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -119,7 +120,7 @@ test("a chief-only order shows, marked, only in the chief's read; the chief's re
 
 test("only a chief retires or marks: a command with no chief and a lead are refused, and nothing changes", (t) => {
   const w = shared(t);
-  w.chief("task", "add", "--title", "a", "--size", "small", "--priority", "P2");
+  w.chief("task", "add", "--name", tname(), "--title", "a", "--size", "small", "--priority", "P2");
   w.chief("task", "T1", "set", "state=briefed");
   w.chief("run", "add", "T1", "--role", "lead");
   const was = w.agent("standing", "--all");

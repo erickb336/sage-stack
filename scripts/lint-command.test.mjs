@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -68,7 +69,7 @@ function project({ config = true, binary = "tools" } = {}) {
     return r.stdout.trim();
   };
   ok("init");
-  ok("task", "add", "--priority", "P2", "--title", "a change", "--size", "tiny");
+  ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "a change", "--size", "tiny");
   const logbook = ok("logbook");
   const tools = join(dirname(logbook), "tools", "node_modules", ".bin");
   const place = (where, path) => {

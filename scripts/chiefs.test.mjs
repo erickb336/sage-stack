@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -69,13 +70,13 @@ test("F-T604-23: the printed repair line on a legacy project adds no chiefs.tsv 
   const w = scratch(t);
   const run = (...args) => claude.sage([...args, "--project", w.project], w.env);
   run("init");
-  run("task", "add", "--title", "a", ...ADD);
+  run("task", "add", "--name", tname(), "--title", "a", ...ADD);
   const dir = claude.storeDir(w.project, w.env), head = readFileSync(join(dir, "tasks.tsv"), "utf8").split("\n")[0];
   writeFileSync(join(dir, "tasks.tsv"), "");
   assert.throws(() => run("status"), /--accept-loss tasks/);
-  const line = printed(owned(w, "Claude", "task", "add", "--title", "b", ...ADD, "--project", w.project).stderr, w.project);
+  const line = printed(owned(w, "Claude", "task", "add", "--name", tname(), "--title", "b", ...ADD, "--project", w.project).stderr, w.project);
   assert.equal(owned(w, "Claude", ...line).status, 0);
-  run("task", "add", "--title", "c", ...ADD);
+  run("task", "add", "--name", tname(), "--title", "c", ...ADD);
   assert.equal(readFileSync(join(dir, "tasks.tsv"), "utf8").split("\n")[0], head);
   assert.equal(existsSync(join(dir, "chiefs.tsv")), false);
 });
@@ -105,10 +106,10 @@ test("a legacy project has no chief: no chiefs.tsv, no chief column, and no opti
   const w = scratch(t);
   const run = (...args) => codex.sage([...args, "--project", w.project], w.env);
   run("init");
-  run("task", "add", "--title", "a", ...ADD);
+  run("task", "add", "--name", tname(), "--title", "a", ...ADD);
   run("run", "add", "T1", "--role", "qa");
   const dir = codex.storeDir(w.project, w.env), [head] = readFileSync(join(dir, "tasks.tsv"), "utf8").split("\n");
-  assert.equal(head, "id\ttitle\tsize\trisk\troute\tstate\tbranch\tpr\tround\tkeys\thold\textra\tpriority\tkind\twaits\tmilestone\tadoption\tapprovals");
+  assert.equal(head, "id\ttitle\tsize\trisk\troute\tstate\tbranch\tpr\tround\tkeys\thold\textra\tpriority\tkind\twaits\tmilestone\tadoption\tapprovals\tname", "a name, and no chief column");
   assert.equal(readFileSync(join(dir, "runs.tsv"), "utf8").split("\n")[0].endsWith("\tusage_evidence"), true);
   assert.equal(existsSync(join(dir, "chiefs.tsv")), false);
   assert.equal(codex.chiefFor(w.project, "session-a", w.env), undefined);
@@ -134,7 +135,7 @@ test("a legacy project has no transfer: each command refuses, and a replace gate
   const w = scratch(t);
   const run = (...args) => claude.sage([...args, "--project", w.project], w.env);
   run("init");
-  run("task", "add", "--title", "a", ...ADD);
+  run("task", "add", "--name", tname(), "--title", "a", ...ADD);
   const dir = claude.storeDir(w.project, w.env), before = ["tasks", "gates"].map((table) => readFileSync(join(dir, `${table}.tsv`), "utf8")).join("\f");
   for (const args of [["unclaim", "T1"], ["pickup"], ["gate", "replace", "T1", "--to", "C2"]]) {
     assert.throws(() => run(...args), /has no shared logbook, so it has no chiefs to hand a task to\. Nothing changed\.$/, args.join(" "));
@@ -147,7 +148,7 @@ test("T970 F3: a legacy run that ended as failed keeps its late report, as in a 
   const w = scratch(t);
   const run = (...args) => claude.sage([...args, "--project", w.project], w.env);
   run("init");
-  run("task", "add", "--title", "a", ...ADD);
+  run("task", "add", "--name", tname(), "--title", "a", ...ADD);
   run("run", "add", "T1", "--role", "qa");
   run("run", "add", "T1", "--role", "pe");
   run("run", "done", "R1", "--status", "failed", "--why", "stopped");
@@ -161,7 +162,7 @@ test("T970 F3: a legacy run that ended as failed keeps its late report, as in a 
 for (const [name, own, other] of pairs) {
   test(`${name}: T970: on a shared logbook the state tool's guard holds a lead by the gap rule (its run of the role, the run's end, its state move and its round), also for a late report of a failed run, until a row with the run, whoever adds it`, (t) => {
     const w = world(t, own, other);
-    w.owner("task", "add", "--title", "a", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
     w.owner("task", "T1", "set", "state=briefed");
     w.owner("run", "add", "T1", "--role", "lead");
     w.lead("R1", "task", "T1", "set", "state=building");
@@ -175,7 +176,7 @@ for (const [name, own, other] of pairs) {
     for (const words of held) assert.throws(() => w.lead("R1", ...words), { message: gap(review, "code-reviewer", "medium") }, words.join(" "));
     assert.equal(w.tables(), before, "nothing changed");
     w.owner("finding", "add", "T1", "--source", "code-reviewer", "--severity", "medium", "--summary", "a bad value", "--run", review, "--class", "other");
-    w.owner("task", "add", "--title", "b", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "b", ...ADD);
     w.owner("finding", "move", "T1", "F-T1-1", "--into", "T2");
     assert.equal(w.lead("R1", ...held[1]), `${review} done`, "a row moved into an open task still holds the finding");
     const qa = id(w.lead("R1", "run", "add", "T1", "--role", "qa"));
@@ -196,23 +197,23 @@ for (const [name, own, other] of pairs) {
     assert.deepEqual(lines.slice(1).map((l) => l.split("\t").slice(0, 3)), [["C1", name.toLowerCase(), "session-a"], ["C2", name === "Claude" ? "codex" : "claude", "session-b"]]);
     assert.throws(() => own.chiefFor(w.project, "bad id\twith a tab", w.env), /no session identity/);
     writeFileSync(join(w.dir, "chiefs.tsv"), "id\tother\n");
-    assert.throws(() => w.owner("task", "add", "--title", "a", ...ADD), /chiefs\.tsv is damaged/);
+    assert.throws(() => w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD), /chiefs\.tsv is damaged/);
   });
 
   test(`${name}: task add claims the task for the chief that adds it, and a run names the chief that dispatched it`, (t) => {
     const w = world(t, own, other);
-    assert.match(w.owner("task", "add", "--title", "a", ...ADD), /^T1 framed .* · chief C1$/);
+    assert.match(w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD), /^T1 framed .* · chief C1$/);
     assert.equal(row(w.cells("tasks"), "T1").chief, "C1");
     assert.match(w.owner("run", "add", "T1", "--role", "qa"), /^R1 running/);
     assert.equal(row(w.cells("runs"), "R1").chief, "C1");
     assert.match(w.owner("task", "T1"), /· chief C1/);
-    w.intruder("task", "add", "--title", "b", ...ADD);
+    w.intruder("task", "add", "--name", tname(), "--title", "b", ...ADD);
     assert.equal(row(w.cells("tasks"), "T2").chief, "C2");
   });
 
   test(`${name}: each task write refuses another chief, names the owning chief, and changes nothing; the owning chief passes the guard`, (t) => {
     const w = world(t, own, other);
-    w.owner("task", "add", "--title", "a", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
     w.owner("run", "add", "T1", "--role", "qa");
     w.owner("finding", "add", "T1", ...QA);
     const adopt = ["--source-logbook", "/nowhere", "--source-provider", "codex", "--source-task", "T9", "--pr", "1", "--branch", "sage/t9"];
@@ -234,8 +235,8 @@ for (const [name, own, other] of pairs) {
 
   test(`${name}: a milestone proposed again checks each task of the milestone, also with no --pilot and no --tasks`, (t) => {
     const w = world(t, own, other);
-    w.owner("task", "add", "--title", "a", ...ADD);
-    w.intruder("task", "add", "--title", "b", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
+    w.intruder("task", "add", "--name", tname(), "--title", "b", ...ADD);
     assert.throws(() => w.owner("milestone", "propose", "--name", "n", "--goal", "g", "--pilot", "T1", "--tasks", "T2"), /T2 belongs to chief C2/);
     w.owner("milestone", "propose", "--name", "n", "--goal", "g", "--pilot", "T1", "--tasks", "none");
     assert.throws(() => w.intruder("milestone", "propose", "M1"), /T1 belongs to chief C1/);
@@ -243,11 +244,11 @@ for (const [name, own, other] of pairs) {
 
   test(`${name}: F-T995-25: a milestone proposed again by its old program id, with either old word, checks the same tasks; so does a new pilot, for each task that leaves`, (t) => {
     const w = world(t, own, other);
-    w.owner("task", "add", "--title", "a", ...ADD);
-    w.owner("task", "add", "--title", "b", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "b", ...ADD);
     w.owner("milestone", "propose", "--name", "n", "--goal", "g", "--pilot", "T1", "--tasks", "T2");
     own.sage(["gate", "answer", "G1", "--option", "1", "--project", w.project], w.env);
-    w.intruder("task", "add", "--title", "c", ...ADD);
+    w.intruder("task", "add", "--name", tname(), "--title", "c", ...ADD);
     const file = join(w.dir, "decisions.tsv"), cols = readFileSync(file, "utf8").split("\n")[0].split("\t");
     writeFileSync(file, readFileSync(file, "utf8") + cols.map((c) => ({ at: "2026-11-11T00:00:00Z", decision: "M1 was PG1", why: RENAME_WHY })[c] ?? "").join("\t") + "\n");
     const before = w.tables();
@@ -264,7 +265,7 @@ for (const [name, own, other] of pairs) {
     for (const [id, args] of [["T2", ["--tasks", "T3,T4"]], ["T2", ["--pilot", "T3", "--tasks", "T4"]], ["T1", ["--pilot", "T3", "--tasks", "T4"]]]) {
       test(`${name}: F-T995-31: the owning chief proposes its milestone again (${args.join(" ")}) while it holds ${id === "T1" ? "an old pilot" : "a task"} that is ${ended}, ${whose}`, (t) => {
         const w = world(t, own, other);
-        for (const title of ["a", "b", "c", "d"]) w.owner("task", "add", "--title", title, ...ADD);
+        for (const title of ["a", "b", "c", "d"]) w.owner("task", "add", "--name", tname(), "--title", title, ...ADD);
         w.owner("milestone", "propose", "--name", "n", "--goal", "g", "--pilot", "T1", "--tasks", "T2,T3");
         own.sage(["gate", "answer", "G1", "--option", "1", "--project", w.project], w.env);
         setCells(w.dir, "tasks", (l) => l.startsWith(`${id}\t`), "state", ended);
@@ -281,7 +282,7 @@ for (const [name, own, other] of pairs) {
 
   test(`${name}: any chief of the project runs the commands that change no task; a command with no chief refuses`, (t) => {
     const w = world(t, own, other);
-    w.owner("task", "add", "--title", "a", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
     w.owner("run", "add", "T1", "--role", "qa");
     const page = join(own.sage(["pages", "T1", "--project", w.project], w.env), "page.md");
     writeFileSync(page, "a page");
@@ -298,7 +299,7 @@ for (const [name, own, other] of pairs) {
 
   test(`${name}: a read needs no chief, and a gate answer is the owner's, from either provider`, (t) => {
     const w = world(t, own, other);
-    w.owner("task", "add", "--title", "a", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
     w.owner("gate", "add", "--message", QUESTION, "T1", "--question", "q?", "--options", "a|b", "--recommend", "a");
     for (const args of [["status"], ["stats"], ["task", "T1"], ["logbook"], ["standing"], ["pages", "T1"], ["config"], ["merge-check", "--sha", SHA, "--pr", "1"], ["board", "--view", "chat"]]) {
       try { w.nobody(...args); } catch (e) { assert.doesNotMatch(e.message, /no chief|belongs to/, args.join(" ")); }
@@ -312,9 +313,9 @@ for (const [name, own, other] of pairs) {
 
   test(`F-T604-23 ${name}: the line that the integrity refusal prints works in the owner's terminal on a shared logbook`, (t) => {
     const w = world(t, own, other), people = readFileSync(join(w.dir, "chiefs.tsv"), "utf8");
-    w.owner("task", "add", "--title", "a", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
     writeFileSync(join(w.dir, "tasks.tsv"), "");
-    const out = owned(w, name, "task", "add", "--title", "b", ...ADD, "--project", w.project, "--chief", w.chief);
+    const out = owned(w, name, "task", "add", "--name", tname(), "--title", "b", ...ADD, "--project", w.project, "--chief", w.chief);
     assert.notEqual(out.status, 0);
     const line = printed(out.stderr, w.project);
     assert.deepEqual(line, ["logbook", "repair", "--accept-loss", "tasks", "--project", w.project]);
@@ -323,12 +324,12 @@ for (const [name, own, other] of pairs) {
     assert.match(repair.stdout, /^tasks\.tsv started again without rows; its old file is \S+tasks\.tsv\.lost-1\./);
     assert.match(w.cells("decisions"), /the user accepts the loss of its rows/);
     assert.equal(readFileSync(join(w.dir, "chiefs.tsv"), "utf8"), people, "the repair names no chief, so it adds none");
-    assert.match(w.owner("task", "add", "--title", "c", ...ADD), /^T2 framed .* · chief C1$/, "the lost T1 keeps its id: its task-added decision row holds it");
+    assert.match(w.owner("task", "add", "--name", tname(), "--title", "c", ...ADD), /^T2 framed .* · chief C1$/, "the lost T1 keeps its id: its task-added decision row holds it");
   });
 
   test(`F-T617-1 ${name}: the projects rebuild line that a refusal prints works in the owner's terminal on a shared logbook`, (t) => {
     const w = world(t, own, other), people = readFileSync(join(w.dir, "chiefs.tsv"), "utf8"), list = join(dirname(w.dir), "projects.tsv");
-    w.owner("task", "add", "--title", "a", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
     writeFileSync(list, "damaged\n");
     const refused = owned(w, name, "merge-check", "--sha", SHA, "--project", w.project);
     assert.notEqual(refused.status, 0);
@@ -342,9 +343,9 @@ for (const [name, own, other] of pairs) {
 
   test(`${name}: a lead acts for the chief of its lead run, on the task of that run only, while that run runs`, (t) => {
     const w = world(t, own, other);
-    w.owner("task", "add", "--title", "a", ...ADD);
-    w.owner("task", "add", "--title", "b", ...ADD);
-    w.intruder("task", "add", "--title", "c", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "b", ...ADD);
+    w.intruder("task", "add", "--name", tname(), "--title", "c", ...ADD);
     w.owner("task", "T1", "set", "state=briefed");
     w.owner("run", "add", "T1", "--role", "lead");
     w.owner("run", "add", "T2", "--role", "qa");
@@ -355,7 +356,7 @@ for (const [name, own, other] of pairs) {
     assert.throws(() => w.lead("R1", "task", "T2", "set", "state=building"), acts("T2"));
     assert.throws(() => w.lead("R1", "task", "T3", "set", "state=building"), acts("T3"));
     assert.throws(() => w.lead("R1", "run", "done", "R2", "--status", "failed", "--why", "stopped"), acts("R2"));
-    assert.throws(() => w.lead("R1", "task", "add", "--title", "d", ...ADD), /"task add" is not on a lead's list\./);
+    assert.throws(() => w.lead("R1", "task", "add", "--name", tname(), "--title", "d", ...ADD), /"task add" is not on a lead's list\./);
     assert.throws(() => w.lead("R1", "standing", "add", "an order"), /"standing add" is not on a lead's list\./);
     assert.throws(() => w.lead("R2", "task", "T2", "set", "title=x"), /R2 is not a running lead run/, "another role is no lead");
     assert.throws(() => own.sage(["task", "T1", "set", "title=x", "--project", w.project, "--lead", "R1", "--chief", "C1"], w.env), /takes --chief or --lead, not both/);
@@ -371,7 +372,7 @@ for (const [name, own, other] of pairs) {
 
   const transfer = (t, keepSageHome = false) => {
     const w = world(t, own, other, keepSageHome);
-    w.owner("task", "add", "--title", "a", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
     return { ...w, answer: (...args) => other.sage(["gate", "answer", ...args, "--project", w.project], w.env) };
   };
 
@@ -400,8 +401,8 @@ for (const [name, own, other] of pairs) {
 
   test(`T1172 ${name}, F-T1172-11: after the move, a moved task that no chief claimed passes only to a chief of its own provider`, (t) => {
     const w = world(t, own, other);
-    w.owner("task", "add", "--title", "a", ...ADD);
-    w.owner("task", "add", "--title", "b", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "b", ...ADD);
     const [mine, theirs] = name === "Claude" ? ["claude", "codex"] : ["codex", "claude"];
     const moved = (provider, task) => JSON.stringify({ version: 2, provider, task, logbook: join(w.base, "old"), project: w.project, round: 0, digest: "0".repeat(64) });
     setCells(w.dir, "tasks", (l) => /^T[12]\t/.test(l), "chief", "");
@@ -421,8 +422,8 @@ for (const [name, own, other] of pairs) {
 
   test(`T893 ${name}: a chief abandons a task that it unclaimed, with a reason; the task keeps no chief, and any other change refuses`, (t) => {
     const w = world(t, own, other);
-    w.owner("task", "add", "--title", "stale", ...ADD);
-    w.intruder("task", "add", "--title", "owned", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "stale", ...ADD);
+    w.intruder("task", "add", "--name", tname(), "--title", "owned", ...ADD);
     w.owner("unclaim", "T1");
     const before = w.tables();
     const noReason = { message: `T1 has no owning chief. Any chief may abandon it, with a reason: add --why "<reason>". Nothing changed.` };
@@ -480,7 +481,7 @@ for (const [name, own, other] of pairs) {
 
   test(`T656 ${name}: task-adopt refuses in a shared logbook, also for the owning chief, and changes nothing`, (t) => {
     const w = world(t, own, other);
-    w.owner("task", "add", "--title", "a", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
     const adopt = ["--source-logbook", join(w.base, "old"), "--source-provider", name === "Claude" ? "codex" : "claude", "--source-task", "T9", "--pr", "1", "--branch", "sage/t9"];
     const step = name === "Claude" ? "run sage gate replace <task> --to C1 --chief C1" : "call the gate_replace tool with this task and to C1";
     const before = w.tables();
@@ -490,7 +491,7 @@ for (const [name, own, other] of pairs) {
 
   test(`T656 ${name}: one ledger after a takeover: merge-check --chief refuses the chief that lost the task, and the new chief of the other provider runs a fresh cycle (T1172)`, (t) => {
     const w = world(t, own, other);
-    w.owner("task", "add", "--title", "a", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
     for (const kind of ["checks-pass", "review-clean", "qa-pass"]) w.owner(...backed(["verdict", "T1", "--sha", SHA, "--kind", kind, "--pr", "41"], { cli: w.owner, keep: (fields) => own.keepReport(w.project, fields, w.env) }));
     const check = (tool, chief) => tool.sage(["merge-check", "--sha", SHA, "--pr", "41", "--project", w.project, "--chief", chief], w.env);
     assert.equal(check(own, "C1"), "T1 may merge: 1 clean cycle on this SHA");
@@ -514,7 +515,7 @@ for (const [name, own, other] of pairs) {
 
   test(`F-T656-2, T1172 ${name}: a task that a chief unclaimed passes to the next chief that writes; from a chief of the same provider it needs no fresh cycle, from the other provider it does`, (t) => {
     const w = world(t, own, other);
-    w.owner("task", "add", "--title", "a", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
     for (const kind of ["checks-pass", "review-clean", "qa-pass"]) w.owner(...backed(["verdict", "T1", "--sha", SHA, "--kind", kind, "--pr", "41"], { cli: w.owner, keep: (fields) => own.keepReport(w.project, fields, w.env) }));
     own.chiefFor(w.project, "session-c", w.env);
     const third = (...args) => own.sage([...args, "--project", w.project, "--chief", "C3"], w.env);
@@ -703,7 +704,7 @@ for (const [name, own, other] of pairs) {
 
   test(`${name}: the follow-up task of finding move goes to the chief that moves the finding`, (t) => {
     const w = world(t, own, other);
-    w.owner("task", "add", "--title", "a", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
     w.owner("run", "add", "T1", "--role", "qa");
     w.owner("finding", "add", "T1", ...QA);
     w.owner("finding", "move", "T1", "F-T1-1", "--to", "later");
@@ -712,8 +713,8 @@ for (const [name, own, other] of pairs) {
 
   test(`${name}: T1025: finding move --into refuses a task of another chief`, (t) => {
     const w = world(t, own, other);
-    w.owner("task", "add", "--title", "a", ...ADD);
-    w.intruder("task", "add", "--title", "b", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
+    w.intruder("task", "add", "--name", tname(), "--title", "b", ...ADD);
     w.owner("run", "add", "T1", "--role", "qa");
     w.owner("finding", "add", "T1", ...QA);
     const before = w.tables();
@@ -723,7 +724,7 @@ for (const [name, own, other] of pairs) {
 
   test(`${name}: T1025: the lead of the task that a finding moved into closes it after a re-check, like any fix finding`, (t) => {
     const w = world(t, own, other);
-    w.owner("task", "add", "--title", "a", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
     w.owner("run", "add", "T1", "--role", "qa");
     w.owner("finding", "add", "T1", ...QA);
     w.owner("finding", "move", "T1", "F-T1-1", "--to", "later");
@@ -742,8 +743,8 @@ for (const [name, own, other] of pairs) {
   test(`${name}: F-T604-1: a write with a quoted value, read as the shell reads it, gives the plain write's result on both providers`, (t) => {
     const w = world(t, own, other);
     const words = (line) => shellCommands(line)[0].words;
-    assert.match(w.owner(...words('task add --title "two words" --size small --priority P2')), /^T1 framed .* · chief C1$/);
-    assert.match(w.intruder(...words('task add --title "two more" --size small --priority P2')), /^T2 framed .* · chief C2$/);
+    assert.match(w.owner(...words('task add --title "two words" --name "First name" --size small --priority P2')), /^T1 framed .* · chief C1$/);
+    assert.match(w.intruder(...words('task add --title "two more" --name "Second name" --size small --priority P2')), /^T2 framed .* · chief C2$/);
     assert.throws(() => w.nobody(...words('task add --title "two words" --size small --priority P2')), NO_CHIEF);
     w.owner("run", "add", "T1", "--role", "qa");
     for (const line of ['log T1 "a decision" --why "a reason"', `gate add T1 --message ${QUESTION} --question "a question?" --options "a|b" --recommend a`, 'finding add T1 --source sage --severity low --summary "a problem"']) {
@@ -760,7 +761,7 @@ for (const [name, own, other] of pairs) {
 
 test("F-T618-2: the logbook check sees a Replace that publishes between its reads of the tables", async (t) => {
   const w = world(t, claude, codex);
-  w.owner("task", "add", "--title", "a", ...ADD);
+  w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
   const fs = (await import("node:fs")).default, { syncBuiltinESMExports } = await import("node:module");
   const runs = join(w.dir, "runs.tsv"), openSync = fs.openSync;
   t.after(() => { fs.openSync = openSync; syncBuiltinESMExports(); });
@@ -778,7 +779,7 @@ test("F-T618-2: the logbook check sees a Replace that publishes between its read
 
 test("F-T604-18: a provider's command gives the real cause of a refusal: a damaged chiefs.tsv, a busy lock, or a lead with no lead run", (t) => {
   const w = world(t, codex, claude);
-  const argv = ["task", "add", "--title", "a", ...ADD, `--project=${w.project}`];
+  const argv = ["task", "add", "--name", tname(), "--title", "a", ...ADD, `--project=${w.project}`];
   const refused = (actor) => {
     const { code, text } = codex.withLock(w.dir, () => codex.command(argv, w.env, { project: w.project, ...actor }));
     assert.equal(code, 1, text);
@@ -795,7 +796,7 @@ test("F-T604-18: a provider's command gives the real cause of a refusal: a damag
 
 test("F-T604-19: the stop writer keeps a report with no chief on a shared logbook, and the chief cell stays", (t) => {
   const w = world(t, codex, claude);
-  w.owner("task", "add", "--title", "a", ...ADD);
+  w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
   w.owner("run", "add", "T1", "--role", "implementer", "--branch", "codex/t1-report");
   w.owner("run", "add", "T1", "--role", "qa", "--branch", "codex/t1-report");
   codex.keepReport(w.project, { task: "T1", run: "R2", role: "qa", sha: SHA, text: "STATUS done" }, w.env);
@@ -825,30 +826,62 @@ test("F-T604-19: parallel processes get unique chiefs, the same ones on a repeat
   assert.deepEqual([...ids].sort((a, b) => a.slice(1) - b.slice(1)), Array.from({ length: 12 }, (_, k) => `C${k + 3}`), "world's two chiefs, then twelve new ones");
   assert.deepEqual(await all(jobs), ids, "a repeat is the same chief");
 
-  w.owner("task", "add", "--title", "a", ...ADD);
+  w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
   writeFileSync(join(w.dir, "tasks.tsv"), w.cells("tasks").replace(/\tC1\n/, "\t\n"));
   const picks = await all(ids.slice(0, 8).map((id) => [TOOL, "pickup", "--chief", id, "--project", w.project]));
   assert.equal(picks.filter((c) => /^sage: pick-up from no chief to C\d+: tasks T1; they had no owning chief\./.test(c)).length, 1, picks.join("\n"));
   assert.equal(picks.filter((c) => c === "nothing to pick up").length, 7, picks.join("\n"));
 
-  await all(ids.slice(0, 10).map((id, k) => [TOOL, "task", "add", "--title", `t${k}`, ...ADD, "--chief", id, "--project", w.project]));
+  await all(ids.slice(0, 10).map((id, k) => [TOOL, "task", "add", "--name", tname(), "--title", `t${k}`, ...ADD, "--chief", id, "--project", w.project]));
   const rows = w.cells("tasks").trim().split("\n").slice(1).map((line) => line.split("\t")[0]);
   assert.deepEqual(rows, Array.from({ length: 11 }, (_, k) => `T${k + 1}`), "each parallel task add has its row and its own id");
 });
 
+test("T1255: a Claude chief and a Codex chief add the same name at once: one adds it, the other is refused; neither renames the other's task", async (t) => {
+  const w = world(t, claude, codex);
+  const add = (tool, chief, title) => new Promise((done) => {
+    const child = spawn("node", [tool, "task", "add", "--name", "Same name", "--title", title, ...ADD, "--chief", chief, "--project", w.project], { env: w.env, stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    child.stdout.on("data", (b) => { out += b; });
+    child.stderr.on("data", (b) => { out += b; });
+    child.on("close", (code) => done({ code, out: out.trim() }));
+  });
+  const race = () => Promise.all([add(TOOL, w.chief, "from Claude"), add(CODEX_TOOL, w.rival, "from Codex")]);
+  let outs = await race();
+  for (let k = 0; k < 3 && outs.some((o) => /logbook is busy/.test(o.out)); k++) outs = await race();
+  const won = outs.filter((o) => o.code === 0), lost = outs.filter((o) => o.code === 1);
+  assert.equal(won.length, 1, outs.map((o) => o.out).join("\n"));
+  assert.match(won[0].out, /^T1 framed .* · chief C[12]$/);
+  assert.equal(lost.length, 1, outs.map((o) => o.out).join("\n"));
+  assert.match(lost[0].out, /the name "Same name" is the name of T1 already/);
+  assert.deepEqual(w.cells("tasks").trim().split("\n").slice(1).map((l) => l.split("\t")[0]), ["T1"], "the refused add writes no task");
+
+  w.owner("task", "add", "--name", "Owner task", "--title", "mine", ...ADD);
+  const own = row(w.cells("tasks"), "T2").chief, before = w.tables();
+  assert.equal(own, "C1");
+  assert.throws(() => w.intruder("task", "T2", "set", "name=Taken name"), /^Error: T2 belongs to chief C1 .* Change only your own tasks\./);
+  const file = join(w.base, "names.txt");
+  writeFileSync(file, "T2 Taken name\n");
+  assert.throws(() => w.intruder("task", "names", "--file", file), /has 1 bad line, so no task changed:\n  line 1: T2 belongs to chief C1 /);
+  assert.throws(() => w.nobody("task", "names", "--file", file), NO_CHIEF, "a naming pass is a chief's write");
+  assert.equal(w.tables(), before);
+  assert.match(w.owner("task", "names", "--file", file), /^1 task named: T2\./);
+  assert.equal(row(w.cells("tasks"), "T2").name, "Taken name");
+});
+
 test("F-T604-19: an older sage, whose tables have no chief column, refuses to write a shared logbook and says to update; its reads go on", async (t) => {
   const w = world(t, claude, codex);
-  w.owner("task", "add", "--title", "a", ...ADD);
+  w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
   const plugin = join(w.base, "older");
   cpSync(at("../plugins/sage-codex"), plugin, { recursive: true });
   const state = join(plugin, "core/state.mjs"), source = readFileSync(state, "utf8");
-  const older = source.replace("const SPARSE = { tasks: [CHIEF_COLUMN, \"offer\", RELEASE_COLUMN, \"request\"], runs: [CHIEF_COLUMN, CHECKOUT_COLUMN, ADMITTED_COLUMN, \"failure\", ...SPEND_FIELDS],", "const SPARSE = { tasks: [\"offer\", RELEASE_COLUMN, \"request\"],");
+  const older = source.replace("const SPARSE = { tasks: [\"name\", CHIEF_COLUMN, \"offer\", RELEASE_COLUMN, \"request\"], runs: [CHIEF_COLUMN, CHECKOUT_COLUMN, ADMITTED_COLUMN, \"failure\", ...SPEND_FIELDS],", "const SPARSE = { tasks: [\"name\", \"offer\", RELEASE_COLUMN, \"request\"],");
   assert.notEqual(older, source, "the fixture removes the column");
   writeFileSync(state, older);
   const { tool } = await import(pathToFileURL(join(plugin, "skills/sage/sage.mjs")).href);
   const run = (...args) => tool.sage([...args, "--project", w.project], w.env);
   const before = w.tables();
-  for (const args of [["task", "T1", "set", "title=x"], ["task", "add", "--title", "b", ...ADD], ["log", "T1", "a decision", "--why", "w"]]) {
+  for (const args of [["task", "T1", "set", "title=x"], ["task", "add", "--name", tname(), "--title", "b", ...ADD], ["log", "T1", "a decision", "--why", "w"]]) {
     assert.throws(() => run(...args), /tasks\.tsv has columns that this version of sage does not know \(chief\).*Update the sage plugin/, args.join(" "));
   }
   assert.equal(w.tables(), before, "nothing changed");
@@ -945,7 +978,7 @@ test("F-T618-17: in the Claude hook a replaced chief's gh pr merge refuses and n
   for (const session of ["s1", "s2"]) for (const prompt of ["sage mode", "autopilot on"]) w.send({ hook_event_name: "UserPromptSubmit", prompt }, session);
   const verified = (...chief) => {
     const cli = (...args) => sage(...args, ...chief), keep = (fields) => claude.keepReport(w.project, fields, w.env);
-    cli("task", "add", "--title", "a", ...ADD);
+    cli("task", "add", "--name", tname(), "--title", "a", ...ADD);
     for (const cycle of ["1", "2"]) for (const kind of ["checks-pass", "review-clean", "qa-pass"]) cli(...backed(["verdict", "T1", "--sha", SHA, "--kind", kind, "--cycle", cycle, "--pr", "41"], { cli, keep }));
   };
   const merge = (session) => w.denied(w.send({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: `gh pr merge 41 --squash --delete-branch --match-head-commit ${SHA}` } }, session));
@@ -972,7 +1005,7 @@ test("F-T618-26: an ended task of another chief on the same SHA never bars a liv
   const w = world(t, claude, claude);
   const keep = (fields) => claude.keepReport(w.project, fields, w.env);
   const verified = (cli) => {
-    cli("task", "add", "--title", "a", ...ADD);
+    cli("task", "add", "--name", tname(), "--title", "a", ...ADD);
     const id = `T${w.cells("tasks").trim().split("\n").length - 1}`;
     for (const kind of ["checks-pass", "review-clean", "qa-pass"]) cli(...backed(["verdict", id, "--sha", SHA, "--kind", kind, "--pr", "41"], { cli, keep }));
     return id;
@@ -999,7 +1032,7 @@ test("the Claude hook names the chief on each transfer command, adds none to a g
   }
   w.send({ hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
   const chief = claude.chiefFor(w.project, "s1", w.env);
-  sage("task", "add", "--title", "a", ...ADD, "--chief", chief);
+  sage("task", "add", "--name", tname(), "--title", "a", ...ADD, "--chief", chief);
   sage("task", "T1", "set", "state=briefed", "--chief", chief);
   sage("task", "T1", "set", "state=building", "branch=sage/t1-a", "--chief", chief);
   sage("run", "add", "T1", "--role", "implementer", "--branch", "sage/t1-a", "--chief", chief);
@@ -1020,7 +1053,7 @@ test("the Claude hook keeps a lead on its lead run in a shared logbook, and a he
   sage("link", "--separate");
   w.send({ hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
   const chief = claude.chiefFor(w.project, "s1", w.env);
-  sage("task", "add", "--title", "a", ...ADD, "--chief", chief);
+  sage("task", "add", "--name", tname(), "--title", "a", ...ADD, "--chief", chief);
   sage("task", "T1", "set", "state=briefed", "--chief", chief);
   sage("run", "add", "T1", "--role", "lead", "--chief", chief);
   const start = { subagent_type: "sage:lead", name: "lead-T1", description: "lead-T1", prompt: "GOAL a\nSCOPE b\nCONTEXT c\nDECISIONS d\nACCEPTANCE e\nVERIFY f\nBUDGET 1 hour of agent time\nFORBIDDEN g\nREPORT h\nSTANDING i", run_in_background: true };
@@ -1043,7 +1076,7 @@ test("T928: one lead policy in core: a lead's write to another task, a command o
   sage("link", "--separate");
   w.send({ hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
   const chief = claude.chiefFor(w.project, "s1", w.env);
-  for (const title of ["mine", "theirs"]) sage("task", "add", "--title", title, ...ADD, "--chief", chief);
+  for (const title of ["mine", "theirs"]) sage("task", "add", "--name", tname(), "--title", title, ...ADD, "--chief", chief);
   sage("task", "T1", "set", "state=briefed", "--chief", chief);
   sage("run", "add", "T1", "--role", "lead", "--chief", chief);
   const start = { subagent_type: "sage:lead", name: "lead-T1", description: "lead-T1", prompt: "GOAL a\nSCOPE b\nCONTEXT c\nDECISIONS d\nACCEPTANCE e\nVERIFY f\nBUDGET 1 hour of agent time\nFORBIDDEN g\nREPORT h\nSTANDING i", run_in_background: true };
@@ -1079,7 +1112,7 @@ test("T927: the Claude chief runs worktrees and its prune with no --chief in a s
   sage("link", "--separate");
   w.send({ hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
   const chief = claude.chiefFor(w.project, "s1", w.env);
-  sage("task", "add", "--title", "a", ...ADD, "--chief", chief);
+  sage("task", "add", "--name", tname(), "--title", "a", ...ADD, "--chief", chief);
   sage("task", "T1", "set", "state=briefed", "--chief", chief);
   sage("run", "add", "T1", "--role", "lead", "--chief", chief);
   const start = { subagent_type: "sage:lead", name: "lead-T1", description: "lead-T1", prompt: "GOAL a\nSCOPE b\nCONTEXT c\nDECISIONS d\nACCEPTANCE e\nVERIFY f\nBUDGET 1 hour of agent time\nFORBIDDEN g\nREPORT h\nSTANDING i", run_in_background: true };
@@ -1099,7 +1132,7 @@ test("F-T1143-1: the Claude hook lets the chief run the documented prior-art add
   sage("link", "--separate");
   w.send({ hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
   const chief = claude.chiefFor(w.project, "s1", w.env);
-  sage("task", "add", "--title", "a", ...ADD, "--chief", chief);
+  sage("task", "add", "--name", tname(), "--title", "a", ...ADD, "--chief", chief);
   sage("task", "T1", "set", "state=briefed", "--chief", chief);
   sage("run", "add", "T1", "--role", "lead", "--chief", chief);
   const start = { subagent_type: "sage:lead", name: "lead-T1", description: "lead-T1", prompt: "GOAL a\nSCOPE b\nCONTEXT c\nDECISIONS d\nACCEPTANCE e\nVERIFY f\nBUDGET 1 hour of agent time\nFORBIDDEN g\nREPORT h\nSTANDING i", run_in_background: true };
@@ -1124,7 +1157,7 @@ function clones(t) {
   const w = world(t, codex, codex), a = realpathSync(w.project), b = join(w.base, "clone-b"), branch = "sage/t1-a";
   git("clone", "-q", a, b);
   codex.sage(["link", "--to", basename(w.dir), "--project", b], w.env);
-  w.owner("task", "add", "--title", "a", ...ADD);
+  w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
   w.owner("task", "T1", "set", "state=briefed");
   w.owner("task", "T1", "set", "state=building", `branch=${branch}`);
   const tip = git("-C", a, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "the implementer's work");
@@ -1139,7 +1172,7 @@ function clones(t) {
 }
 test("T625: after the first run add with a checkout, a sage of PR 5a refuses to write that shared logbook and says to update; its reads go on", async (t) => {
   const w = world(t, claude, codex);
-  w.owner("task", "add", "--title", "a", ...ADD);
+  w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
   w.owner("run", "add", "T1", "--role", "qa");
   const plugin = join(w.base, "older");
   cpSync(at("../plugins/sage-codex"), plugin, { recursive: true });
@@ -1163,7 +1196,7 @@ function setCheckout(w, id, value) {
 for (const [name, own, other] of pairs) {
   test(`T625 (${name}): a shared run add saves the main checkout, also from a linked worktree; a legacy logbook gets no checkout column`, (t) => {
     const w = world(t, own, other), main = realpathSync(w.project), linked = join(w.base, "linked");
-    w.owner("task", "add", "--title", "a", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
     w.owner("run", "add", "T1", "--role", "qa");
     git("-C", main, "worktree", "add", "-q", "-b", "linked", linked);
     own.sage(["run", "add", "T1", "--role", "code-reviewer", "--project", linked, "--chief", w.chief], w.env);
@@ -1172,7 +1205,7 @@ for (const [name, own, other] of pairs) {
     assert.equal(row(w.cells("runs"), "R2").checkout, main, "the main checkout, not the worktree");
     const l = scratch(t), run = (...args) => own.sage([...args, "--project", l.project], l.env);
     run("init");
-    run("task", "add", "--title", "a", ...ADD);
+    run("task", "add", "--name", tname(), "--title", "a", ...ADD);
     const runs = join(own.storeDir(l.project, l.env), "runs.tsv"), before = header(readFileSync(runs, "utf8"));
     run("run", "add", "T1", "--role", "qa");
     assert.deepEqual(header(readFileSync(runs, "utf8")), before, "the header stays");
@@ -1270,7 +1303,7 @@ test("T634: the Claude hook reads a review's branch tip in the checkout of the w
   sage("link", "--to", basename(claude.storeDir(a, w.env)), "--project", b);
   w.send({ hook_event_name: "UserPromptSubmit", prompt: "sage mode", cwd: b });
   const chief = claude.chiefFor(b, "s1", w.env), inB = (...args) => sage(...args, "--project", b, "--chief", chief);
-  inB("task", "add", "--title", "a", ...ADD);
+  inB("task", "add", "--name", tname(), "--title", "a", ...ADD);
   inB("task", "T1", "set", "state=briefed");
   inB("task", "T1", "set", "state=building", `branch=${branch}`);
   const tip = git("-C", a, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "the implementer's work");
@@ -1305,7 +1338,7 @@ function stamp(dir, at) {
 
 test("F-T656-23: after a takeover from Codex, the fresh Claude cycle counts only the verdicts of runs that started after the owner's answer", (t) => {
   const w = world(t, codex, claude);
-  w.owner("task", "add", "--title", "a", ...ADD);
+  w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
   for (const kind of ["checks-pass", "review-clean", "qa-pass"]) w.owner(...backed(["verdict", "T1", "--sha", SHA, "--kind", kind, "--pr", "41"], { cli: w.owner, keep: (fields) => codex.keepReport(w.project, fields, w.env) }));
   const pending = Object.fromEntries([["review-clean", "code-reviewer"], ["qa-pass", "qa"]].map(([kind, role]) => {
     const id = /^(R\d+) running/.exec(w.owner("run", "add", "T1", "--role", role))[1];
@@ -1330,7 +1363,7 @@ test("F-T656-23: after a takeover from Codex, the fresh Claude cycle counts only
 
 test("F-T656-20, T1172: the last hand-over between providers decides the fresh cycle: back to a Codex chief needs one too, and a move between Claude chiefs keeps the one before it", (t) => {
   const w = world(t, codex, claude);
-  w.owner("task", "add", "--title", "a", ...ADD);
+  w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
   for (const kind of ["checks-pass", "review-clean", "qa-pass"]) w.owner(...backed(["verdict", "T1", "--sha", SHA, "--kind", kind, "--pr", "41"], { cli: w.owner, keep: (fields) => codex.keepReport(w.project, fields, w.env) }));
   setCells(w.dir, "ledger", () => true, "at", "2026-01-01T00:00:00Z");
   const answer = (gate, at) => {
@@ -1391,7 +1424,7 @@ for (const [name, own, other] of pairs) {
     w.sage(own, "link", "--separate");
     const before = own.chiefFor(w.project, SESSION.get(own), w.env), after = other.chiefFor(w.project, SESSION.get(other), w.env);
     assert.deepEqual([before, after], ["C1", "C2"]);
-    w.sage(own, "task", "add", "--title", "a", ...ADD, "--chief", before);
+    w.sage(own, "task", "add", "--name", tname(), "--title", "a", ...ADD, "--chief", before);
     w.sage(own, "task", "T1", "set", "branch=sage/t1-a", "--chief", before);
     const sent = `git -C ${w.tree} push -u origin sage/t1-a`;
     assert.equal(w.push(own, sent), undefined, "the owning chief pushes its task's branch");
@@ -1417,7 +1450,7 @@ for (const [name, own, other] of pairs) {
     assert.match(readFileSync(w.calls, "utf8"), /(?:^|\n)api --hostname github\.com repos\/acme\/project --jq \.default_branch\n[\s\S]*api --hostname/, "the hooks read the default branch from the fake gh");
     const legacy = pushWorld(t);
     legacy.sage(own, "init");
-    legacy.sage(own, "task", "add", "--title", "a", ...ADD);
+    legacy.sage(own, "task", "add", "--name", tname(), "--title", "a", ...ADD);
     legacy.sage(own, "task", "T1", "set", "branch=sage/t1-a");
     for (const tool of [own, other]) for (const agent of [false, true]) {
       assert.equal(legacy.push(tool, `git -C ${legacy.tree} push -u origin sage/t1-a`, agent), undefined, "a legacy logbook");
@@ -1430,7 +1463,7 @@ for (const [name, tool] of [["Claude", claude], ["Codex", codex]]) {
   test(`T901: a legacy ${name} logbook with a damaged table: a plain push passes as before, because no shared-push read runs`, (t) => {
     const w = pushWorld(t);
     w.sage(tool, "init");
-    w.sage(tool, "task", "add", "--title", "a", ...ADD);
+    w.sage(tool, "task", "add", "--name", tname(), "--title", "a", ...ADD);
     w.sage(tool, "task", "T1", "set", "branch=sage/t1-a");
     writeFileSync(join(tool.storeDir(w.project, w.env), "findings.tsv"), "");
     for (const hook of [claude, codex]) for (const agent of [false, true]) {
@@ -1446,7 +1479,7 @@ function autopilot(w, name, on) {
   writeFileSync(join(dir, file), JSON.stringify({ sage: true, autopilot: on }), { mode: 0o600 });
 }
 function spent(w, rounds) {
-  w.owner("task", "add", "--title", "a", ...ADD);
+  w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
   for (const state of ["briefed", "building", "reviewing"]) w.owner("task", "T1", "set", `state=${state}`);
   w.owner("run", "add", "T1", "--role", "qa");
   w.owner("run", "done", "R1", "--status", "done", "--tokens", "1");
@@ -1511,7 +1544,7 @@ for (const [name, own, other] of pairs) {
 
   test(`T804 ${name}: a round of low fix findings only starts, and counts like any round`, (t) => {
     const w = world(t, own, other);
-    w.owner("task", "add", "--title", "a", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
     for (const state of ["briefed", "building", "reviewing"]) w.owner("task", "T1", "set", `state=${state}`);
     w.owner("run", "add", "T1", "--role", "qa");
     w.owner("finding", "add", "T1", "--source", "qa", "--severity", "low", "--summary", "a typo", "--run", "R1", "--class", "other");
@@ -1524,7 +1557,7 @@ for (const [name, own, other] of pairs) {
 for (const [name, own, other] of pairs) {
   test(`${name}: T1136 R3: config archived= alone is the owner's act: no chief needed, either chief may, a lead may not; other keys with it still need a chief`, (t) => {
     const w = world(t, own, other);
-    w.owner("task", "add", "--title", "a", ...ADD);
+    w.owner("task", "add", "--name", tname(), "--title", "a", ...ADD);
     w.owner("task", "T1", "set", "state=briefed");
     w.owner("run", "add", "T1", "--role", "lead");
     assert.deepEqual(["archived=yes", "archived=no"].map((kv) => writerClass("config", [kv]).kind), ["owner", "owner"]);

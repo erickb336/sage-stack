@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -16,7 +17,7 @@ function fixture(t) {
   const tool = createStateTool({ defaultRoot: () => root });
   const env = { ...process.env, SAGE_HOME: root };
   const run = (...args) => tool.sage([...args, "--project", dir], env);
-  run("init"); run("task", "add", "--priority", "P2", "--title", "Sample task", "--size", "small");
+  run("init"); run("task", "add", "--name", tname(), "--priority", "P2", "--title", "Sample task", "--size", "small");
   return { dir, root, run };
 }
 function snapshot(path) {
@@ -54,7 +55,7 @@ test("one checkout shows both sources; task lookup refuses duplicate IDs and acc
   const tool = createStateTool({ defaultRoot: () => root });
   const otherEnv = { ...process.env, SAGE_HOME: otherRoot };
   tool.sage(["init", "--project", dir], otherEnv);
-  tool.sage(["task", "add", "--priority", "P2", "--title", "Second provider task", "--size", "small", "--project", dir], otherEnv);
+  tool.sage(["task", "add", "--name", tname(), "--priority", "P2", "--title", "Second provider task", "--size", "small", "--project", dir], otherEnv);
   for (const [path, one] of [[root, process.env], [otherRoot, otherEnv]]) tool.sage(["task", "T1", "set", "state=briefed", "--project", dir], { ...one, SAGE_HOME: path });
   const sources = [{ id: "first", path: root }, { id: "second", path: otherRoot }];
   const env = { ...process.env, SAGE_HOME: root, SAGE_BOARD_ROOTS: JSON.stringify(sources) };
@@ -77,7 +78,7 @@ test("T314 R1043-1: a board scope takes the name that the board shows, the displ
   const project = (folder, title, ...config) => {
     const dir = join(home, folder); mkdirSync(dir);
     if (folder === "fork") { execFileSync("git", ["init", "-q", dir]); execFileSync("git", ["-C", dir, "remote", "add", "upstream", "https://github.com/sample-org/seacc.git"]); }
-    for (const args of [["init"], ["task", "add", "--priority", "P2", "--title", title, "--size", "small"], ["task", "T1", "set", "state=briefed"], ...config.map(pair => ["config", pair])]) tool.sage([...args, "--project", dir], env);
+    for (const args of [["init"], ["task", "add", "--name", tname(), "--priority", "P2", "--title", title, "--size", "small"], ["task", "T1", "set", "state=briefed"], ...config.map(pair => ["config", pair])]) tool.sage([...args, "--project", dir], env);
     return dir;
   };
   const here = project("demos", "Sample council task", "name=Council Record");

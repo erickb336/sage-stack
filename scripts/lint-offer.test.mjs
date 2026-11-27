@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -46,7 +47,7 @@ function project(files, { binary = "none" } = {}) {
     return r.stdout.trim();
   };
   ok("init");
-  ok("task", "add", "--priority", "P2", "--title", "a change", "--size", "tiny");
+  ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "a change", "--size", "tiny");
   const logbook = ok("logbook");
   const tools = join(dirname(logbook), "tools");
   for (const where of { project: [folder], tools: [tools] }[binary] ?? []) {
@@ -140,7 +141,7 @@ test("T1147 F-T1147-1: in an archived project, a yes to the lint offer frames no
   p.ok("config", "archived=yes");
   const bar = "sage: this project is archived, so it takes no new task: an archived project starts no agent and merges nothing. If this is new work that the owner asked for in this chat after the archive, restore the project first with sage config archived=no, tell the owner in one line that you restored it, then give the same command again. A lead does not restore a project: report blocked to your chief. Nothing changed.";
   assert.equal(p.sage("gate", "answer", "G1", "--option", "1").stderr.trim(), "sage: This project is archived, so it takes no answer and no other owner write. Restore it first, on the board or with sage config archived=no in its own chat when the owner asks for it, then try again. Nothing changed.", "T1156 F-T1156-40, T1219: a gate answer is refused before it reads the gate, with the one text of an owner write");
-  assert.equal(p.sage("task", "add", "--priority", "P2", "--title", "later", "--size", "small").stderr.trim(), bar, "task add gives its own refusal, with the same restore text");
+  assert.equal(p.sage("task", "add", "--name", tname(), "--priority", "P2", "--title", "later", "--size", "small").stderr.trim(), bar, "task add gives its own refusal, with the same restore text");
   assert.deepEqual(p.table("tasks").map((t) => t.id), ["T1"], "no task framed");
   assert.deepEqual(p.offers().map((g) => [g.id, g.answer]), [["G1", ""]], "the offer stays open");
   p.ok("config", "archived=no");

@@ -1,4 +1,5 @@
 import './test-env.mjs';
+import { tname } from "./task-names.mjs";
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, readdirSync, realpathSync, rmSync, chmodSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -29,7 +30,7 @@ function fixture(t, sourceTask = 'T536', branch = BRANCH) {
   const ok = (...args) => { const r = command(env, ...args); assert.equal(r.code, 0, r.text); return r.text; };
   const no = (...args) => { const r = command(env, ...args); assert.equal(r.code, 1, r.text); return r.text; };
   const source = command(sourceEnv, 'init').text.slice(8), dest = ok('init').slice(8);
-  command(sourceEnv, 'task', 'add', '--title', 'Source', '--size', 'small', '--risk', 'auth', '--priority', 'P0');
+  command(sourceEnv, 'task', 'add', '--name', tname(), '--title', 'Source', '--size', 'small', '--risk', 'auth', '--priority', 'P0');
   const path = join(source, 'tasks.tsv');
   const lines = readFileSync(path, 'utf8').trimEnd().split('\n'), cols = lines[0].split('\t');
   const row = Object.fromEntries(cols.map((key, i) => [key, lines[1].split('\t')[i] ?? '']));
@@ -37,7 +38,7 @@ function fixture(t, sourceTask = 'T536', branch = BRANCH) {
   writeFileSync(path, `${lines[0]}\n${cols.map(key => row[key]).join('\t')}\n`);
   const oldProof = [['checks-pass', '1'], ...['1', '2'].flatMap(cycle => ['review-clean', 'security-clean', 'qa-pass'].map(kind => [kind, cycle]))];
   writeFileSync(join(source, 'ledger.tsv'), `task\tpr\tsha\tkind\tcycle\trun\tat\n${oldProof.map(([kind, cycle]) => `${sourceTask}\t362\t${SHA}\t${kind}\t${cycle}\t\t2026-01-01T00:00:00Z`).join('\n')}\n`);
-  ok('task', 'add', '--title', 'Destination', '--size', 'small', '--priority', 'P0');
+  ok('task', 'add', '--name', tname(), '--title', 'Destination', '--size', 'small', '--priority', 'P0');
   const adopt = ['task-adopt', 'T1', '--source-logbook', source, '--source-provider', 'claude', '--source-task', sourceTask, '--pr', '362', '--branch', branch];
   const bytes = dir => Object.fromEntries(readdirSync(dir).filter(n => n.endsWith('.tsv') || n === 'checkout.txt').map(n => [n, readFileSync(join(dir, n), 'utf8')]));
   const task = () => tool.read(dest, 'tasks')[0];
@@ -133,7 +134,7 @@ test('T48: invalid approvals refuse the whole update; legacy allowances still co
     writeFileSync(file, `${head}\n${head.split('\t').map(key => row[key] ?? '').join('\t')}\n`);
   };
   set({ state: 'held', hold: 'round' });
-  s.ok('task', 'add', '--title', 'Unrelated', '--size', 'small', '--priority', 'P1');
+  s.ok('task', 'add', '--name', tname(), '--title', 'Unrelated', '--size', 'small', '--priority', 'P1');
   const question = 'Approve one more repair round for T1 after 4 spent rounds and limit 3?';
   for (const [task, text, options, answer] of [
     ['T1', question, 'approve|decline', '2'],
@@ -182,7 +183,7 @@ test('inconsistent mappings and conflicting adoption refuse before any destinati
 
 test('adoption refuses another task claim and another project', t => {
   const s = fixture(t);
-  s.ok('task', 'add', '--title', 'Other', '--size', 'tiny', '--priority', 'P1'); s.ok('task', 'T2', 'set', 'pr=362');
+  s.ok('task', 'add', '--name', tname(), '--title', 'Other', '--size', 'tiny', '--priority', 'P1'); s.ok('task', 'T2', 'set', 'pr=362');
   let before = s.bytes(s.dest); assert.match(s.no(...s.adopt), /T2|claimed/); assert.deepEqual(s.bytes(s.dest), before);
   writeFileSync(join(s.source, 'checkout.txt'), `${join(s.root, 'other-project')}\n`);
   before = s.bytes(s.dest); assert.match(s.no(...s.adopt), /project/); assert.deepEqual(s.bytes(s.dest), before);
@@ -190,7 +191,7 @@ test('adoption refuses another task claim and another project', t => {
 
 function overlap(t, state = 'framed') {
   const s = fixture(t, 'T95', OVERLAP);
-  s.ok('task', 'add', '--title', 'Unrelated destination task', '--size', 'tiny', '--priority', 'P1');
+  s.ok('task', 'add', '--name', tname(), '--title', 'Unrelated destination task', '--size', 'tiny', '--priority', 'P1');
   const file = join(s.dest, 'tasks.tsv'), [head, ...rows] = readFileSync(file, 'utf8').trimEnd().split('\n').map(line => line.split('\t'));
   const other = rows.find(row => row[0] === 'T2');
   other[0] = 'T95'; other[head.indexOf('state')] = state;
@@ -245,7 +246,7 @@ for (const [record, claim] of [
 
 test('adoption refuses source run-only ownership without any mutation', t => {
   const s = fixture(t);
-  s.sourceOk('task', 'add', '--title', 'Other source task', '--size', 'small', '--priority', 'P1');
+  s.sourceOk('task', 'add', '--name', tname(), '--title', 'Other source task', '--size', 'small', '--priority', 'P1');
   const run = s.sourceOk('run', 'add', 'T537', '--role', 'implementer', '--branch', BRANCH).split(' ')[0];
   s.sourceOk('run', 'done', run, '--status', 'done', '--tokens', '1');
   const other = tool.read(s.source, 'tasks').find(task => task.id === 'T537');

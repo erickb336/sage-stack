@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import fs, { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -54,7 +55,7 @@ const row = (w, table, id) => w.rows(table).find((r) => r.id === id);
 test("T1172 rule 1: a live or quiet chief never loses work: two live chiefs move nothing, and a quiet chief with an open gate keeps all", (t) => {
   const w = world(t, { 100: STARTED });
   const c1 = w.as(claude, w.chief(claude, "s-a")), c2 = w.as(codex, w.chief(codex, "s-b"));
-  c2("task", "add", "--title", "theirs", ...ADD);
+  c2("task", "add", "--name", tname(), "--title", "theirs", ...ADD);
   c2("gate", "add", "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes", "--message", QUESTION);
   w.record("C1");
   w.record("C2");
@@ -70,7 +71,7 @@ test("T1172 rule 1: a live or quiet chief never loses work: two live chiefs move
 test("T1172 rule 2 (F-T1172-1): all holdings move: a stopped chief with no task, a running run, a queued run and an open gate is picked up, in one write with one decision row", (t) => {
   const w = world(t);
   const c1 = w.as(claude, w.chief(claude, "s-a")), c2 = w.as(codex, w.chief(codex, "s-b"));
-  c1("task", "add", "--title", "mine", ...ADD);
+  c1("task", "add", "--name", tname(), "--title", "mine", ...ADD);
   c1("run", "add", "T1", "--role", "qa");
   c1("run", "add", "T1", "--role", "code-reviewer");
   w.set("runs", "R1", { chief: "C2" });
@@ -93,7 +94,7 @@ test("T1172 rule 2 (F-T1172-1): all holdings move: a stopped chief with no task,
 test("T1172 rule 3: race: two pick-ups in order: the first takes all, and the second prints nothing to pick up", (t) => {
   const w = world(t);
   const c1 = w.as(claude, w.chief(claude, "s-a")), c2 = w.as(claude, w.chief(claude, "s-b")), c3 = w.as(codex, w.chief(codex, "s-c"));
-  c2("task", "add", "--title", "a", ...ADD);
+  c2("task", "add", "--name", tname(), "--title", "a", ...ADD);
   for (const id of ["C1", "C3"]) w.record(id);
   w.record("C2", { ago: HOUR, ended: "logout" });
   assert.match(c1("pickup"), /^sage: pick-up from C2 \(claude\) to C1: tasks T1;/);
@@ -104,7 +105,7 @@ test("T1172 rule 3: race: two pick-ups in order: the first takes all, and the se
 test("T1172 rule 4 (F-T1172-1): a crash after the tasks write and before the runs write: the next write settles it, so no task is without its owner and no run keeps a stopped owner", (t) => {
   const w = world(t);
   const c1 = w.as(claude, w.chief(claude, "s-a")), c2 = w.as(claude, w.chief(claude, "s-b"));
-  c2("task", "add", "--title", "a", ...ADD);
+  c2("task", "add", "--name", tname(), "--title", "a", ...ADD);
   c2("run", "add", "T1", "--role", "qa");
   w.record("C1");
   w.record("C2", { ago: HOUR, ended: "other" });
@@ -131,10 +132,10 @@ test("T1172 rule 4 (F-T1172-1): a crash after the tasks write and before the run
 test("T1172 rule 5 (F-T1172-3): the pick-up runs in the state tool before any chief write: its decision row comes before the new task's row", (t) => {
   const w = world(t);
   const c1 = w.as(claude, w.chief(claude, "s-a")), c2 = w.as(codex, w.chief(codex, "s-b"));
-  c2("task", "add", "--title", "theirs", ...ADD);
+  c2("task", "add", "--name", tname(), "--title", "theirs", ...ADD);
   w.record("C1");
   w.record("C2", { ago: HOUR, ended: "off" });
-  const out = c1("task", "add", "--title", "mine", ...ADD);
+  const out = c1("task", "add", "--name", tname(), "--title", "mine", ...ADD);
   assert.match(out, /^T2 framed [^\n]*\nsage: pick-up from C2 \(codex\) to C1: tasks T1; its session stopped \(ended\) at \S+\.\n/, "the write's own line, then the pick-up line");
   const order = w.rows("decisions").map((d) => (d.why === "pick-up" ? "pick-up" : `${d.task} ${d.decision}`));
   assert.ok(order.indexOf("pick-up") >= 0 && order.indexOf("pick-up") < order.indexOf("T2 task added"), order.join(" | "));
@@ -144,7 +145,7 @@ for (const [name, from, fresh] of [["a Codex chief", codex, true], ["another Cla
   test(`T1172 rule 6 (F-T1172-2): merge check: a task picked up from ${name} ${fresh ? "needs one cycle of runs that started after the pick-up" : "needs no fresh cycle"}, read from the typed hand-over column`, (t) => {
     const w = world(t);
     const c1 = w.as(claude, w.chief(claude, "s-a")), c2 = w.as(from, w.chief(from, "s-b"));
-    c2("task", "add", "--title", "a", ...ADD);
+    c2("task", "add", "--name", tname(), "--title", "a", ...ADD);
     for (const kind of ["checks-pass", "review-clean", "qa-pass"]) c2(...backed(["verdict", "T1", "--sha", SHA, "--kind", kind, "--pr", "41"], { cli: c2, keep: (fields) => from.keepReport(w.project, fields, w.env) }));
     w.record("C1");
     w.record("C2", { ago: HOUR, ended: "prompt_input_exit" });
@@ -168,10 +169,10 @@ test("T1172 rule 7 (F-T1172-6): agent limit: 20 running runs of a stopped chief 
   const w = world(t, { 100: null });
   const c1 = w.as(claude, w.chief(claude, "s-a")), c2 = w.as(claude, w.chief(claude, "s-b"));
   c1("config", "max_agents=20");
-  c2("task", "add", "--title", "a", ...ADD);
+  c2("task", "add", "--name", tname(), "--title", "a", ...ADD);
   for (let k = 0; k < 20; k++) c2("run", "add", "T1", "--role", "qa");
   assert.equal(w.rows("runs").filter((r) => r.status === "running").length, 20);
-  c1("task", "add", "--title", "b", ...ADD);
+  c1("task", "add", "--name", tname(), "--title", "b", ...ADD);
   w.record("C1");
   w.record("C2", { ago: 5 * 60_000, pid: 100 });
   assert.match(c1("run", "add", "T2", "--role", "qa"), /^R21 running[^\n]*\nsage: pick-up from C2 \(claude\) to C1: tasks T1; lost runs R1, .*R20; its session stopped \(gone\)/, "its program is surely gone, so its 20 places are free");
@@ -195,7 +196,7 @@ test("T1172 rule 8: autopilot does not travel: a task picked up from a session w
   for (const prompt of ["sage mode", "autopilot on"]) send({ hook_event_name: "UserPromptSubmit", prompt }, "s-b");
   send({ hook_event_name: "UserPromptSubmit", prompt: "sage mode" }, "s-a");
   const c1 = w.as(claude, w.chief(claude, "s-a")), c2 = w.as(claude, w.chief(claude, "s-b"));
-  c2("task", "add", "--title", "a", ...ADD);
+  c2("task", "add", "--name", tname(), "--title", "a", ...ADD);
   for (const kind of ["checks-pass", "review-clean", "qa-pass"]) c2(...backed(["verdict", "T1", "--sha", SHA, "--kind", kind, "--pr", "41"], { cli: c2, keep: (fields) => claude.keepReport(w.project, fields, w.env) }));
   assert.equal(merge("s-b"), undefined, "before the pick-up, the session with autopilot on merges its own verified task");
   w.record("C1");
@@ -208,7 +209,7 @@ test("T1172 rule 8: autopilot does not travel: a task picked up from a session w
 test("T1172 F-T1172-4: a closed Codex desktop thread, whose app program stays open, passes on by the 8 h quiet rule only", (t) => {
   const w = world(t, { 100: STARTED });
   const c1 = w.as(claude, w.chief(claude, "s-a")), c2 = w.as(codex, w.chief(codex, "s-b"));
-  c2("task", "add", "--title", "a", ...ADD);
+  c2("task", "add", "--name", tname(), "--title", "a", ...ADD);
   w.record("C1");
   w.record("C2", { ago: 7 * HOUR, pid: 100 });
   assert.equal(c1("pickup"), "nothing to pick up", "7 h: the app runs, so the probe proves nothing, and it is quiet");
@@ -219,7 +220,7 @@ test("T1172 F-T1172-4: a closed Codex desktop thread, whose app program stays op
 test("T1172 F-T1172-18: claim, offer, cancel and accept are gone, and each points to unclaim, the pick-up and the takeover gate", (t) => {
   const w = world(t);
   const c1 = w.as(claude, w.chief(claude, "s-a"));
-  c1("task", "add", "--title", "a", ...ADD);
+  c1("task", "add", "--name", tname(), "--title", "a", ...ADD);
   for (const cmd of ["claim", "offer", "cancel", "accept"]) {
     assert.throws(() => c1(cmd, "T1"), new RegExp(`^Error: unknown command "${cmd}"\\. Commands: [^\\n]+\\n${cmd} is gone: .*unclaim <T>.*pick-up.*takeover gate`), `F-T1172-18: ${cmd} points to what replaced it`);
   }
@@ -229,7 +230,7 @@ test("T1172 F-T1172-18: claim, offer, cancel and accept are gone, and each point
 test("T1172 F-T1172-5, F-T1172-16: no command is named release for a task's owner: release T<n> is no alias of unclaim", (t) => {
   const w = world(t);
   const c1 = w.as(claude, w.chief(claude, "s-a"));
-  c1("task", "add", "--title", "a", ...ADD);
+  c1("task", "add", "--name", tname(), "--title", "a", ...ADD);
   assert.throws(() => c1("release", "T1"), /^Error: release takes: add --name/, "F-T1172-16: release T<n> is no command: no alias of unclaim");
   assert.equal(row(w, "tasks", "T1").chief, "C1", "release T1 changed nothing");
   assert.match(c1("release", "add", "--name", "1.0"), /^release 1\.0 added/, "release stays the word for a version");
@@ -239,7 +240,7 @@ for (const [name, from, fresh] of [["a Codex chief", codex, true], ["another Cla
   test(`T1172 F-T1172-10, -12: a takeover from ${name} answered before the typed hand-over (a decision row with no handover cell) ${fresh ? "still needs a fresh cycle" : "needs no fresh cycle"}`, (t) => {
     const w = world(t);
     const c1 = w.as(claude, w.chief(claude, "s-a")), c2 = w.as(from, w.chief(from, "s-b"));
-    c2("task", "add", "--title", "a", ...ADD);
+    c2("task", "add", "--name", tname(), "--title", "a", ...ADD);
     for (const kind of ["checks-pass", "review-clean", "qa-pass"]) c2(...backed(["verdict", "T1", "--sha", SHA, "--kind", kind, "--pr", "41"], { cli: c2, keep: (fields) => from.keepReport(w.project, fields, w.env) }));
     c1("gate", "replace", "T1", "--to", "C1");
     claude.sage(["gate", "answer", "G1", "--option", "1", "--project", w.project], w.env);
@@ -265,7 +266,7 @@ for (const [name, from, fresh] of [["a Codex chief", codex, true], ["another Cla
 test("T1172 F-T1172-13: after the off phrase, a session whose agent still runs stays live: no pick-up, its slots stay; once no agent of it runs, its work passes on", (t) => {
   const w = world(t, { 100: STARTED });
   const c1 = w.as(claude, w.chief(claude, "s-a")), c2 = w.as(claude, w.chief(claude, "s-b"));
-  c2("task", "add", "--title", "a", ...ADD);
+  c2("task", "add", "--name", tname(), "--title", "a", ...ADD);
   c2("run", "add", "T1", "--role", "lead");
   w.record("C1");
   w.record("C2", { ago: 5 * 60_000, ended: "off" });
@@ -282,7 +283,7 @@ test("T1172 F-T1172-20: the board and the pick-up agree on a session 9 h quiet: 
   const look = (started) => {
     const w = world(t, { 100: STARTED });
     const c1 = w.as(claude, w.chief(claude, "s-a")), c2 = w.as(claude, w.chief(claude, "s-b"));
-    c2("task", "add", "--title", "a", ...ADD);
+    c2("task", "add", "--name", tname(), "--title", "a", ...ADD);
     if (started !== null) {
       c2("run", "add", "T1", "--role", "lead");
       const old = iso(Date.now() - started);

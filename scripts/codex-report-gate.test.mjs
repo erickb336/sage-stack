@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { tname } from "./task-names.mjs";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -72,7 +73,7 @@ test("T483: the chief's review child keeps its report with the head that the gat
   const sage = (...args) => spawnSync("node", [TOOL, ...args, "--project", project], { encoding: "utf8", env: ENV });
   const ok = (...args) => { const r = sage(...args); assert.equal(r.status, 0, r.stderr); return r.stdout.trim(); };
   ok("init");
-  for (let k = 1; k <= 12; k++) ok("task", "add", "--priority", "P2", "--title", `t${k}`, "--size", "small");
+  for (let k = 1; k <= 12; k++) ok("task", "add", "--name", tname(), "--priority", "P2", "--title", `t${k}`, "--size", "small");
   for (let k = 1; k < 40; k++) ok("run", "done", ok("run", "add", "T1", "--role", "pe").split(" ")[0], "--status", "failed", "--why", "stopped");
   ok("task", "T12", "set", "branch=codex/t12-a");
   const clean = "STATUS done\nRESULT CLEAN\nEVIDENCE npm test passed\nFINDINGS none\nQUESTIONS none\nNOT VERIFIED none\nBRANCH codex/t12-a";
@@ -154,7 +155,7 @@ test("T585: an arena keeps the reports of its candidates and its judge, and a ca
   const sage = (...args) => spawnSync("node", [TOOL, ...args, "--project", project], { encoding: "utf8", env: ENV });
   const ok = (...args) => { const r = sage(...args); assert.equal(r.status, 0, r.stderr); return r.stdout.trim(); };
   ok("init");
-  ok("task", "add", "--priority", "P2", "--title", "arena", "--size", "small");
+  ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "arena", "--size", "small");
   ok("task", "T1", "set", "branch=codex/t1");
   const book = ok("logbook"), kept = (id) => JSON.parse(readFileSync(join(book, "kept", `${id}.json`), "utf8"));
   const report = (id) => `STATUS done\nRESULT PASS\nEVIDENCE npm test passed for ${id}\nFINDINGS none\nQUESTIONS none\nNOT VERIFIED none\nBRANCH none`;
@@ -268,7 +269,7 @@ test("T552: a reviewer under a lead has its report bound and kept, so that it ba
   const sage = (...args) => spawnSync("node", [TOOL, ...args, "--project", project], { encoding: "utf8", env: ENV });
   const ok = (...args) => { const r = sage(...args); assert.equal(r.status, 0, r.stderr); return r.stdout.trim(); };
   ok("init");
-  ok("task", "add", "--priority", "P2", "--title", "t", "--size", "small");
+  ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "t", "--size", "small");
   ok("task", "T1", "set", "branch=sage/t1-a");
   assert.match(ok("run", "add", "T1", "--role", "lead"), /^R1 /);
   const clean = "STATUS done\nRESULT CLEAN\nEVIDENCE npm test passed\nFINDINGS none\nQUESTIONS none\nNOT VERIFIED none\nBRANCH sage/t1-a";
@@ -566,7 +567,7 @@ for (const role of ["investigate", "evidence-review", "pe", "designer"]) {
     const sage = (...args) => spawnSync(process.execPath, [TOOL, ...args, "--project", project], { encoding: "utf8", env: fixtureEnv });
     const ok = (...args) => { const r = sage(...args); assert.equal(r.status, 0, r.stderr); return r.stdout.trim(); };
     ok("init");
-    ok("task", "add", "--priority", "P2", "--title", "SAMPLE: role report", "--size", taskNumber === "T85" ? "small" : "investigate");
+    ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "SAMPLE: role report", "--size", taskNumber === "T85" ? "small" : "investigate");
     const book = ok("logbook"), ledger = () => readFileSync(join(book, "ledger.tsv"), "utf8"), before = ledger();
     let threads = 0;
     let writers = 0;
@@ -638,7 +639,7 @@ test("T954: at its stop, a Codex run's own token total from its session record b
   const sage = (...args) => spawnSync("node", [TOOL, ...args, "--project", project], { encoding: "utf8", env: ENV });
   const ok = (...args) => { const r = sage(...args); assert.equal(r.status, 0, r.stderr); return r.stdout.trim(); };
   ok("init");
-  for (let k = 1; k <= 12; k++) ok("task", "add", "--priority", "P2", "--title", `t${k}`, "--size", "small");
+  for (let k = 1; k <= 12; k++) ok("task", "add", "--name", tname(), "--priority", "P2", "--title", `t${k}`, "--size", "small");
   ok("task", "T12", "set", "state=briefed", "branch=codex/t12-a");
   const book = ok("logbook");
   const row = (id) => {
@@ -714,7 +715,7 @@ test("T969: a later stop whose record ends in a half-written line keeps the coun
   spawnSync("git", ["-C", project, "init", "-q", "-b", "codex/t1-a"]);
   const ok = (...args) => { const r = spawnSync("node", [TOOL, ...args, "--project", project], { encoding: "utf8", env: ENV }); assert.equal(r.status, 0, r.stderr); return r.stdout.trim(); };
   ok("init");
-  ok("task", "add", "--priority", "P2", "--title", "t1", "--size", "small");
+  ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "t1", "--size", "small");
   ok("task", "T1", "set", "state=briefed", "branch=codex/t1-a");
   const tokensOf = (id) => {
     const [head, ...lines] = readFileSync(join(ok("logbook"), "runs.tsv"), "utf8").trimEnd().split("\n");

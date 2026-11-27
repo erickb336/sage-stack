@@ -39,8 +39,8 @@ export const TOOLS = {
   },
   status: { describe: "Print the status lines of the project's logbook: tasks, runs, gates, releases and milestones.", argv: () => ["status"] },
   task_add: {
-    describe: "Frame a task and its route. The size gives the least route; a risk flag adds the security review.",
-    input: { title: z.string(), size: z.enum(Object.keys(tool.SIZES)), risk: optional(`risk flags joined by a comma: ${tool.RISKS.join(", ")}`),
+    describe: "Frame a task and its route. The size gives the least route; a risk flag adds the security review. Every task needs a name: 1 to 4 words, at most 32 characters, that no other open task has.",
+    input: { title: z.string(), name: optional("the task's name, needed: 1 to 4 words that tell it from the other open tasks, for example Board names"), size: z.enum(Object.keys(tool.SIZES)), risk: optional(`risk flags joined by a comma: ${tool.RISKS.join(", ")}`),
       add: optional("added blocks, joined by a comma (needs why)"), why: optional("the reason for the added blocks"),
       "no-arena": optional("the owner's reason to run one designer, not the arena that a large ui or design task gets by default"),
       priority: z.enum(PRIORITIES, { error: PRIORITY_SCALE }).describe(PRIORITY_SCALE), kind: optional("the task's main kind"), waits: optional("the task ids that it waits for, joined by a comma"),
@@ -48,11 +48,16 @@ export const TOOLS = {
     argv: () => ["task", "add"],
   },
   task_set: {
-    describe: "Change a task: its state, branch, pr, request (the owner's request in the owner's words, one line; none clears it), priority, kind, waits, milestone or release (only for a task outside a milestone: a task of a milestone is in its milestone's release). Resuming a round hold needs approval=<G>, an unused owner-approved repair gate for this task and round limit. The tool refuses a move that the route does not allow. Any chief may abandon a task with no owning chief: fields {\"state\": \"abandoned\"} alone, with why.",
+    describe: "Change a task: its state, branch, pr, name (1 to 4 words; the decision trail keeps the old name), request (the owner's request in the owner's words, one line; none clears it), priority, kind, waits, milestone or release (only for a task outside a milestone: a task of a milestone is in its milestone's release). Resuming a round hold needs approval=<G>, an unused owner-approved repair gate for this task and round limit. The tool refuses a move that the route does not allow. Any chief may abandon a task with no owning chief: fields {\"state\": \"abandoned\"} alone, with why.",
     input: { task, fields: z.record(z.string().regex(/^[a-z]+$/), z.string()).describe('the keys and values to set, for example {"state": "building", "branch": "codex/t7-name"}'),
       why: optional("the reason of an abandon, only with the state abandoned; needed to abandon a task with no owning chief") },
     pos: ["task", "fields"],
     argv: (i) => ["task", i.task, "set", ...Object.entries(i.fields).map(([k, v]) => `${k}=${v}`)],
+  },
+  task_names: {
+    describe: "Name many tasks in one write, for a naming pass: file holds one task id, a space and its name on each line, for example T12 Board names. It checks each line and that no two open tasks share a name after all the changes; a bad line refuses the whole file, and nothing changes. A second call with the same file changes nothing and says so. Each change writes a decision row.",
+    input: { file: z.string().refine(isAbsolute, "an absolute path").describe("the absolute path of the file of task ids and names") },
+    argv: () => ["task", "names"],
   },
   milestone_propose: {
     describe: "Propose a milestone: one goal, a pilot task and the milestone's other tasks, framed first. It opens the breakdown gate on the pilot (approve, change or drop): put its question to the owner. "

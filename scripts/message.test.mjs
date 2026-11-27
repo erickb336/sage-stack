@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -599,7 +600,7 @@ function sandbox() {
     return { status: r.status, out: (r.stdout + r.stderr).trim() };
   };
   assert.equal(sage("init").status, 0);
-  assert.equal(sage("task", "add", "--priority", "P2", "--title", "t", "--size", "small").status, 0);
+  assert.equal(sage("task", "add", "--name", tname(), "--priority", "P2", "--title", "t", "--size", "small").status, 0);
   return { base, sage, file: (name, msg) => { const path = join(base, name); writeFileSync(path, JSON.stringify(msg)); return path; } };
 }
 

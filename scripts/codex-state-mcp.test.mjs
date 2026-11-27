@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -91,9 +92,9 @@ test("a shared logbook through the server: the root's session is one chief, a le
   const s = await connect(t, { SAGE_SHARED_HOME: shared });
   const other = "019a0000-0000-7000-8000-0000000000cc";
   await s.call("link", { separate: true });
-  assert.match(await s.call("task_add", { title: "first", size: "small", priority: "P2" }), /^T1 framed .* · chief C1$/);
+  assert.match(await s.call("task_add", { name: tname(), title: "first", size: "small", priority: "P2" }), /^T1 framed .* · chief C1$/);
   assert.match((await s.call("task_set", { task: "T1", fields: { title: "taken" } }, { sessionId: other })).error, /^sage: T1 belongs to chief C1 \(codex\), not to C2\. Nothing changed\./);
-  assert.match(await s.call("task_add", { title: "second", size: "small", priority: "P2" }, { sessionId: other }), /^T2 framed .* · chief C2$/);
+  assert.match(await s.call("task_add", { name: tname(), title: "second", size: "small", priority: "P2" }, { sessionId: other }), /^T2 framed .* · chief C2$/);
   await s.call("task_set", { task: "T1", fields: { state: "briefed", branch: "sage/t1-a" } });
   assert.match(await s.call("run_add", { task: "T1", role: "lead" }), /^R1 running/);
   assert.match((await s.call("task_set", { task: "T1", fields: { state: "building" } }, { agent: LEAD })), /^T1 building/, "a lead acts for the chief of its lead run");
@@ -107,7 +108,7 @@ test("a shared logbook through the server: the root's session is one chief, a le
   assert.match(await s.call("task_set", { task: "T2", fields: { title: "x" } }), /^T2 framed [^\n]*\nsage: pick-up from no chief to C1: tasks T2; they had no owning chief\./);
   assert.equal(await s.call("pickup", {}), "nothing to pick up", "the pickup tool calls the same state tool step");
   writeFileSync(join(dir, "chiefs.tsv"), "id\tother\n");
-  assert.match((await s.call("task_add", { title: "third", size: "small", priority: "P2" })).error, /^sage: .*chiefs\.tsv is damaged, so sage cannot tell which chief owns a task/, "F-T604-18: the tool gives the real cause");
+  assert.match((await s.call("task_add", { name: tname(), title: "third", size: "small", priority: "P2" })).error, /^sage: .*chiefs\.tsv is damaged, so sage cannot tell which chief owns a task/, "F-T604-18: the tool gives the real cause");
 });
 
 test("T1110: child pages reject another shared project before creating its directory, also at the server", async t => {
@@ -116,7 +117,7 @@ test("T1110: child pages reject another shared project before creating its direc
   const a = await connect(t, { SAGE_SHARED_HOME: shared }), b = await connect(t, { SAGE_SHARED_HOME: shared });
   for (const s of [a, b]) {
     await s.call("link", { separate: true });
-    await s.call("task_add", { title: "same id", size: "small", priority: "P2" });
+    await s.call("task_add", { name: tname(), title: "same id", size: "small", priority: "P2" });
   }
   const { tool } = await import(pathToFileURL(join(a.dir, "plugin/skills/sage/sage.mjs")).href);
   const child = { agent: "/root/sage_implementer_t1_r1" };
@@ -154,7 +155,7 @@ test("T893: a Codex chief abandons, through task_set with why, a task that it un
   t.after(() => rmSync(shared, { recursive: true, force: true }));
   const s = await connect(t, { SAGE_SHARED_HOME: shared });
   await s.call("link", { separate: true });
-  await s.call("task_add", { title: "stale", size: "small", priority: "P2" });
+  await s.call("task_add", { name: tname(), title: "stale", size: "small", priority: "P2" });
   const { tool } = await import(pathToFileURL(join(s.dir, "plugin/skills/sage/sage.mjs")).href);
   const file = join(tool.storeDir(s.project, s.env), "tasks.tsv");
   const cells = () => { const [head, line] = readFileSync(file, "utf8").split("\n"); return { cols: head.split("\t"), row: line.split("\t") }; };
@@ -173,8 +174,8 @@ test("the transfer commands through the server: unclaim, pickup and a Replace by
   const s = await connect(t, { SAGE_SHARED_HOME: shared });
   const other = "019a0000-0000-7000-8000-0000000000cc", as = { sessionId: other };
   await s.call("link", { separate: true });
-  await s.call("task_add", { title: "first", size: "small", priority: "P2" });
-  await s.call("task_add", { title: "second", size: "small", priority: "P2" }, as);
+  await s.call("task_add", { name: tname(), title: "first", size: "small", priority: "P2" });
+  await s.call("task_add", { name: tname(), title: "second", size: "small", priority: "P2" }, as);
   const tools = await s.tools(), describe = (name) => tools.find((one) => one.name === name).description;
   assert.match(describe("unclaim"), /the next pick-up of another chief takes it/);
   assert.match(describe("pickup"), /each stopped session/);
@@ -202,7 +203,7 @@ async function leadWorld(t) {
   const s = await connect(t);
   await s.call("init");
   for (const n of [1, 2]) {
-    await s.call("task_add", { title: `task ${n}`, size: "small", priority: "P2" });
+    await s.call("task_add", { name: tname(), title: `task ${n}`, size: "small", priority: "P2" });
     await s.call("task_set", { task: `T${n}`, fields: { state: "briefed", branch: `sage/t${n}-a` } });
     await s.call("run_add", { task: `T${n}`, role: "lead" });
   }
@@ -224,7 +225,7 @@ test("T955: run_add gives each Codex role and size the reasoning effort of its m
   const s = await connect(t);
   await s.call("init");
   await s.call("config", { settings: { max_agents: "50" } });
-  for (const size of ["tiny", "small", "large"]) await s.call("task_add", { title: size, size, priority: "P2" });
+  for (const size of ["tiny", "small", "large"]) await s.call("task_add", { name: tname(), title: size, size, priority: "P2" });
   const expected = {
     T1: { "code-reviewer": "medium", "security-reviewer": "high", "ux-reviewer": "medium", qa: "medium", implementer: "medium", pe: "high", designer: "high" },
     T2: { "code-reviewer": "high", "security-reviewer": "high", "ux-reviewer": "medium", qa: "medium", implementer: "high", pe: "high", designer: "high" },
@@ -370,8 +371,8 @@ test("T552: a reviewer, QA, an implementer, a run of another task and a lead tha
 test("T803: a Codex lead started on a framed task briefs it itself, then builds; a framed task with a design step stays the chief's", async (t) => {
   const s = await connect(t);
   await s.call("init");
-  await s.call("task_add", { title: "task 1", size: "small", priority: "P2" });
-  await s.call("task_add", { title: "task 2", size: "small", priority: "P2", add: "design", why: "a-screen-first" });
+  await s.call("task_add", { name: tname(), title: "task 1", size: "small", priority: "P2" });
+  await s.call("task_add", { name: tname(), title: "task 2", size: "small", priority: "P2", add: "design", why: "a-screen-first" });
   for (const n of [1, 2]) assert.match(await s.call("run_add", { task: `T${n}`, role: "lead" }), new RegExp(`^R${n} running · lead on T${n}`), "the chief starts a lead on a framed task");
   const lead = (n, name, args) => s.call(name, args, { agent: `/root/sage_lead_t${n}_r${n}` });
   assert.match(await lead(1, "task_set", { task: "T1", fields: { state: "briefed" } }), /^T1 briefed /);
@@ -383,7 +384,7 @@ test("T803: a Codex lead started on a framed task briefs it itself, then builds;
 test("T803: a Codex lead's CI wait passes the gate, reads only its PR's head and checks with gh, and ends when CI ends", async (t) => {
   const s = await connect(t);
   await s.call("init");
-  await s.call("task_add", { title: "task 1", size: "small", priority: "P2" });
+  await s.call("task_add", { name: tname(), title: "task 1", size: "small", priority: "P2" });
   await s.call("task_set", { task: "T1", fields: { state: "briefed", branch: "sage/t1-a" } });
   await s.call("run_add", { task: "T1", role: "lead" });
   const git = (...args) => execFileSync("git", ["-C", s.project, "-c", "user.name=t", "-c", "user.email=t@t", ...args], { encoding: "utf8" }).trim();
@@ -694,7 +695,7 @@ test("T956, T970: the gap rule holds a Codex lead at its next step, also its rou
 test("T984: the message tool gives the chief the same text and page as the CLI's message command", async (t) => {
   const s = await connect(t);
   await s.call("init");
-  await s.call("task_add", { title: "t", size: "small", priority: "P2" });
+  await s.call("task_add", { name: tname(), title: "t", size: "small", priority: "P2" });
   const fixture = (name) => JSON.parse(readFileSync(join(ROOT, "scripts/fixtures/messages", name), "utf8"));
   const text = await s.call("message", { task: "T1", message: fixture("10-catch-up.json") });
   assert.match(text, /^CATCH-UP\n\nRelease 1\.0: the presentation skill is in\n/);
@@ -730,7 +731,7 @@ test("the state server lists one tool for each state-tool command, and marks onl
   const s = await connect(t);
   const tools = await s.tools();
   assert.deepEqual(tools.map((tool) => tool.name).sort(), ["brief", "chief_name", "config", "finding_add", "finding_close", "finding_move", "finding_triage", "gate_add", "gate_answer", "gate_give", "gate_replace", "gate_undo",
-    "init", "link", "lint", "log", "merge_check", "message", "milestone_propose", "milestone_set", "move", "pages", "pickup", "prior_art", "release_add", "report_compare", "round", "run_add", "run_done", "standing", "standing_add", "status", "task_add", "task_adopt", "task_set", "unclaim", "verdict", "worktrees"]);
+    "init", "link", "lint", "log", "merge_check", "message", "milestone_propose", "milestone_set", "move", "pages", "pickup", "prior_art", "release_add", "report_compare", "round", "run_add", "run_done", "standing", "standing_add", "status", "task_add", "task_adopt", "task_names", "task_set", "unclaim", "verdict", "worktrees"]);
   assert.deepEqual(tools.filter((tool) => tool.annotations.readOnlyHint).map((tool) => tool.name).sort(), ["merge_check", "report_compare", "standing", "status"]);
   assert.ok(tools.every((tool) => tool.inputSchema.required.includes("project") && tool.inputSchema.additionalProperties === false));
   const add = tools.find((tool) => tool.name === "task_add").inputSchema;
@@ -742,7 +743,7 @@ test("T91: MCP compares synthetic retained reports with status-only results and 
   const s = await connect(t);
   const { tool } = await import(pathToFileURL(join(s.dir, "plugin/skills/sage/sage.mjs")).href);
   const dir = (await s.call("init")).slice(8);
-  await s.call("task_add", { title: "Synthetic", size: "large", priority: "P2" });
+  await s.call("task_add", { name: tname(), title: "Synthetic", size: "large", priority: "P2" });
   await s.call("run_add", { task: "T1", role: "pe" });
   const text = "STATUS question\nRESULT café 🙂\r\n ";
   const args = { task: "T1", run: "R1", sha256: createHash("sha256").update(text).digest("hex") };
@@ -845,14 +846,14 @@ test("T48: task_adopt and approved repair reach the shared rule through Codex MC
   const { tool } = await import(pathToFileURL(join(s.dir, 'plugin/skills/sage/sage.mjs')).href);
   const sourceEnv = { ...s.env, SAGE_HOME: join(s.dir, 'claude', 'sage') };
   const source = tool.command(['init', '--project', s.project], sourceEnv).text.slice(8);
-  assert.equal(tool.command(['task', 'add', '--title', 'Source', '--size', 'small', '--risk', 'auth', '--priority', 'P0', '--project', s.project], sourceEnv).code, 0);
+  assert.equal(tool.command(['task', 'add', '--name', tname(), '--title', 'Source', '--size', 'small', '--risk', 'auth', '--priority', 'P0', '--project', s.project], sourceEnv).code, 0);
   const tasks = join(source, 'tasks.tsv'), rows = readFileSync(tasks, 'utf8').trimEnd().split('\n');
   const cols = rows[0].split('\t'), values = rows[1].split('\t');
   for (const [key, value] of Object.entries({ id: 'T536', pr: '362', round: '4', state: 'reviewing' })) values[cols.indexOf(key)] = value;
   writeFileSync(tasks, `${rows[0]}\n${values.join('\t')}\n`);
   const before = readFileSync(tasks, 'utf8');
   const dest = (await s.call('init')).slice(8);
-  await s.call('task_add', { title: 'Destination', size: 'small', priority: 'P0', risk: 'auth' });
+  await s.call('task_add', { name: tname(), title: 'Destination', size: 'small', priority: 'P0', risk: 'auth' });
   const args = { task: 'T1', 'source-logbook': source, 'source-provider': 'claude', 'source-task': 'T536', pr: '362', branch: 'sage/t536-adopt' };
   assert.equal(await s.call('task_adopt', args), 'T1 adopted · claude T536 · PR 362 · sage/t536-adopt · round 4; fresh destination reviews and QA required');
   assert.equal(tool.read(dest, 'tasks')[0].round, '4');
@@ -885,7 +886,7 @@ test("T804: the round tool takes why: with autopilot on in the root's mode file,
   const mode = join(modeDirectory(s.env), `${stateKey({ session_id: "019a0000-0000-7000-8000-0000000000aa" })}.json`);
   const autopilot = (on) => { mkdirSync(modeDirectory(s.env), { recursive: true, mode: 0o700 }); writeFileSync(mode, JSON.stringify({ sage: true, autopilot: on }), { mode: 0o600 }); };
   await s.call("link", { separate: true });
-  await s.call("task_add", { title: "a", size: "small", priority: "P2" });
+  await s.call("task_add", { name: tname(), title: "a", size: "small", priority: "P2" });
   for (const state of ["briefed", "building", "reviewing"]) await s.call("task_set", { task: "T1", fields: { state } });
   const run = (await s.call("run_add", { task: "T1", role: "qa" })).split(" ")[0];
   await s.call("run_done", { run, status: "done", tokens: 1 });
@@ -915,7 +916,7 @@ test("T594: the link tool starts a shared logbook or joins one, with the CLI's r
   assert.match((await s.call("link", { to: "absent-123456" })).error, /is not a logbook of the shared root\. Nothing changed\. Run sage link --separate to start a new logbook\.$/);
   assert.match(await s.call("link", { separate: true }), new RegExp(`now uses the shared logbook ${shared}/project-[0-9a-f]{6}$`));
   assert.match(await s.call("link", { separate: true }), /^already linked: /);
-  assert.match(await s.call("task_add", { title: "Shared", size: "tiny", priority: "P2" }), /T1/);
+  assert.match(await s.call("task_add", { name: tname(), title: "Shared", size: "tiny", priority: "P2" }), /T1/);
   assert.deepEqual(readdirSync(join(s.env.CODEX_HOME, "sage")).filter((name) => name.startsWith("project-")), [], "no Codex logbook");
   assert.equal(readFileSync(join(shared, "plugins.tsv"), "utf8").split("\n")[1].split("\t").slice(0, 2).join(" "), "codex 2");
 });
@@ -925,7 +926,7 @@ test("T594 with T552: a lead's rules read the shared logbook, and only the chief
   t.after(() => rmSync(shared, { recursive: true, force: true }));
   const s = await connect(t, { SAGE_SHARED_HOME: shared });
   const folder = (await s.call("link", { separate: true })).split(" ").at(-1);
-  await s.call("task_add", { title: "Shared", size: "small", priority: "P2" });
+  await s.call("task_add", { name: tname(), title: "Shared", size: "small", priority: "P2" });
   await s.call("task_set", { task: "T1", fields: { state: "briefed", branch: "sage/t1-a" } });
   await s.call("run_add", { task: "T1", role: "lead" });
   assert.match(await s.call("run_add", { task: "T1", role: "qa" }, { agent: LEAD }), /^R2 running/);
@@ -964,10 +965,10 @@ async function moveWorld(t, { claudeRow = true } = {}) {
   };
   if (claudeRow) {
     claude(["init"]);
-    claude(["task", "add", "--title", "claude open", "--size", "tiny", "--priority", "P2"]);
+    claude(["task", "add", "--name", tname(), "--title", "claude open", "--size", "tiny", "--priority", "P2"]);
   }
   await s.call("init");
-  await s.call("task_add", { title: "codex open", size: "tiny", priority: "P2" });
+  await s.call("task_add", { name: tname(), title: "codex open", size: "tiny", priority: "P2" });
   const folder = basename(tool.storeDir(s.project, env));
   return { s, claude, shared, folder, claudeDir: join(claudeRoot, folder), codexDir: join(codexRoot, folder) };
 }
@@ -994,7 +995,7 @@ test("T658: the Codex move tool moves a project with a Claude and a Codex logboo
   assert.match(readFileSync(join(claudeDir, "tasks.tsv"), "utf8").split("\n")[0], /\tmoved$/);
   assert.ok(existsSync(join(codexDir, "moved.json")));
   assert.match(readFileSync(join(shared, "bindings.tsv"), "utf8"), new RegExp(`\\n${s.project}\\t${folder}\\t`));
-  const added = /^(T\d+) /.exec(await s.call("task_add", { title: "after the move", size: "tiny", priority: "P2" }))[1];
+  const added = /^(T\d+) /.exec(await s.call("task_add", { name: tname(), title: "after the move", size: "tiny", priority: "P2" }))[1];
   assert.equal(added, "T4", "the new numbers start above both old logbooks: T2 and T3 are the moved tasks");
   assert.equal(claude(["task", added]), "T4 framed · tiny · round 0 · route build · P2 · chief C1", "Claude reads the Codex chief's new task");
 });
@@ -1013,7 +1014,7 @@ test("T658: the Codex move tool takes only its three forms, and no other text re
   const gate = await s.call("move", { plan: planOf(preview) });
   assert.match(gate, /\n1 · move, and record Claude as unused RECOMMENDED\nOnly if you do not use Claude on this project\. Sage writes "Claude: unused" and does not wait for the Claude plugin\. This answer counts for every project of this shared root: a later move or a new project does not wait for the Claude plugin either\.\n2 · keep\n/);
   const id = /^(G\d+) /.exec(gate)[1];
-  await s.call("task_add", { title: "after the preview", size: "tiny", priority: "P2" });
+  await s.call("task_add", { name: tname(), title: "after the preview", size: "tiny", priority: "P2" });
   await s.call("gate_answer", { gate: id, option: 1 });
   assert.equal((await s.call("move", { gate: id })).error, `sage: refused: the logbooks changed after plan ${planOf(preview)}\n  Codex: 1 more open task (T2)\nNothing changed. ${id} is closed: its answer covers plan ${planOf(preview)} only, and a move gate answers once. Show the owner a new preview (sage move --preview), then open a new gate (sage move --plan <plan>).`);
   assert.match((await s.call("move", { plan: planOf(preview) })).error, /^sage: refused: plan [0-9a-f]{8} is not the plan of the logbooks now: the preview now gives plan [0-9a-f]{8}\n {2}If plan [0-9a-f]{8} was typed by hand, check its 8 hex\. If not, a logbook changed after the preview\.\nNothing changed\. Show the owner the preview again \(sage move --preview\), then open the gate with its plan\.$/);
@@ -1026,12 +1027,12 @@ test("T658: a move that stopped in Claude refuses every Codex tool of the projec
   claude(["gate", "answer", id, "--option", "1"]);
   assert.throws(() => claude(["move", "--gate", id], { SAGE_TEST_MOVE_STOP: "3" }), /test stop after step 3/);
   assert.ok(existsSync(join(claudeDir, "moved.json")) && existsSync(join(shared, "moves", `${folder}.json`)));
-  const stopped = await s.call("task_add", { title: "while it stopped", size: "tiny", priority: "P2" });
+  const stopped = await s.call("task_add", { name: tname(), title: "while it stopped", size: "tiny", priority: "P2" });
   assert.match(stopped.error, new RegExp(`refused: the move of project project did not finish[\\s\\S]*To finish: sage move --gate ${id} \\(the same command\\)`));
   const finished = await s.call("move", { gate: id });
   assert.match(finished, /Reconciliation · every count matches the plan/);
   assert.equal(existsSync(join(shared, "moves", `${folder}.json`)), false, "the plan is removed");
-  assert.match(await s.call("task_add", { title: "after the finish", size: "tiny", priority: "P2" }), /^T\d+ /);
+  assert.match(await s.call("task_add", { name: tname(), title: "after the finish", size: "tiny", priority: "P2" }), /^T\d+ /);
 });
 
 test("T658: the Codex chief's list of tools names the move tool, with the owner's answer before gate", () => {
@@ -1062,12 +1063,12 @@ test("each tool writes the Codex logbook in CODEX_HOME/sage, and returns each re
   assert.match(await call("status"), /^sage · project · \d\d:\d\d UTC\ntasks {3}0\n/);
   assert.match((await call("init", { project: "relative/path" })).error, /^Input validation error: .*project: an absolute path/);
 
-  assert.equal(await call("task_add", { title: "--why=x first", size: "small", priority: "P2" }), "T1 framed · small · route build,code-review,qa · P2");
+  assert.equal(await call("task_add", { name: tname(), title: "--why=x first", size: "small", priority: "P2" }), "T1 framed · small · route build,code-review,qa · P2");
   assert.match(readFileSync(join(logbook, "tasks.tsv"), "utf8"), /\nT1\t--why=x first\t/);
-  assert.equal((await call("task_add", { title: "bad", size: "small", risk: "bogus", priority: "P2" })).error,
+  assert.equal((await call("task_add", { name: tname(), title: "bad", size: "small", risk: "bogus", priority: "P2" })).error,
     "sage: unknown: bogus. Risks: auth, data, schema, money, secrets, input. Blocks: design, arena, pe, build, code-review, security-review, ux-review, qa, investigate, evidence-review");
-  assert.match((await call("task_add", { title: "bad", size: "huge", priority: "P2" })).error, /^Input validation error: .*size/);
-  assert.match((await call("task_add", { title: "bad", size: "small", colour: "red", priority: "P2" })).error, /^Input validation error: .*colour/);
+  assert.match((await call("task_add", { name: tname(), title: "bad", size: "huge", priority: "P2" })).error, /^Input validation error: .*size/);
+  assert.match((await call("task_add", { name: tname(), title: "bad", size: "small", colour: "red", priority: "P2" })).error, /^Input validation error: .*colour/);
   const scale = "A task needs a priority: P0 the owner's current focus and what blocks it; P1 next: function or safety bugs, work in flight, pre-pilot items; P2 later: polish, hardening lows, follow-ups; P3 parked but kept.";
   for (const input of [{ title: "none", size: "small" }, { title: "bad", size: "small", priority: "P4" }]) {
     const { error } = await call("task_add", input);
@@ -1166,7 +1167,7 @@ test("brief checks a brief's fields, keeps it by task name in the logbook, and t
 test("merge_check passes for a head with its clean cycle", async (t) => {
   const { call } = await connect(t);
   await call("init");
-  await call("task_add", { title: "one", size: "tiny", priority: "P1" });
+  await call("task_add", { name: tname(), title: "one", size: "tiny", priority: "P1" });
   await call("task_set", { task: "T1", fields: { state: "briefed", branch: "codex/t1-a" } });
   assert.equal((await call("merge_check", { sha: SHA })).error, `sage: no verdicts recorded for ${SHA}. Record the reviews and QA with sage verdict first.`);
   await call("verdict", { task: "T1", kind: "checks-pass", sha: SHA });
@@ -1176,7 +1177,7 @@ test("merge_check passes for a head with its clean cycle", async (t) => {
 test("the lint tool runs the state tool's lint on the task and the SHA, and verdict refuses the lint kinds", async (t) => {
   const { call } = await connect(t);
   await call("init");
-  await call("task_add", { title: "one", size: "tiny", priority: "P1" });
+  await call("task_add", { name: tname(), title: "one", size: "tiny", priority: "P1" });
   assert.match(await call("lint", { task: "T1", sha: SHA }), /^T1 · [0-9a-f]{7}: \S+ has no origin\/main and no sgconfig\.yml at its root, so there is nothing to lint, and the merge check needs no lint verdict\. Nothing changed\.$/);
   assert.match((await call("verdict", { task: "T1", kind: "lint-pass", sha: SHA })).error, /kind|lint-pass/);
 });
@@ -1184,7 +1185,7 @@ test("the lint tool runs the state tool's lint on the task and the SHA, and verd
 test("merge_check gives the state tool's refusal for a task moved off a shared PR's head branch unchanged, with the branch= that puts it back (R1759-1)", async (t) => {
   const { call } = await connect(t);
   await call("init");
-  for (const title of ["one", "two"]) await call("task_add", { title, size: "tiny", priority: "P1" });
+  for (const title of ["one", "two"]) await call("task_add", { name: tname(), title, size: "tiny", priority: "P1" });
   for (const task of ["T1", "T2"]) {
     await call("task_set", { task, fields: { state: "briefed", branch: "codex/t1-a", pr: "41" } });
     await call("verdict", { task, kind: "checks-pass", sha: SHA, pr: 41 });
@@ -1223,7 +1224,7 @@ async function milestoneWorld(t) {
   };
   await s.call("init");
   claude("init");
-  for (const title of ["pilot", "second", "third"]) await both("task_add", { title, size: "small", priority: "P2" }, ["task", "add", "--title", title, "--size", "small", "--priority", "P2"]);
+  for (const title of ["pilot", "second", "third"]) await both("task_add", { name: tname(), title, size: "small", priority: "P2" }, ["task", "add", "--name", tname(), "--title", title, "--size", "small", "--priority", "P2"]);
   return { ...s, claude, both };
 }
 
@@ -1263,7 +1264,7 @@ test("T1147 F-T1147-1: in an archived project, finding_move to and a yes to the 
   const bar = "sage: this project is archived, so it takes no new task: an archived project starts no agent and merges nothing. If this is new work that the owner asked for in this chat after the archive, restore the project first with sage config archived=no, tell the owner in one line that you restored it, then give the same command again. A lead does not restore a project: report blocked to your chief. Nothing changed.";
   assert.equal((await both("finding_move", { task: "T1", key: "F-T1-1", to: "Export faster" }, ["finding", "move", "T1", "F-T1-1", "--to", "Export faster"])).error, bar);
   assert.equal((await both("gate_answer", { gate: "G1", option: 1 }, ["gate", "answer", "G1", "--option", "1"])).error, "sage: This project is archived, so it takes no answer and no other owner write. Restore it first, on the board or with sage config archived=no in its own chat when the owner asks for it, then try again. Nothing changed.", "T1156 F-T1156-40, T1219: a gate answer is refused before it reads the gate, with the one text of an owner write");
-  assert.equal((await both("task_add", { title: "later", size: "small", priority: "P2" }, ["task", "add", "--title", "later", "--size", "small", "--priority", "P2"])).error, bar, "task add gives the same refusal");
+  assert.equal((await both("task_add", { name: tname(), title: "later", size: "small", priority: "P2" }, ["task", "add", "--name", tname(), "--title", "later", "--size", "small", "--priority", "P2"])).error, bar, "task add gives the same refusal");
 
   await both("config", { settings: { archived: "no" } }, ["config", "archived=no"]);
   assert.equal(await both("finding_move", { task: "T1", key: "F-T1-1", to: "Export faster" }, ["finding", "move", "T1", "F-T1-1", "--to", "Export faster"]),
@@ -1282,16 +1283,29 @@ test("T1003: release_add, milestone_set and task_set release= give the Claude st
   assert.match(await both("status", {}, ["status"]), /^release 1\.0 · in progress · 0 of 3 tasks done · milestones M1 · single tasks T3 · goal: Ship the first version$/m);
 });
 
+test("T1255: task_add takes the name, and task_set name= and task_names give the Claude state tool's own lines through the Codex server", async (t) => {
+  const s = await milestoneWorld(t), { both } = s, add = ["--size", "small", "--priority", "P2"];
+  assert.match((await both("task_add", { title: "no name", size: "small", priority: "P2" }, ["task", "add", "--title", "no name", ...add])).error, /^sage: task add needs --name "<name>"\. A task's name is 1 to 4 words/);
+  assert.match((await both("task_add", { name: "T9", title: "x", size: "small", priority: "P2" }, ["task", "add", "--name", "T9", "--title", "x", ...add])).error, /^sage: the name "T9" has the form of a sage id/);
+  assert.match(await both("task_add", { name: "Board names", title: "Show names", size: "small", priority: "P2" }, ["task", "add", "--name", "Board names", "--title", "Show names", ...add]), /^T4 framed/);
+  assert.match((await both("task_add", { name: "board names", title: "again", size: "small", priority: "P2" }, ["task", "add", "--name", "board names", "--title", "again", ...add])).error, /is the name of T4 already/);
+  assert.match(await both("task_set", { task: "T4", fields: { name: "Board rows" } }, ["task", "T4", "set", "name=Board rows"]), /^T4 framed/);
+  const file = join(s.dir, "names.txt");
+  writeFileSync(file, "T1 Pilot task\nT2 Second task\n");
+  assert.equal(await both("task_names", { file }, ["task", "names", "--file", file]), "2 tasks named: T1, T2. Each change has a decision row.");
+  assert.equal(await both("task_names", { file }, ["task", "names", "--file", file]), `nothing changed: each of the 2 tasks in ${file} has that name already.`);
+});
+
 test("T930: config sets the board name, the archive, the cycle counts and max_leads through the Codex server, with the Claude state tool's lines", async (t) => {
   const s = await milestoneWorld(t), { both } = s;
   assert.equal(await both("config", { settings: { name: "Council Record" } }, ["config", "name=Council Record"]), "name=Council Record archived=no start=normal");
   assert.equal(await both("config", { settings: { archived: "yes" } }, ["config", "archived=yes"]), "name=Council Record archived=yes start=normal\nArchived: the project starts no agent and merges nothing; agents that run now finish, and their reports, findings and verdicts still record. To restore it: sage config archived=no.");
   const restore = /^sage: this project is archived, so it takes no new (task|run): an archived project starts no agent and merges nothing\. If this is new work that the owner asked for in this chat after the archive, restore the project first with sage config archived=no, tell the owner in one line that you restored it, then (give the same command|add the run) again\. A lead does not restore a project: report blocked to your chief\. Nothing changed\.$/;
-  assert.match((await both("task_add", { title: "later", size: "small", priority: "P2" }, ["task", "add", "--title", "later", "--size", "small", "--priority", "P2"])).error, restore, "T1136 G201: Codex and Claude refuse new work in an archived project, and name the restore");
+  assert.match((await both("task_add", { name: tname(), title: "later", size: "small", priority: "P2" }, ["task", "add", "--name", tname(), "--title", "later", "--size", "small", "--priority", "P2"])).error, restore, "T1136 G201: Codex and Claude refuse new work in an archived project, and name the restore");
   assert.match((await both("run_add", { task: "T1", role: "qa" }, ["run", "add", "T1", "--role", "qa"])).error, restore);
   assert.equal(await both("config", { settings: { name: "", archived: "no" } }, ["config", "name=", "archived=no"]), "name= archived=no start=normal\nRestored: the project takes new tasks and runs, and the merge check judges its commits again.");
   assert.equal(await both("config", { settings: { archived: "no" } }, ["config", "archived=no"]), "name= archived=no start=normal\nThe project is not archived, so archived=no changes nothing.", "T1136: a restore of a project that is not archived says so");
-  assert.match(await both("task_add", { title: "later", size: "small", priority: "P2" }, ["task", "add", "--title", "later", "--size", "small", "--priority", "P2"]), /^T4 framed/, "a restored project takes new work");
+  assert.match(await both("task_add", { name: tname(), title: "later", size: "small", priority: "P2" }, ["task", "add", "--name", tname(), "--title", "later", "--size", "small", "--priority", "P2"]), /^T4 framed/, "a restored project takes new work");
   assert.match((await both("config", { settings: { name: "x", max_leads: "4" } }, ["config", "name=x", "max_leads=4"])).error, /^sage: "max_leads" is a key for all projects/);
   assert.match((await both("config", { settings: { "cycles.large": "1" } }, ["config", "cycles.large=1"])).error, /^sage: cycles\.large must be a whole number of 2 or more: 1 is below the floor of 2/);
   const counts = (text) => text.replace(/ arena_models=\S+/, "").replace(/ model\..*$/, "");
@@ -1371,7 +1385,7 @@ test("T506: the chief saves a report with pages, and each run_done example ends 
 
   const logbook = (await s.call("init")).replace(/^logbook /, "");
   for (const n of [1, 2]) {
-    await s.call("task_add", { title: `task ${n}`, size: "small", priority: "P1" });
+    await s.call("task_add", { name: tname(), title: `task ${n}`, size: "small", priority: "P1" });
     await s.call("task_set", { task: `T${n}`, fields: { state: "briefed", branch: `codex/t${n}-a` } });
   }
   assert.equal(await s.call("run_add", { task: "T1", role: "code-reviewer", "usage-interface": usageInterface }), "R1 running · code-reviewer on T1 · reasoning_effort high");
@@ -1409,7 +1423,7 @@ test("T506: the chief saves a report with pages, and each run_done example ends 
 test("T83 sample investigation and independent evidence check retain real outputs and conclude without SHA", async t => {
   const s = await connect(t);
   const book = (await s.call("init")).slice(8);
-  assert.match(await s.call("task_add", { title: "SAMPLE: inspect answer", size: "investigate", priority: "P2" }), /route investigate,evidence-review/);
+  assert.match(await s.call("task_add", { name: tname(), title: "SAMPLE: inspect answer", size: "investigate", priority: "P2" }), /route investigate,evidence-review/);
   for (const state of ["briefed", "building"]) assert.match(await s.call("task_set", { task: "T1", fields: { state } }), new RegExp(`T1 ${state}`));
   const sample = join(s.project, "sample.txt");
   writeFileSync(sample, "answer=42\n");
@@ -1460,7 +1474,7 @@ test("T586 SYNTHETIC: candidates, a judge and the landing play through the Codex
   git("checkout", "-q", "-b", "main");
   const base = commit("SAMPLE base");
   const book = (await s.call("init")).slice(8);
-  assert.match(await s.call("task_add", { title: "SAMPLE: arena", size: "small", add: "arena", why: "no clear answer", priority: "P2" }), /route arena,build,code-review,qa/);
+  assert.match(await s.call("task_add", { name: tname(), title: "SAMPLE: arena", size: "small", add: "arena", why: "no clear answer", priority: "P2" }), /route arena,build,code-review,qa/);
   const pages = await s.call("pages", { task: "T1" });
   assert.equal(typeof pages, "string");
   assert.equal(await s.call("log", { task: "T1", decision: "SAMPLE rubric: smallest change", why: "arena rubric" }), "logged");
@@ -1539,7 +1553,7 @@ test("T586 SYNTHETIC: candidates, a judge and the landing play through the Codex
 test("T85 synthetic designer prototype, separate PE report and chief artifact records preserve authority", async t => {
   const s = await connect(t);
   const book = (await s.call("init")).slice(8);
-  assert.match(await s.call("task_add", { title: "SAMPLE: design review", size: "large", priority: "P2" }), /route design,pe,build/);
+  assert.match(await s.call("task_add", { name: tname(), title: "SAMPLE: design review", size: "large", priority: "P2" }), /route design,pe,build/);
   const folder = await s.call("pages", { task: "T1" });
   assert.equal(typeof folder, "string");
   const branch = "codex/t1-sample-design";

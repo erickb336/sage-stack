@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -64,8 +65,8 @@ async function openBoard(t, viewport = { width: 1440, height: 1000 }, { refuse, 
     return { dir, project, as: (chief, ...args) => claude.sage([...args, "--project", project, "--chief", chief], env) };
   };
   const { dir, as, project } = addProject("sample-app");
-  as("C1", "task", "add", "--title", "Sample shared list permissions", "--size", "small", "--priority", "P1");
-  as("C2", "task", "add", "--title", "Sample crash report screen", "--size", "small", "--priority", "P2");
+  as("C1", "task", "add", "--name", tname(), "--title", "Sample shared list permissions", "--size", "small", "--priority", "P1");
+  as("C2", "task", "add", "--name", tname(), "--title", "Sample crash report screen", "--size", "small", "--priority", "P2");
   const pages = join(env.SAGE_WORKTREES, basename(dir), "pages", "T1");
   mkdirSync(join(pages, "designs", "v1"), { recursive: true });
   writeFileSync(join(pages, "notes.md"), `# Design notes\n\nThe notes of the sample design.\n\n${Array.from({ length: 30 }, (_, i) => `Sample line ${i + 1} before the rule.`).join("\n\n")}\n\n## The rule\n\nA viewer may copy a list. The copy is a new private list.\n\n${Array.from({ length: 30 }, (_, i) => `Sample line ${i + 1} after the rule.`).join("\n\n")}\n`);
@@ -337,7 +338,7 @@ test("T1121 F-T1121-20, T1156 F-T1156-27: in the Design item, each link keeps th
 test("T1121 F-T1121-21: after the last question of this project, the line names the other project that needs you and opens it; a page of a task that the board does not have says so", async t => {
   const w = await openBoard(t), { page } = w;
   const other = w.addProject("other-app");
-  other.as("C1", "task", "add", "--title", "Sample export screen", "--size", "small", "--priority", "P1");
+  other.as("C1", "task", "add", "--name", tname(), "--title", "Sample export screen", "--size", "small", "--priority", "P1");
   const far = join(w.base, "worktrees", basename(other.dir), "pages", "T9");
   mkdirSync(far, { recursive: true });
   writeFileSync(join(far, "far.md"), "# Far page\n\nA page in a folder of a task that the board does not have.\n");
@@ -368,7 +369,7 @@ test("T1156 F-T1156-15, -16: after Send, the line counts every need of the proje
   const w = await openBoard(t), { page } = w, projects = {};
   for (const name of ["other-app", "third-app"]) {
     const other = projects[name] = w.addProject(name);
-    other.as("C1", "task", "add", "--title", `Sample ${name} task`, "--size", "small", "--priority", "P1");
+    other.as("C1", "task", "add", "--name", tname(), "--title", `Sample ${name} task`, "--size", "small", "--priority", "P1");
     other.as("C1", "gate", "add", "--message", QUESTION, "T1", "--question", `A question of ${name}?`, "--options", "yes|no", "--recommend", "yes");
   }
   w.as("C2", "gate", "answer", "G2", "--option", "1", "--via", "chat");

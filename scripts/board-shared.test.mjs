@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -195,7 +196,7 @@ test("a lead slot's logbook mark, as the hook writes it for a linked project, eq
   git("init", "-q", "-b", "main"); git("commit", "-q", "--allow-empty", "-m", "first");
   claude.sage(["link", "--separate", "--project", project], env);
   const chief = claude.chiefFor(project, "session-a", env);
-  claude.sage(["task", "add", "--title", "Sample shared task", "--size", "small", "--priority", "P2", "--project", project, "--chief", chief], env);
+  claude.sage(["task", "add", "--name", tname(), "--title", "Sample shared task", "--size", "small", "--priority", "P2", "--project", project, "--chief", chief], env);
   const mark = createHash("sha256").update(claude.logbookView(project, env).dir).digest("hex");
   const read = readBoardSources([{ id: "shared", path: sharedRoot(env) }], { now: NOW }).find(source => source.id === "shared");
   assert.equal(read.projects.length, 1);
@@ -537,8 +538,8 @@ test("T633: one project with two linked clones: the board of this project from e
   git(base, "clone", "-q", a, b);
   claude.sage(["link", "--separate", "--project", a], env);
   claude.sage(["link", "--to", basename(claude.logbookView(a, env).dir), "--project", b], env);
-  claude.sage(["task", "add", "--title", "Task from clone A", "--size", "small", "--priority", "P2", "--project", a, "--chief", claude.chiefFor(a, "session-a", env)], env);
-  claude.sage(["task", "add", "--title", "Task from clone B", "--size", "small", "--priority", "P2", "--project", b, "--chief", claude.chiefFor(b, "session-b", env)], env);
+  claude.sage(["task", "add", "--name", tname(), "--title", "Task from clone A", "--size", "small", "--priority", "P2", "--project", a, "--chief", claude.chiefFor(a, "session-a", env)], env);
+  claude.sage(["task", "add", "--name", tname(), "--title", "Task from clone B", "--size", "small", "--priority", "P2", "--project", b, "--chief", claude.chiefFor(b, "session-b", env)], env);
   claude.sage(["task", "T1", "set", "state=briefed", "--project", a, "--chief", claude.chiefFor(a, "session-a", env)], env);
   claude.sage(["task", "T2", "set", "state=briefed", "--project", b, "--chief", claude.chiefFor(b, "session-b", env)], env);
   const chat = project => claude.sage(["board", "this", "--view", "chat", "--project", project], env);

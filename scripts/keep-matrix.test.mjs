@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync, readFileSync } from "node:fs";
@@ -58,7 +59,7 @@ const SESSION = { claude: "claude-session", codex: "codex-session" };
 claude.sage(["link", "--separate", "--project", PROJECT], env);
 const C1 = claude.chiefFor(PROJECT, SESSION.claude, env), C2 = codex.chiefFor(PROJECT, SESSION.codex, env);
 for (const [tool, chief, title, branch] of [[claude, C1, "a", "sage/t1-a"], [codex, C2, "b", "sage/t2-b"]]) {
-  tool.sage(["task", "add", "--title", title, "--size", "small", "--priority", "P2", "--project", PROJECT, "--chief", chief], env);
+  tool.sage(["task", "add", "--name", tname(), "--title", title, "--size", "small", "--priority", "P2", "--project", PROJECT, "--chief", chief], env);
   tool.sage(["task", `T${title === "a" ? 1 : 2}`, "set", `branch=${branch}`, "--project", PROJECT, "--chief", chief], env);
 }
 const LOGBOOK = claude.storeDir(PROJECT, env);
