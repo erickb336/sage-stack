@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { basename, isAbsolute } from "node:path";
 import { githubRepository, hookProvider } from "./board-reader.mjs";
-import { LINE, PRIORITIES, TASK_ADDED, TASK_KINDS, boardAnswer, gateDigest, projectLimits, proposalOf, queueOrder } from "./logbook-fields.mjs";
+import { LINE, PRIORITIES, TASK_ADDED, TASK_KINDS, boardAnswer, gateDigest, optionsOf, projectLimits, proposalOf, queueOrder } from "./logbook-fields.mjs";
 import { ENDED, MET, breakdownGate, dead, gateLines, lostWhy, milestoneName, milestoneWordOf, namedText, progressOf, progressText, releasesOf, shownGraph, shownMilestoneState, shownWaits, waitGraph, waitsOf } from "./milestone-rules.mjs";
 import { chiefName, taskWord } from "./state-words.mjs";
 import { AGENT_QUIET_MS, agentFlag, agentFlagAt, flagRank, needsLook, usualTop } from "./agent-flag.mjs";
@@ -278,7 +278,7 @@ function card(source, project, group, task, now, graph, landing) {
   const reasons = (project.old && ENDED.includes(task.state) ? NONE : gates).map(gate => {
     const breakdown = breakdownGate(gate, graph.milestones);
     const lost = (graph.byGate.get(gate.id) ?? []).filter(milestone => milestone.state === "lost").map(milestone => `${lostWhy(milestone)}: ${LOST_FIX(milestone.id)}`);
-    const replace = gate.kind === "replace" && replaceOf(gate), options = gate.options ? gate.options.split("|").map(option => option.trim()) : [];
+    const replace = gate.kind === "replace" && replaceOf(gate), options = optionsOf(gate);
     const what = `${task.id}${task.pr ? ` and PR ${task.pr}` : ""}`;
     const text = replace ? `${replace.from ? `Hand ${what} from ${label(replace.from)} to ${label(replace.to)}?` : `Hand ${what} to ${label(replace.to)}? It has no owning chief.`} ${replace.runs.length ? `${and(replace.runs)} ${replace.runs.length === 1 ? "ends" : "end"} as failed.` : "No run ends as failed."}${replace.fresh ? ` ${label(replace.to)} runs one fresh cycle before it merges.` : ""}` : [...gateLines(gate, graph.milestones), ...lost].join(LINE);
     const offered = replace && offerOf(task), handed = offered && offered.from === replace.from && offered.to === replace.to;
