@@ -553,6 +553,17 @@ The sage hook refuses the ordinary command shapes by which an agent reads, copie
 
 After you change a setting of the config, or update sage, the line says that a restart is needed: run the `board --stop` command that it gives, then ask for the board again.
 
+### Board links in the chief's messages
+
+The board link check makes sure that a board link in a message of the chief opens when you click it, also after a restart of the Mac, when the board server is not running. It runs in Claude and in Codex, in the sage hook, at the end of each turn of the main session, in any mode. It does not check the messages of agents.
+
+1. The hook finds the links in the message to the board's own address: `http://127.0.0.1:<port>/…` or `http://localhost:<port>/…`, with the port of the board config (43123 by default). A message with no such link costs only this text scan: no network call and no process start.
+2. It opens each such link, at most 5. A link that answers 200 passes. A redirect inside the board (`/` goes to `/app/`) is followed.
+3. When nothing answers on the port, it starts the board once, with the same start as `board --ensure`. Then it waits while the board reads its logbooks (the board answers 503 then). The wait ends after 20 seconds in Claude and after 6 seconds in Codex, because Codex stops a hook after 10 seconds.
+4. When a link still does not answer 200, the hook stops the message once. The chief gets one line that names each bad link, what it answered, and what to do: for example, fix the path of a link that answers 404, or run the `board --ensure` command that the line gives and read its message. The next stop of the chief passes, so the check never stops two messages in a row.
+
+The check never stops a board, never moves the board to another port, and never writes the board config. When the board config does not exist, it starts no board: the line says to run `board --ensure`, which sets the board up. When the hook cannot reach the local network (for example a sandbox), it lets the message pass.
+
 ### Change the board's port
 
 The board uses port 43123. When another program on the Mac uses that port, `show board` says so and gives the command that moves the board. Run it in Terminal on the Mac:
