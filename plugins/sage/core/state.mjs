@@ -667,16 +667,17 @@ const usageWrites = recordedWrites({ schema: 7, tables: ["runs", "decisions"], f
   name: /^[0-9a-f]{64}\.json$/, receiptName: reference => createHash("sha256").update(JSON.stringify(reference)).digest("hex") + ".json", validate: validateUsageWrite });
 function enrichUsage(dir, id, opt) {
   const reference = usageReference(id, opt);
-  validateUsageWrite({ reference, result: { task: "T1", at: now() } });
   const runs = read(dir, "runs"), matches = runs.filter(r => r.id === id), run = matches[0];
   if (matches.length !== 1 || run.status === "running") refuse("Usage enrichment needs one ended run. Nothing changed.");
+  const result = { task: run.task, at: now() };
+  validateUsageWrite({ reference, result });
   const prior = usageWrites.readReceipt(dir, reference);
   if (prior) {
     if (run.tokens !== reference.tokens || run.usage_status !== "measured" || run.usage_source !== reference.source || run.usage_evidence !== reference.evidence) refuse("The usage receipt differs from the run. Nothing changed.");
     return `${id} usage measured (already recorded)`;
   }
   if (run.tokens || !["", "unavailable"].includes(run.usage_status)) refuse("A measured count never changes. Nothing changed.");
-  const result = { task: run.task, at: now() }, decisions = read(dir, "decisions");
+  const decisions = read(dir, "decisions");
   Object.assign(run, { tokens: reference.tokens, usage_status: "measured", usage_source: reference.source, usage_evidence: reference.evidence });
   decisions.push({ at: result.at, task: run.task, decision: `${id} usage measured`, why: JSON.stringify(reference) });
   usageWrites.commit(dir, { reference, result }, { runs: tableText("runs", runs), decisions: tableText("decisions", decisions) });
