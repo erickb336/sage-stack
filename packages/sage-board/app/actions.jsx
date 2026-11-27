@@ -157,6 +157,7 @@ document.addEventListener("visibilitychange", () => {
   if (away) { seen.previous = keep("sessionStorage", away); away = null; seen.listeners.forEach(fn => fn()); }
 });
 export const useSeen = () => useShared(seen.listeners, () => seen.previous || null);
+export const markSeen = () => { seen.previous = keep("sessionStorage", new Date().toISOString()); keep("localStorage", seen.previous); seen.listeners.forEach(fn => fn()); };
 
 const dot = chief => chief.stopped ? "stopped" : chief.waitsForOwner ? "waits" : chief.session ?? "unknown";
 const STATE = { live: chiefState("live"), quiet: chiefState("quiet"), stopped: chiefState("stopped"), waits: chiefState("waits"), unknown: UNKNOWN };
@@ -314,7 +315,7 @@ function itemOf(gate, id) {
   return /^[\w./-]+\.html$/.test(file) && !file.includes("..") ? { task: gate.task.id, file, kind: "prototype", frame: "script", title: file.split("/").at(-1), src: pagesPath(gate) + file, open: pagesPath(gate) + file, why: `A prototype of ${gate.task.id}, opened from a link in the material.` } : null;
 }
 
-function Viewer({ item, gate, close, open, theme }) {
+function Viewer({ item, gate, close, open, theme, back = <button type="button" className="btn" onClick={close}>‹ The question</button> }) {
   const src = item.frame === "reader" && theme === "light" ? `${item.src}&theme=light` : item.src, [moved, setMoved] = useState(null);
   const loaded = event => {
     const doc = event.target.contentDocument;
@@ -333,7 +334,7 @@ function Viewer({ item, gate, close, open, theme }) {
   };
   return (
     <section className="viewer" aria-label={`${KINDS[item.kind]}: ${moved ?? item.title}`}>
-      <p className="viewer-h"><button type="button" className="btn" onClick={close}>‹ The question</button><span className="grow" />{item.src && <a href={item.open} target="_blank" rel="noopener noreferrer">Open in a new tab</a>}</p>
+      <p className="viewer-h">{back}<span className="grow" />{item.src && <a href={item.open} target="_blank" rel="noopener noreferrer">Open in a new tab</a>}</p>
       <p className="lbl">{KINDS[item.kind]}</p><h2 id="viewer-h" tabIndex={-1}>{moved ?? item.title}</h2>
       {item.frame === "script" && <p className="frame-warn" role="note">{SCRIPT_PAGE_NOTE}</p>}
       {!item.src ? <p className="note">The board does not show this page: it has no task {item.task} in the logbook of this question.</p>
@@ -344,6 +345,15 @@ function Viewer({ item, gate, close, open, theme }) {
       <p className="hint">Why it is here: {moved ? `you opened it from a link in ${item.title}.` : item.why}</p>
     </section>
   );
+}
+
+const PREVIEWS = ["design", "prototype", "arena", "picture"];
+export function DesignPreview({ needKey, at, theme }) {
+  const { gate, problem } = useGate(needKey, at), full = <a href={questionLink(needKey)}>Open the design and the full question</a>;
+  const go = id => { location.hash = `question?${new URLSearchParams({ key: needKey, ...(id && { open: id }) })}`; };
+  const item = gate && PREVIEWS.map(kind => gate.material.items.find(entry => entry.kind === kind && entry.src && !entry.gone)).find(Boolean);
+  if (!item) return <p className="faint" data-part="design">{!gate ? problem ? "The board cannot read the design now." : "Reading the design." : `The board has no design page to show here: the question names none, and ${gate.task.id}'s pages folder has none.`} {full}</p>;
+  return <Viewer item={item} gate={gate} close={() => go()} open={go} theme={theme} back={full} />;
 }
 
 function Material({ gate, open, setOpen }) {

@@ -128,23 +128,77 @@ Each kind tag (for example `◇ Design` or `⋈ Orchestration`) has a mark of it
 - A milestone's word comes from its breakdown: "needs you" while the breakdown waits for you, or when its pilot stopped; "stopped" when you dropped it. Else it comes from its tasks.
 - The status lines that the chief shows you (the `status` command) give the word of each release and each milestone. Their tasks line keeps the tool's own states.
 
-## The seven jobs of the board
+## The five levels
 
-The board in the browser answers seven questions. Each answer is at most two clicks from the Overview, and a browser test walks each one on sample data (`scripts/board-jobs-browser.test.mjs`).
+<img alt="All projects, the first level of the board, with SAMPLE DATA: the tree of projects at the left, the since line, Needs you full width with a choice on each row, then At work and Progress, and Done in the last 7 days." src="../assets/board-dark.png" width="100%">
 
-| Job | Clicks from the Overview | Where |
+The address of the board opens **All projects**. The board has five levels, and each level has the same layout, so you zoom in and out without learning a new page:
+
+| Level | What it shows | Address |
 | --- | --- | --- |
-| What needs me, with full context | 1 | Overview, Needs you: a click on a question opens the question view. |
-| Where each milestone and task stands, by priority | 0 for milestones, 2 for tasks | The Milestones card. Tasks, then "Priority" in Group by. |
-| Where a task is in its dev cycle, and what its agents made | 2 | A milestone, then a task: the task page. |
-| Which agents run, for which chief, against the limit | 0 or 1 | The counts in the top bar; a click opens the Agents page. |
-| Which PRs are open, merged or waiting, and what depends on what | 1 or 2 | Pull requests; Graph shows the waits. |
-| What changed since I looked | 0 | The counts at the end of the Overview. |
-| Whether each chief runs, and whether autopilot is on | 0 | The chief chips under the top bar. |
+| All projects | Every project that is not archived | `/app/` |
+| Project | One project | `/app/#project?key=<project>` |
+| Milestone | One milestone of a project, or its tasks in no milestone | `/app/#milestone?key=<milestone>` |
+| Task | One task, with the decision first | `/app/#task?key=<task>` |
+| Run | One agent's run on one step | `/app/#run?key=<task>&run=R<n>` |
+
+**The frame:**
+
+- **The tree,** at the left, lists the projects that need you or have work, with "2 need you" or "3 at work". The open project shows its milestones under it, each with "merged of all", and "No milestone".
+- **Quiet and Archived:** projects with no work for 14 days fold into "Quiet", and archived projects into "Archived".
+- **The breadcrumb,** at the top, names where you are, for example "All projects › sample-app › Board redesign › Sample queue". A click on a part goes up to that level.
+
+**The parts of a level, from the top:**
+
+- **Since you looked** (All projects only): for example "Since you looked at 07:10: 2 merged · 1 new question · 1 with a flag now", and "Mark seen". A new question or a new done task has a small dot. The counts leave out archived projects, as the rows under them do; the time stays in this browser, and before your first visit the line counts the last 24 hours.
+- **Needs you**, full width, oldest first. A question with fixed choices shows its choices on its row: [in a paired browser](#act-from-the-board), one click answers it, through the same write as the question view. Undo takes it back until the chief picks it up.
+- **A design question** has no choice on its row: "Open the design to answer" opens its task, where its three choices are. Each row also has Open, which opens the question view with its full message.
+- **A merge** that waits for you names its next step, for example "Next: merge it in the chief's chat. The chief runs the merge check first." It has no button: the board does not merge.
+- **At work.** On All projects, one line for each project with its tasks, its agents and its flags, or "no flag"; a click opens the project's tasks in place. On a project or a milestone, one line for each task at work.
+- **A flag:** an agent with a flag, such as "Look at it", "Stopped without a report" or a failed run, gets its own row under At work, and a click opens its run.
+- **Progress:** each milestone with a bar and "5 of 9". On a project, "No milestone" counts its open tasks in no milestone. On a milestone, its own bar and when it is done.
+- **Waits** (a project or a milestone): the tasks that wait, each with what it waits for.
+- **Done in the last 7 days:** the 5 newest, then "Show all".
+
+A part with nothing in it is not a card: the parts fold into one line, for example "Here: no agent at work · nothing waits". Colour shows only the state of a row and a flag, and each colour has its own shape: a diamond needs you, a dot is at work, a ring waits, a check is done, a triangle or a square is a flag.
+
+**The task** opens with its title, its state and its steps, then the decision when the task needs you: the question with its choices, which answer at once. Under the decision are the agents at work (a click opens a run), and the About, Artifacts, Log and Decisions tabs.
+
+- **A design question** shows the design first, in a frame, with a link to the design and the full question; then "Approve", "Approve with your words" (which opens a box for your words) and "New version". The design stays after your answer. When the question names no design page and the task's pages folder has none, the decision says so.
+- **The back link** "‹" goes back to the page you came from. A task that a link opened goes up to its milestone, or to its project when it is in no milestone.
+
+**The run** opens with three facts: what happened (at work, a flag and why, failed, or done with its result), the last note of its agent, and what next. Then its report, its log (the agent's last actions, newest last) and its brief.
+
+- **No report:** a run that stopped or failed with no report says "No report. The run stopped."; only a run at work says "No report yet: the run is at work."
+- **No run:** a link that names no run says so and links to the task.
+
+**The states of a level.** Each level shows what it can:
+
+- **Loading:** "The board is reading the logbooks" while the board does its first read; a task or a run says "Reading the task" or "Reading the run".
+- **Empty:** All projects with no project shows the first steps. A level with nothing open shows its one fold line.
+- **Failure:** a red note names the project and the table that the board cannot read, and the rest of the page stays current. A task or a run that the board cannot read says so, and a run whose log cannot be read still shows what happened. When the board cannot read a project's runs table, a run link says that, not that the run is missing.
+- **Too big:** when the board's data is over its limit, a red note gives the size and the limit, and the page keeps the last data that fit. A page that opened while no read fit says that it has nothing to show yet, and the top bar says "No read to show".
+
+**More.** The pages of the board before the levels stay under "More" in the side bar, until their parts move into the levels: the Overview (the chief chips, the sessions, the stopped chiefs and archive), Tasks, Agents, Pull requests and Stats. A project's level links to each of them for that project.
+
+## The eight jobs of the board
+
+Each job is at most two clicks from All projects, at 1440 px and at 390 px. Browser tests walk each path on sample data (`scripts/board-jobs-browser.test.mjs`, and `scripts/board-levels-browser.test.mjs` for the answers).
+
+| Job | Clicks from All projects | Where |
+| --- | --- | --- |
+| Answer what needs you | 1; a design question 2 | A choice on its Needs you row; a design question: its row, then the choice on the task. |
+| See what moves now | 0, then 2 for one task | At work: a project's line, then a task. |
+| Find one task | 2 | The project in the tree, then the task. Search by words comes with the "/" search. |
+| See a goal's progress | 0, then 1 | Progress, then a milestone. |
+| See the important designs | 1 or 2 | A design question on Needs you. The Designs cards come in a later version. |
+| Switch projects | 1 | The tree. |
+| See what was done | 0 | The since line and Done in the last 7 days. |
+| Look at a stuck agent | 1 | Its flagged row under At work opens its run. |
 
 ## One project at a time
 
-Each page of the board in the browser shows one project: the Overview, Tasks, Agents and Pull requests. No page mixes the rows of two projects. Only [Stats](#stats) counts all projects, and it shows numbers and charts, never a task list.
+The five levels show all projects and zoom in. Each page under More shows one project, and no page there mixes the rows of two projects: the Overview, Tasks, Agents and Pull requests. Only [Stats](#stats) counts all projects, and it shows numbers and charts, never a task list.
 
 - **The project that opens:** the link from `show board` names the project of that chat, so the board opens on it, in Claude and in Codex. A chat in a subfolder or a linked worktree of the checkout opens the same project, and the link from `show board for sage-bot` opens `sage-bot`, as the chat board does.
 - **No project in the link:** after `show board for all`, or from a folder of no project, the board opens on the project that you looked at last in this browser. A name in the address that the board does not show opens that last project too, with a short notice that names it.
@@ -184,9 +238,9 @@ What the archive writes:
 
 ## The Overview
 
-<img alt="The Overview of the board, with SAMPLE DATA: the chief chips under the top bar, Needs you with two items, the Milestones card by priority, and the counts of the last 24 hours." src="../assets/board-dark.png" width="100%">
+<img alt="The Overview of the board, under More, with SAMPLE DATA: the chief chips under the top bar, Needs you with two items, the Milestones card by priority, and the counts of the last 24 hours." src="../assets/board-overview.png" width="100%">
 
-The address of the board opens the Overview. From the top:
+The Overview is under More (`/app/#overview`). It shows one project. From the top:
 
 - **The top bar:** the [picker and the signal](#one-project-at-a-time), then the counts of agents and leads against this project's limits, for example "Agents 8 of 10 · C1 4 · C2 4 · 3 waiting" and "Leads 4 of 5". A count turns amber at its limit, and a click opens the Agents page.
 - **All projects:** with more than one project, "12 in progress in all projects" counts the running agents of every project. The board does not read Claude's total cap of agents for all projects, so it shows no limit for that count.
@@ -350,7 +404,9 @@ A page says "not written yet" while its run runs, "not kept" for a run older tha
 
 <img alt="The question view at the width of a phone, 390 pixels, with SAMPLE DATA: the menu moves above the page, and the answers stack in one column." src="../assets/board-narrow.png" width="40%">
 
-The board is for a desktop window from 1024 px wide. A narrower window still works: below 900 px, the menu moves above the page, and the cards and the answers stack in one column.
+<img alt="All projects at the width of a phone, 390 pixels, with SAMPLE DATA: Needs you first, each row in one column, and the tree of projects at the end of the page." src="../assets/board-phone.png" width="40%">
+
+The board works from a desktop window down to a phone width of 390 px. Below 900 px, the menu moves above the page, and the cards and the answers stack in one column. On the five levels below 760 px, each row takes two lines, the choices are large enough for a finger, and the tree of projects goes to the end of the page, after the work.
 
 In the question view below 900 px, the material goes under the answers; while an item is open, a bar at the bottom of the window keeps "‹ Question", a button for each answer and Send. The bar also shows the result of Send: the answer that the logbook recorded, or the reason that the board refused it.
 
@@ -552,6 +608,17 @@ The server listens on loopback and refuses every request that is not from the Ma
 The sage hook refuses the ordinary command shapes by which an agent reads, copies or replaces the board config or a file of the board's state folder, lists, searches, copies or moves the board's folder (`~/.config/sage-board/`), or runs `board --pair`, and it refuses `board --ensure --link` from an agent. It does not stop a script that builds them while it runs; full protection needs the sandbox.
 
 After you change a setting of the config, or update sage, the line says that a restart is needed: run the `board --stop` command that it gives, then ask for the board again.
+
+### Board links in the chief's messages
+
+The board link check makes sure that a board link in a message of the chief opens when you click it, also after a restart of the Mac, when the board server is not running. It runs in Claude and in Codex, in the sage hook, at the end of each turn of the main session, in any mode. It does not check the messages of agents.
+
+1. The hook finds the links in the message to the board's own address: `http://127.0.0.1:<port>/…` or `http://localhost:<port>/…`, with the port of the board config (43123 by default). A message with no such link costs only this text scan: no network call and no process start.
+2. It opens each such link, at most 5. A link that answers 200 passes. A redirect inside the board (`/` goes to `/app/`) is followed.
+3. When nothing answers on the port, it starts the board once, with the same start as `board --ensure`. Then it waits while the board reads its logbooks (the board answers 503 then). The wait ends after 20 seconds in Claude and after 6 seconds in Codex, because Codex stops a hook after 10 seconds.
+4. When a link still does not answer 200, the hook stops the message once. The chief gets one line that names each bad link, what it answered, and what to do: for example, fix the path of a link that answers 404, or run the `board --ensure` command that the line gives and read its message. The next stop of the chief passes, so the check never stops two messages in a row.
+
+The check never stops a board, never moves the board to another port, and never writes the board config. When the board config does not exist, it starts no board: the line says to run `board --ensure`, which sets the board up. When the hook cannot reach the local network (for example a sandbox), it lets the message pass.
 
 ### Change the board's port
 

@@ -20,7 +20,7 @@ export { chiefEditDenied } from "./file-policy.mjs";
 export { PHRASES, exactPhrase, hasPhrase, phrasesNear, phraseHelp, switchModes, readModeFile, MODE_DAMAGED } from "./mode-policy.mjs";
 export { BRIEF_FIELDS, briefSections, missingBriefFields } from "./brief.mjs";
 export { renderRoleInstructions, renderReportInstructions, renderChiefInstructions, ROLE_PRINCIPLES } from "./roles.mjs";
-export { askingRun, commitIdentity, FINDING_CLASSES, PRIORITIES, PRIORITY_SCALE, startsInSageMode } from "./logbook-fields.mjs";
+export { askingRun, commitIdentity, FINDING_CLASSES, optionsOf, PRIORITIES, PRIORITY_SCALE, startsInSageMode } from "./logbook-fields.mjs";
 export { readActions, readBoardSources, readHookNotes } from "./board-reader.mjs";
 export { buildBoardModel } from "./board-model.mjs";
 export { AGENT_QUIET_MS, agentFlag } from "./agent-flag.mjs";
@@ -32,7 +32,7 @@ export { boardProjectKey, boardView, landingRule } from "./board-view.mjs";
 export { BOARD_PORT, KINDS, LONG_WIDTH, PAGE_MAX, PAGE_TYPES, WIDTH, frameLines, pageBlock, pageType } from "./message.mjs";
 export { PAGE_POLICY, SWITCH_SCRIPT } from "./message-page.mjs";
 export { boardFolder, boardPort, pageFile, pageTaskFolder, PORT_FILE } from "./page-files.mjs";
-export { boardAnswers, boardDownLine, probeBoard } from "./board-probe.mjs";
+export { boardAnswers, boardDownLine, boardLinkStop, probeBoard } from "./board-probe.mjs";
 export { kindOf, messageMiss, pageProblems, renderMessage, textProblems } from "./message-checks.mjs";
 export { parseBoardIntent, boardNote, BOARD_PHRASES } from "./board-intent.mjs";
 

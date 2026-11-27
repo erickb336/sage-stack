@@ -73,7 +73,7 @@ const shoot = async (page, name) => { if (!SHOTS) return; mkdirSync(SHOTS, { rec
 const rowIds = page => page.locator("a.row[data-task]").evaluateAll(list => list.map(row => row.dataset.task.split("/").pop()));
 
 test("T1126 S5: the Merged count opens the tasks merged since then, newest first", async t => {
-  const w = await board(t), { page, problems } = await open(t, w, "/app/");
+  const w = await board(t), { page, problems } = await open(t, w, "/app/#overview");
   const count = Number(await page.locator('[data-count="merged"] .n').textContent());
   await page.locator('[data-count="merged"] a', { hasText: "Merged" }).click();
   await page.locator("main h1", { hasText: "Tasks" }).waitFor();
@@ -93,14 +93,14 @@ test("T1126 S5: the Merged count opens the tasks merged since then, newest first
 });
 
 test("T1126 S17, S18: Tasks opens at its top; a milestone shows only its tasks, and Show all tasks shows the rest again", async t => {
-  const w = await board(t), { page, problems } = await open(t, w, "/app/", { height: 500 });
+  const w = await board(t), { page, problems } = await open(t, w, "/app/#overview", { height: 500 });
   await page.evaluate(() => scrollTo(0, 400));
   await page.locator('nav a[href="#tasks"]').click();
   await page.locator("main h1", { hasText: "Tasks" }).waitFor();
   assert.equal(await page.evaluate(() => scrollY), 0, "S18: a new page opens at its top");
   const groups = await page.locator("section.group").count();
   assert.ok(groups > 1, "Tasks shows every group");
-  await page.goto(`${w.base}/app/`);
+  await page.goto(`${w.base}/app/#overview`);
   await page.locator("main h1", { hasText: "Overview" }).waitFor();
   await page.evaluate(() => scrollTo(0, 300));
   await page.locator(`a[href="#tasks?milestone=${encodeURIComponent(KEY("M1"))}"]`).first().click();
@@ -117,7 +117,7 @@ test("T1126 S17, S18: Tasks opens at its top; a milestone shows only its tasks, 
 test("T1126 S13: an empty board shows one card with the first steps, and no empty lists", async t => {
   const w = await board(t, { empty: true });
   for (const width of [1440, 390]) {
-    const { page, problems } = await open(t, w, "/app/", { width, height: 844 });
+    const { page, problems } = await open(t, w, "/app/#overview", { width, height: 844 });
     await page.locator("h2", { hasText: "Start your first task" }).waitFor();
     assert.deepEqual(await page.locator(".start ol > li > b").allTextContents(), ["Start a chief in the project", "Ask for a change in your words", "Come back here"]);
     assert.equal(await page.locator(".start code").textContent(), "sage mode");
@@ -130,7 +130,7 @@ test("T1126 S13: an empty board shows one card with the first steps, and no empt
 });
 
 test("T1126 S14: on a phone the chiefs fold into one chip, and Needs you starts on the first screen", async t => {
-  const w = await board(t), { page, problems } = await open(t, w, "/app/", { width: 390, height: 844 });
+  const w = await board(t), { page, problems } = await open(t, w, "/app/#overview", { width: 390, height: 844 });
   const top = (await page.locator("#needs-h").boundingBox()).y;
   assert.ok(top < 600, `Needs you starts at ${top} px of 844`);
   const fold = page.locator(".chips .chip.fold");
@@ -206,7 +206,7 @@ test("T1126 S22: the pairing card under the answers covers no answer", async t =
 
 test("T1126 S23: a paired browser stops the board after it confirms; a browser that only reads is told to ask the chief", async t => {
   const w = await board(t);
-  const reader = await open(t, w, "/app/");
+  const reader = await open(t, w, "/app/#overview");
   assert.equal(await reader.page.locator(".side .foot").getByText("Ask the chief to stop the board.").count(), 1);
   assert.equal(await reader.page.getByRole("button", { name: "Stop the board" }).count(), 0, "no Stop control for a browser that only reads");
   const { page, problems } = await open(t, w, `/app/#pair=${startLink(w.stateDir)}`);
@@ -232,7 +232,7 @@ test("T1126 S23: a paired browser stops the board after it confirms; a browser t
 
 test("T1126 F-T1126-9, F-T1126-6: on a phone a paired browser has Stop the board and its question fits the screen; a browser that only reads is told to ask the chief", async t => {
   const w = await board(t), phone = { width: 390, height: 844 };
-  const reader = await open(t, w, "/app/", phone);
+  const reader = await open(t, w, "/app/#overview", phone);
   assert.equal(await reader.page.getByText("Ask the chief to stop the board.").isVisible(), true, "the unpaired line shows on a phone");
   const { page, problems } = await open(t, w, `/app/#pair=${startLink(w.stateDir)}`, phone);
   const stop = page.getByRole("button", { name: "Stop the board" });
@@ -261,7 +261,7 @@ test("T1126 F-T1126-9, F-T1126-6: on a phone a paired browser has Stop the board
 test("T1126 F-T1126-12: a project with a chief and no task shows the first steps, with the chief's step done", async t => {
   const w = await board(t, { noTasks: true });
   for (const width of [1440, 390]) {
-    const { page, problems } = await open(t, w, "/app/", { width, height: 844 });
+    const { page, problems } = await open(t, w, "/app/#overview", { width, height: 844 });
     await page.locator("h2", { hasText: "Start your first task" }).waitFor();
     assert.deepEqual(await page.locator(".start ol > li > b").allTextContents(), ["Start a chief in the project", "Ask for a change in your words", "Come back here"]);
     assert.equal(await page.locator(".start ol > li").first().locator(".hint").textContent(), "Done: a chief works in this project.");
@@ -299,7 +299,7 @@ test("T1126 F-T1126-10: the arena card links the judge's report only when the lo
 test("T1159 F-T1159-45, F-T1159-44: the first steps keep the pairing box, and a Copy that the browser blocks says so", async t => {
   for (const kind of [{ noTasks: true }, { empty: true }]) {
     const w = await board(t, kind);
-    const { page, problems } = await open(t, w, "/app/");
+    const { page, problems } = await open(t, w, "/app/#overview");
     await page.locator("h2", { hasText: "Start your first task" }).waitFor();
     assert.equal(await page.locator("form.pair").count(), 1, `${Object.keys(kind)[0]}: the start card keeps the pairing box, so the browser can pair before the first task`);
     await page.evaluate(() => { navigator.clipboard.writeText = () => Promise.reject(new Error("sample: blocked")); });
@@ -318,14 +318,14 @@ test("T1159 F-T1159-13: a damaged board-seen value in the browser shows the last
   await context.addInitScript(() => { localStorage.setItem("board-seen", "sample garbage"); sessionStorage.setItem("board-seen", "not a time"); });
   await context.route("**/*", route => route.request().url().startsWith(`${w.base}/`) ? route.continue() : route.abort());
   const page = await context.newPage();
-  await page.goto(`${w.base}/app/`);
+  await page.goto(`${w.base}/app/#overview`);
   await page.locator("#counts-h").waitFor();
   assert.equal(await page.locator("#counts-h").textContent(), "In the last 24 hours");
 });
 
 test("T1159 F-T1159-41, F-T1159-43: Back to the Overview from a page that a link or the page list opened returns to the same scroll place and link", async t => {
   const w = await board(t);
-  const { page } = await open(t, w, "/app/", { width: 1440, height: 500 });
+  const { page } = await open(t, w, "/app/#overview", { width: 1440, height: 500 });
   await page.locator(".ms .name a").first().waitFor();
   for (const go of [() => page.locator(".ms .name a").first().click(), () => page.locator(".nav a", { hasText: "Tasks" }).click()]) {
     await page.evaluate(() => scrollTo(0, 260));

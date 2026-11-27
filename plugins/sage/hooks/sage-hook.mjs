@@ -33,6 +33,7 @@ const LEAD_CHILDREN = new Set(["sage:implementer", "sage:code-reviewer", "sage:s
 const LEAD_HELPERS = 9;
 const WAIT = join(ROOT, "hooks/wait.mjs");
 const WAIT_MS = 9 * 60_000;
+const BOARD_LINK_WAIT_MS = 20_000;
 const waitStep = (task) => `${nodeCommand(WAIT, task ?? "<T>")} in the project's folder, as a Bash command of its own with the timeout 600000`;
 const slotStep = (runs, background) => `${nodeCommand(WAIT, ["--slot", ...runs].join(" "))} in the project's folder, as a Bash command of its own ${background ? "in the background (run_in_background true)" : "with the timeout 600000"}`;
 const SHELL_TOOLS = /^(?:Bash|Monitor|PowerShell|mcp__terminal__.+)$/;
@@ -1616,8 +1617,10 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
       renameSync(tmp, file);
     };
     const before = JSON.stringify(state);
-    const output = handle(input, state, slotsFor(join(stateDir(), "slots"), session, Date.now(), input.session_id ?? null));
+    let output = handle(input, state, slotsFor(join(stateDir(), "slots"), session, Date.now(), input.session_id ?? null));
     if (JSON.stringify(state) !== before) keep();
+    const linked = await core.boardLinkStop?.(input, { budgetMs: BOARD_LINK_WAIT_MS });
+    if (linked) output = { ...output, decision: "block", reason: [output?.reason, linked.reason].filter(Boolean).join("\n\n") };
     if (output) process.stdout.write(JSON.stringify(output));
     beat(input, state, session);
   } catch (e) {

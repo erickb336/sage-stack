@@ -66,9 +66,11 @@ The stable installation copies only board and core sources, and the licence file
 
 ## The board in the browser
 
-The board is a React app at `/app/` on the server: open `http://127.0.0.1:43123/` (or the port of your config) in a desktop browser, and the server sends you to `/app/`. It needs scripts. A browser with scripts off gets one line that points to the chat board, which needs none. The [board guide](../../docs/guide/board.md) shows each page with a screenshot: Overview, Tasks, the task page, Agents, Pull requests, the question view and the reader.
+The board is a React app at `/app/` on the server: open `http://127.0.0.1:43123/` (or the port of your config) in a desktop browser, and the server sends you to `/app/`. It needs scripts. A browser with scripts off gets one line that points to the chat board, which needs none. The [board guide](../../docs/guide/board.md) shows each page with a screenshot: the five levels, the Overview, Tasks, the task page, Agents, Pull requests, the question view and the reader.
 
-The Overview has:
+The address opens All projects, the first of five levels in one layout: All projects, Project, Milestone, Task and Run (`app/levels.jsx` and `app/run.jsx`). A level reads the levels model of the stream; the task and the run levels read their task per request from `/app/task/<key>`, and the run its log from `/api/actions/R<n>`. A question with fixed choices answers on its Needs you row through the same `POST /api/answer` as the question view.
+
+The Overview, under More at `/app/#overview`, has:
 
 - **The chiefs:** a chip for each chief of each shared project, with live, waits for you, stopped or not known, and the autopilot state. A click shows only that chief's work, on each page.
 - **Needs you:** each open question, oldest first, with its chief, its task, its recommendation and when it was asked. A click opens the question with the message that the chief kept for it (`gates/G<n>.json`).
@@ -163,4 +165,4 @@ Limits of the pages route:
 - On macOS, the board opens a page with no link in any folder of its path (`O_NOFOLLOW_ANY`). Other systems have no such flag, so there a folder that flips between a link and a folder during the board's checks can pass them.
 - The folder of the pages comes from `SAGE_WORKTREES`, or else `~/sage-worktrees`. A board that launchd starts gets no `SAGE_WORKTREES` from your shell, so it shows the pages under `~/sage-worktrees` only.
 
-Local tests exercise the access check, file updates, the app's routes and stream, reconnects and stable installation. Browser tests walk each of the board's seven jobs from the Overview (`scripts/board-jobs-browser.test.mjs`). Login startup still needs a direct check.
+Local tests exercise the access check, file updates, the app's routes and stream, reconnects and stable installation. Browser tests walk each of the owner's jobs from All projects, at 1440 px and 390 px (`scripts/board-jobs-browser.test.mjs`), and each level's states and the answers on a row (`scripts/board-levels-browser.test.mjs`). Login startup still needs a direct check.

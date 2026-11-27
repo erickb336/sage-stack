@@ -22,7 +22,7 @@ function fixture(t) {
 test("every browser test checks the shared prerequisite before it can start a board", () => {
   const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   const files = pkg.scripts["test:browser"].split(/\s+/).filter(word => word.endsWith("-browser.test.mjs"));
-  assert.equal(files.length, 14);
+  assert.equal(files.length, 15);
   for (const file of files) {
     const source = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
     assert.ok(/const chromium = requireBrowser\(\);/.test(source), file);
