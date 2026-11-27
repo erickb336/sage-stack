@@ -13,7 +13,7 @@ const gitThen = (text, word) => new RegExp(`\\b${word}\\b`, "i").test(/\bgit\b([
 const quoted = (name) => `"${[...String(name).replace(/(?! )[\p{Cc}\p{Cf}\p{Z}"'`‘-‟＂]/gu, "")].slice(0, 60).join("")}"`;
 const from = (cwd, path) => (isAbsolute(path) ? path : `${cwd}/${path}`);
 
-const NO_STASH = "an agent never runs git stash: every worktree of a repo shares one stash list, so another agent can pop or drop your work (standing order 16). To test old code, use git worktree add --detach <scratch> <sha>, or git show <sha>:<path> into your scratch folder.";
+const NO_STASH = "an agent never runs git stash: every worktree of a repo shares one stash list, so another agent can pop or drop your work. To test old code, use git worktree add --detach <scratch> <sha>, or git show <sha>:<path> into your scratch folder.";
 const LOOKS = "ps|pgrep|lsof";
 const UNIX_PROCESS = "pkill|kill|killall|top|htop|fuser|pidof|kill-port|fkill|launchctl";
 const POWERSHELL_PROCESS = "get-process|stop-process|gps|spps";

@@ -568,9 +568,9 @@ test("T1210: an agent may run the state tool's task read in Claude; a task write
   }
 });
 
-const AGENT_READS = ["help", "--help", "help --chief C1", "finding show T12 F-T12-1", "pages T12", "log T12", "log -", "log T12 --chief C2", "status", "standing", "logbook", "merge-check --sha a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"];
+const AGENT_READS = ["help", "--help", "help --chief C1", "finding show T12 F-T12-1", "pages T12", "log T12", "log -", "log T12 --chief C2", "status", "standing", "standing --all", "logbook", "merge-check --sha a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"];
 const AGENT_WRITES = ["pages T12 record /tmp/x/page.md", "pages T12 --run R1 --text x", "finding add T12 --source qa --severity low --summary x", "finding triage T12 F-T12-1 fix", "finding show T12",
-  "finding show T12 F-T12-1 --why x", "log T12 decided --why x", "log T12 --why x", "task T12 --why x", "task T12 set state=abandoned", "standing add x", "logbook repair --accept-loss runs"];
+  "finding show T12 F-T12-1 --why x", "log T12 decided --why x", "log T12 --why x", "task T12 --why x", "task T12 set state=abandoned", "standing add x", "standing retire 4 --why x", "standing chief 4", "logbook repair --accept-loss runs"];
 test("T1233: an agent may run help, finding show, pages <T> and log <T> in both providers, from one shared list in core; write forms, and task or log with a write-making option (F-T1233-1), stay refused in both", async (t) => {
   const { claudeTool, claude, codex } = await toolChecks(t);
   for (const rest of AGENT_READS) {
@@ -839,7 +839,7 @@ test("T936: git push origin HEAD is refused in both providers, and the refusal n
 test("T931: a sage child, and every child in sage mode, runs no git stash and no real process program; the chief is not held", async (t) => {
   const thread = (path) => ({ ...CHILD, transcript_path: record(t, { id: "child", session_id: base.session_id, agent_path: path, source: { subagent: { thread_spawn: { depth: 1 } } } }) });
   const sageChild = thread("/root/sage_implementer_t1_r1"), worker = thread("/root/worker_1");
-  const STASH = "sage: an agent never runs git stash: every worktree of a repo shares one stash list, so another agent can pop or drop your work (standing order 16). To test old code, use git worktree add --detach <scratch> <sha>, or git show <sha>:<path> into your scratch folder";
+  const STASH = "sage: an agent never runs git stash: every worktree of a repo shares one stash list, so another agent can pop or drop your work. To test old code, use git worktree add --detach <scratch> <sha>, or git show <sha>:<path> into your scratch folder";
   for (const sage of [true, false]) {
     const g = fixed({ sage });
     assert.equal(denied(await g.run(pre("Bash", "git stash", sageChild))), STASH, `sage mode ${sage}: a sage child`);

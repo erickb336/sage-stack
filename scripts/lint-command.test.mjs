@@ -1,7 +1,7 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -25,7 +25,7 @@ const CONFIG = "ruleDirs: [lint/rules]\nutilDirs: [lint/utils]\n";
 const RULE_FILES = Object.fromEntries(["rules", "utils"].flatMap((part) => readdirSync(join(RULE_SET, part)).map((name) => [`lint/${part}/${name}`, readFileSync(join(RULE_SET, part, name), "utf8")])));
 const rule = (id, severity, kind = "comment") => `id: ${id}\nlanguage: JavaScript\nseverity: ${severity}\nmessage: ${id}\nrule: { kind: ${kind} }\n`;
 
-function project({ config = true, binary = "project" } = {}) {
+function project({ config = true, binary = "tools" } = {}) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "sage-lint-command-")));
   const folder = join(dir, "project");
   mkdirSync(folder);
@@ -75,7 +75,6 @@ function project({ config = true, binary = "project" } = {}) {
     mkdirSync(where, { recursive: true });
     symlinkSync(path, join(where, "ast-grep"));
   };
-  if (binary === "project") place(join(folder, "node_modules", ".bin"), AST_GREP);
   if (binary === "tools") place(tools, AST_GREP);
   const lints = () => readFileSync(join(logbook, "ledger.tsv"), "utf8").split("\n").filter((row) => /\tlint-(pass|fail)\t/.test(row)).map((row) => row.split("\t").slice(0, 4).join(" "));
   return { folder, base, git, commit, sage, sageAt, ok, onMain, lints, place, tools, env };
@@ -183,19 +182,25 @@ test("a .ignore file at the head hides no changed file from the scan", () => {
   assert.deepEqual(problems(lint(p, sha)), [`c.js:1: ${MESSAGE} (no-comments-js, error)`]);
 });
 
-test("lint finds ast-grep in the project's node_modules only at the pinned version, then in sage's tools folder; with neither, it refuses with the install command and writes no verdict", () => {
+test("F-T1241-40: lint never starts an ast-grep in the project's node_modules, which a sandboxed command can write, also at the pinned version; it runs only sage's tools folder's copy at the pin, and with none it refuses with the install command and writes no verdict", () => {
   const p = project({ binary: "none" });
   const sha = p.commit({ "c.js": "f();\n" });
-  const fake = join(dirname(p.folder), "old-ast-grep");
-  writeFileSync(fake, `#!/bin/sh\necho 'ast-grep ${STALE}'\n`, { mode: 0o755 });
-  p.place(join(p.folder, "node_modules", ".bin"), fake);
+  const ran = join(dirname(p.folder), "planted-ran"), planted = join(dirname(p.folder), "planted-ast-grep");
+  writeFileSync(planted, `#!/bin/sh\ntouch '${ran}'\necho 'ast-grep ${AST_GREP_VERSION}'\n`, { mode: 0o755 });
+  p.place(join(p.folder, "node_modules", ".bin"), planted);
+  const stale = join(dirname(p.folder), "old-ast-grep");
+  writeFileSync(stale, `#!/bin/sh\necho 'ast-grep ${STALE}'\n`, { mode: 0o755 });
+  p.place(p.tools, stale);
   const r = p.sage("lint", "T1", "--sha", sha);
+  assert.equal(existsSync(ran), false, "the project's copy never runs, not even for --version");
   assert.equal(r.status, 1);
-  assert.match(r.stderr.trim(), new RegExp(`ast-grep ${AST_GREP_VERSION.replaceAll(".", "\\.")} is not in .* or in sage's tools folder .*, so lint cannot run, and it writes no verdict\\. With the owner's yes, install it in the tools folder from the lockfile that sage pins: npm ci --ignore-scripts --prefix ${p.tools.slice(0, -"/node_modules/.bin".length)}$`));
+  assert.match(r.stderr.trim(), new RegExp(`ast-grep ${AST_GREP_VERSION.replaceAll(".", "\\.")} is not in sage's tools folder .*, so lint cannot run, and it writes no verdict\\. With the owner's yes, install it in the tools folder from the lockfile that sage pins: npm ci --ignore-scripts --prefix ${p.tools.slice(0, -"/node_modules/.bin".length)}$`), "a stale copy in the tools folder does not count");
   for (const name of ["package.json", "package-lock.json"]) assert.equal(readFileSync(join(p.tools, "..", "..", name), "utf8"), readFileSync(join(RULE_SET, "tools", name), "utf8"), `the tools folder gets the pinned ${name}, so npm ci installs only the pin`);
   assert.deepEqual(p.lints(), []);
+  rmSync(join(p.tools, "ast-grep"));
   p.place(p.tools, AST_GREP);
   assert.match(lint(p, sha), /^T1 lint-pass /, "the tools folder's ast-grep runs");
+  assert.equal(existsSync(ran), false);
 });
 
 test("a repository whose origin/main has no sgconfig.yml gets a note and no lint verdict, and its merge check needs none", () => {

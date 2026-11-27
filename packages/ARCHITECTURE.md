@@ -66,6 +66,12 @@ push rule, the logbook-write rule, the agent `gh` list, the stash, process and
 board config rules, the edit rules of the chief and of the read-only roles,
 and the mode phrases. Both providers call them.
 
+The sandbox reader (`sandbox-state.mjs`) reads the sandbox keys of Claude Code's
+settings and of Codex's `config.toml`, kept as data. It names no host
+configuration path: each provider passes the places of the files
+(`sandboxPlaces`), and both providers pass the same places, so that the status
+command shows both providers from either plugin. It never writes those files.
+
 The shared command policy takes a trusted state-tool path from each provider.
 A recognized merge is only a candidate; mode, role and ledger checks still decide
 whether it can run. An omitted path grants no state-tool text exception.

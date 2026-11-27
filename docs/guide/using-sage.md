@@ -365,6 +365,23 @@ A release is a version that you ship, such as 1.0. It holds milestones and singl
 
 `status` shows one line for each release, in the order that you added them: its state (not started, in progress, done or stopped) and how many of its tasks are done. For example: `release 1.0 · in progress · 1 of 10 tasks done · milestones M5 · single tasks T993, T996`. The board does not show releases yet, and the full rules are in [Rules held in code](../design/rules-in-code.md#waits-and-milestones).
 
+## Standing orders
+
+The standing orders are short rules for a project that every agent reads before it starts. Each order has a number that never changes.
+
+To make the agents read less, the chief retires an order that is replaced or done, and marks an order that only the chief needs. Ask the chief in your own words, for example "retire order 12, order 40 replaces it".
+
+| Command | Who runs it | What happens |
+| --- | --- | --- |
+| `sage standing` | Each agent, before it starts: its brief points to this command. | Prints the orders in force for agents. Retired orders and orders for the chief only stay out, and the last line counts them. |
+| `sage standing --chief C<n>` | The chief. | Also prints the orders for the chief only, each marked `[chief only]`. Retired orders stay out. |
+| `sage standing --all` | Anyone. | Prints every order, also each retired one, marked `[retired <date>: <reason>]`. |
+| `sage standing add "<order>"` | The chief. | Adds an order with the next new number. A retired number is never used again. |
+| `sage standing retire <n> --why "<reason>"` | The chief. | Retires the order. Its text, the reason and the date stay in the file. A missing or retired number is refused. |
+| `sage standing chief <n>` | The chief. | Marks the order for the chief only. A missing or retired number is refused. |
+
+An agent's or a lead's retire or mark is refused. Neither command has an undo: to bring an order back, the chief adds it again with a new number. A Codex chief reads with the CLI forms above; the retire and the mark have no Codex tool yet.
+
 ## Start every session in sage mode
 
 By default, each new session starts with sage mode off. To make every new session of a project start in sage mode, ask the chief to set the project's start setting. It runs:
@@ -398,6 +415,95 @@ sage config commit_email=12345+name@users.noreply.github.com commit_name="Your N
 - In Claude and Codex, the hook then refuses an agent's `git commit`, `merge`, `pull`, `cherry-pick`, `revert`, `am`, `rebase` or `commit-tree` without that identity before the subcommand: `git -c user.name='Your Name' -c user.email=12345+name@users.noreply.github.com commit ...`. The refusal prints this form with the project's values.
 - Without the setting, the hook checks no commit identity. `commit_email=` alone removes it.
 - The chief's own commits, a git alias and an identity from an exported variable are not checked.
+
+## Turn on the sandbox
+
+Claude Code's sandbox is a boundary of the operating system around each Bash command of a session and of its agents. Inside it, a command writes only in the folders that the sandbox allows, also when the hook cannot read the command.
+
+A plugin cannot turn it on: you set it in your settings file, and the agents of the session get the same sandbox ([Claude Code: Sandboxing](https://code.claude.com/docs/en/sandboxing.md)). For Codex, see [Turn on the sandbox in Codex](codex.md#turn-on-the-sandbox).
+
+sage reads your settings and tells you the state of the sandbox. The hook keeps all its rules in this version, also with the sandbox on.
+
+You need Claude Code v2.1.285 or later. Before v2.1.285, a project's `"allowUnsandboxedCommands": true` won over the `false` in your own settings file ([Claude Code: Sandboxing](https://code.claude.com/docs/en/sandboxing.md#the-unsandboxed-retry-escape-hatch)).
+
+1. Open `~/.claude/settings.json` (or `settings.json` in the folder that `CLAUDE_CONFIG_DIR` names). Make the file if it does not exist.
+2. Add the keys of this block to it. If the file has a `permissions.allow` list already, add the one entry to that list, and keep the other keys of the file.
+
+   ```json
+   {
+     "permissions": {
+       "allow": ["WebFetch(domain:*)"]
+     },
+     "sandbox": {
+       "enabled": true,
+       "failIfUnavailable": true,
+       "allowUnsandboxedCommands": false,
+       "autoAllowBashIfSandboxed": true,
+       "excludedCommands": [
+         "gh *",
+         "node /Users/YOU/.claude/plugins/cache/sage/sage/VERSION/skills/sage/sage.mjs *",
+         "node /Users/YOU/.claude/plugins/cache/sage/sage/VERSION/board/cli.mjs board *"
+       ],
+       "filesystem": {
+         "allowWrite": ["~/sage-worktrees", "/tmp", "/private/tmp"],
+         "denyRead": ["~/.config/sage-board"]
+       }
+     }
+   }
+   ```
+
+3. Replace the 3 lines of `excludedCommands` with the 3 lines that `sage sandbox entries` prints: ask the chief "what are the sandbox entries?". The two `node` lines name the sage plugin's folder in full, with its version, because Claude Code compares the text of a command as written.
+4. Start a new session.
+5. Check it: ask the chief "is the sandbox on?", and the chief runs `sage sandbox`. In Terminal, in the project's folder, you can also run `node <the sage plugin's folder>/skills/sage/sage.mjs sandbox`. The Claude Code line must say `on, fails closed` and `missing: none`.
+6. After each sage update, do step 3 again: the plugin's folder name changes with the version. Until you do, the Claude Code line says `on, but may run unsandboxed` and names the two `node` lines as missing, with `run sage sandbox entries again`.
+
+What each line does:
+
+| Line | What it does |
+| --- | --- |
+| `"WebFetch(domain:*)"` in `permissions.allow` | Lets a sandboxed command reach any host, so the network stays open as before. It also lets the WebFetch tool fetch any page with no prompt. Needs Claude Code v2.1.186 or later. |
+| `"enabled": true` | Runs each Bash command of every session and its agents in the sandbox. |
+| `"failIfUnavailable": true` | When the sandbox cannot start, Claude Code stops with an error. Without it, commands run with no sandbox, and nothing tells sage. |
+| `"allowUnsandboxedCommands": false` | Claude cannot run a blocked command again outside the sandbox. |
+| `"autoAllowBashIfSandboxed": true` | A sandboxed command runs with no permission prompt. Your ask and deny rules still apply. |
+| `"excludedCommands"` | These commands run outside the sandbox, with your full access: `gh` (it needs your login and the network), the state tool (it writes the logbook, which the sandbox keeps closed) and the board start (it reads its own config). They still go through your permission rules. |
+| `"allowWrite"` | Lets commands write in the sage worktrees folder (the task worktrees and the pages) and in `/tmp`. On macOS, `/tmp` is a link to `/private/tmp`, so the list names both. The project's folder and Claude's own temp folder are writable without a line. |
+| `"denyRead"` | Keeps sandboxed commands out of the board's config folder, which holds the board's pairing data. |
+
+**Excluded commands are not a boundary.** Claude Code says so itself: "Exclusion is a convenience, not a security boundary" ([Claude Code: settings](https://code.claude.com/docs/en/settings-reference.md#sandbox-excludedcommands)).
+
+- A command that matches an entry runs outside the sandbox, with your full access.
+- So the two `node` entries name the exact files of the installed plugin, which a sandboxed command cannot change. They have no `*` before the last one, because a `*` matches any text, also a path such as `../../my-script`.
+- The state tool starts no program from a folder that a sandboxed command can write: `sage lint` runs ast-grep only from sage's tools folder, never from the project's `node_modules`. It starts `git`, `gh` and `ps` by name, and the entries start `node` by name, so keep each folder of your `PATH` out of the folders that a sandboxed command can write.
+- `gh *` is a known gap: `gh` can run a command that you or an agent set up earlier, for example with `gh alias set --shell`, and that command runs outside the sandbox too.
+
+**Git metadata is a known gap.** Inside the project's `.git` folder, Claude Code's sandbox keeps only `hooks` and `config` read-only ([Claude Code: Sandboxing](https://code.claude.com/docs/en/sandboxing.md#protected-paths)).
+
+- So a sandboxed command can write the rest of `.git`. For example, it can write `.git/commondir`, which sends git to another folder for its config and hooks, and put a config there that names a program in `core.fsmonitor` or `core.hooksPath`. It can also change a submodule's config and hooks in `.git/modules`, a config file that another config includes, or the `.git` file of a worktree in `~/sage-worktrees`.
+- The sandbox does not run that program. The next git command that runs outside the sandbox runs it, with your full access: your own git, or the git that `gh` or the state tool runs.
+- sage cannot see such a write. The `sage sandbox` line names the gap (`known gap: git metadata`) while the sandbox is on.
+- No line of this setup closes it in Claude Code. An agent that follows its brief does not write these files: like the `gh` gap, it needs an agent that acts against its brief on purpose.
+
+The states of the `sage sandbox` line:
+
+| State | What it means |
+| --- | --- |
+| `on, fails closed` | The sandbox is on, Claude Code stops when it cannot start, and no command can run again outside it. Only the excluded commands of the guide run outside, and git metadata stays a known gap. |
+| `on, but may run unsandboxed` | The sandbox is on, but a command can run outside it: `failIfUnavailable` is not `true`, `allowUnsandboxedCommands` is not `false`, a settings file excludes a command that is not one of the guide's 3 lines (a `node` line counts only when it names the folder of the sage plugin that runs `sage sandbox`, so the line of an old version or of another plugin does not), or a settings file sets a key that opens the sandbox (`allowAppleEvents`, `allowNestedUserNamespaces`, `enableWeakerNestedSandbox`, `enableWeakerNetworkIsolation`, or under `network`: `allowAllUnixSockets`, `allowUnixSockets`, `allowMachLookup`, `allowLocalBinding`, `httpProxyPort`, `socksProxyPort`). The line names each file, and each entry by its place in the list (`excludedCommands entry 2`), not by its text, because an entry can hold a token. |
+| `off` | The sandbox is off, or its file part is off (`sandbox.filesystem.disabled`). |
+| `strict rules` | sage cannot confirm the sandbox: a settings file cannot be read or is not valid JSON, a key has a wrong type, or a path in a list has a `$`, a `~name` or nothing in it. The line names the file. The hook keeps all its rules. |
+
+The line also gives the folders that a command may write, the network, the count of the guide's excluded commands, the known gap of git metadata, and what is missing from the block above. It prints a path in your home folder with `~`, the temp folder as `$TMPDIR`, and a path in a folder that `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `SAGE_WORKTREES` or `SAGE_HOME` names by that name. It prints no value of your environment, and it changes no file.
+
+- **What sage reads:** `~/.claude/settings.json`, the project's `.claude/settings.json` and `.claude/settings.local.json` (also the one in the main checkout, for a worktree), and the managed settings file (`/Library/Application Support/ClaudeCode/managed-settings.json` on macOS). Claude Code merges the `excludedCommands` of all these files, so sage checks each one. Claude Code's hook input has no field for the sandbox, so sage reads the files only.
+- **What sage cannot see:** a `--settings` option, the settings that your organization sends from the admin console or by a device profile. A `managed-settings.d` folder gives `strict rules`.
+- **From Codex:** the Codex plugin does not know the folder of the Claude Code plugin. So in its `sage sandbox`, the Claude Code line reads the two `node` lines as `on, but may run unsandboxed`. Check the Claude Code line in a Claude Code session.
+- **To undo it:** set `"enabled": false` in the `sandbox` block, or remove the block and the `WebFetch(domain:*)` entry. Then start a new session.
+
+| Command | Does |
+| --- | --- |
+| `sage sandbox` | Prints one line for Claude Code and one for Codex: the state of the sandbox, the folders that a command may write, the network, the known gap of git metadata and what is missing. It reads the settings files only and changes nothing. The chief runs it when you ask, and you can run it in Terminal. |
+| `sage sandbox entries` | Prints the 3 lines of `excludedCommands` for this machine: `gh *`, and the state tool and the board start with the full path of the installed sage plugin. Only the Claude Code plugin prints them. It changes nothing. |
 
 ## Docs-only pull requests
 
@@ -454,7 +560,7 @@ A repository without `sgconfig.yml` at the root of `origin/main` gets no lint ve
 
 When a YAML file in a rule folder of `origin/main` has more than 10 MiB, lint refuses, names the file and records no verdict.
 
-The check needs ast-grep 0.51.1 in the project's `node_modules/.bin`, or in sage's tools folder. When it finds neither, it refuses.
+The check needs ast-grep 0.51.1 in sage's tools folder. When it does not find it there, it refuses. It never runs a copy in the project's `node_modules`: a command in the sandbox can write that folder, and the state tool runs outside the sandbox.
 
 It then puts sage's pinned lockfile in the tools folder and prints the command that installs from it: `npm ci --ignore-scripts --prefix <tools folder>`. The chief runs it only with your yes.
 
@@ -464,7 +570,7 @@ sage offers its no-comments rules to a repository with no `sgconfig.yml` at the 
 
 | Your answer | What happens |
 | --- | --- |
-| add the rules (recommended) | The chief frames one small task, whose brief lists the repository's languages (from the files of `origin/main`, by extension) and the linter settings that require comments. The task adds a root `sgconfig.yml`, a rule with rule tests for each of those languages only, and turns those settings off, in a pull request. The same yes installs ast-grep 0.51.1 in sage's tools folder from sage's lockfile, when the project has no copy. |
+| add the rules (recommended) | The chief frames one small task, whose brief lists the repository's languages (from the files of `origin/main`, by extension) and the linter settings that require comments. The task adds a root `sgconfig.yml`, a rule with rule tests for each of those languages only, and turns those settings off, in a pull request. The same yes installs ast-grep 0.51.1 in sage's tools folder from sage's lockfile, when the tools folder has no copy. |
 | not now (the default) | Nothing changes. The offer comes back with a lint 30 days after the gate opened. |
 | never for this project | sage records `lint_offer=never` in the project's config, and the offer does not come back. `sage config lint_offer=ask` brings it back. |
 
@@ -668,7 +774,7 @@ A moved folder with no Git commits, or that is no Git repository, has no first c
 | --- | --- |
 | The owning chief | Its own task: `task <T> set`, `round`, `run add`, `run done`, `finding add`, `triage`, `close`, `move`, `verdict`, `gate add <T>`, `milestone propose` for its pilot and each of its tasks, `log <T>` and `unclaim`. |
 | A lead | What the chief of its lead run may write, on the task of that run only, while that run runs. |
-| Any chief | `task add`, `pickup`, `gate add` with no task, `gate replace`, `init`, `standing add`, `config`, `log -`, `pages <T> record`, `observe`, `run usage`, `release add` and `milestone <M> set release=`. |
+| Any chief | `task add`, `pickup`, `gate add` with no task, `gate replace`, `init`, `standing add`, `standing retire`, `standing chief`, `config`, `log -`, `pages <T> record`, `observe`, `run usage`, `release add` and `milestone <M> set release=`. |
 | You | `gate answer`, in your own words, from either provider, `gate undo`, `gate give`, each form of `logbook repair` (`--accept-loss`, `--accept-change-loss`, or both), `projects rebuild` and `chief name`: each is your act and names no chief, so the line that sage prints works in your terminal. |
 | A stop hook | The report and the end of the run of its own slot, so no report is lost. |
 | A push hook | After a push of a task's branch, in either provider: the `files` record of each open task on that branch, as `observe <T> files` writes it (the paths that the branch changes against origin/main, at most 500). A failure never stops the push. The board model marks two open tasks of different chiefs that change one file as "may conflict": a warning, never a wait. |
