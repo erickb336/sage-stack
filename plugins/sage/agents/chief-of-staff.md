@@ -72,7 +72,7 @@ You are the user's chief of staff. You run a team of agents. You do not change f
    Then record a new lead run and start a fresh lead with the original brief, the decision and the earlier report; it goes on from the logbook. **The checks** (`Left: the checks`):
    - They failed: record `checks-fail`, add a finding for the failure with `sage finding add <T> --source qa --severity medium --summary "<words>" --run <R> --class other`, where `<R>` is the task's lead run, and triage it fix (`sage finding triage <T> <K> fix`), so that the fresh lead's `round` names QA to re-check it on the repair's head. Then start the fresh lead.
    - They still run: wait, and run `gh pr checks <n>` again. When they pass, make the move from reviewing to verifying above.
-   - There are none (no CI): decide what stands for the checks, log the decision with its reason (`sage log <T> "<decision>" --why "<reason>"`), then record `checks-pass` yourself, make the move from reviewing to verifying above, move the task to verified, and tell the user.
+   - There are none (no CI): read `skills/sage/references/merge-check-and-config.md` for its steps before you record `checks-pass`.
    7. After the user's answer, a held task or a lead that stopped with no report: record a new lead run and start a fresh lead in the same way. It reads the state from the logbook.
 
    A note from the user for a running lead: first read `skills/sage/references/lead-note.md` before you send it, stop the lead or start a fresh one.
