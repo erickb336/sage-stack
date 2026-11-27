@@ -7,7 +7,6 @@ import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { hostname, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { test as nodeTest } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { NEAR_NOTE, PHRASE_CASES, S, S_ON } from "./fixtures/mode-cases.mjs";
 import { keepReport } from "../plugins/sage/skills/sage/sage.mjs";
@@ -16,6 +15,7 @@ import { REPORT_FIELDS } from "../packages/sage-core/report.mjs";
 import { readReport } from "../packages/sage-core/report-reader.mjs";
 import { QUESTION } from "./fixtures/question-message.mjs";
 import { chiefPlaces } from "./fixtures/chief-places.mjs";
+import { splitTest } from "./test-split.mjs";
 
 const CALL_MS = 60_000;
 const bounded = (options = {}) => ({ timeout: CALL_MS, killSignal: "SIGKILL", ...options });
@@ -37,10 +37,8 @@ function appendRows(dir, table, rows) {
 const SHA = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
 const BRIEF = ["GOAL fix it", "SCOPE src/", "CONTEXT none", "DECISIONS none", "ACCEPTANCE it works", "VERIFY npm test", "BUDGET 20 turns", "FORBIDDEN no merge", "REPORT the usual", "STANDING 1. work in your worktree"].join("\n");
 
-const PARTS = 6;
-const part = globalThis.SAGE_HOOK_PART;
-let count = 0;
-const test = (name, fn) => (part === undefined || count++ % PARTS === part - 1 ? nodeTest(name, { timeout: 300_000 }, fn) : undefined);
+const PARTS = 20;
+const test = splitTest(PARTS, globalThis.SAGE_HOOK_PART, { timeout: 300_000 });
 function session(env = {}) {
   const dir = mkdtempSync(join(tmpdir(), "sage-hook-"));
   const vars = { ...process.env, PATH: `${FAKE_GH}:${process.env.PATH}`, HOME: join(dir, "fake-home"), SAGE_HOOKS_STATE: join(dir, "state"), SAGE_HOME: join(dir, "home"), ...env };
