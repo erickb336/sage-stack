@@ -4,6 +4,7 @@ export { DESIGNS_FOLDER } from "./design-copy.mjs";
 export { writerClass } from "./chiefs.mjs";
 export { chiefBeat, chiefEnd, chiefResume, clearLink, clearNote, readLiveRecord, sessionState, sessionsLine } from "./chief-live.mjs";
 export { readLocalGit } from "./local-git.mjs";
+export { sandboxLine, sandboxState, sandboxStatus } from "./sandbox-state.mjs";
 export { KEPT_FILE_MAX, agentCaps } from "./logbook-fields.mjs";
 export { checkoutContains, resolveCheckoutPath, verifiedCheckout } from "./checkout-path.mjs";
 export { shellCommands, programsRun, commandText } from "./command-reader.mjs";

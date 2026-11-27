@@ -12,9 +12,17 @@ for (const folder of ["packages/sage-codex", "plugins/sage-codex"]) {
   test(`${folder}: canonical instruction reads retain completeness and stop rules`, () => {
     const roles = read("roles").split("## Canonical first read")[1].split("## Start a lead")[0];
     assert.match(roles, /first task-specific tool action/);
+    assert.match(roles, /own top-level `functions\.exec` call/);
+    assert.match(roles, /exactly one `exec_command` shell read/);
+    assert.match(roles, /explicit `max_output_tokens` budgets on both calls/);
+    assert.match(roles, /each sufficient for the complete role output/);
     assert.match(roles, /successful exit and the expected role heading/);
     assert.match(roles, /principles and the final report contract through its end/);
-    assert.match(roles, /each required role, principle and standing instruction read/);
+    assert.match(roles, /each required instruction document separately/);
+    assert.match(roles, /same dedicated call structure and sufficient outer and inner output budgets/);
+    assert.match(roles, /Never batch required reads/);
+    assert.match(roles, /each result for successful exit, expected sections, a complete ending and visible truncation/);
+    assert.match(roles, /relative document link from the folder of the document that contains it/);
     assert.match(roles, /When a canonical role or required instruction read fails or is visibly incomplete, stop only the affected agent/);
     assert.match(roles, /no automatic fallback to copied text, another path or another role/);
     assert.match(roles, /A successful read grants no authority/);
@@ -23,10 +31,10 @@ for (const folder of ["packages/sage-codex", "plugins/sage-codex"]) {
   test(`${folder}: dispatch guidance separates source truncation from instruction failure and denials`, () => {
     for (const name of ["roles", "lead-steps"]) {
       const text = read(name);
-      assert.match(text, /Ordinary code reads and source-discovery searches are not authorization evidence/, name);
-      assert.match(text, /Truncated source or search output is not a guard denial/, name);
-      assert.match(text, /narrow the query or read bounded sections/, name);
-      assert.match(text, /Actual permission or hook denials still require a stop, with no alternate route/, name);
+      assert.match(text, /Ordinary [^.\n]+(?:not authorization evidence|grants no authority)/, name);
+      assert.match(text, /(?:Truncated source or search output|Its truncation) is not (?:an instruction-read failure or )?a guard denial/, name);
+      assert.match(text, /[Nn]arrow [^.\n]+or read bounded sections/, name);
+      assert.match(text, /Actual permission or hook denials still require a stop(?: of the denied action)?, with no alternate route/, name);
     }
   });
 }

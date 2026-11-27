@@ -24,6 +24,7 @@ import { MOVES, PLAN_MAX, checkoutGone, createSharedRoot, githubRemote, sharedRo
 import { changedText, countsOf, endText, gateQuestion, gateText, localTime, mapHtml, mismatchText, previewText, providersOf, reconciliationText, startText, stepText, stoppedText, title } from "./move-text.mjs";
 import { pagesFolder, worktreeRoot, worktrees } from "./worktrees.mjs";
 import { priorArtCommand } from "./prior-art-index.mjs";
+import { sandboxStatus } from "./sandbox-state.mjs";
 import { storageClean, storagePlan, storageView } from "./storage.mjs";
 import { CHIEF, TAKEOVER_OPTIONS, chiefOnly, createChiefs, crossed, offerOf, replaceOf, replaceQuestion, writerClass } from "./chiefs.mjs";
 import { NAMES_FILE, boardChiefs, chiefNames, readLiveRecord } from "./chief-live.mjs";
@@ -35,7 +36,7 @@ import { boardPort, pageFile, pageTaskFolder } from "./page-files.mjs";
 import { DESIGN_GATE, copyDesign, designFiles, designPathOk } from "./design-copy.mjs";
 import { boardAnswers, boardDownLine } from "./board-probe.mjs";
 import { DESIGN_OPTIONS, WORDS_MAX, answerOption, taskWord, withWords } from "./state-words.mjs";
-import { AST_GREP_VERSION, LINT_CONFIG, LINT_KINDS, astGrepBinary, lintBase, lintChange } from "./lint.mjs";
+import { AST_GREP_VERSION, LINT_CONFIG, LINT_KINDS, toolsAstGrep, lintBase, lintChange } from "./lint.mjs";
 import { adoptBrief, languageList, placeToolFiles, projectLanguages } from "./lint-offer.mjs";
 import { DOCS_RULE, docsNote, docsOnly, docsPathsProblem, globsOf } from "./docs-only.mjs";
 
@@ -48,7 +49,7 @@ export const balancedModels = (strong, light) => ({
   "model.implementer.tiny": light, "model.code-reviewer.tiny": light, "model.qa.tiny": light, "model.qa.small": light,
 });
 
-export function createStateTool({ defaultRoot, legacyRoots: namedRoots = () => [], provider, models = ["inherit"], modelDefaults = {}, spawnFields = (model) => (model ? { model } : {}), usageInterfaces = [], replaceStep = (task, chief) => `run sage gate replace ${task} --to ${chief} --chief ${chief}`, takeoverCycle, queueWait = () => "", autopilot = () => false }) {
+export function createStateTool({ defaultRoot, legacyRoots: namedRoots = () => [], provider, models = ["inherit"], modelDefaults = {}, spawnFields = (model) => (model ? { model } : {}), usageInterfaces = [], replaceStep = (task, chief) => `run sage gate replace ${task} --to ${chief} --chief ${chief}`, takeoverCycle, queueWait = () => "", autopilot = () => false, sandboxPlaces, sandboxPlugin }) {
 if (typeof defaultRoot !== "function") throw new TypeError("defaultRoot must be a function");
 if (typeof namedRoots !== "function") throw new TypeError("legacyRoots must be a function");
 const rootsOf = (env) => namedRoots(env).map((root) => {
@@ -116,7 +117,7 @@ const TABLES = { ...PLAIN_TABLES, ...Object.fromEntries(Object.entries(SPARSE).m
 const ADDED = { ...FILLED, ...Object.fromEntries(Object.entries(SPARSE).map(([t, cols]) => [t, [...(FILLED[t] ?? []), ...cols]])) };
 const RUN_ENDS = ["done", "blocked", "question", "failed"];
 const GONE = ["claim", "offer", "cancel", "accept"];
-const COMMANDS = ["init", "logbook", "standing", "pages", "message", "task", "task-adopt", "milestone", "release", "round", "run", "finding", "verdict", "lint", "gate", "log", "status", "stats", "merge-check", "config", "projects", "board", "observe", "link", "unclaim", "pickup", "move", "worktrees", "storage", "chief", "prior-art"];
+const COMMANDS = ["init", "logbook", "standing", "pages", "message", "task", "task-adopt", "milestone", "release", "round", "run", "finding", "verdict", "lint", "gate", "log", "status", "stats", "merge-check", "config", "projects", "board", "observe", "link", "unclaim", "pickup", "move", "worktrees", "storage", "chief", "prior-art", "sandbox"];
 const OPTIONS = {
   "logbook repair": ["accept-loss", "accept-change-loss"],
   link: ["to", "separate"],
@@ -2223,7 +2224,7 @@ function lintOffer(dir, at, tools, opt) {
   if (savedIn(dir).lint_offer === "never" || offers.some((g) => Date.now() - Date.parse(g.at) < OFFER_AGAIN_MS)) return " Nothing changed.";
   const languages = projectLanguages(at.top, at.main);
   if (!languages.length) return " Nothing changed.";
-  const install = astGrepBinary(at.top, tools) ? "" : ` The same yes installs ast-grep ${AST_GREP_VERSION} in sage's tools folder, from the lockfile that sage pins.`;
+  const install = toolsAstGrep(tools) ? "" : ` The same yes installs ast-grep ${AST_GREP_VERSION} in sage's tools folder, from the lockfile that sage pins.`;
   const g = { id: nextId(dir, "G"), task: "", question: `Add sage's no-comments lint rules to this project, for ${languageList(languages)}? A yes frames one small task that adds them through a pull request, and then the merge check needs lint-pass.${install}`, options: OFFER_OPTIONS.join("|"), recommendation: OFFER_OPTIONS[0], default: OFFER_OPTIONS[1], at: now(), kind: LINT_GATE, ...chiefTag(opt) };
   write(dir, "gates", [...read(dir, "gates"), g]);
   return `\n${g.id} open · ${g.question}\nAsk the owner to answer ${g.id}: ${OFFER_OPTIONS.join(", ")}.`;
@@ -2234,7 +2235,7 @@ function adoptTask(dir, g, opt, project, env) {
   try { at = lintBase(project); } catch (e) { refuse(`the lint offer cannot read the git checkout ${visible(project)} (${e?.message ?? e}). Give --project the project's git checkout. Nothing changed.`); }
   if (!at.main) refuse(`${visible(at.top)} has no origin/main, and sage reads the project's languages from it. Fetch origin, then answer ${g.id} again. Nothing changed.`);
   if (at.config) return ` · origin/main ${at.main.slice(0, 7)} has a root ${LINT_CONFIG} now, so sage frames no task.`;
-  const languages = projectLanguages(at.top, at.main), tools = toolsDir(dir), own = astGrepBinary(at.top, tools);
+  const languages = projectLanguages(at.top, at.main), tools = toolsDir(dir), own = toolsAstGrep(tools);
   const task = frame(dir, `Add the no-comments lint rules for ${languageList(languages) || "the project"}`, "small", [], [], { priority: "P2", ...chiefTag(opt) });
   const folder = pagesDir(project, task.id, env), page = join(folder, "brief.md");
   mkdirSync(folder, { recursive: true, mode: 0o700 });
@@ -2618,6 +2619,15 @@ function sageCommand(argv, env) {
   if (cmd === "prior-art") return priorArtCommand(pos, opt, env, refuse);
   const readOnly = scopedRead(cmd, pos, opt);
   const root = sageRoot(env), project = resolve(opt.project ?? env.SAGE_PROJECT ?? folderHere());
+  if (cmd === "sandbox") {
+    if (pos.length === 1 && pos[0] === "entries") {
+      if (!sandboxPlugin) refuse("sandbox entries names the folder of the Claude Code plugin: run it with the Claude Code plugin's sage.mjs. Nothing changed.");
+      if (/[\s*?[\]]/.test(sandboxPlugin)) refuse("the plugin's folder has a space or a wildcard character, so no excludedCommands entry can name it exactly. Nothing changed.");
+      return ["gh *", `node ${join(sandboxPlugin, "skills/sage/sage.mjs")} *`, `node ${join(sandboxPlugin, "board/cli.mjs")} board *`].map((entry) => JSON.stringify(entry)).join(",\n");
+    }
+    if (pos.length) refuse("sandbox takes no words, or the word entries. sandbox prints one line for Claude Code and one for Codex: the sandbox state, the folders that a command may write, the network and what is missing. sandbox entries prints the excludedCommands lines for this machine. Both read only and change nothing.");
+    return sandboxPlaces ? sandboxStatus({ env, cwd: project, places: sandboxPlaces(env), plugin: sandboxPlugin }) : refuse("this plugin names no settings files for the sandbox, so sandbox cannot read them. Update the sage plugin.");
+  }
   if ((opt.chief !== undefined || opt.lead !== undefined || chiefOnly(cmd, pos)) && !locate(project, env).shared) refuse(chiefOnly(cmd, pos) ? `${visible(project)} has no shared logbook, so it has no chiefs to hand a task to. Nothing changed.` : `${visible(project)} has no shared logbook, and only a shared logbook has chiefs: leave out --chief and --lead. Nothing changed.`);
   if (cmd === "board") {
     const hex = opt["name-hex"];
@@ -3698,8 +3708,8 @@ function act(cmd, pos, opt, dir, env, skip, project) {
       if (!at.main && at.local) refuse(`${visible(at.top)} has a root ${LINT_CONFIG} but no origin/main, and lint reads its rules only from the tip of origin/main, so it cannot lint ${sha.slice(0, 7)}. lint needs a remote named origin with a branch named main. Nothing changed.`);
       const tools = toolsDir(dir);
       if (!at.config) return `${task.id} · ${sha.slice(0, 7)}: ${at.main ? `origin/main ${at.main.slice(0, 7)} has` : `${visible(at.top)} has no origin/main and`} no ${LINT_CONFIG} at its root, so there is nothing to lint, and the merge check needs no lint verdict.${at.main ? lintOffer(dir, at, tools, opt) : " Nothing changed."}`;
-      const binary = astGrepBinary(at.top, tools);
-      if (!binary) refuse(`ast-grep ${AST_GREP_VERSION} is not in ${visible(join(at.top, "node_modules", ".bin"))} or in sage's tools folder ${visible(tools)}, so lint cannot run, and it writes no verdict. With the owner's yes, install it in the tools folder from the lockfile that sage pins: ${installCommand(tools)}`);
+      const binary = toolsAstGrep(tools);
+      if (!binary) refuse(`ast-grep ${AST_GREP_VERSION} is not in sage's tools folder ${visible(tools)}, so lint cannot run, and it writes no verdict. With the owner's yes, install it in the tools folder from the lockfile that sage pins: ${installCommand(tools)}`);
       try { result = lintChange(project, sha, binary, at); } catch (e) { refuse(`lint could not check ${sha.slice(0, 7)}: ${visible(String(e?.message ?? e))}. ${e?.fix ?? "lint has no known fix for this error: tell the owner, with this message."} Nothing changed.`); }
       const short = `${sha.slice(0, 7)} · rules ${result.main.slice(0, 7)} · diff from ${result.base.slice(0, 7)}`;
       const kind = result.problems.length ? "lint-fail" : "lint-pass";

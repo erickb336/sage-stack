@@ -139,7 +139,7 @@ So a Claude chief and a Codex chief can work on one project, and one board shows
 ## Learn more
 
 - [Learn sage in 5 minutes](docs/guide/learn-sage.md): one small task, from your first message to a merged pull request.
-- [Using sage](docs/guide/using-sage.md): phrases, questions, milestones, shared logbooks, update, stop, [clean up old worktrees](docs/guide/using-sage.md#clean-up-worktrees), uninstall and troubleshooting. Also [Concepts](docs/guide/concepts.md), [principles](docs/guide/principles.md) and the [FAQ](docs/guide/faq.md).
+- [Using sage](docs/guide/using-sage.md): phrases, questions, milestones, shared logbooks, update, stop, [clean up old worktrees](docs/guide/using-sage.md#clean-up-worktrees), [turn on the sandbox](docs/guide/using-sage.md#turn-on-the-sandbox), uninstall and troubleshooting. Also [Concepts](docs/guide/concepts.md), [principles](docs/guide/principles.md) and the [FAQ](docs/guide/faq.md).
 - [Rules held in code](docs/design/rules-in-code.md): every rule that the hooks and the state tool hold, and what they do not stop.
 - [SECURITY.md](SECURITY.md): how to report a vulnerability, and the known limits.
 - Limits: [Known limits in Codex](docs/guide/codex.md#known-limits-in-codex). The [board server](docs/guide/board.md#the-board-server) and [Remote Control](docs/guide/remote-control.md) (sessions from your phone) need macOS.
