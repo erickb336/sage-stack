@@ -133,7 +133,7 @@ test("G68: the hook's command holds only ASCII, and the CLI decodes the name to 
   assert.match(run, /^It starts the local board server .* Then run: node \S+ board --name-hex e697a5e69cace8aa9e --project '\/work\/sage' --view chat$/);
   assert.match(run.slice(run.indexOf(" board ")), /^[ -~]+$/);
   const out = execFileSync("node", [TOOL, "board", "--name-hex", "e697a5e69cace8aa9e", "--project", w.sage, "--view", "chat"], { encoding: "utf8", env: { ...process.env, ...w.env } });
-  assert.ok(out.includes("\n- Sample: bot follow-up. Sample: which channel first?\n"), out);
+  assert.ok(out.includes("\n- Sample. Sample: which channel first?\n"), out);
   assert.ok(out.endsWith(`\nRef: T2 current/${basename(storeDir(join(w.dir, "日本語"), w.env))}/G1\n`), "the gate key names the logbook of 日本語");
   assert.doesNotMatch(out, /中文/, out);
   const bad = spawnSync("node", [TOOL, "board", "--name-hex", "e697z", "--project", w.sage], { encoding: "utf8", env: { ...process.env, ...w.env } });
@@ -176,7 +176,7 @@ function twoProjects() {
     const path = join(dir, name);
     execFileSync("git", ["init", "-q", path]);
     sage(path, "init");
-    sage(path, "task", "add", "--name", tname(), "--priority", "P2", "--title", `${name} task`, "--size", "tiny");
+    sage(path, "task", "add", "--name", `${name} task`, "--priority", "P2", "--title", `${name} task`, "--size", "tiny");
     sage(path, "gate", "add", "--message", QUESTION, "T1", "--question", `${name}: give the bot access?`, "--options", "yes|no access", "--recommend", "yes");
     return path;
   });
@@ -191,7 +191,7 @@ function twoProjects() {
 
 test("T72-S5-WRONGLOGBOOK: rich hook offers no bare project map for gate answers", () => {
   const w = twoProjects();
-  w.sage(w.beta, "task", "add", "--name", tname(), "--priority", "P2", "--title", "beta task 2", "--size", "tiny");
+  w.sage(w.beta, "task", "add", "--name", "beta task 2", "--priority", "P2", "--title", "beta task 2", "--size", "tiny");
   rmSync(join(storeDir(w.beta, w.env), "checkout.txt"));
   const blind = w.hook("show board for beta", w.alpha);
   assert.match(blind, /full source\/project\/gate key/);

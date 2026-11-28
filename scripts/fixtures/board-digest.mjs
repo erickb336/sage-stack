@@ -16,15 +16,15 @@ export function digestSources() {
     chiefNames: {},
     tables: {
       tasks: [
-        task("T1204", LONG_TITLE, "building", { branch: "claude/t1204", chief: "C2", milestone: "M7" }),
+        task("T1204", LONG_TITLE, "building", { name: "Free hook slots", branch: "claude/t1204", chief: "C2", milestone: "M7" }),
         task("T1206", "The board answers while it reads the logbook", "reviewing", { pr: "640", chief: "C2", milestone: "M7" }),
-        task("T1205", "Pages link to the board only when it runs", "verified", { pr: "645", chief: "C2" }),
-        task("T1199", "Read-only roles cannot write into the agent folders", "merged", { pr: "641", chief: "C2", milestone: "M7" }),
-        task("T1190", "The design check counts two prior-art links", "merged", { pr: "630", chief: "C2" }),
-        task("T1180", "An old merge from last week", "merged", { pr: "600", chief: "C2" }),
-        task("T1150", "A task in the backlog that nobody started", "framed", { chief: "C1" }),
-        task("T1151", "A second task in the backlog", "framed", { chief: "C1" }),
-        task("T1210", "Pick the layout of the release notes", "framed", { chief: "C2", milestone: "M7" }),
+        task("T1205", "Pages link to the board only when it runs", "verified", { name: "Board-only links", pr: "645", chief: "C2" }),
+        task("T1199", "Read-only roles cannot write into the agent folders", "merged", { name: "Read-only roles", pr: "641", chief: "C2", milestone: "M7" }),
+        task("T1190", "The design check counts two prior-art links", "merged", { name: "Two prior-art links", pr: "630", chief: "C2" }),
+        task("T1180", "An old merge from last week", "merged", { name: "Old merge", pr: "600", chief: "C2" }),
+        task("T1150", "A task in the backlog that nobody started", "framed", { name: "Unstarted idea", chief: "C1" }),
+        task("T1151", "A second task in the backlog", "framed", { name: "Second idea", chief: "C1" }),
+        task("T1210", "Pick the layout of the release notes", "framed", { name: "Release notes layout", chief: "C2", milestone: "M7" }),
       ],
       gates: [{ id: "G200", task: "T1199", question: "Approve milestone M7? No task builds before you approve.", options: "approve|change|drop", recommendation: "approve", default: "", answer: "approve", at: ago(6000) },
         { id: "G236", task: "T1210", question: "Which layout do the release notes use?", options: "one page|one page for each project", recommendation: "one page", default: "", answer: "", at: ago(30) }],
@@ -37,12 +37,12 @@ export function digestSources() {
   const sedalina = {
     key: "claude/sedalina-bbbbbb", name: "sedalina-bbbbbb", displayName: "sedalina", diagnostics: [],
     tables: {
-      tasks: [task("T88", "Choose the checkout layout", "awaiting-you"), task("T89", "Fix the cart total", "building")],
+      tasks: [task("T88", "Choose the checkout layout", "awaiting-you", { name: "Checkout layout" }), task("T89", "Fix the cart total", "building", { name: "Cart total" })],
       gates: [{ id: "G62", task: "T88", question: "Checkout layout: A (one page) or B (three steps)?", options: "A|B", recommendation: "A", default: "", answer: "", at: ago(90) }],
       runs: [run("R12", "T89", "implementer", 75)],
     },
   };
-  const quiet = { key: "claude/quiet-app-cccccc", name: "quiet-app-cccccc", displayName: "quiet-app", diagnostics: [], tables: { tasks: [task("T3", "Someday: a dark mode", "framed")] } };
+  const quiet = { key: "claude/quiet-app-cccccc", name: "quiet-app-cccccc", displayName: "quiet-app", diagnostics: [], tables: { tasks: [task("T3", "Someday: a dark mode", "framed", { name: "Dark mode" })] } };
   return [{ id: "claude", label: "claude", provider: "Claude", diagnostics: [], projects: [stack, sedalina, quiet] }];
 }
 export const landing = () => ({ ok: true, scope: "global", reason: "" });

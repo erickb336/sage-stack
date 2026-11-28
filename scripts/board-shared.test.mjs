@@ -1,5 +1,4 @@
 import "./test-env.mjs";
-import { tname } from "./task-names.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -128,7 +127,7 @@ test("each shared card names its owning chief or Unclaimed; the Who filter goes 
   assert.deepEqual(["T321", "T322", "T323", "T324"].map(id => card(model, id).holder), ["Claude · C1", "Unclaimed", "Codex · C2", "C9"]);
   assert.equal(card(model, "T324").owner.unlisted, true, "an unknown chief id shows on its task's page");
   assert.ok(!model.needsOwner.some(item => item.id === "T324"), "an unknown chief id is a warning, not a need");
-  assert.match(renderBoardText(model), /\n- Show the board in both providers\. /);
+  assert.match(renderBoardText(model), /\n- Show the board in\. /);
 });
 
 test("F-T1182-3: a left-over offer of an older sage shows no offer cell and no accept text: accept is gone, and the next pick-up ends the offer", t => {
@@ -196,7 +195,7 @@ test("a lead slot's logbook mark, as the hook writes it for a linked project, eq
   git("init", "-q", "-b", "main"); git("commit", "-q", "--allow-empty", "-m", "first");
   claude.sage(["link", "--separate", "--project", project], env);
   const chief = claude.chiefFor(project, "session-a", env);
-  claude.sage(["task", "add", "--name", tname(), "--title", "Sample shared task", "--size", "small", "--priority", "P2", "--project", project, "--chief", chief], env);
+  claude.sage(["task", "add", "--name", "Sample shared task", "--title", "Sample shared task", "--size", "small", "--priority", "P2", "--project", project, "--chief", chief], env);
   const mark = createHash("sha256").update(claude.logbookView(project, env).dir).digest("hex");
   const read = readBoardSources([{ id: "shared", path: sharedRoot(env) }], { now: NOW }).find(source => source.id === "shared");
   assert.equal(read.projects.length, 1);
@@ -522,7 +521,7 @@ test("T633 (Q3): the in-session board of an unlinked clone does not show a share
   mkdirSync(clone, { recursive: true });
   const board = (project, here = null) => view.boardView({ sources: w.sources, scope: "this", project, here, format: "chat", now: iso() });
   assert.throws(() => board(clone), /No recorded project matches this board scope/);
-  assert.match(board(clone, `shared/${FOLDER}`), /\n- Show the board in both providers\. /, "a linked clone finds it by its logbook");
+  assert.match(board(clone, `shared/${FOLDER}`), /\n- Show the board in\. /, "a linked clone finds it by its logbook");
   assert.match(board(join(w.base, "harbor")), /\n- Legacy task at work\. /, "a legacy logbook still matches by folder name");
 });
 
@@ -538,8 +537,8 @@ test("T633: one project with two linked clones: the board of this project from e
   git(base, "clone", "-q", a, b);
   claude.sage(["link", "--separate", "--project", a], env);
   claude.sage(["link", "--to", basename(claude.logbookView(a, env).dir), "--project", b], env);
-  claude.sage(["task", "add", "--name", tname(), "--title", "Task from clone A", "--size", "small", "--priority", "P2", "--project", a, "--chief", claude.chiefFor(a, "session-a", env)], env);
-  claude.sage(["task", "add", "--name", tname(), "--title", "Task from clone B", "--size", "small", "--priority", "P2", "--project", b, "--chief", claude.chiefFor(b, "session-b", env)], env);
+  claude.sage(["task", "add", "--name", "Task from clone A", "--title", "Task from clone A", "--size", "small", "--priority", "P2", "--project", a, "--chief", claude.chiefFor(a, "session-a", env)], env);
+  claude.sage(["task", "add", "--name", "Task from clone B", "--title", "Task from clone B", "--size", "small", "--priority", "P2", "--project", b, "--chief", claude.chiefFor(b, "session-b", env)], env);
   claude.sage(["task", "T1", "set", "state=briefed", "--project", a, "--chief", claude.chiefFor(a, "session-a", env)], env);
   claude.sage(["task", "T2", "set", "state=briefed", "--project", b, "--chief", claude.chiefFor(b, "session-b", env)], env);
   const chat = project => claude.sage(["board", "this", "--view", "chat", "--project", project], env);

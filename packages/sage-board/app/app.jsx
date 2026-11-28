@@ -160,7 +160,7 @@ export function App() {
   const running = model ? model.agents.reduce((n, book) => n + book.running, 0) : 0;
   const key = page.params.get("key") ?? "", place = all && level ? placeOf(all, page) : null;
   const welcome = page.hash === "overview" ? current : place?.level === "project" ? place.project : null;
-  const up = place?.milestone ? { name: place.milestone.title, href: milestoneLevelLink(place.milestone.key) } : place?.project ? { name: place.project.name, href: projectLink(place.project.key) } : null;
+  const up = place?.milestone ? { name: place.milestone.name, href: milestoneLevelLink(place.milestone.key) } : place?.project ? { name: place.project.name, href: projectLink(place.project.key) } : null;
   const body = page.hash === "overview" ? <Overview model={model} shown={shown} chief={picked} /> : page.hash === "tasks" ? <Tasks model={model} params={page.params} chief={picked} />
     : page.hash === "pull-requests" ? <Pulls model={model} chief={picked} />
     : page.hash === "agents" ? <Agents model={model} chief={picked} />

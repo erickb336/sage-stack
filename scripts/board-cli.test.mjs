@@ -1,5 +1,4 @@
 import "./test-env.mjs";
-import { tname } from "./task-names.mjs";
 import { spawnSync } from "node:child_process";
 import { request } from "node:http";
 import { fileURLToPath } from "node:url";
@@ -17,7 +16,7 @@ function fixture(t) {
   const root = join(dir, "logbooks"), config = join(dir, "settings/board.json");
   const tool = createStateTool({ defaultRoot: () => root });
   tool.sage(["init", "--project", dir], { ...process.env, SAGE_HOME: root });
-  tool.sage(["task", "add", "--name", tname(), "--priority", "P2", "--title", "Sample CLI task", "--size", "small", "--project", dir], { ...process.env, SAGE_HOME: root });
+  tool.sage(["task", "add", "--name", "Sample CLI task", "--priority", "P2", "--title", "Sample CLI task", "--size", "small", "--project", dir], { ...process.env, SAGE_HOME: root });
   const value = createBoardConfig(config, { sources: [{ id: "sample", path: root }] });
   return { dir, root, config, value };
 }

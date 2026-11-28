@@ -296,3 +296,19 @@ test("F-T1216-17: a failed run that needs a look gets its red flag from the mode
   assert.ok(book.runs.filter(run => run.look).every(run => run.flag?.text), "each run that needs a look has its flag words from the model");
   assert.equal(book.runs.filter(run => !run.look && run.status === "failed" && run.flag).length, 0, "a failed run that needs no look has no flag");
 });
+
+test("T1257: a milestone keeps every task, merged ones of any age too, in its waits-for order, while the project shows done tasks for 7 days", () => {
+  const tables = appTables(NOW);
+  tables.tasks.push({ ...tables.tasks[0], id: "T14", name: "Old budget", title: "Sample old budget", state: "merged" });
+  tables.decisions.push({ at: "2026-10-20T12:00:00.000Z", task: "T14", decision: "state merged", why: "sample" });
+  const { milestones, levels, tasks } = overview(tables), m1 = milestones.find(m => m.id === "M1");
+  assert.deepEqual(m1.tasks.map((task, i) => [task.split("/").at(-1), m1.depths[i]]), [["T1", 0], ["T2", 1], ["T3", 1], ["T14", 1], ["T4", 2]], "the pilot first, then each task one line below what it waits for");
+  assert.deepEqual(levels.milestones[key("M1")].done, [key("T1"), key("T14")], "the milestone level keeps the merge of 24 days ago");
+  assert.ok(!levels.projects["sample-app-abc123"].done.includes(key("T14")), "the project level keeps Done in the last 7 days");
+  assert.deepEqual([m1.name, m1.says, m1.need, m1.mark], ["Board redesign", "2 of 5 tasks merged, 2 at work, 1 waiting", null, "◫"]);
+  const t14 = tasks.find(row => row.id === "T14");
+  assert.deepEqual([t14.name, t14.named, t14.says, t14.milestone.name], ["Old budget", true, "merged 20 Oct", "Board redesign"]);
+  const t4 = tasks.find(row => row.id === "T4");
+  assert.deepEqual([t4.name, t4.named, t4.says, t4.mark], ["Sample queue", false, "waits for Sample chief records", "⧗"], "a task with no name: the name from its title, and its waits by name");
+  assert.deepEqual(milestones.find(m => m.id === "M2").need, "Sample sync design needs you.");
+});

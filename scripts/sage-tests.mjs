@@ -893,7 +893,7 @@ test("T266-LEAD-RACE: lead runs started at once by separate processes keep the l
 
 test("T266-LEAD-SHOWN: status counts a lead run like any run, and the chat board shows its task as moving (T1217)", () => {
   const s = store();
-  s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "t", "--size", "small");
+  s.ok("task", "add", "--name", "t", "--priority", "P2", "--title", "t", "--size", "small");
   s.ok("run", "add", "T1", "--role", "lead");
   s.ok("run", "add", "T1", "--role", "implementer", "--branch", "claude/t1");
   assert.match(s.ok("status"), /^agents {2}2 runs · 2 running · about 0k weighted tokens · 0 measured, 0 unavailable, 0 legacy-unrecorded$/m);
