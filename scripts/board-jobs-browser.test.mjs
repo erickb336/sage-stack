@@ -89,10 +89,11 @@ for (const width of WIDTHS) {
   test(`J4 at ${width} px: Progress shows each milestone with no click, and one click opens it`, async t => {
     const clicks = await walk(t, "J4", width, async (page, click) => {
       const rows = await part(page, "progress").locator("a[data-milestone]").allTextContents();
-      assert.ok(rows.length >= 2 && rows.every(row => /\d+ of \d+$/.test(row)), rows.join(" | "));
+      assert.ok(rows.length >= 2 && rows.every(row => /: (\d+ of \d+ tasks merged|done, all \d+ tasks merged|\d+ open tasks?)/.test(row)), rows.join(" | "));
       await click(part(page, "progress").locator(`a[data-milestone="${decodeURIComponent(KEY("M1"))}"]`));
       await page.locator("main h1", { hasText: "Board redesign" }).waitFor();
-      assert.match(await part(page, "progress").textContent(), /\d+ of \d+ merged/);
+      assert.match(await page.locator("main .lede").textContent(), /^\d+ of \d+ tasks merged/);
+      assert.ok(await part(page, "lines").locator("a[data-task]").count() >= 2, "the milestone page lists its tasks");
     });
     assert.equal(clicks, 1);
   });

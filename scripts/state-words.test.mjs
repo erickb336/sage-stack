@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildBoardModel, milestoneWord, releaseWord, renderBoardText, renderTaskText, taskWord } from "../packages/sage-core/index.mjs";
-import { FLAGS, KINDS, MARKS as MARKS_TABLE, OBJECTS, STEPS, URGENCY, WORDS, chiefName, prName, runWord, shown } from "../packages/sage-core/state-words.mjs";
+import { FLAGS, KINDS, MARKS as MARKS_TABLE, OBJECTS, STEPS, URGENCY, WORDS, chiefName, milestoneSentence, prName, runWord, shown, taskSentence } from "../packages/sage-core/state-words.mjs";
 import * as words from "../packages/sage-core/state-words.mjs";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -63,6 +63,83 @@ const CASES = [
 ];
 const cardOf = fixture => model(fixture).tasks.find(card => card.id === "T1");
 
+const SENTENCES = {
+  "framed: no agent works on it": ["○", "not started", null],
+  "framed with an unmet wait": ["⧗", "waits for T2", null],
+  "framed with a wait that is never met: it cannot start": ["⊘", "cannot start, because T2 was abandoned", null],
+  "designing": ["▶", "in design", null],
+  "PE: designing with an unmet wait": ["▶", "in design", null],
+  "awaiting-you with no gate": ["?", "in design", "Needs your answer on the design."],
+  "awaiting-you with an open gate": ["?", "in design", "Needs your answer."],
+  "F2: awaiting-you after the owner answered": ["▶", "you answered; the chief moves it on", null],
+  "briefed": ["▶", "the build starts next", null],
+  "F3: briefed with an unmet wait": ["⧗", "waits for T2", null],
+  "building": ["▶", "in the build", null],
+  "F4: held by the chief, no open gate": ["▶", "held by the chief", null],
+  "F4: held after repair rounds, no open gate yet": ["▶", "held by the chief", null],
+  "F4: held after repair rounds, with an open gate": ["?", "held by the chief", "Needs your answer."],
+  "reviewing": ["▶", "built, in review", null],
+  "repairing": ["▶", "built, in repair round 1 of 3", null],
+  "replan with no open gate": ["▶", "the chief makes a new plan", null],
+  "replan with an open gate": ["?", "the chief makes a new plan", "Needs your answer."],
+  "verifying": ["▶", "the last checks before the merge", null],
+  "verified, autopilot on": ["▶", "ready to merge", null],
+  "PE: verified, autopilot off": ["?", "ready to merge", "Needs you to merge it: autopilot is off."],
+  "PE: verified, autopilot unknown": ["?", "ready to merge", "Needs you to merge it: the board cannot tell if autopilot is on."],
+  "pr-ready, autopilot on": ["▶", "ready to merge", null],
+  "PE: pr-ready, autopilot off": ["?", "ready to merge", "Needs you to merge it: autopilot is off."],
+  "F5: verified, the merge check refuses the head": ["!", "ready to merge", null],
+  "F5: pr-ready, the merge check refuses the head": ["!", "ready to merge", null],
+  "F5: verified, refused, QA failed, autopilot on": ["!", "ready to merge", null],
+  "F5: verified, refused, QA failed, autopilot off": ["!", "ready to merge", null],
+  "F5: pr-ready, refused, checks failed, autopilot on": ["!", "ready to merge", null],
+  "F5: pr-ready, refused, checks failed, autopilot off": ["!", "ready to merge", null],
+  "verified with no build: the chief concludes it": ["▶", "ready to conclude", null],
+  "merged": ["✓", "merged", null],
+  "concluded": ["✓", "concluded", null],
+  "abandoned": ["■", "stopped for good", null],
+  "an open gate on any state that has not ended": ["?", "in the build", "Needs your answer."],
+  "a done task with an open gate keeps its word": ["?", `merged ${new Date(now).getDate()} Oct`, "Needs your answer."],
+  "a stopped task with an open gate keeps its word": ["■", "stopped for good", null],
+};
+const sentenceOf = fixture => { const built = model(fixture), names = new Map(built.tasks.map(card => [card.id, card.name])), card = built.tasks.find(item => item.id === "T1"); return taskSentence(card, id => names.get(id) ?? id, card.state !== "abandoned"); };
+
+test("T1257: each recorded state and edge case reads as one phrase of the one table, with a mark and a need line only when the owner acts", () => {
+  assert.deepEqual(CASES.map(([name, fixture]) => { const said = sentenceOf(fixture); return [name, [said.mark, said.says, said.need]]; }), CASES.map(([name]) => [name, SENTENCES[name]]));
+  assert.equal(sentenceOf(CASES.find(([name]) => name === "F5: verified, the merge check refuses the head")[1]).flag, "The merge check refuses aaaaaaa. T1 has open findings: F-T1-1.", "a problem shows as its flag line");
+});
+
+test("T1257: waits read by name; a loop, an odd cell, a missing task and an abandoned one cannot start; a state the board does not know says so", () => {
+  const said = fixture => { const { mark, says } = sentenceOf(fixture); return [mark, says]; };
+  assert.deepEqual(said({ row: task("T1", "framed", { waits: "T2,T3" }), others: [task("T2", "building", { name: "Chief records" }), task("T3", "reviewing", { name: "Shared limits" })] }), ["⧗", "waits for Chief records and Shared limits"]);
+  assert.deepEqual(said({ row: task("T1", "framed", { waits: "T2" }), others: [task("T2", "framed", { waits: "T1", name: "Loop two" })] }), ["⊘", "cannot start, because its waits make a loop through Loop two"]);
+  assert.deepEqual(said({ row: task("T1", "framed", { waits: "soon" }) }), ["⊘", "cannot start, because its waits cell is not a task id"]);
+  assert.deepEqual(said({ row: task("T1", "briefed", { waits: "T9" }) }), ["⊘", "cannot start, because T9 is not in the logbook"]);
+  assert.deepEqual(said({ row: task("T1", "half-done") }), ["◌", 'the board cannot read the state "half-done"']);
+});
+
+test("T1257: a route with no build step never says built or build; a build route counts its clean cycles and its agents", () => {
+  const investigate = state => sentenceOf({ row: task("T1", state, { route: "investigate,evidence-review" }) }).says;
+  assert.deepEqual(["briefed", "building", "reviewing", "repairing", "verifying", "verified"].map(investigate),
+    ["the investigation starts next", "in the investigation", "report written, in the evidence review", "report written, in repair round 1 of 3", "the last checks before the conclusion", "ready to conclude"]);
+  for (const state of ["framed", "designing", "briefed", "building", "held", "reviewing", "repairing", "replan", "verifying", "verified", "pr-ready", "concluded", "abandoned"]) assert.doesNotMatch(investigate(state), /\bbuil[dt]\b|merge/, state);
+  const large = { row: task("T1", "reviewing", { pr: "41", size: "large" }), ledger: clean, records: autopilot(true).slice(0, 1) };
+  assert.equal(sentenceOf(large).says, "built, in review, 1 of 2 cycles clean");
+  const runs = ["implementer", "lead"].map((role, i) => ({ id: `R${i + 1}`, task: "T1", role, round: "0", status: "running", started: now }));
+  const agents = buildBoardModel([{ id: "one", label: "one", diagnostics: [], config: {}, projects: [{ key: "one/sample-abcdef", name: "sample-abcdef", diagnostics: [], tables: { tasks: [task("T1", "building")], runs }, observations: { version: 1, records: [] } }] }], { now });
+  assert.equal(taskSentence(agents.tasks[0]).says, "in the build, 2 agents at work");
+});
+
+test("T1257: a milestone reads as its counts, with a need line that names the tasks that need you, or its breakdown question", () => {
+  const base = { state: "active", merged: 1, total: 5, abandoned: [], moving: 2, waiting: 2, cannotStart: [] };
+  assert.deepEqual(milestoneSentence(base), { says: "1 of 5 tasks merged, 2 at work, 2 waiting", need: null, mark: "◫", tone: "run" });
+  assert.deepEqual(milestoneSentence({ ...base, moving: 0, waiting: 1, cannotStart: ["T9"] }, ["Sync design"]), { says: "1 of 5 tasks merged, 1 waiting, 1 cannot start", need: "Sync design needs you.", mark: "◫", tone: "need" });
+  assert.equal(milestoneSentence({ ...base, state: "done", merged: 2, total: 2, moving: 0, waiting: 0, doneAt: null }).says, "done, all 2 tasks merged");
+  assert.equal(milestoneSentence({ ...base, state: "done", merged: 2, total: 3, abandoned: ["T3"], moving: 0, waiting: 0 }).says, "done, 2 of 3 tasks merged, 1 abandoned");
+  assert.deepEqual(milestoneSentence({ ...base, state: "proposed", merged: 0, moving: 0, waiting: 0 }), { says: "0 of 5 tasks merged", need: "Its breakdown waits for your answer.", mark: "◫", tone: "need" });
+  assert.equal(milestoneSentence({ ...base, state: "changing" }).says, "you asked for changes. The chief revises the breakdown");
+});
+
 test("T1002: each recorded state and edge case gives the design's word", () => {
   assert.deepEqual(CASES.map(([name, fixture]) => [name, taskWord(cardOf(fixture)).word]), CASES.map(([name, , word]) => [name, word]));
 });
@@ -98,7 +175,7 @@ test("T1002: a state that the state tool does not write has no word, also one na
 test("T1002: a missing card, reasons or words read as an unknown state or an empty list", () => {
   assert.equal(taskWord(null).word, null);
   assert.equal(taskWord().word, null);
-  assert.deepEqual(taskWord({ state: "building", reasons: null }), { word: "in progress", reason: "Agents build it." });
+  assert.deepEqual(taskWord({ state: "building", reasons: null }), { word: "in progress", reason: "In progress." });
   assert.deepEqual(milestoneWord({ state: "active" }), { word: "not started", reason: "Nothing is in it yet." });
   assert.deepEqual(releaseWord(), { word: "not started", reason: "Nothing is in it yet." });
 });
@@ -170,7 +247,7 @@ const SHOWN = { T1: "not started", T2: "waiting", T3: "in progress", T4: "needs 
 const MARKS = { "not started": "○", waiting: "⧗", "needs you": "\\?", "in progress": "▶", done: "✓", stopped: "■" };
 const sixBoard = () => model({
   row: task("T1", "framed"),
-  others: [task("T2", "framed", { waits: "T3" }), task("T3", "building"), task("T4", "framed"), task("T5", "merged", { pr: "41" }), task("T6", "abandoned"), task("T7", "framed", { waits: "T6" })],
+  others: [task("T2", "framed", { waits: "T3" }), task("T3", "building", { name: "Agenda import" }), task("T4", "framed", { name: "Layout pick" }), task("T5", "merged", { pr: "41", name: "Task board" }), task("T6", "abandoned"), task("T7", "framed", { waits: "T6" })],
   gates: [{ ...gate(), task: "T4" }],
   records: [{ ...observation("completion", { state: "merged", at: now }), task: "T5" }],
 });
@@ -182,8 +259,8 @@ test("T997: the board model gives each card its word, one card for each of the s
 
 test("T997, T1217: the chat digest puts a task that needs you, one in progress and one done in their parts, and leaves out the backlog's not started, waiting and stopped tasks", () => {
   const board = sixBoard(), text = renderBoardText(board);
-  assert.ok(text.includes("### 🔴 Needs you\n- Sample. Sample: which layout?\n  Recommended: the first.\n\n### Moving now\n- Sample. Building.\n\n### Done since yesterday\n- Sample. Merged at "), text);
-  assert.equal(text.split("\n").filter(line => line.startsWith("- Sample")).length, 3, "T1, T2, T6 and T7 are not started, waiting or stopped: no line");
+  assert.ok(text.includes("### 🔴 Needs you\n- Layout pick. Sample: which layout?\n  Recommended: the first.\n\n### Moving now\n- Agenda import. Building.\n\n### Done since yesterday\n- Task board. Merged at "), text);
+  assert.equal(text.split("\n").filter(line => line.startsWith("- ")).length, 3, "T1, T2, T6 and T7 are not started, waiting or stopped: no line");
   assert.equal(renderTaskText(board.tasks.find(card => card.id === "T6")).split("\n")[1], "one · sample · stopped · small", "the chat lookup of one task");
 });
 

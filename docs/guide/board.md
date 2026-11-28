@@ -48,14 +48,15 @@ Each part shows at most 6 tasks, then "And 4 more on the board". Then come:
 
 - **Quiet:** the count of the other projects that have nothing that moves or needs you.
 - **More:** the link to the board in the browser.
-- **Ref:** the last line. It keeps the ids of the tasks, questions (with their full key), milestones, chiefs and pull requests above it, for the chief. The text above it names things by their titles, not by their ids.
+- **Ref:** the last line. It keeps the ids of the tasks, questions (with their full key), milestones, chiefs and pull requests above it, for the chief. The text above it names each task by its short name, and each milestone by its name, not by their ids.
 
 Other rules of the digest:
 
 - It leaves out the backlog, the sessions, the pick-ups, the step lines, the priorities and the kinds. The browser shows them.
 - When two or more projects have work, each part groups its lines under the project's name, and the Ref line names the project too.
 - The head line gives the time in your local zone, and names the zone once.
-- Titles longer than 60 characters end at a word, with "…".
+- Each task shows by its short name. A task that the chief has not named yet shows a name from its title: the words before its colon, or its first words.
+- Names longer than 60 characters end at a word, with "…".
 - Agent text shows as plain text: it makes no link, no image and no HTML in the chat.
 
 A sample, with SAMPLE DATA:
@@ -65,30 +66,30 @@ sage board · 10:43 UTC-05:00
 
 ### 🔴 Needs you
 sage-stack
-- Pages link to the board only when it runs. The board cannot tell if autopilot is on, so review and merge its PR.
-- Pick the layout of the release notes. Which layout do the release notes use?
+- Board-only links. The board cannot tell if autopilot is on, so review and merge its PR.
+- Release notes layout. Which layout do the release notes use?
   Options: 1 one page · 2 one page for each project.
   Recommended: one page.
 
 sedalina
-- Choose the checkout layout. Checkout layout: A (one page) or B (three steps)?
+- Checkout layout. Checkout layout: A (one page) or B (three steps)?
   Options: 1 A · 2 B.
   Recommended: A.
 
 ### Moving now
 sage-stack
-- Hook slots free themselves when a session dies, so that a… Building, 20 min.
+- Free hook slots. Building, 20 min.
 
 sedalina
-- Fix the cart total. Building, 1 h 15 min.
+- Cart total. Building, 1 h 15 min.
 
 ### Done since yesterday
 sage-stack
-- Read-only roles cannot write into the agent folders. Merged at 09:40.
+- Read-only roles. Merged at 09:40.
 
 ### Milestones
 sage-stack
-- Board redesign: 1 of 4 merged. Next, Hook slots free themselves when a session dies, so that a…
+- Board redesign: 1 of 4 merged. Next, Free hook slots.
 
 Quiet: 1 other project has nothing that moves or needs you.
 
@@ -130,7 +131,7 @@ Each kind tag (for example `◇ Design` or `⋈ Orchestration`) has a mark of it
 
 ## The five levels
 
-<img alt="All projects, the first level of the board, with SAMPLE DATA: the tree of projects at the left, the since line, Needs you full width with a choice on each row, then At work and Progress, and Done in the last 7 days." src="../assets/board-dark.png" width="100%">
+<img alt="All projects, the first level of the board, with SAMPLE DATA: the tree of projects at the left, the since line, Needs you full width with a choice on each row, then At work and Milestones, and Done in the last 7 days." src="../assets/board-dark.png" width="100%">
 
 The address of the board opens **All projects**. The board has five levels, and each level has the same layout, so you zoom in and out without learning a new page:
 
@@ -146,7 +147,19 @@ The address of the board opens **All projects**. The board has five levels, and 
 
 - **The tree,** at the left, lists the projects that need you or have work, with "2 need you" or "3 at work". The open project shows its milestones under it, each with "merged of all", and "No milestone".
 - **Quiet and Archived:** projects with no work for 14 days fold into "Quiet", and archived projects into "Archived".
-- **The breadcrumb,** at the top, names where you are, for example "All projects › sample-app › Board redesign › Sample queue". A click on a part goes up to that level.
+- **The breadcrumb,** at the top, names where you are, for example "All projects › sample-app › Board redesign › Agent queue". A click on a part goes up to that level.
+
+**A row** reads as one sentence: the name, then where it stands, for example "**Shared limits**: built, in review, 1 of 2 cycles clean." The name is the task's short name, in bold; a task that the chief has not named yet shows a name from its title, in italics.
+
+The phrase comes from one table of the board, so a task with no build step never says "built". Each row also has:
+
+- a mark at its left, never colour alone: `?` needs you, `▶` at work, `⧗` waits, `⊘` cannot start, `○` not started, `✓` done, `■` stopped, `!` a problem, `◌` a state that the board cannot read;
+- an amber line, only when you must act, for example "Needs your answer." or "Needs you to merge it: autopilot is off.";
+- a red line for a problem that the chief repairs, for example "Checks failed on the recorded PR head; the chief repairs it.";
+- the milestone tag "◫ Board redesign" on a task row outside its milestone's page; a row with no tag is a single task. On a phone, a long milestone name ends with "…", and the tag's tooltip gives the full name;
+- the id and the PR, small at the right, to match the chat; on a phone, under the sentence.
+
+A milestone row has the `◫` mark, a sentence such as "**Board redesign**: 1 of 5 tasks merged, 2 at work, 2 waiting.", an amber line that names its tasks that need you, and a bar with one part for each task.
 
 **The parts of a level, from the top:**
 
@@ -154,15 +167,21 @@ The address of the board opens **All projects**. The board has five levels, and 
 - **Needs you**, full width, oldest first. A question with fixed choices shows its choices on its row: [in a paired browser](#act-from-the-board), one click answers it, through the same write as the question view. Undo takes it back until the chief picks it up.
 - **A design question** has no choice on its row: "Open the design to answer" opens its task, where its three choices are. Each row also has Open, which opens the question view with its full message.
 - **A merge** that waits for you names its next step, for example "Next: merge it in the chief's chat. The chief runs the merge check first." It has no button: the board does not merge.
-- **At work.** On All projects, one line for each project with its tasks, its agents and its flags, or "no flag"; a click opens the project's tasks in place. On a project or a milestone, one line for each task at work.
+- **At work.** On All projects, one line for each project with its tasks, its agents and its flags, or "no flag"; a click opens the project's tasks in place. On a project, one line for each task at work.
 - **A flag:** an agent with a flag, such as "Look at it", "Stopped without a report" or a failed run, gets its own row under At work, and a click opens its run.
-- **Progress:** each milestone with a bar and "5 of 9". On a project, "No milestone" counts its open tasks in no milestone. On a milestone, its own bar and when it is done.
-- **Waits** (a project or a milestone): the tasks that wait, each with what it waits for.
+- **Milestones:** one row for each milestone. On a project, "No milestone" counts its open tasks in no milestone.
+- **Waits** (a project): the tasks that wait or have not started, each with what it waits for.
 - **Done in the last 7 days:** the 5 newest, then "Show all".
 
-A part with nothing in it is not a card: the parts fold into one line, for example "Here: no agent at work · nothing waits". Colour shows only the state of a row and a flag, and each colour has its own shape: a diamond needs you, a dot is at work, a ring waits, a check is done, a triangle or a square is a flag.
+A part with nothing in it is not a card: the parts fold into one line, for example "Here: no agent at work · nothing waits". Colour shows only the state of a row and a flag, and each colour goes with its own mark.
 
-**The task** opens with its title, its state and its steps, then the decision when the task needs you: the question with its choices, which answer at once. Under the decision are the agents at work (a click opens a run), and the About, Artifacts, Log and Decisions tabs.
+**The milestone** opens with its name, its sentence ("Nothing needs you." when nothing does), its goal and its bar. Then "Its tasks" lists every task of the milestone, merged tasks of any age too, in "waits for" lines:
+
+- **First, Then, Last:** a task goes one line below the last task of the milestone that it waits for. Tasks on one line can run side by side.
+- **One line:** a milestone with one line shows no First, Then or Last.
+- **A flag:** an agent with a flag shows above the lines.
+
+**The task** opens with "Task in ◫ Board redesign" (or "Task · not in a milestone"), its name as the title, its sentence, and "What it is:" with its full title. Then its state and its steps, then the decision when the task needs you: the question with its choices, which answer at once. Under the decision are the agents at work (a click opens a run), and the About, Artifacts, Log and Decisions tabs.
 
 - **A design question** shows the design first, in a frame, with a link to the design and the full question; then "Approve", "Approve with your words" (which opens a box for your words) and "New version". The design stays after your answer. When the question names no design page and the task's pages folder has none, the decision says so.
 - **The back link** "‹" goes back to the page you came from. A task that a link opened goes up to its milestone, or to its project when it is in no milestone.
@@ -190,7 +209,7 @@ Each job is at most two clicks from All projects, at 1440 px and at 390 px. Brow
 | Answer what needs you | 1; a design question 2 | A choice on its Needs you row; a design question: its row, then the choice on the task. |
 | See what moves now | 0, then 2 for one task | At work: a project's line, then a task. |
 | Find one task | 2 | The project in the tree, then the task. Search by words comes with the "/" search. |
-| See a goal's progress | 0, then 1 | Progress, then a milestone. |
+| See a goal's progress | 0, then 1 | Milestones, then a milestone. |
 | See the important designs | 1 or 2 | A design question on Needs you. The Designs cards come in a later version. |
 | Switch projects | 1 | The tree. |
 | See what was done | 0 | The since line and Done in the last 7 days. |

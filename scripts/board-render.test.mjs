@@ -10,7 +10,7 @@ function model() {
 }
 test("phone text and status preserve task counts, and the chat board makes no link, image or HTML of agent text, with no backslash", () => {
   const data = model(), board = renderBoardText(data), task = renderTaskText(data.tasks[0]);
-  assert.ok(board.includes("### 🔴 Needs you\n- ‹script›alert(1)‹/script› & [sample] (https://example.test). Sample: go on?\n"), board);
+  assert.ok(board.includes("### 🔴 Needs you\n- ‹script›alert(1)‹/script› &. Sample: go on?\n"), board);
   assert.ok(!board.includes("<") && !board.includes("](") && !board.includes(String.fromCharCode(92)), board);
   assert.ok(!board.includes("${c}"));
   for (const section of ["Loop", "Brief", "Agent runs", "Evidence", "Findings", "Artifacts", "Latest decisions"]) assert.ok(task.includes(`**${section}**`));
@@ -343,33 +343,31 @@ test("T1217: the digest is plain words with no backslash, and agent text makes n
   sources[0].projects[1].tables.gates[0].question = "Checkout layout: A (one page) or B [three steps]? See ![x](https://example.test/x.png) <b>now</b>";
   const text = digest(sources);
   assert.ok(!text.includes(String.fromCharCode(92)), text);
-  assert.ok(text.includes("- Choose the checkout layout. Checkout layout: A (one page) or B [three steps]? See ![x] (https://example.test/x.png) ‹b›now‹/b›\n  Options: 1 A · 2 B.\n  Recommended: A.\n"), text);
+  assert.ok(text.includes("- Checkout layout. Checkout layout: A (one page) or B [three steps]? See ![x] (https://example.test/x.png) ‹b›now‹/b›\n  Options: 1 A · 2 B.\n  Recommended: A.\n"), text);
   assert.ok(!text.includes("](") && !text.includes("<"), "no markdown link or image, and no HTML tag");
 });
 
-test("T1217: a long title is cut at a word, after at most 60 characters, with an ellipsis", () => {
-  const line = digest().split("\n").find(item => item.startsWith("- Hook slots"));
-  const [shown] = line.slice(2).split("… ");
-  assert.ok(line.includes("… Building, 20 min."), line);
-  assert.ok(shown.length <= 60 && LONG_TITLE.startsWith(shown) && LONG_TITLE[shown.length] === " ", `cut "${shown}" ends at a word`);
-  const short = digest().split("\n").find(item => item.startsWith("- The board answers"));
-  assert.equal(short, "- The board answers while it reads the logbook. In review, cycle 1 of 1, 5 min.", "a short title stays whole");
+test("T1257: the digest names each task by its short name, never its long title; a task with no name shows the name that the board makes from its title", () => {
+  const text = digest();
+  assert.ok(text.includes("\n- Free hook slots. Building, 20 min.\n"), text);
+  assert.ok(!text.includes(LONG_TITLE.slice(0, 30)), "the long title does not show");
+  assert.ok(text.includes("\n- The board answers while. In review, cycle 1 of 1, 5 min."), "no name: the first words of the title");
 });
 
 test("T1217: times are in the local zone, named once in the head line", () => {
   const york = digest(), tokyo = digest(undefined, "Asia/Tokyo");
   assert.equal(york.split("\n")[0], "sage board · 10:43 UTC-05:00");
   assert.equal(tokyo.split("\n")[0], "sage board · 00:43 UTC+09:00");
-  assert.ok(york.includes("- Read-only roles cannot write into the agent folders. Merged at 09:40.\n"), york);
-  assert.ok(york.includes("- The design check counts two prior-art links. Merged yesterday at 11:43.\n"), york);
-  assert.ok(tokyo.includes("- Read-only roles cannot write into the agent folders. Merged yesterday at 23:40.\n"), "in Tokyo the board is past midnight, so the same merge was yesterday");
+  assert.ok(york.includes("- Read-only roles. Merged at 09:40.\n"), york);
+  assert.ok(york.includes("- Two prior-art links. Merged yesterday at 11:43.\n"), york);
+  assert.ok(tokyo.includes("- Read-only roles. Merged yesterday at 23:40.\n"), "in Tokyo the board is past midnight, so the same merge was yesterday");
   for (const text of [york, tokyo]) assert.equal(text.match(/UTC/g).length, 1, "the zone is named once");
 });
 
 test("T1217: the digest leaves out the backlog, the sessions, the pick-ups, the step lines and what was done before yesterday", () => {
   const text = digest();
   for (const gone of ["A task in the backlog", "A second task in the backlog", "Someday", "An old merge from last week", "Backlog", "Sessions", "Pick-ups", "›", "Now: ", "P1", "Bug fix"]) assert.ok(!text.includes(gone), gone);
-  assert.ok(text.includes("Fix the cart total") && text.includes("The design check counts"), "the sample has work that shows");
+  assert.ok(text.includes("Cart total") && text.includes("Two prior-art links"), "the sample has work that shows");
 });
 
 test("T1217: a chief that stopped with open work is one line under Needs you; a live chief has no line", () => {
@@ -384,13 +382,13 @@ test("T1217: task, gate, milestone, chief and PR ids show only on the Ref line, 
   const lines = digest().split("\n"), ref = lines.at(-1);
   const id = /\b(?:[TGMRC][1-9]\d*|PR \d+)\b|c0ffee1/;
   assert.deepEqual(lines.slice(0, -1).filter(line => id.test(line)), [], "no id above the Ref line");
-  assert.ok(lines.includes("- Pages link to the board only when it runs. The board cannot tell if autopilot is on, so review and merge its PR."), lines.join("\n"));
+  assert.ok(lines.includes("- Board-only links. The board cannot tell if autopilot is on, so review and merge its PR."), lines.join("\n"));
   assert.equal(ref, "Ref: sage-stack T1205 PR 645 T1210 claude/sage-stack-aaaaaa/G236 C1 T1204 T1206 PR 640 T1199 PR 641 T1190 PR 630 M7 · sedalina T88 claude/sedalina-bbbbbb/G62 T89");
 });
 
 test("T1217: each part groups its lines by project when two or more projects have work, and not when one has", () => {
   const two = digest();
-  assert.ok(partOf(two, "Needs you").startsWith("sage-stack\n- ") && partOf(two, "Needs you").includes("\n\nsedalina\n- Choose the checkout layout."), two);
+  assert.ok(partOf(two, "Needs you").startsWith("sage-stack\n- ") && partOf(two, "Needs you").includes("\n\nsedalina\n- Checkout layout."), two);
   assert.equal(partOf(two, "Moving now").split("\n").filter(line => !line.startsWith("- ")).join("|"), "sage-stack||sedalina");
   const sources = digestSources();
   sources[0].projects[1].tables = { tasks: [] };
@@ -411,13 +409,13 @@ test("T1217: a Quiet line counts the projects with nothing that moves or needs y
 test("T1223: the chat digest and the board give each task the same row state, from the one function in core", () => {
   const sources = digestSources(), stack = sources[0].projects[0];
   stack.tables.tasks.push(
-    { ...stack.tables.tasks[0], id: "T1211", title: "Briefed and waiting for its build agent", state: "briefed", milestone: "" },
-    { ...stack.tables.tasks[0], id: "T1212", title: "Abandoned with its question still open", state: "abandoned", milestone: "" });
+    { ...stack.tables.tasks[0], id: "T1211", name: "Briefed task", title: "Briefed and waiting for its build agent", state: "briefed", milestone: "" },
+    { ...stack.tables.tasks[0], id: "T1212", name: "Abandoned task", title: "Abandoned with its question still open", state: "abandoned", milestone: "" });
   stack.tables.gates.push({ id: "G237", task: "T1212", question: "Keep the abandoned branch?", options: "yes|no", recommendation: "no", default: "", answer: "", at: "2026-11-23T15:00:00Z" });
   const model = buildBoardModel(sources, { now: DIGEST_NOW, landing });
   const board = Object.fromEntries(boardOverview(model).tasks.map(row => [row.id, row.row]));
   const text = digest(sources), parts = ["Needs you", "Moving now", "Done since yesterday"];
-  const placed = Object.fromEntries(model.tasks.map(task => [task.id, parts.filter(label => partOf(text, label).includes(`- ${task.title.slice(0, 30)}`))]));
+  const placed = Object.fromEntries(model.tasks.map(task => [task.id, parts.filter(label => partOf(text, label).includes(`- ${task.name}.`))]));
   const rows = { T1204: "work", T1206: "work", T1205: "needs", T1210: "needs", T88: "needs", T89: "work", T1211: "waits", T1150: "waits", T1151: "waits", T3: "waits", T1199: "done", T1190: "done", T1180: "done", T1212: "done" };
   const PLACE = { needs: ["Needs you"], work: ["Moving now"], waits: ["Moving now"], done: ["Done since yesterday"] };
   const backlog = ["T1150", "T1151", "T3"], older = ["T1180", "T1212"];

@@ -2,12 +2,12 @@ import { useState } from "react";
 import { DesignPreview, PairBox, PairNote, UndoButton, chiefLabel, markSeen, post, useAccess, useSeen } from "./actions.jsx";
 import { Start, ago, plural } from "./overview.jsx";
 import { projectNamed } from "./projects.jsx";
-import { questionLink, runLink, taskLink } from "./task.jsx";
-import { DESIGN_OPTIONS, WORDS_MAX } from "../../sage-core/state-words.mjs";
+import { Name, Tag, controlsShown, milestoneLevelLink, questionLink, runLink, taskLink } from "./task.jsx";
+import { DESIGN_OPTIONS, MARKS, WORDS_MAX, prName } from "../../sage-core/state-words.mjs";
 
 const q = encodeURIComponent;
+export { milestoneLevelLink };
 export const projectLink = key => `#project?key=${q(key)}`;
-export const milestoneLevelLink = key => `#milestone?key=${q(key)}`;
 export const looseLink = project => `#milestone?project=${q(project)}`;
 export const LEVELS = ["", "project", "milestone", "task", "run"];
 const KIND = { "": "All projects", project: "Project", milestone: "Milestone", task: "Task", run: "Run" };
@@ -18,8 +18,6 @@ export const clock = (at, now) => {
   const date = new Date(at), hm = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
   return now && date.toDateString() === new Date(now).toDateString() ? hm : `${date.toLocaleDateString([], { day: "numeric", month: "short" })} ${hm}`;
 };
-const ENDED = { merged: "Merged", concluded: "Concluded", abandoned: "Abandoned" };
-const WORD = { needs: "needs you", work: "at work", waits: "waits", done: "done" };
 
 export function placeOf(all, page) {
   const key = page.params.get("key"), named = name => projectNamed(all.projects, name);
@@ -39,10 +37,10 @@ export function Crumb({ all, page }) {
   const parts = [["All projects", "#"]];
   if (place.project) parts.push([place.project.name, projectLink(place.project.key)]);
   else if (place.level === "project") parts.push([KIND.project]);
-  if (place.milestone) parts.push([place.milestone.title, milestoneLevelLink(place.milestone.key)]);
+  if (place.milestone) parts.push([place.milestone.name, milestoneLevelLink(place.milestone.key)]);
   else if (place.loose && place.project) parts.push(["No milestone", looseLink(place.project.key)]);
   else if (place.level === "milestone") parts.push([KIND.milestone]);
-  if (["task", "run"].includes(place.level)) parts.push([place.row?.title ?? KIND.task, place.row && taskLink(place.row.key)]);
+  if (["task", "run"].includes(place.level)) parts.push([place.row?.name ?? KIND.task, place.row && taskLink(place.row.key)]);
   if (place.level === "run") parts.push([place.run || KIND.run]);
   return (
     <nav className="crumb lv-crumb" aria-label="Where you are">
@@ -65,7 +63,7 @@ export function Tree({ all, page }) {
       </a>,
       ...open === project.key ? [
         ...(level?.milestones ?? []).map(key => all.milestones.find(item => item.key === key)).filter(Boolean).map(milestone => (
-          <a key={milestone.key} className={`d2${place.milestone?.key === milestone.key && place.level === "milestone" ? " on" : ""}`} href={milestoneLevelLink(milestone.key)}><span className="nm">{milestone.title}</span><span className="n">{milestone.merged} of {milestone.total}</span></a>)),
+          <a key={milestone.key} className={`d2${place.milestone?.key === milestone.key && place.level === "milestone" ? " on" : ""}`} href={milestoneLevelLink(milestone.key)}><span className="nm">{milestone.name}</span><span className="n">{milestone.merged} of {milestone.total}</span></a>)),
         <a key="loose" className={`d2${place.loose && place.level === "milestone" ? " on" : ""}`} href={looseLink(project.key)}><span className="nm">No milestone</span><span className="n">{openCount(all.levels.loose[project.key])} open</span></a>,
       ] : [],
     ];
@@ -82,15 +80,19 @@ export function Tree({ all, page }) {
 }
 
 const openCount = level => level ? level.needs.length + level.work.length + level.waits.length : 0;
-export const Mark = ({ row, state }) => <span className={`mk m-${row === "done" && state === "abandoned" ? "aband" : row}`} aria-hidden="true" />;
+const ROW_MARK = { needs: ["needs you", "need"], work: ["in progress", "run"], waits: ["waiting", ""], done: ["done", "done"], stopped: ["stopped", ""] };
+export const Mark = ({ row, state }) => { const [word, tone] = ROW_MARK[row === "done" && state === "abandoned" ? "stopped" : row] ?? []; return <span className={`mk ${tone}`} data-m={MARKS[word] ?? MARKS.unknown} aria-hidden="true" />; };
 const Dot = () => <span className="new" title="New since you looked"><span className="sr">new: </span></span>;
+const ref = (...parts) => <span className="ref">{parts.filter(Boolean).join(" · ")}</span>;
 
-function TaskRow({ row, meta, project, fresh, to, indent }) {
+function TaskRow({ row, project, fresh, indent, inMilestone }) {
   return (
-    <a className={`lv-row${indent ? " ind" : ""}`} href={to ?? taskLink(row.key)} data-task={row.key} data-row={row.row}>
-      <Mark row={row.row} state={row.state} />
-      <span className="tt">{fresh && <Dot />}{row.title}<span className="id">{row.id}</span></span>
-      <span className="meta">{project && `${project} · `}{meta}<span className="sr"> · {WORD[row.row]}</span></span>
+    <a className={`lv-row${indent ? " ind" : ""}`} href={taskLink(row.key)} data-task={row.key} data-row={row.row}>
+      <span className={`mk ${row.tone}`} data-m={row.mark} aria-hidden="true" />
+      <span className="tt">{fresh && <Dot />}<Name item={row} />: {controlsShown(row.says)}.{!inMilestone && <Tag milestone={row.milestone} />}</span>
+      {ref(row.id, row.pr && prName(row.pr), project)}
+      {row.need && <span className="ask">{row.need}</span>}
+      {row.flag && <span className="flag">{MARKS.problem} {controlsShown(row.flag)}</span>}
     </a>
   );
 }
@@ -100,9 +102,9 @@ function RunRow({ run, project }) {
   const { flag } = run;
   return (
     <a className="lv-row ind" href={runLink(run.task.key, run.id)} data-run={run.id} data-task={run.task.key}>
-      <span className={run.status === "running" ? "mk m-work" : "mk"} aria-hidden="true" />
-      <span className="tt">{run.task.title}<span className="id">{run.task.id}</span></span>
-      <span className="meta">{project && `${project} · `}{run.role} {run.id}{flag && <> · <Flag flag={flag} /></>}{run.why && ` · ${run.why}`}</span>
+      {run.status === "running" ? <Mark row="work" /> : <span className="mk" aria-hidden="true" />}
+      <span className="tt"><Name item={run.task} /></span>
+      <span className="meta">{project && `${project} · `}{run.task.id} · {run.role} {run.id}{flag && <> · <Flag flag={flag} /></>}{run.why && ` · ${run.why}`}</span>
     </a>
   );
 }
@@ -171,11 +173,11 @@ export function Decide({ need, answered, archived = false, now, theme }) {
 function NeedRow({ need, all, byProject, fresh, now }) {
   const writes = useAccess(), project = all.projects.find(item => item.key === need.project), archived = !!project?.archived && need.project !== null;
   const link = need.task ? taskLink(need.task.key) : need.milestone ? milestoneLevelLink(need.milestone) : null;
-  const where = [byProject && project?.name, asked(need, now)].filter(Boolean).join(" · ");
+  const where = [need.task?.id, byProject && project?.name, asked(need, now)].filter(Boolean).join(" · ");
   return (
     <div className="lv-need" data-need={need.key}>
       <Mark row="needs" />
-      <span className="tt">{fresh && <Dot />}{link ? <a href={link}>{need.task?.title ?? need.question}</a> : need.question}{need.task && <span className="id">{need.task.id}</span>}</span>
+      <span className="tt">{fresh && <Dot />}{link ? <a href={link}>{need.task ? <Name item={need.task} /> : need.question}</a> : need.question}{need.task && <Tag milestone={need.task.milestone} />}</span>
       {where && <span className="meta">{where}</span>}
       <div className="body">
         {need.task && <p className="q">{need.question}</p>}
@@ -194,8 +196,8 @@ function AnsweredRow({ item, all, byProject, now }) {
   return (
     <div className="lv-need answered" data-answered={item.key}>
       <Mark row="done" />
-      <span className="tt"><a href={taskLink(item.task.key)}>{item.task.title}</a><span className="id">{item.task.id}</span></span>
-      <span className="meta">{[byProject && project?.name, `answered ${clock(item.at, now)}`].filter(Boolean).join(" · ")}</span>
+      <span className="tt"><a href={taskLink(item.task.key)}><Name item={item.task} /></a><Tag milestone={item.task.milestone} /></span>
+      <span className="meta">{[item.task.id, byProject && project?.name, `answered ${clock(item.at, now)}`].filter(Boolean).join(" · ")}</span>
       <div className="body"><p className="lv-ans">You chose <b>{item.answer}</b>. It waits for {chiefLabel(all.chiefs, item.logbook, item.owner)} to pick it up. <UndoButton logbook={item.logbook} gate={item.gateId} /></p></div>
     </div>
   );
@@ -217,17 +219,16 @@ function NeedsPart({ all, needs, answered, byProject, since, now }) {
   );
 }
 
-function WorkPart({ all, keys, rows, names, byProject, books }) {
+function WorkPart({ all, keys, rows, byProject, books }) {
   const [opened, setOpened] = useState(() => new Set());
   const agentsOf = key => books.reduce((n, book) => n + book.runs.filter(run => run.status === "running" && run.task.key === key).length, 0);
-  const workMeta = row => [row.step?.label, plural(agentsOf(row.key), "agent")].filter(Boolean).join(" · ");
   const flagged = books.flatMap(book => book.runs.filter(run => run.look).map(run => ({ run, project: book.project })));
   if (!keys.length && !flagged.length) return null;
-  const head = <h2 id="lv-work">At work <span className="r">{plural(keys.reduce((n, key) => n + agentsOf(key), 0), "agent")} on {plural(keys.length, "task")}</span></h2>;
+  const head = <h2 id="lv-work">At work <span className="r">{keys.length ? `${plural(keys.reduce((n, key) => n + agentsOf(key), 0), "agent")} on ${plural(keys.length, "task")}` : plural(flagged.length, "run") + " with a flag"}</span></h2>;
   if (!byProject) return (
     <section className="lv-part" aria-labelledby="lv-work" data-part="work">{head}
       <div className="lv-list">
-        {keys.map(key => rows.get(key)).filter(Boolean).map(row => <TaskRow key={row.key} row={row} meta={workMeta(row)} />)}
+        {keys.map(key => rows.get(key)).filter(Boolean).map(row => <TaskRow key={row.key} row={row} />)}
         {flagged.map(({ run }) => <RunRow key={`${run.task.key}/${run.id}`} run={run} />)}
       </div>
     </section>
@@ -247,40 +248,60 @@ function WorkPart({ all, keys, rows, names, byProject, books }) {
             <span className="chev" aria-hidden="true">{opened.has(project.key) ? "▾" : "▸"}</span>
           </button>,
           ...mine.map(({ run }) => <RunRow key={`${run.task.key}/${run.id}`} run={run} />),
-          ...opened.has(project.key) ? own.map(key => rows.get(key)).filter(Boolean).map(row => <TaskRow key={row.key} row={row} meta={workMeta(row)} indent />) : [],
+          ...opened.has(project.key) ? own.map(key => rows.get(key)).filter(Boolean).map(row => <TaskRow key={row.key} row={row} indent />) : [],
         ];
       })}</div>
     </section>
   );
 }
 
-const Bar = ({ merged, total }) => <span className="lv-bar" aria-hidden="true"><i style={{ width: `${total ? Math.round(100 * merged / total) : 0}%` }} /></span>;
-function ProgressPart({ milestones, names, byProject, loose }) {
+const Segs = ({ milestone, rows }) => <span className="lv-segs" role="img" aria-label={`${milestone.merged} of ${milestone.total} tasks merged`}>{milestone.tasks.map(key => <i key={key} className={rows.get(key)?.tone} />)}</span>;
+function MilestoneRow({ milestone, rows, project }) {
+  return (
+    <a className="lv-row" href={milestoneLevelLink(milestone.key)} data-milestone={milestone.key}>
+      <span className={`mk ${milestone.tone}`} data-m={milestone.mark} aria-hidden="true" />
+      <span className="tt"><Name item={milestone} />: {milestone.says}.</span>
+      {ref(milestone.id, project)}
+      {milestone.need && <span className="ask">{controlsShown(milestone.need)}</span>}
+      <Segs milestone={milestone} rows={rows} />
+    </a>
+  );
+}
+function ProgressPart({ milestones, rows, names, byProject, loose }) {
   if (!milestones.length && !loose) return null;
   return (
     <section className="lv-part" aria-labelledby="lv-progress" data-part="progress">
-      <h2 id="lv-progress">Progress <span className="r">merged of all tasks</span></h2>
+      <h2 id="lv-progress">Milestones <span className="r">{milestones.length}</span></h2>
       <div className="lv-list">
-        {milestones.map(milestone => (
-          <a key={milestone.key} className="lv-prog" href={milestoneLevelLink(milestone.key)} data-milestone={milestone.key}>
-            <span><span className="tt">{milestone.title}</span> <span className="meta">{byProject ? names.get(milestone.project) : milestone.goal}</span></span>
-            <Bar merged={milestone.merged} total={milestone.total} /><span className="n2">{milestone.merged} of {milestone.total}</span>
-          </a>
-        ))}
-        {loose && <a className="lv-prog" href={looseLink(loose.project)} data-milestone="none"><span><span className="tt">No milestone</span> <span className="meta">tasks in no milestone</span></span><span /><span className="n2">{loose.open} open</span></a>}
+        {milestones.map(milestone => <MilestoneRow key={milestone.key} milestone={milestone} rows={rows} project={byProject && names.get(milestone.project)} />)}
+        {loose && <a className="lv-row" href={looseLink(loose.project)} data-milestone="none"><span className="mk" aria-hidden="true" /><span className="tt"><span className="tn">No milestone</span>: {plural(loose.open, "open task")}.</span></a>}
       </div>
     </section>
   );
 }
 
-function ListPart({ id, label, keys, rows, names, byProject, meta, fresh, all: everything }) {
+function Lines({ milestone, rows }) {
+  const layers = [];
+  milestone.tasks.forEach((key, i) => { (layers[milestone.depths[i]] ??= []).push(key); });
+  const lines = layers.filter(Boolean), label = i => i === 0 ? "First" : i === lines.length - 1 ? "Last" : "Then";
+  const list = keys => keys.map(key => rows.get(key)).filter(Boolean).map(row => <TaskRow key={row.key} row={row} inMilestone />);
+  return (
+    <section className="lv-part" aria-labelledby="lv-lines" data-part="lines">
+      <h2 id="lv-lines">Its tasks <span className="r">{milestone.tasks.length} · in "waits for" order</span></h2>
+      <div className="lv-list">{lines.length > 1 ? lines.map((keys, i) => <div className="lv-line" key={i}><span className="ln">{label(i)}</span><div>{list(keys)}</div></div>) : list(lines[0] ?? [])}</div>
+      {lines.length > 1 && <p className="lv-fold">A task waits for each task on a line above it. Tasks on one line can run side by side. Merged tasks of any age stay here.</p>}
+    </section>
+  );
+}
+
+function ListPart({ id, label, keys, rows, names, byProject, fresh, all: everything }) {
   const [all, setAll] = useState(!!everything);
   if (!keys.length) return null;
   const shown = all ? keys : keys.slice(0, DONE_SHOWN);
   return (
     <section className="lv-part" aria-labelledby={`lv-${id}`} data-part={id}>
       <h2 id={`lv-${id}`}>{label} <span className="r">{keys.length}{shown.length < keys.length ? " · newest first" : ""}</span></h2>
-      <div className="lv-list">{shown.map(key => rows.get(key)).filter(Boolean).map(row => <TaskRow key={row.key} row={row} meta={meta(row)} project={byProject && names.get(row.project)} fresh={fresh?.(row)} />)}</div>
+      <div className="lv-list">{shown.map(key => rows.get(key)).filter(Boolean).map(row => <TaskRow key={row.key} row={row} project={byProject && names.get(row.project)} fresh={fresh?.(row)} />)}</div>
       {shown.length < keys.length && <button type="button" className="btn lv-more" onClick={() => setAll(true)}>Show all {keys.length}</button>}
     </section>
   );
@@ -306,10 +327,6 @@ function Unread({ projects, names }) {
   return <div className="lv-note bad" role="alert" data-part="failure">{bad.map(project => <p key={project.key}>{project.unread?.length ? unreadLine(project, names) : `${names.get(project.key)}: ${project.problem}`} Ask the chief to repair the logbook. The rest of the board is current.</p>)}</div>;
 }
 
-const metaOf = now => ({
-  waits: row => row.waits ?? (row.step ? `${row.step.label}: no agent at work now` : "Not started"),
-  done: row => `${ENDED[row.state] ?? "Done"} ${clock(row.doneAt, now)}`,
-});
 
 export function Loading({ hash }) {
   return (
@@ -322,12 +339,13 @@ export function Loading({ hash }) {
   );
 }
 
+const cap = text => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 const Missing = ({ kind, text }) => <div className="lv"><p className="kind">{kind}</p><h1>{text}</h1><p className="sub">It may have moved or been removed. <a href="#">All projects</a></p></div>;
 
 export function LevelPage({ all, page, now }) {
   const previous = useSeen(), place = placeOf(all, page);
   const names = new Map(all.projects.map(project => [project.key, project.name])), rows = new Map(all.tasks.map(row => [row.key, row]));
-  const since = previous && time(previous), meta = metaOf(now);
+  const since = previous && time(previous);
   if (place.level === "project" && !place.project) return <Missing kind="Project" text="This project is not on the board" />;
   if (place.level === "milestone" && !place.project) return <Missing kind="Milestone" text="This milestone is not on the board" />;
   const top = place.level === "", project = place.project;
@@ -342,7 +360,7 @@ export function LevelPage({ all, page, now }) {
   const shownMilestones = milestones.map(key => all.milestones.find(item => item.key === key)).filter(Boolean);
   const loose = place.level === "project" ? { project: project.key, open: openCount(all.levels.loose[project.key]) } : null;
   const freshDone = row => since !== null && time(row.doneAt) > since;
-  const empty = [
+  const empty = place.milestone ? [] : [
     !scope.work.length && !books.some(book => book.runs.some(run => run.look)) && "no agent at work",
     ["", "project"].includes(place.level) && !shownMilestones.length && !loose?.open && "no milestone",
     !top && !scope.waits.length && "nothing waits",
@@ -352,7 +370,10 @@ export function LevelPage({ all, page, now }) {
   const head = top ? <><p className="kind">All projects</p><h1>All projects</h1><p className="sub">{plural(shownProjects(all).length, "project")} with work · {quiet} quiet · {archived} archived</p></>
     : place.level === "project" ? <><p className="kind">Project</p><h1>{project.name}</h1><p className="sub">{plural(project.open, "open task")}{project.lastActivity && ` · active ${ago(project.lastActivity, now)}`}{project.archived && " · archived"}</p></>
     : place.loose ? <><p className="kind">Milestone</p><h1>No milestone</h1><p className="sub">The tasks of {project.name} that are in no milestone.</p></>
-    : <><p className="kind">Milestone</p><h1>{place.milestone.title}</h1><p className="sub">{place.milestone.goal ?? "The logbook keeps no goal for this milestone."} · {project.name}</p></>;
+    : <><p className="kind">Milestone · {project.name}</p><h1><Name item={place.milestone} /><span className="id">{place.milestone.id}</span></h1>
+      <p className="lede">{cap(place.milestone.says)}. {place.milestone.need ? <span className="ask">{controlsShown(place.milestone.need)}</span> : "Nothing needs you."}</p>
+      <p className="sub">Goal: {place.milestone.goal ? controlsShown(place.milestone.goal.replace(/[^.?!]$/, "$&.")) : "the logbook keeps no goal for this milestone."} Done when each task that is not abandoned is merged or concluded.</p>
+      <Segs milestone={place.milestone} rows={rows} /></>;
   if (top && !all.projects.length) return <div className="lv">{head}<PairNote /><Start started={false} /></div>;
   return (
     <div className="lv" data-level={top ? "all" : place.level}>
@@ -360,18 +381,19 @@ export function LevelPage({ all, page, now }) {
       <PairNote />
       <Unread projects={top ? all.projects.filter(item => !item.archived) : [project]} names={names} />
       {top && <Since all={all} live={live} needs={needs} books={books} since={since} previous={previous} now={now} />}
-      <NeedsPart all={all} needs={needs} answered={answered} byProject={top} since={since} now={now} />
-      <div className="lv-two">
-        <WorkPart all={all} keys={scope.work} rows={rows} names={names} byProject={top} books={books} />
-        {place.milestone ? <section className="lv-part" aria-labelledby="lv-progress" data-part="progress">
-          <h2 id="lv-progress">Progress <span className="r">{place.milestone.merged} of {place.milestone.total} merged</span></h2>
-          <Bar merged={place.milestone.merged} total={place.milestone.total} />
-          <p className="meta">Done when each task that is not abandoned is merged or concluded.{place.milestone.abandoned.length > 0 && ` Abandoned: ${place.milestone.abandoned.join(", ")}.`}</p>
-        </section> : <ProgressPart milestones={shownMilestones} names={names} byProject={top} loose={loose?.open ? loose : null} />}
-      </div>
-      {empty.length > 0 && <p className="lv-fold" data-part="fold">Here: {empty.join(" · ")}.</p>}
-      {!top && <ListPart id="waits" label="Waits" keys={scope.waits} rows={rows} names={names} meta={meta.waits} all />}
-      <ListPart id="done" label="Done in the last 7 days" keys={scope.done} rows={rows} names={names} byProject={top} meta={meta.done} fresh={freshDone} />
+      {(!place.milestone || needs.length + answered.length > 0) && <NeedsPart all={all} needs={needs} answered={answered} byProject={top} since={since} now={now} />}
+      {place.milestone ? <>
+        <WorkPart all={all} keys={[]} rows={rows} byProject={false} books={books} />
+        <Lines milestone={place.milestone} rows={rows} />
+      </> : <>
+        <div className="lv-two">
+          <WorkPart all={all} keys={scope.work} rows={rows} byProject={top} books={books} />
+          <ProgressPart milestones={shownMilestones} rows={rows} names={names} byProject={top} loose={loose?.open ? loose : null} />
+        </div>
+        {empty.length > 0 && <p className="lv-fold" data-part="fold">Here: {empty.join(" · ")}.</p>}
+        {!top && <ListPart id="waits" label="Waits" keys={scope.waits} rows={rows} names={names} all />}
+        <ListPart id="done" label="Done in the last 7 days" keys={scope.done} rows={rows} names={names} byProject={top} fresh={freshDone} />
+      </>}
       {place.level === "project" && <p className="lv-fold lv-more-pages">More for this project: <a href={`#overview?project=${q(project.key)}`}>chiefs and archive</a> · <a href={`#tasks?project=${q(project.key)}`}>Tasks</a> · <a href={`#agents?project=${q(project.key)}`}>Agents</a> · <a href={`#pull-requests?project=${q(project.key)}`}>Pull requests</a> · <a href={`#stats?project=${q(project.key)}`}>Stats</a></p>}
     </div>
   );
