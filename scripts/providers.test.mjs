@@ -406,7 +406,7 @@ test("provider packages are complete outside the checkout, with no opposite adap
     const env = { ...process.env, SAGE_HOME: join(dir, "logbooks") };
     const run = (...args) => spawnSync(process.execPath, [join(plugin, "skills/sage/sage.mjs"), ...args, "--project", dir], { encoding: "utf8", env });
     assert.equal(run("init").status, 0);
-    const task = run("task", "add", "--name", tname(), "--priority", "P2", "--title", "Shared behavior", "--size", "small");
+    const task = run("task", "add", "--name", "Shared behavior", "--priority", "P2", "--title", "Shared behavior", "--size", "small");
     assert.equal(task.status, 0, task.stderr);
     assert.match(run("status").stdout, /tasks\s+1 · framed 1/);
     assert.equal(run("task", "T1", "set", "state=briefed").status, 0);

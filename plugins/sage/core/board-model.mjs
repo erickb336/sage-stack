@@ -11,6 +11,7 @@ import { pickupsOf } from "./pickup.mjs";
 import { checkoutLabel, plainName } from "./shared-root.mjs";
 import { DESIGN_GATE } from "./design-copy.mjs";
 import { createStateTool } from "./state.mjs";
+import { taskNames } from "./task-name.mjs";
 const COLUMNS = [
   ["backlog", "Backlog", ["framed"]],
   ["design", "Design", ["designing", "awaiting-you"]],
@@ -211,8 +212,8 @@ function stepLine({ task, route, cycles, required, head, judged, reasons, proble
   NEXT["pr-ready"] = NEXT.verified;
   const AFTER = { replan: "The chief briefs it again after your answer.", "awaiting-you": `${cap(NAME.build)} is briefed after your answer.` };
   const next = who === "done" ? null : gate ? AFTER[state] ?? `${cap(name)} ${started ? "goes on" : "starts"} after your answer.` : NEXT[state];
-  if (!route.length) return { steps: [], current: null, now: needs ? { needs: true, text: needs } : { needs: false, stale: false, text: NO_ROUTE }, next: null };
-  return { steps, current: step, now: needs ? { needs: true, text: needs } : { needs: false, stale: ["stale", "lost"].includes(status), text: nowText }, next };
+  if (!route.length) return { steps: [], current: null, name: null, cycles: null, now: needs ? { needs: true, text: needs } : { needs: false, stale: false, text: NO_ROUTE }, next: null };
+  return { steps, current: step, name: name || null, cycles: { clean: judged ? cycles.filter(clean).length : null, required }, now: needs ? { needs: true, text: needs } : { needs: false, stale: ["stale", "lost"].includes(status), text: nowText }, next };
 }
 const NO_ROUTE = "The logbook records no route for this task, so the board shows no steps.";
 
@@ -733,7 +734,10 @@ export function buildBoardModel(input,{ now = new Date().toISOString(), landing 
   const notes = [...joined, ...sources.flatMap(source => [...(source.notes ?? NONE).map(message => ({ source: source.id, project: title(source.label), message })),
     ...source.projects.flatMap(project => (project.notes ?? NONE).map(message => ({ source: source.id, project: groupOf.get(project.key)?.name ?? project.name, message })))])];
   const graphs = new Map(sources.flatMap(source => source.projects.map(project => [project.key, graphOf(project)])));
-  const tasks = sources.flatMap(source => source.projects.flatMap(project => (project.tables.tasks ?? []).filter(task => /^T[1-9]\d*$/.test(task.id)).map(task => card(source, project, groupOf.get(project.key), task, at, graphs.get(project.key), landing))));
+  const tasks = sources.flatMap(source => source.projects.flatMap(project => {
+    const rows = (project.tables.tasks ?? []).filter(task => /^T[1-9]\d*$/.test(task.id)), names = taskNames(rows);
+    return rows.map(task => Object.assign(card(source, project, groupOf.get(project.key), task, at, graphs.get(project.key), landing), { name: names.get(task.id).name, named: names.get(task.id).given }));
+  }));
   const byKey = new Map(tasks.map(task => [task.key, task])), movedOut = new Set(tasks.filter(task => task.movedFrom).map(task => `${task.group} ${task.movedFrom}`));
   for (const task of tasks) if (task.old && movedOut.has(`${task.group} ${task.old.provider} ${task.id}`)) task.moved = true;
   namedWaits(tasks, byKey);

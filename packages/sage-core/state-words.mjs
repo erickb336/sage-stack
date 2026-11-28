@@ -1,27 +1,77 @@
-const DOING = {
+const BUILT = "built", MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(" ");
+const PHRASE = {
   __proto__: null,
-  framed: "No agent works on it yet.",
-  designing: "Agents design it.",
-  "awaiting-you": "You answered. The chief moves it on.",
-  briefed: "The build starts next.",
-  building: "Agents build it.",
-  held: "Held. The chief moves it on.",
-  reviewing: "Reviewers and QA check it.",
-  repairing: "Agents fix the findings.",
-  replan: "The chief makes a new plan.",
-  verifying: "The last clean cycles run.",
-  verified: "Every check is clean.",
-  "pr-ready": "The pull request is ready to merge.",
+  framed: () => "not started",
+  designing: () => "in design",
+  "awaiting-you": f => f.asked ? "in design" : "you answered; the chief moves it on",
+  briefed: f => f.step ? `${f.step} starts next` : "briefed",
+  building: f => `in ${f.step ?? "progress"}`,
+  held: () => "held by the chief",
+  reviewing: f => f.made === BUILT ? `built, in review${f.clean === null ? "" : `, ${f.clean} of ${f.required} ${f.required === 1 ? "cycle" : "cycles"} clean`}`
+    : f.made ? `${f.made}, in the evidence review${f.clean === null || f.required < 2 ? "" : `, ${f.clean} of ${f.required} reviews clean`}` : "in review",
+  repairing: f => f.made && f.step ? `${f.made}, in ${f.step}` : "in repair",
+  replan: () => "the chief makes a new plan",
+  verifying: f => f.step ? `the last checks before ${f.step}` : "the last checks",
+  verified: f => f.made === BUILT ? "ready to merge" : f.made ? "ready to conclude" : "ready",
+  "pr-ready": f => PHRASE.verified(f),
+  merged: f => `merged${f.day}`,
+  concluded: f => f.made === BUILT ? `closed with no merge${f.day}` : `concluded${f.day}`,
+  abandoned: () => "stopped for good",
 };
-const ENDS = { __proto__: null, merged: ["done", "Merged."], concluded: ["done", "The study ended."], abandoned: ["stopped", "Stopped for good."] };
+const ENDS = { __proto__: null, merged: "done", concluded: "done", abandoned: "stopped" };
+const OPEN = Object.keys(PHRASE).filter(state => !ENDS[state]);
+const cap = text => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+const andOf = list => list.length > 1 ? `${list.slice(0, -1).join(", ")} and ${list.at(-1)}` : list[0] ?? "";
+const dayOf = at => { const when = typeof at === "number" ? at : Date.parse(at); return Number.isFinite(when) ? ` ${new Date(when).getDate()} ${MONTHS[new Date(when).getMonth()]}` : ""; };
+const routeOf = route => Array.isArray(route) ? route : String(route ?? "").split(",").filter(Boolean);
+const factsOf = card => ({ asked: !!card?.reasons?.length, step: card?.loop?.name || null, made: routeOf(card?.route).includes("build") ? BUILT : routeOf(card?.route).length ? "report written" : null,
+  clean: card?.loop?.cycles?.clean ?? null, required: card?.loop?.cycles?.required ?? 1, day: dayOf(card?.completedAt) });
+const phraseOf = card => PHRASE[card.state](factsOf(card));
 
 export function taskWord(card) {
   const { state, waitLine = null } = card ?? {}, reasons = card?.reasons ?? [], problems = card?.problems ?? [];
-  if (ENDS[state]) return { word: ENDS[state][0], reason: ENDS[state][1] };
-  if (!DOING[state]) return { word: null, reason: `The board cannot read the state "${state}".` };
+  if (ENDS[state]) return { word: ENDS[state], reason: `${cap(phraseOf(card))}.` };
+  if (!PHRASE[state]) return { word: null, reason: `The board cannot read the state "${state}".` };
   if (reasons.length) return { word: "needs you", reason: reasons[0].text };
   if (waitLine && ["framed", "briefed"].includes(state)) return { word: "waiting", reason: waitLine.text };
-  return { word: state === "framed" ? "not started" : "in progress", reason: problems[0]?.text ?? DOING[state] };
+  return { word: state === "framed" ? "not started" : "in progress", reason: problems[0]?.text ?? `${cap(phraseOf(card))}.` };
+}
+
+const ASK = {
+  gate: r => r.breakdown ? "Needs your approval of the breakdown." : r.design ? "Needs your approval of the design." : r.replace ? "Needs your answer: hand it to another chief?" : "Needs your answer.",
+  design: () => "Needs your answer on the design.",
+  merge: r => r.mode ? "Needs you to merge it: autopilot is off." : "Needs you to merge it: the board cannot tell if autopilot is on.",
+  "merge-check": () => "Needs you: the merge check is not checked.",
+  "review-wait": () => "Needs your review of its pull request.",
+  "chief-unknown": () => "Needs you: its chief may have stopped.",
+};
+const needOf = reasons => !reasons.length ? null : reasons.length > 1 ? reasons.every(r => r.kind === "gate") ? `Needs your answers to ${reasons.length} questions.` : `Needs you for ${reasons.length} things.`
+  : Object.hasOwn(ASK, reasons[0].kind) ? ASK[reasons[0].kind](reasons[0]) : "Needs you.";
+const neverOf = (wait, nameOf) => wait.odd ? "its waits cell is not a task id" : wait.breakdown ? `the breakdown of its milestone is ${wait.breakdown.state === "dropped" ? "dropped" : "lost"}`
+  : wait.loop ? `its waits make a loop through ${nameOf(wait.id)}` : wait.state === null ? `${wait.id} is not in the logbook` : `${nameOf(wait.id)} was abandoned`;
+function waitsOf(waits, nameOf) {
+  const open = waits.filter(wait => !wait.met), never = open.filter(wait => wait.never), breakdown = open.filter(wait => wait.breakdown && !wait.never);
+  if (never.length) return `cannot start, because ${andOf(never.map(wait => neverOf(wait, nameOf)))}`;
+  return `waits for ${andOf((breakdown.length ? breakdown : open).map(wait => wait.breakdown ? wait.breakdown.state === "changing" ? "the new breakdown" : "your approval of the breakdown" : nameOf(wait.id)))}`;
+}
+const TONE = { "needs you": "need", "in progress": "run", done: "done" };
+export function taskSentence(card, nameOf = id => id, asks = card.state !== "abandoned") {
+  const { word } = taskWord(card), reasons = asks ? card.reasons ?? [] : [], problems = card.problems ?? [], agents = (card.agents ?? []).length;
+  const waiting = !!word && !ENDS[card.state] && !!card.waitLine && ["framed", "briefed"].includes(card.state), never = waiting && !!card.waitLine.never;
+  const says = !word ? `the board cannot read the state "${card.state}"` : waiting ? waitsOf(card.waits ?? [], nameOf)
+    : `${phraseOf(card)}${agents && !ENDS[card.state] ? `, ${agents} ${agents === 1 ? "agent" : "agents"} at work` : ""}`;
+  const need = needOf(reasons), flag = problems[0]?.text ?? null;
+  const mark = need ? MARKS["needs you"] : flag ? MARKS.problem : never ? MARKS["cannot start"] : !word ? MARKS.unknown : waiting ? MARKS.waiting : MARKS[word];
+  return { says, need, flag, mark, tone: need ? "need" : flag || never ? "fail" : TONE[word] ?? "" };
+}
+
+export function milestoneSentence(milestone, needs = []) {
+  const { state, merged, total, abandoned = [], moving = 0, waiting = 0, cannotStart = [] } = milestone, asked = MILESTONE[state];
+  const done = state === "done" || total > 0 && merged + abandoned.length === total;
+  const says = asked && asked[0] !== "needs you" ? asked[1].charAt(0).toLowerCase() + asked[1].slice(1, -1) : done ? `done, ${merged === total ? `all ${total}` : `${merged} of ${total}`} ${total === 1 ? "task" : "tasks"} merged${abandoned.length ? `, ${abandoned.length} abandoned` : ""}${dayOf(milestone.doneAt)}`
+    : [`${merged} of ${total} ${total === 1 ? "task" : "tasks"} merged`, moving && `${moving} at work`, waiting && `${waiting} waiting`, cannotStart.length && `${cannotStart.length} cannot start`].filter(Boolean).join(", ");
+  const need = [asked?.[0] === "needs you" && asked[1], needs.length && `${andOf(needs)} ${needs.length === 1 ? "needs" : "need"} you.`].filter(Boolean).join(" ") || null;
+  return { says, need, mark: MARKS.milestone, tone: need ? "need" : done ? "done" : moving ? "run" : "" };
 }
 
 const MILESTONE = {
@@ -57,14 +107,14 @@ export const FLAGGED = "with a problem flag";
 export const KINDS = { design: ["◇", "Design"], ui: ["▢", "UI"], orchestration: ["⋈", "Orchestration"], optimization: ["↗", "Optimization"], "bug-fix": ["✱", "Bug fix"], logbook: ["≡", "Logbook"], docs: ["¶", "Docs"], security: ["▲", "Security"], providers: ["⊞", "Providers"], checks: ["⊨", "Checks"] };
 
 const each = (keys, word) => Object.fromEntries(keys.map(key => [key, [word]]));
-const ended = Object.fromEntries(Object.entries(ENDS).map(([state, [word]]) => [state, [word]]));
+const ended = Object.fromEntries(Object.entries(ENDS).map(([state, word]) => [state, [word]]));
 export const headingId = text => `h-${String(text).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "part"}`;
 export const SCRIPT_PAGE_NOTE = "This page runs its own scripts in a sandbox. They cannot read the board, your files or other pages, but they can send the text of this page to another site.";
 export const OBJECTS = {
   project: { label: "Project", states: {} },
   release: { label: "Release", states: {} },
   milestone: { label: "Milestone", states: Object.fromEntries(Object.entries(MILESTONE).map(([state, [word]]) => [state, [word]])) },
-  task: { label: "Task", states: { ...each(Object.keys(DOING), "in progress"), framed: ["not started"], ...ended } },
+  task: { label: "Task", states: { ...each(OPEN, "in progress"), framed: ["not started"], ...ended } },
   agent: { label: "Agent", states: {
     queued: ["waiting"], running: ["in progress"], done: ["done"], question: ["needs you"], failed: ["stopped", "failed"], blocked: ["stopped", "blocked"],
     work: ["in progress"], wait: ["waiting"],

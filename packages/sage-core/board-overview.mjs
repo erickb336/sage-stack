@@ -3,7 +3,7 @@ import { milestoneName } from "./milestone-rules.mjs";
 import { ROW_STATES, isOpen, rowState } from "./board-model.mjs";
 import { needsLook } from "./agent-flag.mjs";
 import { TEAM } from "./role-policy.mjs";
-import { runWord, taskWord } from "./state-words.mjs";
+import { milestoneSentence, runWord, taskSentence, taskWord } from "./state-words.mjs";
 import { measureTotals, runMeasure } from "./usage.mjs";
 
 const DAY = 86_400_000, DONE_DAYS = 7;
@@ -38,7 +38,7 @@ function gateNeeds(task) {
       more,
       recommendation: reason.recommendation ?? null,
       gate: reason.gateId ?? null,
-      task: { key: task.key, id: task.id, title: task.title },
+      task: named(task),
       chief: task.holder ?? title(task.sourceLabel) ?? null,
       ...(reason.gateId && { logbook: reason.logbook, options: reason.options, digest: reason.digest, owner: reason.owner, takeover: !!reason.replace, design: !!reason.design }),
       project: task.group,
@@ -79,17 +79,21 @@ function findingsOf(task) {
   return { open: open.length, closed: task.findings.filter(row => row.status === "closed").length, worst: SEVERITIES.find(severity => open.some(row => row.severity === severity)) ?? null };
 }
 
+const namesOf = model => new Map(model.tasks.map(task => [task.key, task.name]));
 export function projectNames(model) {
   const projects = model.projects ?? [], count = name => projects.filter(project => project.name === name).length;
   return new Map(projects.map(project => [project.key, count(project.name) > 1 ? `${project.name} (${project.key})` : project.name]));
 }
 
-function taskRow(task, chiefs) {
+const milestoneOf = milestone => milestone ? { key: milestone.key, id: milestone.id, title: milestoneName({ id: milestone.id, name: milestone.name ?? "" }), name: milestone.name || milestoneName({ id: milestone.id }) } : null;
+const named = task => ({ key: task.key, id: task.id, title: task.title, name: task.name, named: task.named, milestone: milestoneOf(task.milestone) });
+const nameIn = (task, names) => id => names.get(`${task.project}/${id}`) ?? id;
+
+function taskRow(task, chiefs, names) {
   const step = stepOf(task), row = rowState(task);
   return {
-    key: task.key, id: task.id, title: task.title, project: task.group, state: task.state, row, word: task.word ?? null, ended: !isOpen(task),
+    ...named(task), project: task.group, state: task.state, row, word: task.word ?? null, ended: !isOpen(task), ...taskSentence(task, nameIn(task, names), row === "needs"),
     priority: task.priority || null, kind: task.kind || null, size: task.size || null, pr: task.pr || null,
-    milestone: task.milestone ? { key: task.milestone.key, id: task.milestone.id, title: milestoneName({ id: task.milestone.id, name: task.milestone.name ?? "" }) } : null,
     chief: chiefTag(task, chiefs), needsYou: row === "needs", waits: task.waitLine?.text ?? null, cannotStart: !!task.waitLine?.never,
     waitsFor: task.waits.filter(wait => wait.id).map(wait => ({ key: `${task.project}/${wait.id}`, id: wait.id, met: wait.met })),
     why: task.reasons.length || task.problems?.length ? taskWord(task).reason : null,
@@ -147,7 +151,7 @@ function agentsOf(model, recent, agents, chiefs) {
       const { run, task, flag, state, look } = item;
       return {
         id: run.id, role: run.role, status: run.status, chief: chiefOf(item), lead: leadOf(item)?.id ?? null, model: run.model || null, candidate: run.candidate || null,
-        task: { key: task.key, id: task.id, title: task.title }, started: iso(run.started), ended: iso(run.ended), ...runMeasure(run), place: run.place ?? null, look, state, ...(flag ? { flag: { level: flag.level, text: flag.text } } : look && run.status === "failed" && { flag: { level: "red", text: runWord("failed").flag } }),
+        task: { key: task.key, id: task.id, title: task.title, name: task.name, named: task.named }, started: iso(run.started), ended: iso(run.ended), ...runMeasure(run), place: run.place ?? null, look, state, ...(flag ? { flag: { level: flag.level, text: flag.text } } : look && run.status === "failed" && { flag: { level: "red", text: runWord("failed").flag } }),
         why: run.status === "failed" ? runFailure(task, run)?.text ?? null : item.agent?.why || flag?.why || null,
         ...(endedOf.has(run.id) && { endedHelpers: endedOf.get(run.id).length }),
       };
@@ -164,7 +168,7 @@ export function boardOverview(model) {
   const at = time(model.at);
   const since = at - DAY;
   const recent = value => { const when = time(value); return when !== null && when > since && when <= at; };
-  const tasks = model.tasks, byKey = new Map(tasks.map(task => [task.key, task])), names = projectNames(model);
+  const tasks = model.tasks, byKey = new Map(tasks.map(task => [task.key, task])), names = projectNames(model), taskNames = namesOf(model);
 
   const needs = [...tasks.filter(task => task.visible && task.column).flatMap(gateNeeds), ...(model.milestoneNeeds ?? []).map(milestoneNeed)]
     .sort((a, b) => (time(a.askedAt) ?? -Infinity) - (time(b.askedAt) ?? -Infinity));
@@ -175,10 +179,16 @@ export function boardOverview(model) {
     const open = own.filter(task => !ENDED.includes(task.state));
     const lastDone = Math.max(-Infinity, ...own.map(task => time(task.completedAt)).filter(when => when !== null));
     if (milestone.state === "done" && !(lastDone > at - DONE_DAYS * DAY)) { hiddenDone[milestone.group] = (hiddenDone[milestone.group] ?? 0) + 1; return []; }
+    const counts = { state: milestone.state, merged: milestone.progress.merged, total: milestone.progress.total, abandoned: milestone.progress.abandoned, moving: open.filter(isMoving).length, waiting: milestone.waiting, cannotStart: milestone.cannotStart,
+      doneAt: milestone.state === "done" && Number.isFinite(lastDone) ? new Date(lastDone).toISOString() : null };
     return [{
       key: milestone.key,
       id: milestone.id,
       title: milestoneName(milestone),
+      name: milestone.name || milestoneName({ id: milestone.id }),
+      ...milestoneSentence(counts, open.filter(task => rowState(task) === "needs").map(task => task.name)),
+      tasks: milestone.tasks,
+      depths: milestone.depths,
       goal: milestone.goal || null,
       project: milestone.group,
       state: milestone.state,
@@ -187,11 +197,11 @@ export function boardOverview(model) {
       merged: milestone.progress.merged,
       total: milestone.progress.total,
       abandoned: milestone.progress.abandoned,
-      moving: open.filter(isMoving).length,
+      moving: counts.moving,
       waiting: milestone.waiting,
       needsYou: open.filter(task => rowState(task) === "needs").length + (milestone.need ? 1 : 0),
       pilot: milestone.pilot,
-      doneAt: milestone.state === "done" && Number.isFinite(lastDone) ? new Date(lastDone).toISOString() : null,
+      doneAt: counts.doneAt,
     }];
   }).sort((a, b) => rank(a.priority) - rank(b.priority) || stateRank(a.state) - stateRank(b.state) || number(a.id) - number(b.id));
 
@@ -201,7 +211,7 @@ export function boardOverview(model) {
   const leaving = [...merged.map(task => time(task.completedAt)), ...look.filter(item => item.run.status === "failed").map(item => time(item.run.ended))].map(when => when + DAY + 1)
     .concat(chiefs.flatMap(chief => [time(chief.quietAt), time(chief.passOnAt)]).filter(when => when !== null));
 
-  const rows = tasks.map(task => taskRow(task, chiefs)), designs = designRows(tasks);
+  const rows = tasks.map(task => taskRow(task, chiefs, taskNames)), designs = designRows(tasks);
   return {
     at: model.at,
     stale: !!model.stale,
@@ -212,7 +222,7 @@ export function boardOverview(model) {
     chiefs,
     pickups: (model.projects ?? []).flatMap(project => (project.pickups ?? []).map(item => ({ ...item, project: project.key }))),
     needs,
-    answered: tasks.flatMap(task => task.boardAnswers.map(item => ({ ...item, task: { key: task.key, id: task.id, title: task.title }, project: task.group }))).sort((a, b) => (time(a.at) ?? 0) - (time(b.at) ?? 0)),
+    answered: tasks.flatMap(task => task.boardAnswers.map(item => ({ ...item, task: named(task), project: task.group }))).sort((a, b) => (time(a.at) ?? 0) - (time(b.at) ?? 0)),
     tasks: rows,
     milestones,
     designs,
@@ -233,11 +243,11 @@ function designRows(tasks) {
 function levelsOf({ rows, tasks, needs, milestones, designs, projects, at }) {
   const agents = new Map(tasks.map(task => [task.key, task.agents.length])), asked = new Map();
   for (const [i, need] of needs.entries()) if (need.task && !asked.has(need.task.key)) asked.set(need.task.key, i);
-  const shown = row => row.row !== "done" || time(row.doneAt) > at - DONE_DAYS * DAY;
+  const recent = row => row.row !== "done" || time(row.doneAt) > at - DONE_DAYS * DAY;
   const plan = (a, b) => rank(a.priority) - rank(b.priority) || number(a.id) - number(b.id);
   const ORDER = { needs: (a, b) => (asked.get(a.key) ?? needs.length) - (asked.get(b.key) ?? needs.length) || plan(a, b), work: plan, waits: plan, done: (a, b) => time(b.doneAt) - time(a.doneAt) || plan(a, b) };
   const keys = list => list.map(item => item.key);
-  const level = (own, mine) => {
+  const level = (own, mine, shown = recent) => {
     const lists = Object.fromEntries(ROW_STATES.map(state => [state, keys(own.filter(row => row.row === state && shown(row)).sort(ORDER[state]))]));
     return { ...lists, agents: lists.work.reduce((n, key) => n + agents.get(key), 0), designs: keys(designs.filter(mine)) };
   };
@@ -245,7 +255,7 @@ function levelsOf({ rows, tasks, needs, milestones, designs, projects, at }) {
   return {
     all: { ...level(rows.filter(live), live), projects: keys(projects), milestones: keys(milestones.filter(live)) },
     projects: Object.fromEntries(projects.map(({ key }) => [key, { ...level(rows.filter(row => row.project === key), item => item.project === key), milestones: keys(milestones.filter(milestone => milestone.project === key)) }])),
-    milestones: Object.fromEntries(milestones.map(({ key }) => [key, level(rows.filter(row => row.milestone?.key === key), item => item.milestone === key)])),
+    milestones: Object.fromEntries(milestones.map(({ key }) => [key, level(rows.filter(row => row.milestone?.key === key), item => item.milestone === key, () => true)])),
     loose: Object.fromEntries(projects.map(({ key }) => [key, level(rows.filter(row => row.project === key && !row.milestone), item => item.project === key && !item.milestone)])),
   };
 }
@@ -254,7 +264,7 @@ function searchRows(rows, designs, projects, names) {
   const archived = new Set(projects.filter(project => project.archived).map(project => project.key));
   const hit = (kind, key, id, label, project, rank, at, extra) => ({ kind, key, id, label, project, rank: archived.has(project) ? 2 : rank, at: at ?? null, ...extra });
   return [
-    ...rows.map(row => hit("task", row.key, row.id, row.title, row.project, row.row === "done" ? 1 : 0, row.lastActivity, { row: row.row })),
+    ...rows.map(row => hit("task", row.key, row.id, row.title, row.project, row.row === "done" ? 1 : 0, row.lastActivity, { row: row.row, name: row.name, named: row.named })),
     ...designs.map(design => hit("design", design.key, design.id, design.title, design.project, 1, design.at)),
     ...projects.map(project => hit("project", project.key, null, names.get(project.key), project.key, 0, project.lastActivity)),
   ].sort((a, b) => a.rank - b.rank || (time(b.at) ?? 0) - (time(a.at) ?? 0) || a.key.localeCompare(b.key));
@@ -283,7 +293,7 @@ export function taskPanel(model, key) {
   const log = logOf(task), waiting = new Set(task.reasons.map(reason => reason.gateId)), agents = new Map(everyAgent(model.agents).filter(agent => agent.task?.key === key).map(agent => [agent.runId, agent]));
   const steps = task.loop.steps.map(step => ({ key: step.key, label: step.label, status: step.status, detail: step.detail, parts: (step.parts ?? []).map(([name, status]) => ({ name, status })) }));
   return {
-    ...taskRow(task, chiefs),
+    ...taskRow(task, chiefs, namesOf(model)),
     at: model.at,
     route: task.route ? task.route.split(",") : [], risk: task.risk || null, branch: task.branch || null,
     logbook: task.project.slice(task.project.indexOf("/") + 1),
@@ -303,7 +313,7 @@ export function taskPanel(model, key) {
   };
 }
 
-const linked = other => ({ key: other.key, id: other.id, title: other.title, word: other.word ?? null });
+const linked = other => ({ key: other.key, id: other.id, title: other.title, name: other.name ?? null, word: other.word ?? null });
 function aboutOf(model, task) {
   const at = time(model.at), byKey = new Map(model.tasks.map(item => [item.key, item]));
   const milestone = task.milestone && model.milestones.find(item => item.key === task.milestone.key);

@@ -209,7 +209,7 @@ test("T1063: markup in a title, a question, a branch name and a path shows as te
   assert.match(await hostile.locator(".meta").textContent(), /may conflict · T8 · PR 17/);
   await hostile.locator(".ttl").click();
   const panel = page.locator(".taskpage");
-  await page.locator(".taskpage h1", { hasText: HOSTILE_TEXT.title }).waitFor();
+  await page.locator(".taskpage .tp-what", { hasText: HOSTILE_TEXT.title }).waitFor();
   assert.match(await panel.textContent(), /sage\/t50-<b>bold<\/b>/, "the branch name is text");
   assert.ok((await panel.locator(".callout code").allTextContents()).includes("<script>window.hacked=3</script>\\nsrc/evil\\u202egnp\\u009b.js"), "a path shows its newline and invisible characters as escapes");
   await page.goBack();

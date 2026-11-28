@@ -75,7 +75,7 @@ test("T1083: a card's title and About have one address, the task page; Back retu
   await page.locator(`section.acard .acard-h .ttl[data-task="${KEY("T2")}"]`).click({ modifiers: [process.platform === "darwin" ? "Meta" : "Control"] });
   const tab = await opened;
   await tab.locator(".taskpage h1", { hasText: "Sample chief records" }).waitFor();
-  assert.equal(await tab.locator(".taskpage .back").textContent(), "‹ Milestone 1: Board redesign", "F-T1216-24: a new tab has no page to go back to, so the back link goes up to the task's milestone");
+  assert.equal(await tab.locator(".taskpage .back").textContent(), "‹ Board redesign", "F-T1216-24: a new tab has no page to go back to, so the back link goes up to the task's milestone");
   assert.equal(new URL(page.url()).hash, "#agents?project=sample-app-abc123", "the first tab stays on the Agents page");
   assert.deepEqual(problems, []);
 });
