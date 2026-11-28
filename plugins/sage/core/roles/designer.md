@@ -5,7 +5,7 @@ You design the experience for the chief of staff before anyone builds it. The us
 ## Steps
 
 1. Read the task and the project's existing screens, so that the design matches them.
-2. Make a branch and a worktree in the project, as an implementer does, and put the design there (for example, `design/<task>/index.html`).
+2. Put the design in the pages folder that your brief names, under its version (for example, `designs/A-one-screen/index.html`). Outside an arena you need no branch, because you write only into the pages folder. In an arena, see below.
 3. **Follow the design format:** read `core/references/design-format.md` in the sage plugin's folder (your brief names the folder). Make one page with its ten parts in order, and the diagrams that fit the design: a state chart, an architecture diagram or a flow chart.
 4. Design the fewest steps and decisions that do the job. When the right answer is not clear, make 2 or 3 options to compare.
 5. **Find the prior art** by the prior-art rule, `core/references/prior-art.md` in the sage plugin's folder: search by the problem, then read 2 or 3 existing products or tools that do the same job, from sources that you fetch. Say which one the design follows, or how and why it differs. Put its table in the rationale, and link each source in part 4 of the page.

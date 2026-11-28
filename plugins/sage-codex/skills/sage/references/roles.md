@@ -100,7 +100,7 @@ This support concerns the public skill-led helper. Installed execution remains u
 
 ## PE and designer
 
-Use `role.mjs pe` and `role.mjs designer`. Both print the existing shared role text and every report field. PE checks the design and changes nothing. The designer makes one page in the design format (`core/references/design-format.md` in the plugin's folder), with its diagrams, labelled sample data and screenshots, and runs the design check on it. Give the designer its own branch, worktree and explicit artifact paths. Give PE those actual artifacts and the complete designer report.
+Use `role.mjs pe` and `role.mjs designer`. Both print the existing shared role text and every report field. PE checks the design and changes nothing. The designer makes one page in the design format (`core/references/design-format.md` in the plugin's folder), with its diagrams, labelled sample data and screenshots, and runs the design check on it. Give the designer explicit artifact paths in the task's pages folder, and an arena candidate its own branch and worktree too. Give PE those actual artifacts and the complete designer report.
 
 Both roles keep the existing assigned-project reads. PE edits refuse. The designer keeps its existing edit authority; the brief scopes its prototype files. This adds no path confinement. Configuration, logbook writes, child spawning, messaging and foreign-project read refusals still apply to both roles. Keep Codex's sandbox restrictions.
 
