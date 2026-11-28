@@ -109,7 +109,7 @@ function Stopped({ model, shown }) {
                 const need = model.needs.find(item => item.takeover && item.task?.key === task.key), answered = model.answered.find(item => item.takeover && item.task.key === task.key);
                 return (
                   <li key={task.key}>
-                    <a href={taskLink(task.key)}>{task.id} · {task.title}</a>
+                    <a href={taskLink(task.key)}>{task.id} · <Name item={task} /></a>
                     {giving === task.key ? <GiveBox task={task} logbook={chief.logbook} from={chief.id} chiefs={model.chiefs} close={() => setGiving(null)} />
                       : need ? <a href={questionLink(need.key)} className="btn">{OBJECTS.question.label} {need.gate} open</a>
                       : answered ? <a href={questionLink(answered.key)} className="btn">{OBJECTS.question.label} {answered.gateId} answered</a>

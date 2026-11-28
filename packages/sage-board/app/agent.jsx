@@ -1,4 +1,4 @@
-import { taskLink } from "./task.jsx";
+import { Name, taskLink } from "./task.jsx";
 import { MARKS, runWord } from "../../sage-core/state-words.mjs";
 
 const MIN = 60_000;
@@ -56,7 +56,7 @@ export function AgentTile({ run, now, task = false }) {
       <span className="ag-b">
         <span className="r1"><b className="rw">{run.role}</b><span className="mono faint rid">{task && `${run.task.id} · `}{run.id}</span></span>
         <span className="r2"><StateBadge run={run} /><span className="num">{queued ? `waits ${age(run, now)}` : `${age(run, now)}${runTokens(run) ? ` · ${runTokens(run)}` : ""}`}</span></span>
-        {task && <span className="tline">{run.task.id} · {run.task.title}</span>}
+        {task && <span className="tline">{run.task.id} · <Name item={run.task} /></span>}
         {queued ? <span className="mdl">queued {clock(run.started)} · {ordinal(run.place ?? 0)} in line</span> : <span className="mdl">{run.model ?? "model not recorded"}</span>}
         {note && <span className={`awhy${failed || run.flag?.level === "red" ? " look" : run.flag?.level === "amber" ? " need" : ""}`}>{note}</span>}
       </span>
