@@ -323,33 +323,75 @@ test("T1271: while the first ensure's board holds the port and does not answer y
   } finally { await stop(dir, port); }
 });
 
-test("T1271: a start lock left by an ensure that stopped part way does not hold the next ensure, which starts the board and removes the lock", async (t) => {
+const leaveLock = (lock, age) => { writeFileSync(lock, "4242 stopped\n", { mode: 0o600 }); const at = new Date(Date.now() - age); utimesSync(lock, at, at); };
+const LOCK_AGES = { "no start lock": null, "a fresh start lock": 0, "a stale start lock": 60_000 };
+
+test("T1271 F-T1271-3: two ensures at once on a stale start lock start one board, both exit 0, and the lock is gone", async (t) => {
   const { dir, env, config } = scratch(t);
-  const port = await boardCommandPort(), lock = join(dirname(config), "board.lock");
+  const port = await boardCommandPort(), folder = dirname(config);
   try {
     assert.equal((await board(CLI, ["--setup", "--port", String(port)], env)).status, 0);
-    writeFileSync(lock, "4242 left\n", { mode: 0o600 });
-    const old = new Date(Date.now() - 60_000); utimesSync(lock, old, old);
-    const run = await board(CLI, ["--ensure"], env);
-    assert.equal(run.status, 0, run.stderr);
-    assert.equal(run.stdout, `Sage board started: http://127.0.0.1:${port}/ · only on this Mac.\n`);
-    assert.equal(existsSync(lock), false);
+    leaveLock(join(folder, "board.lock"), LOCK_AGES["a stale start lock"]);
+    const both = await Promise.all([board(CLI, ["--ensure"], env), board(CLI, ["--ensure"], env)]);
+    for (const run of both) assert.equal(run.status, 0, run.stderr);
+    assert.deepEqual(both.map((run) => run.stdout.replace(/^Sage board (started|is running): .*\n$/, "$1")).sort(), ["is running", "started"]);
+    assert.equal(readFileSync(join(folder, "board.log"), "utf8").split(`Sage board: http://127.0.0.1:${port}/ · only on this Mac.\n`).length, 2, "one server started");
+    assert.deepEqual(readdirSync(folder).filter((name) => name.startsWith("board.lock")), []);
   } finally { await stop(dir, port); }
 });
 
-test("T1271, F-T1218-2: a shell that cannot write the board's folder takes no start lock, and still says that a program listens that it cannot connect to", async (t) => {
+test("T1271 F-T1271-2: a start lock left by a stopped ensure does not hold an ensure while the board answers", async (t) => {
   const { dir, env, config } = scratch(t);
   const port = await boardCommandPort();
+  try {
+    assert.equal((await board(CLI, ["--ensure", "--port", String(port)], env)).status, 0);
+    leaveLock(join(dirname(config), "board.lock"), LOCK_AGES["a fresh start lock"]);
+    const from = Date.now(), run = await board(CLI, ["--ensure"], env);
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(run.stdout, `Sage board is running: http://127.0.0.1:${port}/ · only on this Mac.\n`);
+    assert.ok(Date.now() - from < 15_000, "timing-ok: a wait for the lock to go stale lasts 30 s, so 15 s leaves a wide margin on a busy machine");
+  } finally { await stop(dir, port); }
+});
+
+test("T1271 F-T1271-1: a shell that cannot write the board's folder, with or without a start lock there, says that the board runs", async (t) => {
+  const { dir, env, config } = scratch(t);
+  const port = await boardCommandPort(), folder = dirname(config);
+  try {
+    assert.equal((await board(CLI, ["--ensure", "--port", String(port)], env)).status, 0);
+    for (const [name, age] of Object.entries(LOCK_AGES)) {
+      if (age !== null) leaveLock(join(folder, "board.lock"), age);
+      chmodSync(folder, 0o500);
+      try {
+        const run = await board(CLI, ["--ensure"], env);
+        assert.equal(run.stderr, "", name);
+        assert.equal(run.stdout, `Sage board is running: http://127.0.0.1:${port}/ · only on this Mac.\n`, name);
+        assert.equal(run.status, 0, name);
+        const unreachable = await board(CLI, ["--ensure"], { ...env, NODE_OPTIONS: UNREACHABLE });
+        assert.equal(unreachable.stderr, listensLine(port), name);
+        assert.equal(unreachable.status, 3, name);
+      } finally { chmodSync(folder, 0o700); rmSync(join(folder, "board.lock"), { force: true }); }
+    }
+  } finally { await stop(dir, port); }
+});
+
+test("T1271 F-T1218-2 F-T1271-1: a shell that cannot write the board's folder, with or without a start lock there, still says that a program listens that it cannot connect to", async (t) => {
+  const { dir, env, config } = scratch(t);
+  const port = await boardCommandPort(), folder = dirname(config);
   createBoardConfig(config, { sources: [{ id: "sample", path: join(dir, "logbooks") }], port });
   const holder = createServer();
   await new Promise((done) => holder.listen(port, "127.0.0.1", done));
-  chmodSync(dirname(config), 0o500);
   try {
-    const run = await board(CLI, ["--ensure"], { ...env, NODE_OPTIONS: UNREACHABLE });
-    assert.equal(run.stderr, listensLine(port));
-    assert.equal(run.status, 3);
-    assert.deepEqual(readdirSync(dirname(config)), ["board.json"]);
-  } finally { chmodSync(dirname(config), 0o700); await new Promise((done) => holder.close(done)); await stop(dir, port); }
+    for (const [name, age] of Object.entries(LOCK_AGES)) {
+      if (age !== null) leaveLock(join(folder, "board.lock"), age);
+      chmodSync(folder, 0o500);
+      try {
+        const run = await board(CLI, ["--ensure"], { ...env, NODE_OPTIONS: UNREACHABLE });
+        assert.equal(run.stderr, listensLine(port), name);
+        assert.equal(run.status, 3, name);
+        assert.deepEqual(readdirSync(folder), age === null ? ["board.json"] : ["board.json", "board.lock"], name);
+      } finally { chmodSync(folder, 0o700); rmSync(join(folder, "board.lock"), { force: true }); }
+    }
+  } finally { await new Promise((done) => holder.close(done)); await stop(dir, port); }
 });
 
 test("T216: board --stop stops this config's board, and ensure says when the config changed after the start (F-T216-7)", async (t) => {
