@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { accessSync, chmodSync, closeSync, constants, fstatSync, mkdirSync, lstatSync, statSync, openSync, readSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { accessSync, chmodSync, closeSync, constants, fstatSync, linkSync, mkdirSync, lstatSync, statSync, openSync, readSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { request } from "node:http";
 import { createServer as createNetServer } from "node:net";
@@ -113,7 +113,31 @@ function linkProject(config, { project, "name-hex": hex }, env) {
     return name !== null || project ? boardProjectKey({ sources: readSources(config.sources, env), project: name === null ? boundedPath(project) : null, name, providerRoots: providerRoots(env) }) : null;
   } catch { return null; }
 }
-async function ensureBoard(configPath, config, env, link = false, project = null) {
+const LOCK_OF_A_STOPPED_ENSURE_MS = 30_000;
+const stale = path => Date.now() - (lstatSync(path, { throwIfNoEntry: false })?.mtimeMs ?? Date.now()) > LOCK_OF_A_STOPPED_ENSURE_MS;
+function takeLock(lock, mine) {
+  try { accessSync(dirname(lock), constants.W_OK); writeFileSync(lock, mine, { flag: "wx", mode: 0o600 }); return "mine"; }
+  catch (error) { if (error.code !== "EEXIST") return "none"; }
+  if (!stale(lock)) return "busy";
+  const onlyOneRenameWins = `${lock}.${randomBytes(6).toString("hex")}`;
+  try { renameSync(lock, onlyOneRenameWins); } catch (error) { return error.code === "ENOENT" ? "busy" : "none"; }
+  const tooLateSoItIsTheWinnersNewLock = !stale(onlyOneRenameWins);
+  if (tooLateSoItIsTheWinnersNewLock) try { linkSync(onlyOneRenameWins, lock); } catch {}
+  rmSync(onlyOneRenameWins, { force: true });
+  return takeLock(lock, mine);
+}
+async function ensureBoard(configPath, config, ...rest) {
+  const lock = join(dirname(configPath), "board.lock"), mine = `${process.pid} ${randomBytes(8).toString("hex")}\n`;
+  for (let looked = false;; looked = true) {
+    const held = takeLock(lock, mine);
+    if (held === "none") return ensureAlone(configPath, config, ...rest);
+    if (held === "mine") try { return await ensureAlone(configPath, config, ...rest); } finally { if (logSince(lock, 0) === mine) rmSync(lock, { force: true }); }
+    const aBoardAnswers = !looked && (await probe(config)).kind === "board";
+    if (aBoardAnswers) return ensureAlone(configPath, config, ...rest);
+    await new Promise(wake => setTimeout(wake, 100));
+  }
+}
+async function ensureAlone(configPath, config, env, link = false, project = null) {
   const url = `http://127.0.0.1:${config.port}/`, opens = project && `project=${project}`;
   const address = () => link ? `${url}app/#pair=${startLink(stateFolder(configPath))}${opens ? `&${opens}` : ""}` : `${url}${opens ? `app/#${opens}` : ""}`;
   const pairs = link ? " The link pairs the first browser that opens it, once, within 10 minutes." : "";
