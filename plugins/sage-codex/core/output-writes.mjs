@@ -1,4 +1,5 @@
 import { programName, GIT_VALUE } from "./command-policy.mjs";
+import { isAbsolute } from "node:path";
 
 const WRITERS = new Set(["ditto", "scp", "wget", "sqlite3"]);
 const CURL_FILE = new Set("output dump-header cookie-jar trace trace-ascii stderr libcurl etag-save alt-svc hsts ssl-sessions output-dir write-out".split(" "));
@@ -63,21 +64,41 @@ export function outputDispatchWrites(entry) {
   const name = programName(entry.run.word), args = entry.run.args;
   if (WRITERS.has(name)) return true;
   if (name === "openssl") return opensslWrites(args);
-  if (name !== "git") return false;
+  return gitOutputEvidence(entry)?.writes ?? false;
+}
+
+export function gitOutputEvidence(entry) {
+  if (entry.wrapper || programName(entry.run.word) !== "git") return undefined;
+  const args = entry.run.args, targets = [];
+  let complete = entry.run.word === "git", writes = false;
   let i = 0;
-  while (args[i]?.startsWith("-")) i += GIT_VALUE.test(args[i]) ? 2 : 1;
-  if (!["diff", "show", "log"].includes(args[i++])) return false;
+  while (args[i]?.startsWith("-")) {
+    if (args[i] !== "-C" || args[i + 1] === undefined) complete = false;
+    i += GIT_VALUE.test(args[i]) ? 2 : 1;
+  }
+  if (!["diff", "show", "log"].includes(args[i++])) return undefined;
   let unknownOption = false;
   for (; i < args.length; i++) {
     if (args[i] === "--") {
       if (unknownOption) { unknownOption = false; continue; }
       break;
     }
-    if (gitOutput(args[i])) return true;
+    if (gitOutput(args[i])) {
+      writes = true;
+      const exact = /^--output(?:=|$)/.test(args[i]), equals = args[i].indexOf("=");
+      const target = equals < 0 ? args[++i] : args[i].slice(equals + 1);
+      if (!exact || !target || !isAbsolute(target) || /[$`*?\[\]{}~!]/.test(target)) complete = false;
+      else targets.push(target);
+      unknownOption = false;
+      continue;
+    }
     unknownOption = /^-[^=]+$/.test(args[i]) && !GIT_FLAGS.has(args[i]);
-    if (GIT_VALUE_OPTION.test(args[i])) { i++; unknownOption = false; }
+    if (GIT_VALUE_OPTION.test(args[i])) {
+      if (args[++i] === undefined) complete = false;
+      unknownOption = false;
+    } else if (args[i].startsWith("-") && !GIT_FLAGS.has(args[i]) && !GIT_VALUE_OPTION.test(args[i].split("=", 1)[0])) complete = false;
   }
-  return false;
+  return { writes, targets: complete ? targets : undefined };
 }
 
 const GH_VALUE = /^(?:-[uDOpAnRc]|--(?:upstream-remote-name|dir|output|pattern|archive|name|repo|codespace|profile|repo-owner|fork-name|remote-name|org|hostname))$/;

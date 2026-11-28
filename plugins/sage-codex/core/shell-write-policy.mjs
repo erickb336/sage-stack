@@ -1,5 +1,5 @@
 import { flowOf, shellCommands, programsRun } from "./command-reader.mjs";
-import { curlTargets, ghTargets, outputDispatchWrites } from "./output-writes.mjs";
+import { curlTargets, ghTargets, gitOutputEvidence, outputDispatchWrites } from "./output-writes.mjs";
 import { GIT_VALUE, gitSubcommand, programName } from "./command-policy.mjs";
 import { pythonRead } from "./python-read.mjs";
 import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, statSync } from "node:fs";
@@ -439,26 +439,28 @@ const FLOW_WORD = /^(?:if|then|elif|else|fi|for|while|until|do|done|select|case|
 const REDEFINES = /^(?:export|unset|readonly|declare|typeset|local|set|shopt|setopt|alias|unalias|hash|enable|builtin|command|eval|source|\.)$/;
 const GIT_READS = /^(?:log|show|status|diff|rev-parse)$/;
 const shellQuoted = (word) => (/^[\w./=:@%+,-]+$/.test(word) ? word : `'${word.replace(/'/g, "'\\''")}'`);
-const plainReader = ({ words }, cwd) =>
+const plainReader = ({ words }, cwd, output) => output ? output.targets !== undefined :
   (words[0] === "git" ? GIT_READS.test(words[1] ?? "") : READERS.test(words[0] ?? "") && !/^(?:cd|pushd)$/.test(words[0])) &&
   !commandWrites(words.map(shellQuoted).join(" "), cwd);
 
 export function shellWriteEvidence(text, cwd, path) {
   try {
     const commands = shellCommands(text, { provenance: true });
+    const outputs = commands.map(({ words }) => gitOutputEvidence({ run: { word: words[0] ?? "", args: words.slice(1) } }));
     const evidence = programsRun(text, cwd, path, { contextEvidence: true, redirectParts: true });
     const writes = evidence.redirects.filter(toFile);
     if (writes.some(r => r.uncertainDirectory || /[$`*?\[\]{}~!]/.test(r.target))) return { uncertain: true };
-    if (!commands.length || commands.some(c => c.host || c.grouped || FLOW_WORD.test(c.words[0] ?? "") ||
+    if (!commands.length || commands.some((c, i) => c.host || c.grouped || FLOW_WORD.test(c.words[0] ?? "") ||
       REDEFINES.test(c.words[0] ?? "") || c.syntax.some(s => s.assignment) ||
       c.wordLiterals.some(literal => !literal) || c.bodyLiterals.some(literal => !literal) || c.redirectLiterals.some(literal => !literal) ||
-      (c.words.length && !plainReader(c, cwd) && !/^(?:cd|pushd)$/.test(c.words[0])) ||
+      (c.words.length && !plainReader(c, cwd, outputs[i]) && !/^(?:cd|pushd)$/.test(c.words[0])) ||
       (c.words[0] === "printf" && (c.words.slice(1).some(word => /^-v/.test(word)) ||
         /%[^%]*n/.test(c.words[c.words[1] === "--" ? 2 : 1] ?? ""))))) return undefined;
     if (evidence.programs.some(p => p.wrapper || p.uncertainDirectory)) return undefined;
     const reads = evidence.programs.flatMap(({ run }) => /^(?:echo|printf)$/.test(run.word) ? [] :
       [run.word, ...run.args].map(word => ({ word, dir: run.dir ?? cwd })));
     reads.push(...evidence.redirects.filter(r => !toFile(r)).map(r => ({ word: r.target, dir: r.dir ?? cwd })));
-    return { reads, writes: writes.map(r => ({ word: r.target, dir: r.dir ?? cwd })) };
+    return { reads, writes: [...writes.map(r => ({ word: r.target, dir: r.dir ?? cwd })),
+      ...outputs.flatMap(output => (output?.targets ?? []).map(word => ({ word, dir: cwd })))] };
   } catch { return undefined; }
 }

@@ -2059,6 +2059,45 @@ test("T111: an ambiguous executable command keeps its refusal; T903: shell patte
 
 const sageChild = (t, path) => ({ agent_id: "agent-9", transcript_path: record(t, { id: "019a0000-0000-7000-8000-0000000000ee", agent_path: path, source: { subagent: { thread_spawn: { depth: 1 } } } }) });
 
+test("T1164: Git output evidence separates a checkout reference from its destination", async t => {
+  const g = fixed(), child = sageChild(t, "/root/sage_implementer_t1164_r1");
+  const checkout = "/work/home/.codex/worktrees/sample/project";
+  const safe = "/work/exports/result.patch", protectedPath = "/work/home/.codex/config.toml";
+  assert.equal(await g.run(pre("Bash", `git -C ${checkout} diff --output=${safe}`, child)), undefined);
+  assert.match(denied(await g.run(pre("Bash", `git -C ${checkout} diff --output=${protectedPath}`, child))), /files under a \.codex folder/);
+  t.diagnostic("Synthetic input only: ordinary hook cwd, different checkout, absolute destinations; no Git export executed.");
+});
+
+test("T1164: synthetic Git exports preserve all destination and role refusals", async t => {
+  const g = fixed(), child = sageChild(t, "/root/sage_implementer_t1164_r1");
+  const reviewer = sageChild(t, "/root/sage_code_reviewer_t1164_r2");
+  const checkout = "/work/home/.codex/worktrees/sample/project", safe = "/work/exports/result.patch";
+  const protectedPath = "/work/home/.codex/config.toml";
+  for (const sub of ["diff", "show", "log"]) {
+    for (const output of [`--output=${safe}`, `--output ${safe}`]) {
+      const command = `git -C ${checkout} ${sub} ${output}`;
+      assert.equal(await g.run(pre("Bash", command, child)), undefined, command);
+      assert.equal(denied(await g.run(pre("Bash", command, reviewer))), RO_SHELL("code-reviewer", null), command);
+    }
+    for (const suffix of [
+      `--output=${protectedPath}`, `--output ${protectedPath}`,
+      `--output=${safe} --output ${protectedPath}`, `--output=${protectedPath} --output ${safe}`,
+      `--output=${safe} 2> ${protectedPath}`, `--output=${protectedPath} 2> /work/exports/errors.txt`,
+    ]) assert.match(denied(await g.run(pre("Bash", `git -C ${checkout} ${sub} ${suffix}`, child))), /files under a \.codex folder/, suffix);
+    for (const suffix of [
+      `--output=${safe} 2> /work/exports/errors.txt`,
+      `--output=${safe} --output /work/exports/second.patch`,
+      `--format '--output=${protectedPath}' --output=${safe}`,
+      `--output=${safe} -- --output=${protectedPath}`,
+    ]) assert.equal(await g.run(pre("Bash", `git -C ${checkout} ${sub} ${suffix}`, child)), undefined, suffix);
+  }
+  for (const suffix of ["--output", "--output=", "--output=$DEST", "--output=/work/export*", "--output=relative.patch",
+    `--unknown --output=${safe}`, `--out=${safe}`]) {
+    assert.match(denied(await g.run(pre("Bash", `git -C ${checkout} diff ${suffix}`, child))), /files under a \.codex folder/, suffix);
+  }
+  assert.equal(typeof denied(await g.run(pre("Bash", `git diff --output=${process.env.SAGE_HOME}/tasks.tsv`, child))), "string");
+});
+
 test("T114: source redirects do not inherit protected reader inputs or literal bodies", async t => {
   const g = fixed(), child = sageChild(t, "/root/sage_implementer_t1_r1");
   const body = 'const source = `.codex/config.toml ${value} `; // [ $SAGE_HOME ~/.codex/sessions .git/hooks ../runs.tsv';
