@@ -80,7 +80,7 @@ function askText(model, task, reason) {
 }
 function needLines(model, task, reason, ref) {
   const { text, lost } = askText(model, task, reason);
-  ref([task.key, task.id], ...(reason.breakdown ? [[reason.breakdown.key, reason.breakdown.id]] : []), [reason.key, reason.gateId && reason.key], ...(task.pr ? [[`${task.key}/pr`, `PR ${task.pr}`]] : []), ...lost.map(milestone => [milestone.key, milestone.id]));
+  ref([task.key, task.id], ...(reason.breakdown ? [[reason.breakdown.key, reason.breakdown.id]] : []), [reason.key, reason.gateId && reason.key], ...(task.pr ? [[`${task.key}/pr`, `PR ${task.pr}`]] : []), ...lost.map(milestone => [milestone.key, milestone.id]), ...(reason.tasks ?? []).map(other => [other.key, other.id]));
   return [`- ${sentence(cut(reason.breakdown?.name || task.name), text)}`, ...(reason.options?.length ? [`  Options: ${reason.options.map((option, i) => `${i + 1} ${plain(option)}`).join(" · ")}.`] : []),
     ...(reason.recommendation ? [`  Recommended: ${sentence(ownText(task, reason.recommendation))}`] : [])];
 }

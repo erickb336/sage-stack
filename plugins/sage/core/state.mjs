@@ -26,7 +26,7 @@ import { pagesFolder, worktreeRoot, worktrees } from "./worktrees.mjs";
 import { priorArtCommand } from "./prior-art-index.mjs";
 import { sandboxStatus } from "./sandbox-state.mjs";
 import { storageClean, storagePlan, storageView } from "./storage.mjs";
-import { CHIEF, TAKEOVER_OPTIONS, chiefOnly, createChiefs, crossed, offerOf, replaceOf, replaceQuestion, writerClass } from "./chiefs.mjs";
+import { CHIEF, TAKEOVER_OPTIONS, batchQuestion, chiefOnly, createChiefs, crossed, offerOf, replaceOf, replaceQuestion, writerClass } from "./chiefs.mjs";
 import { NAMES_FILE, boardChiefs, chiefNames, readLiveRecord } from "./chief-live.mjs";
 import { PICKUP_TABLES, handoverOf, pickupDelta, pickupPlan, pickupText, stoppedState } from "./pickup.mjs";
 import { LEAD_COMMANDS, leadProblem as leadPolicy, leadRequest } from "./lead-policy.mjs";
@@ -941,22 +941,23 @@ function backingProblem(dir, task, kind, opt) {
   return `${run.id}'s report has ${needed.length} medium or high finding${needed.length === 1 ? "" : "s"} (${said}), and ${task.id} holds ${tally} of ${run.id}, but each one needs a row at its severity or above: ${found ? `${record}, then record ${kind}.` : `so it backs ${problemKind}. For ${cleanKind}, ${record}, then dismiss it with a reason, move it or close it.`}`;
 }
 
-function replaceDelta({ reference: { gate, task, to, runs, offer, handover }, result: { at, answer, answered, picked } }, rows) {
-  const row = rows.tasks.find((t) => t.id === task), asked = rows.gates.find((g) => g.id === gate);
-  if (!row || !asked || runs.some((id) => !rows.runs.some((r) => r.id === id))) return false;
+function replaceDelta({ reference: { gate, task, tasks = [task], to, runs, offer, handover }, result: { at, answer, answered, picked } }, rows) {
+  const moved = tasks.map((id) => rows.tasks.find((t) => t.id === id)), asked = rows.gates.find((g) => g.id === gate);
+  if (moved.some((row) => !row) || !asked || runs.some((id) => !rows.runs.some((r) => r.id === id))) return false;
   if (offer !== undefined) {
-    if (offerOf(row)?.id !== offer) return false;
-    row.offer = "";
-  } else Object.assign(row, { chief: to, ...(row.offer ? { offer: "" } : {}) });
-  for (const run of rows.runs) if (runs.includes(run.id)) Object.assign(run, { status: "failed", ended: at, failure: `ended when you gave ${task} to ${to} (${gate})` });
+    if (moved.length !== 1 || offerOf(moved[0])?.id !== offer) return false;
+    moved[0].offer = "";
+  } else for (const row of moved) Object.assign(row, { chief: to, ...(row.offer ? { offer: "" } : {}) });
+  for (const run of rows.runs) if (runs.includes(run.id)) Object.assign(run, { status: "failed", ended: at, failure: `ended when you gave ${run.task} to ${to} (${gate})` });
   Object.assign(asked, { answer, ...(answered === undefined ? {} : { answered }), ...(picked === undefined ? {} : { picked }) });
-  rows.decisions.push({ at, task, decision: `${asked.question} → ${answer}`, why: "the user's answer", ...(handover ? { handover: JSON.stringify({ ...handover, to, tasks: [task] }) } : {}) });
+  rows.decisions.push({ at, task, decision: `${asked.question} → ${answer}`, why: "the user's answer", ...(handover ? { handover: JSON.stringify({ ...handover, to, tasks }) } : {}) });
   return true;
 }
 function validateReplaceWrite(receipt, tables) {
   const deny = () => refuse("The saved Replace is damaged. No table changed.");
   const { reference, result } = receipt;
   if (typeof reference?.gate !== "string" || typeof reference.task !== "string" || !CHIEF.test(reference.to) || !Array.isArray(reference.runs)
+    || (reference.tasks !== undefined && !(Array.isArray(reference.tasks) && reference.tasks.length && reference.tasks.every((id) => typeof id === "string")))
     || !["undefined", "string"].includes(typeof reference.offer) || (reference.handover !== undefined && !["from", "fromProvider", "toProvider"].every((key) => typeof reference.handover?.[key] === "string")) || typeof result?.at !== "string" || typeof result.answer !== "string"
     || ["answered", "picked"].some((key) => !["undefined", "string"].includes(typeof result[key]))) deny();
   if (!tables) return;
@@ -2916,6 +2917,8 @@ function applyAnswer(dir, gates, g, answer, { answered, picked }, opt, project, 
   write(dir, "gates", gates);
   const own = answer.startsWith("other: ") || answerOption(DESIGN_OPTIONS, answer) === 1;
   write(dir, "decisions", [...read(dir, "decisions"), { at: picked.at, task: g.task, decision: `${g.question} → ${answer}`, why: own ? "the user's own words" : "the user's answer" }, ...(designed ? [{ at: picked.at, task: g.task, decision: `${g.id} design: ${designed}`, why: "the user's answer to a design question" }] : [])]);
+  const listed = g.kind === "replace" ? replaceOf(g)?.tasks ?? [] : [];
+  if (listed.length > 1) return `${g.id} answered · ${answer} · nothing replaced: none of the ${listed.length} tasks changes its chief, and no run ended. ${g.id} is spent: to change the chief, open a new takeover gate.`;
   const kept = g.kind === "replace" && read(dir, "tasks").find((t) => t.id === g.task);
   if (kept) return `${g.id} answered · ${answer} · nothing replaced: ${kept.id} keeps ${kept.chief ? `its chief ${kept.chief}` : "no owning chief"}, and no run ended. ${g.id} is spent: to change the chief, open a new takeover gate.`;
   return `${g.id} answered · ${answer}${adopted}${designed ? ` · ${designed}` : ""}`;
@@ -3081,15 +3084,15 @@ function keepGateMessage(dir, g, { message, text, design }) {
 }
 
 function replaceChief(dir, g, answer, project, env, marks) {
-  const plan = replaceOf(g), task = read(dir, "tasks").find((t) => t.id === g.task);
-  if (!plan || !task) refuse(`${g.id} does not name a task and two chiefs, so it replaces nobody. Answer ${optionsOf(g)[1] ?? "decline"}. Nothing changed.`);
-  const active = activeRuns(dir, task.id).map((r) => r.id), added = active.filter((id) => !plan.runs.includes(id));
-  const again = `Answer ${optionsOf(g)[1] ?? "decline"}, then open a new takeover gate. Nothing changed.`;
-  if (task.chief !== plan.from) refuse(`${task.id} now belongs to ${task.chief ? `chief ${task.chief}` : "no chief"}, not to ${plan.from || "no chief"}, so ${g.id} is out of date. ${again}`);
+  const plan = replaceOf(g), rows = read(dir, "tasks"), tasks = (plan?.tasks ?? []).map((id) => rows.find((t) => t.id === id));
+  if (!plan || tasks.some((task) => !task) || (tasks.length === 1 && tasks[0].id !== g.task)) refuse(`${g.id} does not name a task and two chiefs, so it replaces nobody. Answer ${optionsOf(g)[1] ?? "decline"}. Nothing changed.`);
+  const active = tasks.flatMap((task) => activeRuns(dir, task.id).map((r) => r.id)), added = active.filter((id) => !plan.runs.includes(id));
+  const again = `Answer ${optionsOf(g)[1] ?? "decline"}, then open a new takeover gate. Nothing changed.`, changed = tasks.filter((task) => task.chief !== plan.from);
+  if (changed.length) refuse(`${changed.map((task) => `${task.id} now belongs to ${task.chief ? `chief ${task.chief}` : "no chief"}`).join(", ")}, not to ${plan.from || "no chief"}, so ${g.id} is out of date. ${again}`);
   if (added.length) refuse(`${added.join(", ")} started after ${g.id} opened, so ${g.id} does not name each run that ends as failed. ${again}`);
   const handover = { from: plan.from, fromProvider: plan.fromProvider ?? "", toProvider: plan.toProvider ?? chiefs(dir).find((r) => r.id === plan.to)?.provider ?? "" };
-  commitReplace(dir, { reference: { gate: g.id, task: task.id, to: plan.to, runs: active, handover }, result: { at: now(), answer, ...marks } });
-  return `${g.id} answered · ${answer} · ${task.id} chief ${plan.to}${active.length ? ` · ${active.join(", ")} failed` : ""}${branchHeld(project, task.branch, plan.to, env)}`;
+  commitReplace(dir, { reference: { gate: g.id, task: g.task, ...(tasks.length > 1 && { tasks: plan.tasks }), to: plan.to, runs: active, handover }, result: { at: now(), answer, ...marks } });
+  return `${g.id} answered · ${answer} · ${plan.tasks.join(", ")} chief ${plan.to}${active.length ? ` · ${active.join(", ")} failed` : ""}${tasks.map((task) => branchHeld(project, task.branch, plan.to, env)).join("")}`;
 }
 function declineOffer(dir, g, answer, marks) {
   const plan = replaceOf(g), task = read(dir, "tasks").find((t) => t.id === g.task), open = task && offerOf(task);
@@ -3117,16 +3120,37 @@ function heldLast(dir, task) {
   const moved = adoptionOf(task);
   return released ? { released } : moved?.version === 2 ? { moved: moved.provider } : {};
 }
+const nextAnswer = (id) => `Ask the owner to answer ${id}, in either chat. Nothing changes until then.`;
+const prCell = (task) => (PR.test(prNumber(task.pr)) ? prNumber(task.pr) : "");
+const openTakeovers = (gates, task) => gates.filter((g) => g.kind === "replace" && !g.answer).map((g) => ({ g, p: replaceOf(g) })).filter(({ p }) => p?.tasks.includes(task.id) && p.from === task.chief);
 function takeoverGate(dir, task, to, offered = false) {
-  const next = (id) => `Ask the owner to answer ${id}, in either chat. Nothing changes until then.`;
-  const open = read(dir, "gates").find((g) => g.kind === "replace" && !g.answer && g.task === task.id && ((p) => p && p.from === task.chief && p.to === to)(replaceOf(g)));
-  if (open) return `${open.id} is open already · ${open.question}\n${next(open.id)}`;
-  const pr = PR.test(prNumber(task.pr)) ? prNumber(task.pr) : "";
-  const ask = (fresh) => replaceQuestion({ from: task.chief, to, task: task.id, pr, title: oneLine(task.title), runs: activeRuns(dir, task.id), label: (chief) => chiefLabel(dir, chief), ...(!task.chief && heldLast(dir, task)), fresh, offered });
+  const open = openTakeovers(read(dir, "gates"), task).find(({ p }) => p.to === to)?.g;
+  if (open) return `${open.id} is open already · ${open.question}\n${nextAnswer(open.id)}`;
+  return openGate(dir, task, to, (fresh) => replaceQuestion({ from: task.chief, to, task: task.id, pr: prCell(task), title: oneLine(task.title), runs: activeRuns(dir, task.id), label: (chief) => chiefLabel(dir, chief), ...(!task.chief && heldLast(dir, task)), fresh, offered }));
+}
+function openGate(dir, task, to, ask) {
   const p = replaceOf({ question: ask(false) }), fresh = !!p && crossed(p);
   const g = { id: nextId(dir, "G"), task: task.id, question: ask(fresh), options: TAKEOVER_OPTIONS, recommendation: "approve", default: "", at: now(), kind: "replace", chief: to };
   write(dir, "gates", [...read(dir, "gates"), g]);
-  return `${g.id} open · ${g.question}\n${next(g.id)}`;
+  return `${g.id} open · ${g.question}\n${nextAnswer(g.id)}`;
+}
+function batchGate(dir, gates, ids, to) {
+  const rows = read(dir, "tasks"), found = ids.map((id) => rows.find((t) => t.id === id));
+  const from = found.find((t) => t && !ENDED.includes(t.state) && t.chief && t.chief !== to)?.chief;
+  const open = gates.find((g) => g.kind === "replace" && !g.answer && ((p) => p && p.to === to && p.tasks.length === ids.length && p.tasks.every((id) => ids.includes(id) && rows.find((t) => t.id === id)?.chief === p.from))(replaceOf(g)));
+  if (open) return `${open.id} is open already · ${open.question}\n${nextAnswer(open.id)}`;
+  const problems = ids.map((id, i) => {
+    const task = found[i], held = task && openTakeovers(gates, task)[0];
+    if (ids.indexOf(id) !== i) return `${visible(id)} is in the list twice`;
+    if (!task) return `${visible(id || "an empty id")} is not a task of this logbook`;
+    if (ENDED.includes(task.state)) return `${id} is ${task.state}`;
+    if (task.chief === to) return `${id} already belongs to ${to}`;
+    if (!task.chief) return `${id} has no owning chief, so it needs a question of its own (gate replace ${id} --to ${to})`;
+    if (task.chief !== from) return `${id} belongs to ${task.chief}, not to ${from}`;
+    return held ? `${id} is in the open takeover question ${held.g.id}` : "";
+  }).filter(Boolean);
+  if (problems.length) refuse(`one takeover question moves the tasks of one chief, and ${problems.length} of the ${ids.length} tasks in the list cannot move: ${problems.join("; ")}. Take them out of the list, and run it again. Nothing changed.`);
+  return openGate(dir, found[0], to, (fresh) => batchQuestion({ from, to, tasks: found.map((t) => ({ id: t.id, pr: prCell(t) })), runs: found.flatMap((t) => activeRuns(dir, t.id)), label: (chief) => chiefLabel(dir, chief), fresh }));
 }
 
 function abandonsUnclaimed(task, [, set, ...changes], opt, lead) {
@@ -3800,10 +3824,13 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         return `${g.id} open · ${g.question}`;
       }
       if (sub === "replace" || sub === "give") {
-        if (sub === "give" && more.length) refuse("gate give takes one task id and --to <C id>: sage gate give <T> --to C<n>. Nothing changed.");
-        const { task } = taskOf(dir, need(id, "the task id")), to = chiefNamed(dir, opt.to);
+        const ids = need(id, "the task id").split(",");
+        if (sub === "give" && (more.length || ids.length > 1)) refuse("gate give takes one task id and --to <C id>: sage gate give <T> --to C<n>. Nothing changed.");
+        if (more.length) refuse("gate replace takes one task id, or a list of task ids joined by commas with no spaces, and --to <C id>: sage gate replace T1,T2,T3 --to C<n>. Nothing changed.");
+        if (ids.length > 1) return batchGate(dir, gates, ids, chiefNamed(dir, opt.to));
+        const { task } = taskOf(dir, id), to = chiefNamed(dir, opt.to);
         if (task.chief === to) refuse(`${task.id} already belongs to ${to}. Nothing changed.`);
-        const other = gates.find((g) => g.kind === "replace" && !g.answer && g.task === task.id && ((p) => p && p.from === task.chief && p.to !== to)(replaceOf(g)));
+        const other = openTakeovers(gates, task).find(({ p }) => p.to !== to)?.g;
         if (other) refuse(`${other.id} is open already: it asks to hand ${task.id} to ${chiefLabel(dir, replaceOf(other).to)}. A task has one open takeover question at a time: ${sub === "give" ? `answer ${other.id} first (or undo your board answer to it), then give ${task.id} again` : `ask the owner to answer ${other.id} first, then ask for ${task.id} again`}. Nothing changed.`);
         return takeoverGate(dir, task, to);
       }
