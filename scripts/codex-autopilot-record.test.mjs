@@ -58,6 +58,41 @@ const owner = (turn, text, provenance = ["user"]) => ({ ...ownerLine, payload: {
   internal_chat_message_metadata_passthrough: { ...ownerLine.payload.internal_chat_message_metadata_passthrough, turn_id: turn, content_item_metadata: provenance.map((type) => ({ provenance: { type } })) } } });
 const meta = (cli_version) => ({ ...META, payload: { ...META.payload, cli_version } });
 
+test("T1261: binding refusal codes disclose only the failed predicate", () => {
+  const session = "synthetic-session", turn = "synthetic-turn", callId = "synthetic-call";
+  const cases = [
+    ["invalid-session-id", (r, m, d) => { d.session = undefined; }],
+    ["invalid-turn-id", (r, m, d) => { d.turn = "bad/turn"; }],
+    ["invalid-call-id", (r, m, d) => { d.callId = "bad/call"; }],
+    ["child-dispatch", (r, m, d) => { d.child = true; }],
+    ["record-session-mismatch", r => { r.session = "another-session"; }],
+    ["non-root-record", r => { r.root = false; }],
+    ["mark-session-mismatch", (r, m) => { m.session = "another-session"; }],
+    ["invalid-mark-source", (r, m) => { m.source = "compact"; }],
+    ["invalid-mark-pid", (r, m) => { m.pid = 0; }],
+    ["invalid-mark-boundary", (r, m) => { m.lines = -1; }],
+    ["invalid-mark-boundary", (r, m) => { m.lines = 11; }],
+    ["turn-start-indeterminate", r => { r.turns.delete(turn); }],
+    ["turn-start-indeterminate", r => { r.turns.set(turn, null); }],
+    ["turn-not-latest", r => { r.latestStart = 6; }],
+    ["turn-before-boundary", (r, m) => { m.lines = 6; }],
+    ["turn-inactive", r => { r.active.delete(turn); }],
+    ["turn-aborted", r => { r.aborted.add(turn); }],
+    ["competing-active-turn", r => { r.active.add("other"); r.turns.set("other", 4); }],
+    ["competing-active-turn", r => { r.active.add("other"); r.turns.set("other", null); }],
+    ["competing-active-turn", r => { r.active.add("other"); }],
+    ["call-before-turn", r => { r.calls.set(callId, 4); }],
+  ];
+  for (const [refused, change] of cases) {
+    const record = { session, root: true, lines: 10, latestStart: 5, turns: new Map([[turn, 5]]), active: new Set([turn]), aborted: new Set(), calls: new Map() };
+    const mark = { session, source: "startup", pid: 4242, lines: 4 };
+    const dispatch = { session, turn, callId };
+    assert.deepEqual(dispatchBinding(record, mark, dispatch), { turnStart: 5 }, "an absent nested call row is allowed");
+    change(record, mark, dispatch);
+    assert.deepEqual(dispatchBinding(record, mark, dispatch), { refused }, refused);
+  }
+});
+
 test("T1087: root dispatch evidence uses recorded lifecycle and startup boundaries", () => {
   const session = META.payload.id, callId = "nested-id";
   const mark = { session, source: "startup", lines: 1, pid: 4242 };
@@ -66,16 +101,16 @@ test("T1087: root dispatch evidence uses recorded lifecycle and startup boundari
   assert.deepEqual(dispatchBinding(read(base), mark, binding), { turnStart: 1 });
   for (const source of ["resume", "clear", "fork"]) assert.deepEqual(dispatchBinding(read(base), { ...mark, source }, binding), { turnStart: 1 });
   for (const terminal of ["task_complete", "turn_aborted"]) {
-    assert.equal(dispatchBinding(read([...base, { type: "event_msg", payload: { type: terminal, turn_id: TURN } }]), mark, binding), null);
+    assert.deepEqual(dispatchBinding(read([...base, { type: "event_msg", payload: { type: terminal, turn_id: TURN } }]), mark, binding), { refused: "turn-inactive" });
   }
-  assert.equal(dispatchBinding(read(base), { ...mark, lines: 2 }, binding), null);
-  assert.equal(dispatchBinding(read([...base, started(TURN, "composer")]), mark, binding), null);
-  assert.equal(dispatchBinding(read([...base, started("another", "composer")]), mark, binding), null);
-  assert.equal(dispatchBinding(read([...base, started("another", "composer"), { type: "event_msg", payload: { type: "task_complete", turn_id: "another" } }]), mark, binding), null);
+  assert.deepEqual(dispatchBinding(read(base), { ...mark, lines: 2 }, binding), { refused: "turn-before-boundary" });
+  assert.deepEqual(dispatchBinding(read([...base, started(TURN, "composer")]), mark, binding), { refused: "turn-start-indeterminate" });
+  assert.deepEqual(dispatchBinding(read([...base, started("another", "composer")]), mark, binding), { refused: "turn-not-latest" });
+  assert.deepEqual(dispatchBinding(read([...base, started("another", "composer"), { type: "event_msg", payload: { type: "task_complete", turn_id: "another" } }]), mark, binding), { refused: "turn-not-latest" });
   const child = { ...META, payload: { ...META.payload, source: { subagent: { thread_spawn: {} } } } };
-  assert.equal(dispatchBinding(read([child, base[1]]), mark, binding), null);
+  assert.deepEqual(dispatchBinding(read([child, base[1]]), mark, binding), { refused: "non-root-record" });
   const call = { type: "response_item", payload: { type: "function_call", call_id: callId } };
-  assert.equal(dispatchBinding(read([META, call, base[1]]), mark, binding), null);
+  assert.deepEqual(dispatchBinding(read([META, call, base[1]]), mark, binding), { refused: "call-before-turn" });
   assert.deepEqual(dispatchBinding(read([...base, call]), mark, binding), { turnStart: 1 });
 });
 
@@ -84,9 +119,9 @@ test("F-T1087-1: active-turn ambiguity starts at the startup boundary", () => {
   const mark = { session, source: "resume", lines: 2, pid: 4242 };
   const history = [META, started("unfinished-history", "composer")];
   assert.deepEqual(dispatchBinding(read([...history, started(TURN, "composer")]), mark, binding), { turnStart: 2 });
-  assert.equal(dispatchBinding(read([...history, started(TURN, "composer")]), { ...mark, lines: 1 }, binding), null);
-  assert.equal(dispatchBinding(read([...history, started("current-other", "composer"), started(TURN, "composer")]), mark, binding), null);
-  assert.equal(dispatchBinding(read([...history, started("unfinished-history", "composer"), started(TURN, "composer")]), mark, binding), null);
+  assert.deepEqual(dispatchBinding(read([...history, started(TURN, "composer")]), { ...mark, lines: 1 }, binding), { refused: "competing-active-turn" });
+  assert.deepEqual(dispatchBinding(read([...history, started("current-other", "composer"), started(TURN, "composer")]), mark, binding), { refused: "competing-active-turn" });
+  assert.deepEqual(dispatchBinding(read([...history, started("unfinished-history", "composer"), started(TURN, "composer")]), mark, binding), { refused: "competing-active-turn" });
 });
 function withMode(lines) {
   const first = lines.findIndex((o) => o.payload.type === "task_started");
