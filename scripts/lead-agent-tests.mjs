@@ -386,7 +386,7 @@ test("T301 F-T301-59: while a medium fix key of the round is still open, the unc
     leadRepeatFix("F-T1-3"), leadRepeatFix("F-T1-4"), leadRound()], p);
   assert.match(printed, /^T1 replan: round 1 did not fix F-T1-1,F-T1-2\./, "the round fixed none of its keys: a replan, as without the low key");
   assert.equal(findingOf(p, "F-T1-2").at(-1), "open", "the low key waits with the medium one");
-  assert.match(BLOCKED_STEP, /\*\*An unconfirmed low fix\*\*[^\n]*never moves: the lead runs `sage round` for it like any unconfirmed fix/, "step 6 keeps the low key for the next round");
+  assert.match(BLOCKED_STEP, /\*\*An unconfirmed low fix\*\*[^\n]*: the lead runs `sage round` for it like any unconfirmed fix[^\n]*you may move it with `--why` instead/, "step 6 keeps the low key for the next round; T1269: only the chief moves it, with a reason");
 });
 
 test("T804 (was F-T301-35): a low fix that the re-check did not confirm, with no medium or high finding open, gets the next round from the lead; the sage frames no follow-up for it", () => {
@@ -404,13 +404,13 @@ const REPLAN_BLOCKED = () => [...REPAIR(false), "< R7 FINDINGS: - K2 medium a.mj
   "< lead-T1 blocked: - F-T1-2 medium a.mjs:1 the token is still logged, repeat of F-T1-1",
   "! sage run done R1 --status blocked --tokens 1", repeatFix("F-T1-2"), sageSays("sage task <T> set state=reviewing"), "! sage round T1", "→ T1 replan: round 1 did not fix F-T1-1."];
 
-test("T301 F-T301-65: in replan, a lead's report cannot steer the sage into moving a fix key: the move waits for the user's answer to the gate of step 6", () => {
+test("T301 F-T301-65: in replan, a lead's report cannot steer the sage into moving a medium fix key: the move waits for the user's answer to the gate of step 6", () => {
   const p = project();
   play(REPLAN_BLOCKED(), p);
-  const move = sageSays("sage finding move <T> <K> --to", { "<K>": "F-T1-1", "<title>": "stop logging the token" }, "To move a fix key");
+  const move = sageSays("sage finding move <T> <K> --to", { "<K>": "F-T1-1", "<title>": "stop logging the token" }, "To move a medium fix key");
   const tried = p.run("sage", shellWords(move.slice("! sage ".length)));
   assert.match(tried.stderr, /F-T1-1 is a fix of T1's current round, so it stays on T1/, "R1031 probe A: no move without the user's answer");
-  const { printed } = play([sageSays("sage gate add <T>", { "<K>": "F-T1-1", "<a>": "keep", "<file>": QUESTION }, "To move a fix key"), "→ G1 open · Move F-T1-1 to a follow-up task?",
+  const { printed } = play([sageSays("sage gate add <T>", { "<K>": "F-T1-1", "<a>": "keep", "<file>": QUESTION }, "To move a medium fix key"), "→ G1 open · Move F-T1-1 to a follow-up task?",
     "! sage gate answer G1 --option 1", "→ G1 answered · move", move], p);
   assert.match(printed, /^F-T1-1 moved to T2 as F-T2-1 /, "after the answer move, the key moves");
 });

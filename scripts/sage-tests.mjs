@@ -1387,9 +1387,9 @@ test("T294 F-T294-5: a moved finding that comes back on its task under its old k
   assert.equal(s.ok("merge-check", "--sha", SHA), MERGES);
 });
 
-const KEY_STAYS = (k) => `sage: ${k} is a fix of T1's current round, so it stays on T1: it is fixed in a round, or dismissed with a reason. It moves to a follow-up task only after the owner chose the first option of a gate of T1 whose question names ${k}: sage gate add T1 --question "Move ${k} to a follow-up task?" --options "move|keep" --recommend <move or keep> --message <the question message file>.`;
+const KEY_STAYS = (k) => `sage: ${k} is a fix of T1's current round, so it stays on T1: it is fixed in a round, or dismissed with a reason. It moves to a follow-up task only after the owner chose the first option of a gate of T1 whose question names ${k}: sage gate add T1 --question "Move ${k} to a follow-up task?" --options "move|keep" --recommend <move or keep> --message <the question message file>. Only a low fix of the round moves with --why alone, and ${k} is medium.`;
 
-test("F-T301-40: an open fix of the current round never moves, at any severity, also after the move back to reviewing; a new finding of the round still moves", () => {
+test("F-T301-40: an open medium fix of the current round never moves without the gate, and a low one not without --why, also after the move back to reviewing; a new finding of the round still moves", () => {
   const s = store();
   s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "Fix the crash", "--size", "small");
   toReviewing(s, "T1");
@@ -1397,7 +1397,8 @@ test("F-T301-40: an open fix of the current round never moves, at any severity, 
   finding(s, "T1", "--source", "code-reviewer", "--severity", "low", "--summary", "a typo in the error");
   for (const k of ["F-T1-1", "F-T1-2"]) s.ok("finding", "triage", "T1", k, "fix");
   assert.equal(s.ok("round", "T1"), "T1 repairing · round 1 of 3 · fix F-T1-1,F-T1-2 · re-run code-reviewer on the repair's diff");
-  for (const k of ["F-T1-1", "F-T1-2"]) assert.equal(s.no("finding", "move", "T1", k, "--to", "later"), KEY_STAYS(k));
+  assert.equal(s.no("finding", "move", "T1", "F-T1-1", "--to", "later"), KEY_STAYS("F-T1-1"));
+  assert.match(s.no("finding", "move", "T1", "F-T1-2", "--to", "later"), /^sage: F-T1-2 is a low fix of T1's current round: it moves to a follow-up task with your reason/, "T1269: a low key needs --why");
   finding(s, "T1", "--source", "code-reviewer", "--severity", "medium", "--summary", "the fix saves a blank row");
   assert.match(s.ok("finding", "move", "T1", "F-T1-3", "--to", "Blank rows"), /^F-T1-3 moved to T2 as F-T2-1 /, "a new finding of the round is not a key");
   s.ok("finding", "close", "T1", "F-T1-2");
@@ -3125,7 +3126,7 @@ test("T314: task add takes --priority and --kind, and task set takes priority= a
   assert.equal(s.ok("task", "T2", "set", "priority=P0", "kind=docs"), "T2 framed · tiny · round 0 · route build · P0 · kind docs");
   assert.equal(s.ok("task", "T1", "set", "kind=none"), "T1 framed · small · round 0 · route build,code-review,qa · P1");
   assert.deepEqual(rows(s.dir, "tasks").map((t) => [t.id, t.priority, t.kind]), [["T1", "P1", ""], ["T2", "P0", "docs"]]);
-  assert.match(s.no("task", "T2", "set", "colour=red"), /^sage: task set takes state=, branch=, pr=, title=, name=, request=, priority=, kind=, waits=, milestone=, release= or approval=$/);
+  assert.match(s.no("task", "T2", "set", "colour=red"), /^sage: task set takes state=, branch=, pr=, title=, name=, request=, priority=, kind=, waits=, milestone=, release=, drop= or approval=$/);
 });
 
 test("T1083: task set request= keeps the owner's request on one line, in a column that the logbook adds when a task first has one; none clears it", () => {
@@ -5924,4 +5925,79 @@ test("R1270-1: only a question that starts with the breakdown words is a breakdo
     assert.equal(s.no("gate", "add", "--message", QUESTION, "T1", "--question", question, "--options", "approve|change|drop", "--recommend", "approve"), 'sage: a question that starts with "Approve milestone" or "Approve program" is a breakdown gate, and only milestone propose opens one. Ask it in other words.', question);
   }
   assert.deepEqual(snapshot(s.dir), before, "a refusal writes nothing");
+});
+
+test("T1269: the chief drops ux-review from a large task that is not ui or design, with --why; the size stays, so the merge check needs 2 clean cycles of every other step", () => {
+  const s = store();
+  s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "Logbook rows", "--size", "large", "--kind", "logbook");
+  const verdict = (kind, cycle) => s.ok("verdict", "T1", "--sha", SHA, "--kind", kind, "--cycle", String(cycle), "--pr", "41");
+  for (const kind of ["checks-pass", "review-clean", "security-clean", "qa-pass"]) verdict(kind, 1);
+  assert.match(s.no("merge-check", "--sha", SHA), /T1: 0 of 2 clean cycles on this SHA; never recorded: ux-clean\./, "before the drop, the route needs ux-clean");
+  assert.match(s.ok("task", "T1", "set", "drop=ux-review", "--why", "no screen: logbook rows only"), /^T1 framed · large · round 0 · route design,pe,build,code-review,security-review,qa · /);
+  assert.deepEqual(trail(s.dir).filter((d) => d.decision.includes("ux-review")).map((d) => [d.task, d.decision, d.why]), [["T1", "dropped ux-review", "no screen: logbook rows only"]], "the reason is in the decision trail");
+  assert.match(s.no("merge-check", "--sha", SHA), /T1: 1 of 2 clean cycles on this SHA/, "the size stays, so a large task still needs 2 clean cycles");
+  for (const kind of ["review-clean", "qa-pass"]) verdict(kind, 2);
+  assert.match(s.no("merge-check", "--sha", SHA), /T1: 1 of 2 clean cycles on this SHA/, "the security review stays in each cycle");
+  verdict("security-clean", 2);
+  assert.equal(s.ok("merge-check", "--sha", SHA), "T1 may merge: 2 clean cycles on this SHA");
+});
+
+test("T1269: drop= refuses another step, a small task, a ui or design task, an ended task and a missing --why, and changes nothing; a large ui or design task keeps its ux-review", () => {
+  const s = store();
+  const add = (title, ...more) => s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", title, ...more);
+  add("Logbook rows", "--size", "large", "--kind", "logbook");
+  add("Board screen", "--size", "large", "--kind", "ui", "--no-arena", "one designer");
+  add("Copy fix", "--size", "small", "--add", "ux-review", "--why", "a copy change");
+  add("Old work", "--size", "large");
+  s.ok("task", "T4", "set", "state=abandoned", "--why", "stopped");
+  const routes = () => rows(s.dir, "tasks").map((row) => `${row.id} ${row.route}`);
+  const kept = { routes: routes(), trail: trail(s.dir).length };
+  for (const [id, kv, here] of [["T1", "drop=qa", /Here qa is not ux-review\./], ["T1", "drop=security-review", /Here security-review is not ux-review\./], ["T2", "drop=ux-review", /Here T2 is of kind ui\./],
+    ["T3", "drop=ux-review", /Here T3 is small\./], ["T4", "drop=ux-review", /Here T4 is abandoned\./]]) {
+    const said = s.no("task", id, "set", kv, "--why", "a reason");
+    assert.match(said, /^sage: drop= takes only ux-review, from a large task whose kind is not ui or design, with the reason: sage task T\d set drop=ux-review --why "<reason>"\./, `${id} ${kv}: the refusal says what is allowed`);
+    assert.match(said, here, `${id} ${kv}`);
+  }
+  assert.match(s.no("task", "T1", "set", "drop=ux-review"), /Here it has no --why\./);
+  assert.match(s.no("task", "T1", "set", "kind=docs", "--why", "a reason"), /--why gives the reason of an abandon or of a dropped step/);
+  assert.deepEqual({ routes: routes(), trail: trail(s.dir).length }, kept, "a refusal changes no route and writes no decision");
+  s.ok("task", "T1", "set", "drop=ux-review", "--why", "no screen");
+  assert.match(s.no("task", "T1", "set", "drop=ux-review", "--why", "again"), /Here T1's route has no ux-review\./);
+  assert.match(s.no("task", "T1", "set", "kind=design"), /T1 is large and its route has no ux-review, and a large task of kind design keeps its ux-review/);
+  assert.equal(rows(s.dir, "tasks").find((row) => row.id === "T1").kind, "logbook", "the refused kind= changed nothing");
+});
+
+test("T1269: a designer outside an arena needs no --branch; an arena candidate and an implementer still need one", () => {
+  const s = store();
+  s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "Logbook rows", "--size", "large", "--kind", "logbook");
+  s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "Board screen", "--size", "large", "--kind", "ui");
+  assert.match(s.ok("run", "add", "T1", "--role", "designer"), /^R1 running · designer on T1 · model /);
+  assert.equal(rows(s.dir, "runs").find((r) => r.id === "R1").branch, "", "the run has no branch");
+  assert.equal(s.no("run", "add", "T1", "--role", "implementer"), "sage: the implementer run needs --branch");
+  assert.match(s.no("run", "add", "T1", "--role", "designer", "--candidate", "1"), /^sage: the designer run needs --branch: an arena candidate writes on its own branch\./, "a numbered designer is a candidate");
+  assert.match(s.no("run", "add", "T2", "--role", "designer"), /^sage: the designer run needs --branch: T2's arena step is open, so each designer is a candidate \(--candidate <k>\) that writes on its own branch\./);
+  assert.match(s.no("run", "add", "T2", "--role", "designer", "--candidate", "1"), /^sage: the designer run needs --branch: an arena candidate writes on its own branch\./);
+  assert.match(s.ok("run", "add", "T2", "--role", "designer", "--candidate", "1", "--branch", "sage/t2-c1"), /^R2 running · designer on T2 · sage\/t2-c1 · /);
+  assert.deepEqual(rows(s.dir, "runs").map((r) => r.id), ["R1", "R2"], "a refused run is not written");
+});
+
+test("T1269: the chief moves a low fix key of the round with --why and no gate; a medium key still needs the owner's gate, so the merge check still blocks on it", () => {
+  const s = store();
+  s.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "Fix the crash", "--size", "small");
+  toReviewing(s, "T1");
+  finding(s, "T1", "--source", "code-reviewer", "--severity", "medium", "--summary", "the export skips the last row");
+  finding(s, "T1", "--source", "code-reviewer", "--severity", "low", "--summary", "a typo in the error");
+  for (const k of ["F-T1-1", "F-T1-2"]) s.ok("finding", "triage", "T1", k, "fix");
+  s.ok("round", "T1");
+  assert.match(s.no("finding", "move", "T1", "F-T1-2", "--to", "Typo"), /F-T1-2 is a low fix of T1's current round: it moves to a follow-up task with your reason, which the decision trail keeps: sage finding move T1 F-T1-2 --to "<title>" --why "<reason>"\./);
+  assert.match(s.no("finding", "move", "T1", "F-T1-2", "--to", "Typo", "--why", " "), /--why needs the reason/);
+  assert.match(s.ok("finding", "move", "T1", "F-T1-2", "--to", "Typo", "--why", "polish only: order 34"), /^F-T1-2 moved to T2 as F-T2-1 /);
+  const moved = trail(s.dir).find((d) => d.decision.startsWith("F-T1-2 moved to T2"));
+  assert.match(moved.why, /^polish only: order 34 · the follow-up task/, "the reason is in the decision trail");
+  assert.deepEqual(rows(s.dir, "gates"), [], "no gate");
+  assert.match(s.no("finding", "move", "T1", "F-T1-1", "--to", "Export", "--why", "later"), /^sage: F-T1-1 is a fix of T1's current round, so it stays on T1: .* Only a low fix of the round moves with --why alone, and F-T1-1 is medium\.$/, "a medium key keeps the gate");
+  s.ok("verdict", "T1", "--sha", SHA, "--kind", "checks-pass");
+  assert.match(s.no("merge-check", "--sha", SHA, "--cycles", "1"), /T1 has open findings: F-T1-1\./, "the medium key stays on T1, so the merge check still sees it");
+  finding(s, "T1", "--source", "code-reviewer", "--severity", "high", "--summary", "a crash");
+  assert.match(s.no("finding", "move", "T1", "F-T1-3", "--to", "Crash", "--why", "later"), /F-T1-3 is high, so it blocks T1 until it is fixed/);
 });

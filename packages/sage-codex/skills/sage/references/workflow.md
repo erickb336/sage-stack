@@ -104,7 +104,7 @@ Manual pages and run records, actual hook-retained reports, and evidence-clean a
 
 The chief keeps this order: designer → PE → the owner's answer on the design → build. A design waits for the owner's approval when it changes what the user sees or data that the user keeps; an internal shape goes ahead as recommended when the owner does not answer. This is a procedure; the state transitions do not authenticate design completion or the owner’s answer.
 
-1. Record the designer run with its own branch and worktree. The branch must have no other active writer. Name each allowed artifact path in the brief.
+1. Record the designer run. Outside an arena it needs no branch: it writes only into the task's pages folder. An arena candidate gets its own branch and worktree, with no other active writer. Name each allowed artifact path in the brief.
 2. Ask `pages` for the task’s pages folder before the brief. The designer saves the prototype and screenshots there when the chief needs to record them. A prototype in the worktree can also have a copy there.
 3. Read the designer’s complete report and open the artifacts. Run the design check on the page, `node <the plugin's folder>/core/design-page.mjs <page>`: a page that fails goes back to the designer. Use `pages` with `record` to record each existing file inside that folder. Use `pages` with `run` and `text` to save the complete report, then end the actual run. Supplying report text does not create an arbitrary prototype.
 4. Start a distinct PE child with its own run, the saved prototype, screenshots and designer report. Save its complete report and actual outcome. Resolve PE `CHANGE`, `blocked` and `question` outcomes before acceptance.

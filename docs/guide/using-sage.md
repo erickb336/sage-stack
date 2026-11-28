@@ -326,7 +326,10 @@ The lead also ends blocked in any state that its file does not name. The chief t
 - repairing to reviewing: a fix key that stays open after a blocked report gets the next round, or a replan;
 - reviewing to verifying: the checks passed.
 
-The chief may also move a low or new finding to a follow-up task. Then it starts a fresh lead, which goes on from the logbook.
+The chief may also move a low or new finding to a follow-up task, and then start a fresh lead, which goes on from the logbook. For a fix key of the round:
+
+- a low one moves with the chief's reason, which the decision trail keeps, and with no question to you;
+- a medium one moves only after you answer its question, because a moved finding no longer blocks the merge.
 
 The chief keeps what only it does: your questions, the checks verdict after `gh pr checks`, the move to verified, the follow-up tasks, and the merge.
 

@@ -146,7 +146,7 @@ When a helper ends with no report, or the hook cannot read a review or QA report
 
 You end at once, with STATUS blocked, when a step needs the sage. Wait for your running helpers first.
 
-- **A finding that you cannot clear:** a low finding that needs its own follow-up task with no round, or a new finding from a re-check. RESULT names the finding keys and ends with `Left:` and what remains, such as `Left: verifying`. `Left:` only describes; the sage sets no state from it. The state tool never moves a high finding to a follow-up task, and it moves a fix key of the round only after the owner's answer.
+- **A finding that you cannot clear:** a low finding that needs its own follow-up task with no round, or a new finding from a re-check. RESULT names the finding keys and ends with `Left:` and what remains, such as `Left: verifying`. `Left:` only describes; the sage sets no state from it. The state tool never moves a high finding, and a medium fix key of the round only after the owner's answer.
 - **The checks fail** (also `CI fail`), still run, or there are none: `Left: the checks`. The sage records the checks verdict.
 - **A cap:** when the hook refuses a helper for a cap, wait for a helper's stop (`wait <T>`) and try again. When `run add` queues a run, wait for its admission (`wait --slot R<n>`). Never end the run of a helper that still works. With no helper running, end with RESULT `cap`. List each run that you added and did not start: the sage ends it.
 

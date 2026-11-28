@@ -40,7 +40,12 @@ The state lives in the logbook: plain files in `~/.claude/sage/<project>-<hash>/
 | **Investigate** | Gathers the evidence for a question with read commands, and writes its research page |
 | **Evidence review** | Checks each claim of an investigation against its evidence, as a different agent |
 
-Three agents change files, each in its own git worktree: the designer, the implementer and the arena judge, which writes the final version on its own new branch. The investigate agent writes only its research page, in the task's pages folder. The others change no files.
+Which agents write, and where:
+
+- The implementer and the arena judge change files, each in its own git worktree. The judge writes the final version on its own new branch.
+- A designer in an arena works the same way, on its own branch. A designer outside an arena writes only its design page, in the task's pages folder, so its run needs no branch.
+- The investigate agent writes only its research page, in the task's pages folder.
+- The others change no files.
 
 Only one agent writes on a branch at a time. Reviewers start fresh, so they don't share the builder's blind spots.
 
@@ -50,7 +55,7 @@ How the lead, its wait and the models work: see [Using sage](using-sage.md#the-l
 
 ## Routes
 
-Each task gets the least route for its size. The chief can add steps, never remove these.
+Each task gets the least route for its size. The chief can add steps, and remove only one: the UX review of a large task whose kind is not ui or design, with a reason that the decision trail keeps (`sage task <T> set drop=ux-review --why "<reason>"`). The size stays, so the task still needs its 2 clean cycles, and its design, your design approval, the PE check, the security review, the code review and QA stay.
 
 <a href="../assets/routes-light.svg">
 <picture>
