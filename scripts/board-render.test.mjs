@@ -10,7 +10,7 @@ function model() {
 }
 test("phone text and status preserve task counts, and the chat board makes no link, image or HTML of agent text, with no backslash", () => {
   const data = model(), board = renderBoardText(data), task = renderTaskText(data.tasks[0]);
-  assert.ok(board.includes("### 🔴 Needs you\n- ‹script›alert(1)‹/script› &. Sample: go on?\n"), board);
+  assert.ok(board.includes("### 🔴 Needs you\n- ‹script›alert(1)‹/script› &… Sample: go on?\n"), board);
   assert.ok(!board.includes("<") && !board.includes("](") && !board.includes(String.fromCharCode(92)), board);
   assert.ok(!board.includes("${c}"));
   for (const section of ["Loop", "Brief", "Agent runs", "Evidence", "Findings", "Artifacts", "Latest decisions"]) assert.ok(task.includes(`**${section}**`));
@@ -149,14 +149,14 @@ test("T233, T1217: Needs you lists a breakdown approval first, then the mileston
     "  Recommended: approve.",
   ].join("\n"));
   assert.equal(partOf(text, "Milestones"), [
-    "- Codex support: 3 of 7 merged. Next, Sample T12.",
-    "- Lead build: stuck. See Needs you.",
-    "- Board milestones: the breakdown waits for you.",
-    "- Agent caps: 0 of 3 merged. Next, Sample T40.",
-    "- Dropped idea: dropped, with 1 task still in it. Ask the chief to take the task out of the milestone.",
-    "- Lost gate: its breakdown question has a problem. See Needs you.",
-    "- Loop: 1 of 4 merged. No task can move now.",
-    "- Changes: the chief revises the breakdown.",
+    "- ◫ Codex support: 3 of 7 tasks merged, 1 waiting, 1 cannot start. Next, Sample T12.",
+    "- ◫ Lead build: 0 of 3 tasks merged, 2 cannot start. See Needs you.",
+    "- ◫ Board milestones: 0 of 3 tasks merged, 3 waiting. See Needs you.",
+    "- ◫ Agent caps: 0 of 3 tasks merged, 2 waiting. Next, Sample T40.",
+    "- ◫ Dropped idea: you dropped it. 1 task is still in it. Ask the chief to take the task out of the milestone.",
+    "- ◫ Lost gate: 0 of 1 task merged, 1 cannot start. See Needs you.",
+    "- ◫ Loop: 1 of 4 tasks merged, 3 cannot start. No task can move now.",
+    "- ◫ Changes: you asked for changes. The chief revises the breakdown.",
   ].join("\n"), "M5 is done, so it has no line");
   assert.equal(text.split("\n").at(-1), "Ref: T30 M3 claude/sage-ff5ee2/G12 M2 T21 M7 T70 claude/sage-ff5ee2/G15 T41 T40 T12 PR 12 M1 M4 M6 M8 M9");
   const plain = renderBoardText(sample([row("T1", "framed")], { gates: [{ id: "G1", task: "T1", question: "Ship it?", options: "yes|no", answer: "" }] }));
@@ -192,13 +192,13 @@ test("F-T233-6: the chat board drops format characters and makes controls and se
   tables.gates.find(gate => gate.id === "G12").question = ["Approve milestone M3? No task builds before you approve.", "===", "---", "- item", "  = two", "Goal: \u202eflip"].join("\u2028");
   const text = milestonesText(tables);
   assert.ok(partOf(text, "Needs you").startsWith("- EvilEXEzero line para next end. Approve milestone M3? No task builds before you approve. · === · --- · - item · = two · Goal: flip\n"), partOf(text, "Needs you"));
-  assert.ok(partOf(text, "Milestones").includes("\n- EvilEXEzero line para next end: the breakdown waits for you.\n"), partOf(text, "Milestones"));
+  assert.ok(partOf(text, "Milestones").includes("\n- ◫ EvilEXEzero line para next end: 0 of 3 tasks merged, 3 waiting. See Needs you.\n"), partOf(text, "Milestones"));
   assert.ok(!/[\u202e\u200b\u2028\u2029\u0085\u009b]/.test(text), "no hidden or format character reaches the chat");
   assert.deepEqual(partOf(text, "Needs you").split("\n").filter(line => !/^(- |  [OR])/.test(line)), [], "each line is an item or its Options or Recommended line");
 });
 
 test("F-T233-10: a dropped milestone that still has open tasks has its own Milestones line; one with none has no line", () => {
-  assert.ok(partOf(milestonesText(milestonesTables()), "Milestones").includes("\n- Dropped idea: dropped, with 1 task still in it. Ask the chief to take the task out of the milestone.\n"));
+  assert.ok(partOf(milestonesText(milestonesTables()), "Milestones").includes("\n- ◫ Dropped idea: you dropped it. 1 task is still in it. Ask the chief to take the task out of the milestone.\n"));
   const out = milestonesTables();
   out.tasks.find(item => item.id === "T60").milestone = "";
   assert.ok(!milestonesText(out).includes("Dropped idea"));
@@ -208,7 +208,7 @@ test("F-T233-2, F-T233-3, F-T233-7: a milestone whose gate is not its breakdown 
   const plain = milestonesTables();
   plain.gates.find(gate => gate.id === "G12").options = "yes|no";
   const model = buildBoardModel([milestonesSource("claude", plain)], { now: MILESTONES_NOW }), text = renderBoardText(model);
-  assert.ok(partOf(text, "Milestones").includes("\n- Board milestones: its breakdown question has a problem. See Needs you.\n"), text);
+  assert.ok(partOf(text, "Milestones").includes("\n- ◫ Board milestones: 0 of 3 tasks merged, 3 cannot start. See Needs you.\n"), text);
   assert.ok(partOf(text, "Needs you").includes("\n- Sample T30. Approve milestone M3? No task builds before you approve. Name: Board milestones Goal: Sample goal. Pilot, runs first: T30: Sample T30 · Board milestones: the question that it names is not a breakdown question on its pilot task. Ask the chief to repair the logbook, or to propose the milestone again.\n  Options: 1 yes · 2 no.\n"), text);
   assert.equal(text.split("not a breakdown question on its pilot task").length, 2, "one item says it");
   assert.equal(model.counts.needsOwner, 4, "T30, T70 and the two other milestone items: G12 counts once");
@@ -223,7 +223,7 @@ test("F-T233-2, F-T233-3, F-T233-7: a milestone whose gate is not its breakdown 
     gates: [{ id: "G1", task: "T1", question: "Approve milestone M2? No task builds before you approve.", options: "approve|change|drop", recommendation: "approve", default: "", answer: "", at: "" }],
     milestones: [{ id: "M1", name: "First", goal: "g", pilot: "T1", gate: "G1", at: "" }, { id: "M2", name: "Second", goal: "g", pilot: "T1", gate: "G1", at: "" }], decisions: [] };
   const both = milestonesText(twin);
-  assert.equal(partOf(both, "Milestones"), "- First: its breakdown question has a problem. See Needs you.\n- Second: the breakdown waits for you.");
+  assert.equal(partOf(both, "Milestones"), "- ◫ First: 0 of 1 task merged, 1 cannot start. See Needs you.\n- ◫ Second: 0 of 1 task merged, 1 waiting. See Needs you.");
   assert.ok(partOf(both, "Needs you").startsWith("- Second. Approve milestone M2? No task builds before you approve. · First: its breakdown question names another milestone. Ask the chief to repair the logbook, or to propose the milestone again.\n"), both);
 });
 
@@ -279,7 +279,7 @@ test("T390: the chat board calls the main session the chief, never the sage", ()
   const data = milestonesModel();
   const pages = { chat: renderBoardText(data), status: renderBoardStatus(data), ...Object.fromEntries(data.tasks.map(task => [task.id, renderTaskText(task)])) };
   for (const [name, page] of Object.entries(pages)) assert.ok(!/\bthe sage\b/i.test(page), `${name}: ${page.match(/.{60}\bthe sage\b.{60}/i)?.[0]}`);
-  assert.ok(pages.chat.includes("\n- Changes: the chief revises the breakdown.\n"));
+  assert.ok(pages.chat.includes("\n- ◫ Changes: you asked for changes. The chief revises the breakdown.\n"));
 });
 
 test("R1508-1: a milestone row with an empty gate cell names no breakdown gate; only a missing row is not in the logbook", () => {
@@ -289,7 +289,7 @@ test("R1508-1: a milestone row with an empty gate cell names no breakdown gate; 
   const model = milestonesModel(tables);
   assert.equal(model.tasks.find(task => task.id === "T63").waitLine.text, "Waits for the breakdown of milestone 41, whose milestone names no breakdown gate: it cannot start.");
   const text = renderBoardText(model);
-  assert.ok(partOf(text, "Milestones").endsWith("\n- No gate: its breakdown question has a problem. See Needs you."), text);
+  assert.ok(partOf(text, "Milestones").endsWith("\n- ◫ No gate: 0 of 2 tasks merged, 2 cannot start. See Needs you."), text);
   assert.ok(!/gate {2}is/.test(text), "no double space where the gate is empty");
 });
 
@@ -300,7 +300,7 @@ test("R1509-1, R1535-1: in a proposed milestone, a loop of waits shows in the wa
   tables.gates.push({ ...tables.gates[0], id: "G40", task: "T66", question: tables.gates[0].question.replace(/M1/g, "M40").replace(/T1\b/g, "T66"), answer: "" });
   const model = milestonesModel(tables), card = id => model.tasks.find(task => task.id === id);
   const line = (id, word) => `Waits for ${id} (${word}, in a loop) and your approval of milestone 40 (gate G40): it cannot start. Its waits make a loop, which never ends: the chief sets its waits again.`;
-  assert.deepEqual([card("T67").waitLine, card("T66").waitLine], [{ never: true, text: line("T66", "needs you") }, { never: true, text: line("T67", "waiting") }]);
+  assert.deepEqual([card("T67").waitLine, card("T66").waitLine].map(({ never, text }) => ({ never, text })), [{ never: true, text: line("T66", "needs you") }, { never: true, text: line("T67", "waiting") }]);
   assert.ok(partOf(renderBoardText(model), "Needs you").includes("\n- Loop in a proposal. Approve milestone M40?"), "the chat board asks for the approval");
 });
 test("F-T420-1, R1551: the chat task lookup shows a stuck wait", () => {
@@ -349,18 +349,18 @@ test("T1217: the digest is plain words with no backslash, and agent text makes n
 
 test("T1257: the digest names each task by its short name, never its long title; a task with no name shows the name that the board makes from its title", () => {
   const text = digest();
-  assert.ok(text.includes("\n- Free hook slots. Building, 20 min.\n"), text);
+  assert.ok(text.includes("\n- ▶ Free hook slots: in the build, 1 agent at work, 20 min.\n"), text);
   assert.ok(!text.includes(LONG_TITLE.slice(0, 30)), "the long title does not show");
-  assert.ok(text.includes("\n- The board answers while. In review, cycle 1 of 1, 5 min."), "no name: the first words of the title");
+  assert.ok(text.includes("\n- ▶ The board answers while…: built, in review, 0 of 1 cycle clean, 1 agent at work, 5 min."), "no name: the first words of the title");
 });
 
 test("T1217: times are in the local zone, named once in the head line", () => {
   const york = digest(), tokyo = digest(undefined, "Asia/Tokyo");
   assert.equal(york.split("\n")[0], "sage board · 10:43 UTC-05:00");
   assert.equal(tokyo.split("\n")[0], "sage board · 00:43 UTC+09:00");
-  assert.ok(york.includes("- Read-only roles. Merged at 09:40.\n"), york);
-  assert.ok(york.includes("- Two prior-art links. Merged yesterday at 11:43.\n"), york);
-  assert.ok(tokyo.includes("- Read-only roles. Merged yesterday at 23:40.\n"), "in Tokyo the board is past midnight, so the same merge was yesterday");
+  assert.ok(york.includes("- ✓ Read-only roles: merged at 09:40.\n"), york);
+  assert.ok(york.includes("- ✓ Two prior-art links: merged yesterday at 11:43.\n"), york);
+  assert.ok(tokyo.includes("- ✓ Read-only roles: merged yesterday at 23:40.\n"), "in Tokyo the board is past midnight, so the same merge was yesterday");
   for (const text of [york, tokyo]) assert.equal(text.match(/UTC/g).length, 1, "the zone is named once");
 });
 
@@ -415,10 +415,19 @@ test("T1223: the chat digest and the board give each task the same row state, fr
   const model = buildBoardModel(sources, { now: DIGEST_NOW, landing });
   const board = Object.fromEntries(boardOverview(model).tasks.map(row => [row.id, row.row]));
   const text = digest(sources), parts = ["Needs you", "Moving now", "Done since yesterday"];
-  const placed = Object.fromEntries(model.tasks.map(task => [task.id, parts.filter(label => partOf(text, label).includes(`- ${task.name}.`))]));
+  const said = (label, name) => partOf(text, label).split("\n").some(line => [`- ${name}.`, `- ${name}:`].some(start => line.replace(/^- [?▶⧗⊘○✓■!◌] /u, "- ").startsWith(start)));
+  const placed = Object.fromEntries(model.tasks.map(task => [task.id, parts.filter(label => said(label, task.name))]));
   const rows = { T1204: "work", T1206: "work", T1205: "needs", T1210: "needs", T88: "needs", T89: "work", T1211: "waits", T1150: "waits", T1151: "waits", T3: "waits", T1199: "done", T1190: "done", T1180: "done", T1212: "done" };
   const PLACE = { needs: ["Needs you"], work: ["Moving now"], waits: ["Moving now"], done: ["Done since yesterday"] };
   const backlog = ["T1150", "T1151", "T3"], older = ["T1180", "T1212"];
   assert.deepEqual({ board, digest: placed }, { board: rows, digest: Object.fromEntries(Object.entries(rows).map(([id, row]) => [id, backlog.includes(id) || older.includes(id) ? [] : PLACE[row]])) },
     "a row that waits shows under Moving now past the backlog; done shows for today and yesterday; abandoned is done, also with its question open");
+});
+
+test("T1263: in the chat digest ▶ marks only a task with a running agent; a task that moves with no agent at work has the waiting mark of the one table", () => {
+  const sources = digestSources(), stack = sources[0].projects[0];
+  const marks = () => Object.fromEntries(partOf(digest(sources), "Moving now").split("\n").filter(line => line.startsWith("- ")).map(line => [line.slice(4, line.indexOf(":")), line.slice(2, 3)]));
+  assert.deepEqual(marks(), { "Free hook slots": "▶", "The board answers while…": "▶", "Cart total": "▶" }, "each task that moves has a running agent in the sample");
+  for (const run of stack.tables.runs.filter(run => run.status === "running")) Object.assign(run, { status: "done", ended: DIGEST_NOW });
+  assert.deepEqual(marks(), { "Free hook slots": "⧗", "The board answers while…": "⧗", "Cart total": "▶" }, "the agents of sage-stack ended: its tasks still move, and wait for their next step");
 });

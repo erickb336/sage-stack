@@ -9,7 +9,7 @@ export const taskLink = (key, tab) => `#task?key=${encodeURIComponent(key)}${tab
 export const milestoneLink = key => `#tasks?milestone=${encodeURIComponent(key)}`;
 export const milestoneLevelLink = key => `#milestone?key=${encodeURIComponent(key)}`;
 export const Name = ({ item }) => <span className={item.named === false ? "tn fb" : "tn"} title={item.named === false ? "A name from the title: the chief has not named it yet" : undefined}>{controlsShown(item.name)}</span>;
-export const Tag = ({ milestone }) => milestone ? <span className="tag" title={milestone.name}>{MARKS.milestone} {controlsShown(milestone.name)}</span> : null;
+export const Tag = ({ milestone }) => milestone ? <span className="tag" title={controlsShown(milestone.name)}><span aria-hidden="true">{MARKS.milestone} </span>{controlsShown(milestone.name)}</span> : null;
 export const ofChief = (task, chief) => !chief || task.chief?.id === chief.id && task.key === `${chief.logbook}/${task.id}`;
 export const chiefName = chief => chief ? chief.old ?? nameOf(chief.id ?? `chief ${UNKNOWN}`, chief.provider) : "No chief";
 export const chiefState = key => Object.hasOwn(OBJECTS.chief.states, key) ? shown(OBJECTS.chief.states[key]).text : UNKNOWN;
@@ -243,14 +243,14 @@ export function TaskPage({ taskKey, tab: asked, at, from, up, children }) {
   const counts = task && { Artifacts: task.runs.length + (task.files.designs.versions || hasArena(task) ? 1 : 0) + task.files.recorded.length + task.artifacts.length + (task.files.pages?.length ?? 0) + task.files.kept.length, Log: task.log.length + task.logMore, Decisions: task.decisions.length };
   return (
     <article className="taskpage">
-      <a className="back" href={back ? `#${from}` : up?.href ?? "#"} onClick={event => { if (back && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); history.back(); } }}><span aria-hidden="true">‹ </span>{back ?? up?.name ?? BACK_NAMES[""]}</a>
+      <a className="back" href={back ? `#${from}` : up?.href ?? "#"} onClick={event => { if (back && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); history.back(); } }}><span aria-hidden="true">‹ </span>{controlsShown(back ?? up?.name ?? BACK_NAMES[""])}</a>
       <div className="tp-head">
-        {task && <p className="kind">{task.milestone ? `Task in ${MARKS.milestone} ${controlsShown(task.milestone.name)}` : "Task · not in a milestone"}{task.named === false && <span className="badge">name from the title</span>}</p>}
-        <h1 ref={heading} tabIndex={-1}>{task ? <Name item={task} /> : problem === "gone" ? "This task is not on the board" : problem ? "The board cannot read this task now" : "Reading the task"}{task && <span className="mono faint tid">{task.id}</span>}</h1>
+        {task && <p className="kind">{task.milestone ? `Task in ${MARKS.milestone} ${controlsShown(task.milestone.name)}` : "Task · not in a milestone"}{task.named === false && <> <span className="badge">name from the title</span></>}</p>}
+        <h1 ref={heading} tabIndex={-1}>{task ? <Name item={task} /> : problem === "gone" ? "This task is not on the board" : problem ? "The board cannot read this task now" : "Reading the task"}{task && <> <span className="mono faint tid">{task.id}</span></>}</h1>
         {task && <>
           <p>{controlsShown(`${task.says.charAt(0).toUpperCase()}${task.says.slice(1)}.`)} {task.need ? <span className="ask">{task.need}</span> : !task.ended && "Nothing needs you."}</p>
           {task.flag && <p className="flag">{MARKS.problem} {controlsShown(task.flag)}</p>}
-          <p className="tp-what"><span className="faint">What it is: </span>{controlsShown(task.title)}</p>
+          {task.title && <p className="tp-what"><span className="faint">What it is: </span>{controlsShown(task.title)}</p>}
         </>}
       </div>
       {problem && !task && <p className="none" role="alert">{problem === "gone" ? "The logbook has no task with this name. Go back and pick a task from a list." : problem === "read" ? "It tries again when the logbook changes." : problem}</p>}

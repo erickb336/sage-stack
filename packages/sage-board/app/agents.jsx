@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { AgentRing, AgentTile, Glyph, Ring, StateBadge, age, clock, runTokens, span, tokens } from "./agent.jsx";
-import { chiefState, chiefSub, ofChief, readLink, taskLink } from "./task.jsx";
+import { Name, chiefState, chiefSub, controlsShown, ofChief, readLink, taskLink } from "./task.jsx";
 import { FLAGGED, LOOK_AT_IT, MARKS, STOPPED_NO_REPORT, chiefName, runWord } from "../../sage-core/state-words.mjs";
 
 const MIN = 60_000, SEATS_MAX = 30;
@@ -39,8 +39,8 @@ export function LimitCounts({ agents, all }) {
   );
 }
 
-const About = ({ task }) => <a className="about" href={taskLink(task.key)} data-task={task.key} aria-label={`About ${task.title}`}>About <span aria-hidden="true">›</span></a>;
-const Title = ({ task, run }) => <a className="ttl" href={taskLink(task.key)} data-task={task.key} data-run={run?.id}>{task.title || task.id}</a>;
+const About = ({ task }) => <a className="about" href={taskLink(task.key)} data-task={task.key} aria-label={`About ${controlsShown(task.name ?? task.id)}`}>About <span aria-hidden="true">›</span></a>;
+const Title = ({ task, run }) => <a className="ttl" href={taskLink(task.key)} data-task={task.key} data-run={run?.id}>{task.name ? <Name item={task} /> : task.id}</a>;
 const More = ({ count }) => count > 0 && <p className="more-done">and {count.toLocaleString("en-US")} more failed</p>;
 
 function Fold({ runs, total, now }) {
@@ -163,7 +163,7 @@ function ChiefBox({ chief, runs, failedMore, tasks, now }) {
       {stopped && (
         <div className="stopped-note">
           <p>{running || queued.length ? "No run of this chief shows activity, although the logbook lists the runs below." : "No agent is running."} Last event {clock(chief.heartbeat)}: the heartbeat stopped. Nothing moves on its own.</p>
-          {owned.length > 0 && <p>It owns {owned.map((task, i) => <span key={task.key}>{i > 0 && ", "}<a href={taskLink(task.key)} data-task={task.key}>{task.id} · {task.title}</a></span>)}. To give a task to another chief, use the Overview.</p>}
+          {owned.length > 0 && <p>It owns {owned.map((task, i) => <span key={task.key}>{i > 0 && ", "}<a href={taskLink(task.key)} data-task={task.key}>{task.id} · <Name item={task} /></a></span>)}. To give a task to another chief, use the Overview.</p>}
         </div>
       )}
       {!stopped && !running && !queued.length && <p className="empty">No agent is running now.</p>}

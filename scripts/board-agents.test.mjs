@@ -135,7 +135,7 @@ test("T1224 (F-T1224-7): a run with no logbook change for a day but a fresh hook
   assert.equal(flagOf(rows(model.agents)[0]), "none", "the Agents row is calm");
   assert.deepEqual([card.loop.steps[1].status, card.loop.steps[1].detail], ["run", "The QA agent (run R2) is at work. It started on 17 Oct."]);
   assert.doesNotMatch(plain(renderTaskText(card)), /no news|ask the chief/, "the chat task card");
-  assert.ok(plain(renderBoardText(model)).includes("Sample task T1. Building, since 17 Oct."), "the chat board's line");
+  assert.ok(plain(renderBoardText(model)).includes("▶ Sample task T1: in the build, 1 agent at work, since 17 Oct."), "the chat board's line");
 });
 
 test("T308, T1224: unreadable hook notes show every Claude run from the logbook, with no flag: the board cannot tell", () => {
@@ -171,7 +171,7 @@ test("T1224 (F-T1224-2, F-T1224-4): the step line, the task page steps, the chat
     assert.ok(taskText.includes(`Now: ${now}`), `${id}: the chat task card's Now line`);
     assert.match(taskText, new RegExp(`\\n! Build: in progress · ${text} · `), `${id}: the chat task card's step`);
     assert.match(taskText, new RegExp(`\\n${runId} .* · in progress · ${text} · `), `${id}: the chat task card's run`);
-    assert.ok(chat.includes(`Sample task ${id}. Building, ${text} (run ${runId}).`), `${id}: the chat board's line`);
+    assert.ok(new RegExp(`\\n- ▶ Sample task ${id}: in the build, \\d agents? at work, ${text} \\(run ${runId}\\)\\.\\n`).test(chat), `${id}: the chat board's line`);
   }
 });
 

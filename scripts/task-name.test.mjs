@@ -105,7 +105,7 @@ test("T1255: an old logbook with no name column reads and writes: status shows t
   const s = logbook();
   const old = [["T1", "Board names: show them on rows"], ["T2", "Board names: and in the chat"], ["T3", "Lint: the offer"]];
   writeFileSync(join(s.dir, "tasks.tsv"), [TABLES.tasks.join("\t"), ...old.map(([id, title]) => TABLES.tasks.map((c) => ({ id, title, size: "small", route: "build,code-review,qa", state: "framed", round: "0", priority: "P2" })[c] ?? "").join("\t"))].join("\n") + "\n");
-  assert.match(s.ok("status"), /^names   3 open tasks have no name and show one from the title: T1 "Board names show them", T2 "Board names and in", T3 "Lint" · name one with task <T> set name=<name>, or many with task names --file <file>$/m);
+  assert.match(s.ok("status"), /^names   3 open tasks have no name and show one from the title: T1 "Board names show them…", T2 "Board names and in…", T3 "Lint" · name one with task <T> set name=<name>, or many with task names --file <file>$/m);
   s.ok("task", "T1", "set", "name=Board rows");
   assert.match(readFileSync(join(s.dir, "status.md"), "utf8"), /\| T3 \| \*Lint\* \| framed \|/, "status.md, which each write saves, shows a name from the title in italics");
   assert.ok(readFileSync(join(s.dir, "tasks.tsv"), "utf8").split("\n")[0].split("\t").includes("name"));
@@ -125,8 +125,37 @@ test("T1255: the name that each task shows: its own, else the title before its c
   assert.deepEqual(shown, {
     T1: "Board names rows", T2: "Board names chat", T3: "Lint", T4: "Plain short title",
     T5: "Reviews faster", T6: "Reviews", T7: "Hooks (own)", T8: "Hooks second",
-    T9: "Lint old", T10: "Anextremelylongwordthatcannotfi…", T11: "A five word title",
+    T9: "Lint old", T10: "Anextremelylongwordthatcannotfi…", T11: "A five word title…",
   });
+});
+
+test("T1263: on a milestone page no two rows read the same name: ended tasks whose titles share a start take more title words, a name given by hand counts as taken, and the row order changes nothing", () => {
+  const t = (id, title, more = {}) => ({ id, title, state: "merged", milestone: "M7", ...more });
+  const tasks = [
+    t("T1", "Board: remove the phone parts (password sign-in)"), t("T2", "Board: chief records (register at sage mode on)"), t("T3", "Board: the agent queue"),
+    t("T4", "Board pilot: React stack"), t("T5", "Board: same start here, one"), t("T6", "Board: same start here, two"), t("T7", "Queue: a hand name", { name: "Board pilot" }),
+    t("T8", "Board: elsewhere", { milestone: "M2" }), t("T9", "Board: open work", { state: "building", milestone: "M3" }),
+  ];
+  const shown = list => Object.fromEntries([...taskNames(list)].map(([id, { name }]) => [id, name]));
+  const names = shown(tasks);
+  assert.deepEqual(names, {
+    T1: "Board remove the phone…", T2: "Board chief records…", T3: "Board the agent queue", T4: "Board pilot React stack", T5: "T5", T6: "T6", T7: "Board pilot",
+    T8: "Board elsewhere", T9: "Board",
+  }, "T4's lead is T7's own name; T5 and T6 share their first four words, so each shows its id; T8 is in another milestone, but the open T9 holds the lead");
+  const m7 = tasks.filter(x => x.milestone === "M7").map(x => names[x.id].toLowerCase());
+  assert.equal(new Set(m7).size, m7.length, "each row of M7 reads its own name");
+  assert.deepEqual(shown([...tasks].reverse()), names, "the same logbook gives the same names in any row order");
+  assert.deepEqual(shown([t("T1", "Board: one"), t("T2", "Board: two", { milestone: "" }), t("T3", "Board: three", { milestone: "" })]), { T1: "Board", T2: "Board two", T3: "Board three" }, "tasks in no milestone count as one milestone");
+});
+
+test("T1263: a name from the title that is cut ends with … and never leaves a bracket open; a name given by hand that breaks the name rules shows a name from the title", () => {
+  const t = (id, title, more = {}) => ({ id, title, state: "framed", ...more });
+  const names = Object.fromEntries([...taskNames([
+    t("T1", "Fewest special cases (owner: merged"), t("T2", "Show the board in the chat"), t("T3", "Fix (a) and (b) c d"), t("T4", "Board (draft"),
+    t("T5", "Short [one] two"), t("T6", "Hooks: first", { name: "x".repeat(5000) }), t("T7", "Lint: the offer", { name: "Lint\u0000rows" }),
+  ])].map(([id, { name }]) => [id, name]));
+  assert.deepEqual(names, { T1: "Fewest special cases…", T2: "Show the board in…", T3: "Fix (a) and (b)…", T4: "Board…", T5: "Short [one] two", T6: "Hooks", T7: "Lint" });
+  for (const name of Object.values(names)) assert.equal((name.match(/[([{]/g) ?? []).length, (name.match(/[)\]}]/g) ?? []).length, `${name}: no open bracket`);
 });
 
 test("T1255: a name that each task shows from its title follows the name rules and no other open task shows it; when no title words do, the task shows its id", () => {

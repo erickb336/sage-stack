@@ -187,7 +187,7 @@ test("T1137: Archive from the picker asks first, names what the logbook keeps an
   await welcome.waitFor();
   assert.equal(w.archived("lantern"), false, "Restore restores the project");
   const words = await welcome.textContent();
-  for (const part of ["Welcome back to lantern", "Where it stood", "T1 · Sample import recipes", "T2 · Sample print a recipe", "What waits for you", "Keep the old export format?",
+  for (const part of ["Welcome back to lantern", "Where it stood", "T1 · task 1", "T2 · task 2", "What waits for you", "Keep the old export format?",
     "1 pull request is open. Main may have moved since you archived, so it may need a merge of main and fresh checks. The chief checks this first.", "Ask the chief in the chat of lantern to go on."]) assert.ok(words.includes(part), `Welcome back says ${part}: ${words}`);
   assert.ok(!/commits/.test(words), "R6: the board runs no git, so it counts no commits of main");
   await w.shot("t1137-welcome");
@@ -225,7 +225,7 @@ test("T1137: Archive from the picker asks first, names what the logbook keeps an
   await fresh.locator(".banner.archived").getByRole("button", { name: "Restore" }).click();
   await fresh.locator(".welcome").waitFor();
   assert.equal(w.archived("quarry"), false, "a browser paired by the chat's link restores the chat's project");
-  assert.match(await fresh.locator(".welcome").textContent(), /T1 · Sample quarry task/);
+  assert.match(await fresh.locator(".welcome").textContent(), /T1 · task 5\b/);
   assert.deepEqual(w.problems, []);
 });
 

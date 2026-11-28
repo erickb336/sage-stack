@@ -85,6 +85,13 @@ export function projectNames(model) {
   return new Map(projects.map(project => [project.key, count(project.name) > 1 ? `${project.name} (${project.key})` : project.name]));
 }
 
+export function milestoneSays(milestone, own, needs = true) {
+  const lastDone = Math.max(-Infinity, ...own.map(task => time(task.completedAt)).filter(when => when !== null));
+  const counts = { state: milestone.state, merged: milestone.progress.merged, total: milestone.progress.total, abandoned: milestone.progress.abandoned, moving: own.filter(task => rowState(task) === "work").length, waiting: milestone.waiting, cannotStart: milestone.cannotStart,
+    doneAt: milestone.state === "done" && Number.isFinite(lastDone) ? new Date(lastDone).toISOString() : null };
+  return { ...counts, lastDone, ...milestoneSentence(counts, needs ? own.filter(task => rowState(task) === "needs").map(task => task.name) : []) };
+}
+
 const milestoneOf = milestone => milestone ? { key: milestone.key, id: milestone.id, title: milestoneName({ id: milestone.id, name: milestone.name ?? "" }), name: milestone.name || milestoneName({ id: milestone.id }) } : null;
 const named = task => ({ key: task.key, id: task.id, title: task.title, name: task.name, named: task.named, milestone: milestoneOf(task.milestone) });
 const nameIn = (task, names) => id => names.get(`${task.project}/${id}`) ?? id;
@@ -176,17 +183,14 @@ export function boardOverview(model) {
   const hiddenDone = {};
   const milestones = model.milestones.filter(milestone => milestone.state !== "dropped").flatMap(milestone => {
     const own = milestone.tasks.map(key => byKey.get(key)).filter(Boolean);
-    const open = own.filter(task => !ENDED.includes(task.state));
-    const lastDone = Math.max(-Infinity, ...own.map(task => time(task.completedAt)).filter(when => when !== null));
+    const open = own.filter(task => !ENDED.includes(task.state)), { lastDone, moving, doneAt, says, need, mark, tone } = milestoneSays(milestone, own);
     if (milestone.state === "done" && !(lastDone > at - DONE_DAYS * DAY)) { hiddenDone[milestone.group] = (hiddenDone[milestone.group] ?? 0) + 1; return []; }
-    const counts = { state: milestone.state, merged: milestone.progress.merged, total: milestone.progress.total, abandoned: milestone.progress.abandoned, moving: open.filter(isMoving).length, waiting: milestone.waiting, cannotStart: milestone.cannotStart,
-      doneAt: milestone.state === "done" && Number.isFinite(lastDone) ? new Date(lastDone).toISOString() : null };
     return [{
       key: milestone.key,
       id: milestone.id,
       title: milestoneName(milestone),
       name: milestone.name || milestoneName({ id: milestone.id }),
-      ...milestoneSentence(counts, open.filter(task => rowState(task) === "needs").map(task => task.name)),
+      says, need, mark, tone,
       tasks: milestone.tasks,
       depths: milestone.depths,
       goal: milestone.goal || null,
@@ -197,11 +201,11 @@ export function boardOverview(model) {
       merged: milestone.progress.merged,
       total: milestone.progress.total,
       abandoned: milestone.progress.abandoned,
-      moving: counts.moving,
+      moving,
       waiting: milestone.waiting,
-      needsYou: open.filter(task => rowState(task) === "needs").length + (milestone.need ? 1 : 0),
+      needsYou: own.filter(task => rowState(task) === "needs").length + (milestone.need ? 1 : 0),
       pilot: milestone.pilot,
-      doneAt: counts.doneAt,
+      doneAt,
     }];
   }).sort((a, b) => rank(a.priority) - rank(b.priority) || stateRank(a.state) - stateRank(b.state) || number(a.id) - number(b.id));
 

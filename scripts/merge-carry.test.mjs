@@ -183,7 +183,7 @@ test("f: both boards agree with the merge check on a head whose cycles carry, an
   assert.equal(w.refused(h2), notCarried(h1, GONE));
   assert.deepEqual(card(), { ok: false, text: `The merge check refuses ${h2.slice(0, 7)}. T1: 0 of 1 clean cycles on this SHA; never recorded: review-clean, qa-pass.` });
   const chat = w.cli("board", "all");
-  assert.ok(chat.includes("\n### Moving now\n- t. The merge check refuses its last commit; the chief repairs it.\n"), chat);
+  assert.ok(chat.includes("\n### Moving now\n- ! t: ready to merge. The merge check refuses its last commit; the chief repairs it.\n"), chat);
   assert.ok(chat.includes("### Needs you\nNothing waits for you."), "F-T1096-8: a refused merge is the chief's to fix, so it is not in Needs you");
   assert.doesNotMatch(chat, /review and merge/, "the chat board");
 });
