@@ -300,14 +300,14 @@ test("T216: two ensures at once start one board, and board.pid names the process
   } finally { await stop(dir, port); }
 });
 
-const SLOW_LISTEN = `--import=${JSON.stringify(fileURLToPath(new URL("./fixtures/slow-listen-board.mjs", import.meta.url)))}`;
+const SLOW_ANSWER = `--import=${JSON.stringify(fileURLToPath(new URL("./fixtures/slow-answer-board.mjs", import.meta.url)))}`;
 
 test("T1271: while the first ensure's board holds the port and does not answer yet, a second ensure waits for it and exits 0, with one board", async (t) => {
   const { dir, env, config } = scratch(t);
   const port = await boardCommandPort(), bound = join(dir, "bound");
   try {
     assert.equal((await board(CLI, ["--setup", "--port", String(port)], env)).status, 0);
-    const first = board(CLI, ["--ensure"], { ...env, NODE_OPTIONS: SLOW_LISTEN, BOARD_TEST_BOUND_FILE: bound });
+    const first = board(CLI, ["--ensure"], { ...env, NODE_OPTIONS: SLOW_ANSWER, BOARD_TEST_BOUND_FILE: bound });
     for (const end = Date.now() + 10_000; !existsSync(bound) && Date.now() < end;) await new Promise((wake) => setTimeout(wake, 20));
     assert.equal(existsSync(bound), true, "the first ensure's board holds the port");
     const second = await board(CLI, ["--ensure"], env);
