@@ -10,9 +10,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { finished } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
-import { configId, createBoardConfig, readBoardConfig, runBoardCli } from "../packages/sage-board/cli.mjs";
+import { createBoardConfig, readBoardConfig, runBoardCli } from "../packages/sage-board/cli.mjs";
 import { createBoardServer } from "../packages/sage-board/server.mjs";
-import { boardPort } from "../packages/sage-core/index.mjs";
+import { boardPort, configId } from "../packages/sage-core/index.mjs";
 import { boardCommandPort } from "./fixtures/board-port.mjs";
 
 const CLI = fileURLToPath(new URL("../packages/sage-board/cli.mjs", import.meta.url));
@@ -149,19 +149,38 @@ test("T1208: when this shell cannot reach 127.0.0.1 but the board's log has its 
   } finally { await stop(dir, port); }
 });
 
-test("T1208: when this shell cannot reach 127.0.0.1 and the server does not start, ensure keeps its failure text and exit code 1, also when the log has a ready line from an earlier start", async (t) => {
+const listensLine = (port) => `sage board: a program listens on 127.0.0.1:${port}, but this shell cannot connect to it (for example a sandbox), so ensure starts no second board. If it is the board, open http://127.0.0.1:${port}/ in a browser. If it is another program: Stop that program, or move the board to a free port: run node ${CLI} board --port ${port + 1} (any free port from 1024 to 65535 works).\n`;
+
+test("T1218 F-T1218-2: when the board runs but this shell cannot connect to it, ensure says that a program listens on the port, starts no second board, and exits with the unreachable code", async (t) => {
+  const { dir, env, config } = scratch(t);
+  const port = await boardCommandPort();
+  try {
+    assert.equal((await board(CLI, ["--ensure", "--port", String(port)], env)).status, 0);
+    const log = join(dirname(config), "board.log"), pid = readFileSync(join(dirname(config), "board.pid"), "utf8"), logged = readFileSync(log, "utf8");
+    const run = await board(CLI, ["--ensure"], { ...env, NODE_OPTIONS: UNREACHABLE });
+    assert.equal(run.stderr, listensLine(port));
+    assert.equal(run.status, 3, "the code of a shell that cannot reach the board, not 1");
+    assert.equal(run.stdout, "");
+    assert.equal(readFileSync(log, "utf8"), logged, "no second server wrote to the log");
+    assert.equal(readFileSync(join(dirname(config), "board.pid"), "utf8"), pid);
+    assert.match((await get(port)).board, new RegExp(`^id=${configId(config)}; pid=${pid.trim()}; started=\\d+$`), "the first board answers");
+  } finally { await stop(dir, port); }
+});
+
+test("T1218 F-T1218-2: when another program holds the port and this shell cannot connect to it, ensure gives the same line and starts nothing, also when the log has a ready line from an earlier start", async (t) => {
   const { dir, env, config } = scratch(t);
   const port = await boardCommandPort();
   createBoardConfig(config, { sources: [{ id: "sample", path: join(dir, "logbooks") }], port });
-  const log = join(dirname(config), "board.log");
-  writeFileSync(log, `Sage board: http://127.0.0.1:${port}/ · only on this Mac.\n`, { mode: 0o600 });
+  const log = join(dirname(config), "board.log"), earlier = `Sage board: http://127.0.0.1:${port}/ · only on this Mac.\n`;
+  writeFileSync(log, earlier, { mode: 0o600 });
   const holder = createServer();
   await new Promise((done) => holder.listen(port, "127.0.0.1", done));
   try {
     const run = await board(CLI, ["--ensure"], { ...env, NODE_OPTIONS: UNREACHABLE });
-    assert.equal(run.stderr, `sage board: the board server did not start. See its log: ${log}\n`);
-    assert.equal(run.status, 1);
-    assert.match(readFileSync(log, "utf8"), new RegExp(`\\nsage board: Board port ${port} is already in use\\.`), "this start failed: another program holds the port");
+    assert.equal(run.stderr, listensLine(port));
+    assert.equal(run.status, 3);
+    assert.equal(readFileSync(log, "utf8"), earlier, "no server started");
+    assert.equal(existsSync(join(dirname(config), "board.pid")), false);
   } finally { await new Promise((done) => holder.close(done)); await stop(dir, port); }
 });
 

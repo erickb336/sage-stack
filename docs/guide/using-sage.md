@@ -237,7 +237,18 @@ The other kinds are a progress note, a request understood, an explainer, an inci
 
 A picture is plain text first, at most 46 columns wide, so it reads the same in a terminal and in the app. A message with a picture, or a message that is too long for the chat, also names its page:
 
-- The Page block is `Page ·` and a title, then the board's link to the page, then its file path on your Mac. A click on the link opens the page from the board server: in the Claude desktop app's Browser pane, in the Codex app's built-in browser, or in your default browser from a terminal ([the pages of a task](board.md#the-pages-of-a-task)). When the board does not run, use the file path: in the Claude desktop app, a click on it opens the page in the Browser pane.
+- The Page block is `Page ·` and a title, then the page's link and its file path on your Mac. Before the message goes out, the message command asks the board if it answers (1 s at most). The order of the lines tells you the answer:
+  - **The board answers:** the link comes first, then the file path. A click on the link opens the page from the board server: in the Claude desktop app's Browser pane, in the Codex app's built-in browser, or in your default browser from a terminal ([the pages of a task](board.md#the-pages-of-a-task)).
+  - **The board does not answer:** the file path comes first, then a line that says so with the command that starts the board, then the link. Open the file: in the Claude desktop app, a click on the path opens the page in the Browser pane. Or start the board, and then the link works.
+
+  ```text
+  Page · Showing visuals in every app
+    /Users/you/sage-worktrees/sage-43265b/pages/T1000/research.html
+    The board does not answer now; open the file, or start the board with `node <board folder>/cli.mjs board --ensure`.
+    http://127.0.0.1:43123/pages/sage-43265b/T1000/research.html
+  ```
+
+  Only the board of your board config counts: the board that started from `~/.config/sage-board/board.json` and answers on the port in `board.port`, next to it. Another board on that port, a board of another config or an older board without an id, counts as a board that does not answer.
 - The page shows the whole message, with each picture drawn as an image from the same text.
 - A Page block of a question may also name the answer that its page shows (`answer`, for example `A`) and, for a `.md` page, the heading to open at (`part`). The board uses them to link the question to its material.
 - The message command refuses any message that holds `#pair=`, the mark of a board pairing link: a pairing link goes in the chat text only.

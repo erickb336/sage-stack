@@ -603,7 +603,7 @@ A Markdown page always opens in the [reader](#the-question-view-and-the-reader) 
 
 Each picture fits the width of the page, and a click enlarges it. A picture from another site, from another task, from outside the folder or deeper than 4 parts does not load: the reader shows "Picture not shown" and the picture's alt text. To see the Markdown text as it is, click "Open the file" in the reader.
 
-The Page block of a message gives this link between its title and its file path ([sage's messages](using-sage.md#sages-messages)). So one link opens the page in the same way in each app: in the Browser pane of the Claude desktop app, in the built-in browser of the Codex app, and in your default browser from a terminal.
+The Page block of a message gives this link, so one link opens the page in the same way in each app: in the Browser pane of the Claude desktop app, in the built-in browser of the Codex app, and in your default browser from a terminal. When the board answers, the link comes right after the title, and the file path follows. When the board does not answer, the file path comes first, then a line that says so with the `board --ensure` command, then the link ([sage's messages](using-sage.md#sages-messages) shows both forms).
 
 The board shows web pages, PDFs, pictures (PNG, JPEG, GIF, WebP and SVG), Markdown pages in the reader, and text files as plain text. It shows no other file: no logbook file, JSON, log, hidden file or link.
 

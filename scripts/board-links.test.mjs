@@ -2,13 +2,14 @@ import "./test-env.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { finished } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { boardCommandPort } from "./fixtures/board-port.mjs";
+import { LOG, OWNER_PORT } from "./fixtures/owner-board-guard.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const TEST_CHILD = join(ROOT, "scripts/board-test-child.mjs");
@@ -68,14 +69,14 @@ const PROVIDERS = {
   },
 };
 
-async function scratch(t, provider) {
+async function scratch(t, provider, { setup = true } = {}) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "sage-board-links-")));
   t.after(async () => { await closeAll(); rmSync(dir, { recursive: true, force: true }); });
   const { CODEX_HOME, SAGE_SHARED_HOME, ...inherited } = process.env;
-  const env = { ...inherited, HOME: dir, SAGE_HOME: join(dir, "sage-home"), SAGE_SHARED_HOME: join(dir, "shared"), DO_NOT_TRACK: "1" };
+  const env = { ...inherited, HOME: dir, SAGE_HOME: join(dir, "sage-home"), SAGE_SHARED_HOME: join(dir, "shared"), DO_NOT_TRACK: "1", [LOG]: join(dir, "owner-port.log") };
   const port = await boardCommandPort(), cli = join(ROOT, "plugins/sage/board/cli.mjs"), config = join(dir, ".config/sage-board/board.json");
-  const made = spawnSync(process.execPath, [cli, "board", "--setup", "--port", String(port)], { cwd: dir, env, encoding: "utf8" });
-  assert.equal(made.status, 0, made.stderr);
+  const made = setup && spawnSync(process.execPath, [cli, "board", "--setup", "--port", String(port)], { cwd: dir, env, encoding: "utf8" });
+  if (made) assert.equal(made.status, 0, made.stderr);
   const stop = PROVIDERS[provider](dir, env);
   const hook = async (fields) => {
     const run = stop(fields), { status, stdout, stderr } = await run.result;
@@ -88,7 +89,7 @@ async function scratch(t, provider) {
     assert.match(stdout, /^Sage board started/);
   };
   const readyLines = () => readFileSync(join(dir, ".config/sage-board/board.log"), "utf8").split("\n").filter(line => line.startsWith("Sage board: ")).length;
-  return { port, config, hook, startBoard, readyLines };
+  return { dir, port, config, hook, startBoard, readyLines };
 }
 
 for (const provider of Object.keys(PROVIDERS)) {
@@ -134,5 +135,15 @@ for (const provider of Object.keys(PROVIDERS)) {
     const second = await s.hook({ stop_hook_active: true, last_assistant_message: message });
     assert.equal(second.output, undefined, "the next stop passes: never two blocks in a row");
     assert.equal(s.readyLines(), 1, "the check started no second board");
+  });
+
+  test(`T1218 ${provider}: with no board config, a link to the default port stops the message once and says so, and the hook tries no connection to the owner's board`, async (t) => {
+    const s = await scratch(t, provider, { setup: false });
+    const link = `http://127.0.0.1:${OWNER_PORT}/app/`;
+    const { output } = await s.hook({ last_assistant_message: `Open the board: ${link}` });
+    assert.equal(output?.decision, "block");
+    assert.ok(output.reason.startsWith(`sage: a board link in your message does not work: ${link}. The board has no config yet. Run node `), output.reason);
+    assert.equal(existsSync(join(s.dir, "owner-port.log")), false, "no connection to the default port was tried");
+    assert.equal(existsSync(s.config), false, "the check made no config");
   });
 }
