@@ -88,7 +88,11 @@ test("T314 R1043-1: a board scope takes the name that the board shows, the displ
   assert.ok(council.includes("Sample council task") && !council.includes("Sample fork task"), council);
   const fork = board("SEACC");
   assert.ok(fork.includes("Sample fork task") && !fork.includes("Sample council task"), fork);
-  assert.throws(() => board("twin"), /The project is ambiguous\. Choose: current\/twin-a-[0-9a-f]{6}, current\/twin-b-[0-9a-f]{6}/);
+  const ambiguous = /The project is ambiguous\. Choose: current\/twin-a-[0-9a-f]{6}, current\/twin-b-[0-9a-f]{6}$/;
+  assert.throws(() => board("twin"), ambiguous);
+  const twinA = join(root, readdirSync(root).find(name => name.startsWith("twin-a-")));
+  for (const file of readdirSync(twinA, { withFileTypes: true }).filter(entry => entry.isFile())) writeFileSync(join(twinA, file.name), readFileSync(join(twinA, file.name), "utf8").replace(/\d{4}-\d\d-\d\dT/g, "2020-01-01T"));
+  assert.throws(() => board("twin"), ambiguous, "the choices keep their order when twin B has the newer activity, so the board lists it first");
   assert.throws(() => board("Council"), /No recorded project matches this board scope/, "a part of a name is not a match");
 });
 
