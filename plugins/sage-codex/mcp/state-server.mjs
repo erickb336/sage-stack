@@ -201,8 +201,8 @@ export const TOOLS = {
     pos: ["task"], argv: (i) => ["gate", "add", i.task],
   },
   gate_replace: {
-    describe: "The takeover gate: ask the owner to give a task of another, live chief, or a task that you unclaimed, to a chief (to). The gate names each run that ends as failed. The owner's answer does the takeover, through gate_answer.",
-    input: { task, to: chief }, pos: ["task"], argv: (i) => ["gate", "replace", i.task],
+    describe: "The takeover gate: ask the owner to give a task of another, live chief, or a task that you unclaimed, to a chief (to). The gate names each run that ends as failed. The owner's answer does the takeover, through gate_answer. task may be a list of task ids joined by commas, such as T4,T7,T9, all of one owning chief: one question moves them all on approve and none on decline.",
+    input: { task: z.string().regex(/^T[1-9]\d*(?:,T[1-9]\d*)*$/, "a task id, or task ids joined by commas, for example T7 or T4,T7").describe("the task id, or task ids joined by commas"), to: chief }, pos: ["task"], argv: (i) => ["gate", "replace", i.task],
   },
   gate_answer: {
     describe: "Record the owner's answer to a gate: the option's number, or the owner's own words as the hex of their UTF-8 bytes, and via, where the owner answered: codex-card for your choice card, chat for the chat. board only records the owner's board answer as pending: it acts when the owning chief's hook picks it up, and gate_undo takes it back before that. The first answer wins: a gate with an answer refuses, and names that answer, its place and its time.",

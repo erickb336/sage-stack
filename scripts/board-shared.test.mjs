@@ -11,7 +11,7 @@ import { changedPart, readBoardSources } from "../packages/sage-core/board-reade
 import { buildBoardModel } from "../packages/sage-core/board-model.mjs";
 import { boardOverview } from "../packages/sage-core/board-overview.mjs";
 import { renderBoardText, renderTaskText } from "../packages/sage-core/board-render.mjs";
-import { replaceQuestion } from "../packages/sage-core/chiefs.mjs";
+import { batchQuestion, replaceQuestion } from "../packages/sage-core/chiefs.mjs";
 import { sharedRoot } from "../packages/sage-core/shared-root.mjs";
 import { providerRoots, readSources, standardSources } from "../packages/sage-board/cli.mjs";
 import * as view from "../packages/sage-core/board-view.mjs";
@@ -771,4 +771,17 @@ test("F-T633-12: a folder named lantern #2 beside two lantern folders gets its o
   const w = linked(t, [["clones/lantern", "2026-10-02T00:00:00Z"], ["work/lantern #2", "2026-10-03T00:00:00Z"]]);
   const { lantern } = withRuns(w, [w.checkout]);
   assert.equal(lantern.sub, "sample-owner/lantern · 3 checkouts: lantern #1, lantern #2, lantern #2 #3");
+});
+
+test("T1267: a takeover gate of a list shows on its first task as one question with a count, and the chat board's Ref line names every task of the list", t => {
+  const w = world(t), file = join(w.shared, FOLDER, "gates.tsv"), label = id => `${id} (${id === "C1" ? "claude" : "codex"})`;
+  assert.doesNotMatch(renderBoardText(modelOf(w.sources)).split("\n").at(-1), /\bT322\b/, "without the list, T322 is not in the Ref line");
+  const question = batchQuestion({ from: "C1", to: "C2", tasks: [{ id: "T320" }, { id: "T322" }], runs: [{ id: "R410", task: "T320", role: "lead" }, { id: "R411", task: "T320", role: "implementer" }], label, fresh: true });
+  writeFileSync(file, readFileSync(file, "utf8").replace(/^G7\tT320\t[^\t]*/m, `G7\tT320\t${question}`));
+  const model = modelOf(w.sources), [reason] = card(model, "T320").reasons;
+  assert.deepEqual([reason.text, reason.recommendation], ["Hand this task and 1 more from Claude · C1 to Codex · C2? 2 runs end as failed. Codex · C2 runs one fresh cycle before it merges.", "approve, when you know that Claude · C1 stopped"]);
+  assert.deepEqual(card(model, "T322").reasons, [], "the other task of the list asks no second question");
+  const text = renderBoardText(model);
+  assert.match(text, /\. Hand this task and 1 more from Claude · C1 to Codex · C2\? 2 runs end as failed\. /);
+  assert.match(text.split("\n").at(-1), /^Ref: .*\bT320\b.*\bT322\b/, "the Ref line names both tasks");
 });
