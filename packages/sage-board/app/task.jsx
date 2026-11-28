@@ -215,7 +215,7 @@ function AtWork({ task }) {
   return (
     <div className="atwork">
       <span className="lbl">At work now</span>
-      {live.length ? live.map(run => <a className="chipa" key={run.id} href={runLink(task.key, run.id)} data-run={run.id}><AgentRing run={{ ...run, task }} now={now} small /><strong>{run.role}</strong><span className="faint">{stateText(run)}{run.status === "running" && ` · ${age(run, now)}`}</span></a>) : <span className="faint">No agent works on this task now.</span>}
+      {live.length ? live.map(run => <a className="chipa" key={run.id} href={runLink(task.key, run.id)} data-run={run.id} data-nav><AgentRing run={{ ...run, task }} now={now} small /><strong>{run.role}</strong><span className="faint">{stateText(run)}{run.status === "running" && ` · ${age(run, now)}`}</span></a>) : <span className="faint">No agent works on this task now.</span>}
       {ended > 0 && <span className="faint">+{ended} ended</span>}
     </div>
   );

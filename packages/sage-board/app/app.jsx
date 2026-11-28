@@ -10,7 +10,8 @@ import { Tasks } from "./tasks.jsx";
 import { Picker, Signal, projectNamed, projectOfKey, projectView } from "./projects.jsx";
 import { ArchiveFoot, ArchiveLayer, WelcomeBack } from "./archive.jsx";
 import { useModel, useNow, when } from "./use-model.js";
-import { Crumb, Decide, LEVELS, LevelPage, Loading, Tree, milestoneLevelLink, placeOf, projectLink } from "./levels.jsx";
+import { Crumb, Decide, LEVELS, LevelPage, Loading, PhoneBar, Tree, crumbParts, milestoneLevelLink, placeOf, projectLink, upLink } from "./levels.jsx";
+import { Keys, rowOf, selectNeeds, selectRow } from "./keys.jsx";
 import { RunPage } from "./run.jsx";
 import { OBJECTS, runWord } from "../../sage-core/state-words.mjs";
 
@@ -43,8 +44,10 @@ function pageWithOldTaskLinkMoved() {
 const same = href => [...document.querySelectorAll("a[href]")].filter(link => link.getAttribute("href") === href);
 const plainClick = event => !event.button && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 
+const rowLeadingTo = from => rowOf([...document.querySelectorAll(".main [data-nav][href]")].filter(row => [from, from.split("&")[0]].includes(row.getAttribute("href"))).sort((a, b) => b.getAttribute("href").length - a.getAttribute("href").length)[0]);
+
 function useHashPage(ready) {
-  const [page, setPage] = useState(pageWithOldTaskLinkMoved);
+  const [page, setPage] = useState(pageWithOldTaskLinkMoved), places = useRef(new Map()), left = useRef(null), shown = useRef(null);
   useEffect(() => {
     history.scrollRestoration = "manual";
     let last = location.hash;
@@ -52,19 +55,30 @@ function useHashPage(ready) {
       const next = pageWithOldTaskLinkMoved();
       if (next.hash === TASK.hash && typeof history.state?.from !== "string") history.replaceState({ ...history.state, from: last.replace(/^#\/?/, "") }, "");
       if (next.hash !== pageOf(last).hash && typeof history.state?.focus !== "string") scrollTo(0, 0);
-      last = location.hash; setPage(next);
+      left.current = last; last = location.hash; setPage(next);
     };
+    const placeOfShownPage = () => { if (shown.current === location.hash) places.current.set(location.hash, scrollY); };
     const keep = event => {
       const link = event.target.closest?.('a[href^="#"], a[href^="/read/"]');
       if (link && plainClick(event) && link.target !== "_blank") history.replaceState({ ...history.state, scroll: scrollY, focus: link.getAttribute("href"), nth: same(link.getAttribute("href")).indexOf(link) }, "");
     };
-    addEventListener("hashchange", changed); document.addEventListener("click", keep, true);
-    return () => { removeEventListener("hashchange", changed); document.removeEventListener("click", keep, true); };
+    addEventListener("hashchange", changed); addEventListener("scroll", placeOfShownPage, { passive: true }); document.addEventListener("click", keep, true);
+    return () => { removeEventListener("hashchange", changed); removeEventListener("scroll", placeOfShownPage); document.removeEventListener("click", keep, true); };
   }, []);
   useEffect(() => {
-    const kept = history.state;
-    if (page.hash === TASK.hash || !ready || typeof kept?.focus !== "string") return;
-    scrollTo(0, kept.scroll); same(kept.focus)[kept.nth]?.focus({ preventScroll: true });
+    const kept = history.state, from = left.current;
+    shown.current = location.hash;
+    if (page.hash === TASK.hash || !ready) return;
+    left.current = null;
+    if (typeof kept?.focus === "string") {
+      scrollTo(0, kept.scroll);
+      const link = same(kept.focus)[kept.nth];
+      link?.focus({ preventScroll: true }); rowOf(link)?.classList.add("came");
+    } else if (kept?.to) selectNeeds();
+    else if (from && rowLeadingTo(from)) {
+      if (places.current.has(location.hash)) scrollTo(0, places.current.get(location.hash));
+      selectRow(rowLeadingTo(from), true);
+    }
   }, [page, ready]);
   return page;
 }
@@ -160,6 +174,7 @@ export function App() {
   const running = model ? model.agents.reduce((n, book) => n + book.running, 0) : 0;
   const key = page.params.get("key") ?? "", place = all && level ? placeOf(all, page) : null;
   const welcome = page.hash === "overview" ? current : place?.level === "project" ? place.project : null;
+  const parts = level && crumbParts(all, page).parts, upHref = parts && upLink(parts);
   const up = place?.milestone ? { name: place.milestone.name, href: milestoneLevelLink(place.milestone.key) } : place?.project ? { name: place.project.name, href: projectLink(place.project.key) } : null;
   const body = page.hash === "overview" ? <Overview model={model} shown={shown} chief={picked} /> : page.hash === "tasks" ? <Tasks model={model} params={page.params} chief={picked} />
     : page.hash === "pull-requests" ? <Pulls model={model} chief={picked} />
@@ -203,6 +218,7 @@ export function App() {
           {model && !level && !page.own && <Signal others={model.others} />}
           <span className="grow" />
           {model && !level && !page.own && <LimitCounts agents={model.agents} all={all.agents} />}
+          <Keys up={upHref} />
           <Status model={model} link={link} lostAt={lostAt} now={now} notice={notice} />
           <button type="button" className="theme" onClick={flip} aria-label={`Switch to the ${next} theme`} title={`Switch to the ${next} theme`}>
             {theme === "dark" ? <SunIcon /> : <MoonIcon />}
@@ -218,6 +234,7 @@ export function App() {
           {model || ["task", "run"].includes(page.hash) ? body : notice ? null : level && link === "connecting" ? <Loading hash={page.hash} /> : <NoData link={link} />}
           {model && page.hash === "overview" && <ArchiveFoot project={current} />}
         </main>
+        {level && <PhoneBar all={all} up={upHref} />}
       </div>
     </div>
   );

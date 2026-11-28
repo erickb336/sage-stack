@@ -15,7 +15,7 @@ export function projectView(model, key) {
     others: model.projects.filter(project => project.key !== key && project.list === "needs") };
 }
 
-function useMenu() {
+export function useMenu() {
   const [open, setOpen] = useState(false), box = useRef(null), was = useRef(false);
   useEffect(() => {
     const lost = document.activeElement === document.body || box.current?.contains(document.activeElement);

@@ -362,3 +362,212 @@ for (const width of WIDTHS) {
     await shot(page, `names-task-${width}`);
   });
 }
+
+const selected = page => page.evaluate(() => { const row = document.activeElement?.closest(".main [data-nav]"); return row && (row.dataset.need ?? row.dataset.answered ?? row.dataset.decide ?? row.getAttribute("href")); });
+const until = async (page, check) => { for (let i = 0; i < 50 && !check(); i++) await page.waitForTimeout(100); return check(); };
+
+test("T1250 keys: j and k move the selection, 1 to 3 answer the selected question, a design question opens its page and never takes a key, and no key acts in a text field or with Ctrl, Cmd or Alt held", async t => {
+  const w = await answering(t), { page } = await newPage(t, 1440);
+  await page.goto(`${w.origin}/app/`);
+  await page.locator("main h1", { hasText: "All projects" }).waitFor();
+  const code = page.getByPlaceholder("ABCD-EFGH").first();
+  await code.focus();
+  await page.keyboard.type("jk1");
+  assert.equal(await code.inputValue(), "jk1", "the text field gets the letters");
+  assert.equal(await selected(page), null, "no key moves the selection while a text field has the focus");
+  await code.fill("");
+  await w.pair(page);
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.keyboard.press("j");
+  assert.equal(await selected(page), w.key("G1"), "j selects the first row: the oldest question");
+  for (const key of ["j", "j", "j"]) await page.keyboard.press(key);
+  assert.equal(await selected(page), w.key("G3"), "j stops at the last row");
+  await page.keyboard.press("k"); await page.keyboard.press("k");
+  assert.equal(await selected(page), w.key("G1"), "k moves up");
+  for (const key of ["Control+2", "Meta+2", "Alt+2", "Control+j", "Meta+j", "Alt+j"]) await page.keyboard.press(key);
+  assert.equal(await selected(page), w.key("G1"), "no key acts with Ctrl, Cmd or Alt held");
+  await page.waitForTimeout(300);
+  assert.equal(w.answered("G1"), null, "Ctrl, Cmd or Alt with a number answers nothing");
+  await page.keyboard.press("2");
+  assert.equal((await until(page, () => w.answered("G1")))?.answer, "no", "2 answers the selected question with its second choice");
+  await page.locator(`${w.need("G1")}, [data-answered="${w.key("G1")}"]`).getByText("You chose no").waitFor();
+
+  await page.locator(w.need("G2")).focus();
+  await page.keyboard.press("1");
+  await page.locator(".lv-decide h2", { hasText: "Approve design v1 of the receipt mail?" }).waitFor();
+  assert.match(new URL(page.url()).hash, /^#task\?key=.*T2$/, "1 on a design question opens its task page");
+  await page.keyboard.press("j");
+  assert.equal(await selected(page), w.key("G2"), "j selects the decision on the task page");
+  for (const key of ["1", "2", "3"]) await page.keyboard.press(key);
+  await page.waitForTimeout(300);
+  assert.equal(w.answered("G2"), null, "no key answers a design question, also on its own page");
+  assert.equal(await page.locator(".lv-decide textarea").count(), 0, "and no key opens its words box");
+
+  await page.goto(`${w.origin}/app/#task?key=${encodeURIComponent(w.key("T3"))}`);
+  await page.locator(".lv-decide h2", { hasText: "Send crash reports on their own?" }).waitFor();
+  await page.keyboard.press("j");
+  await page.keyboard.press("1");
+  assert.equal((await until(page, () => w.answered("G3")))?.answer, "yes", "1 answers the selected decision on a task page");
+  await shot(page, "keys-answered-1440");
+});
+
+test("T1250 keys: ? lists the keys and Esc closes the list; Enter and o open the row; u goes up and marks the row; g then i selects what needs you; g then p opens the projects", async t => {
+  const origin = await fixture(t), { page } = await newPage(t, 1440);
+  await page.goto(`${origin}/app/${LEVELS.l1}`);
+  await page.locator("main h1", { hasText: "sample-app" }).waitFor();
+  await page.keyboard.press("?");
+  const list = page.getByRole("dialog", { name: "Keys" });
+  await list.waitFor();
+  assert.deepEqual(await list.locator("dt").allTextContents(), ["jk", "Entero", "u", "123", "g then i", "g then p", "?", "Esc"]);
+  await shot(page, "keys-list-1440");
+  await page.keyboard.press("Escape");
+  await list.waitFor({ state: "hidden" });
+  await page.getByRole("button", { name: "? Keys" }).click();
+  await list.waitFor();
+  await list.getByRole("button", { name: "Close" }).click();
+  await list.waitFor({ state: "hidden" });
+
+  await page.keyboard.press("j");
+  const first = await page.evaluate(() => { const row = document.activeElement.closest("[data-nav]"); return (row.matches("a") ? row : row.querySelector("[data-open]")).getAttribute("href"); });
+  await page.keyboard.press("o");
+  await page.waitForURL(url => new URL(url).hash === first);
+  await page.goBack();
+  await page.locator("main h1", { hasText: "sample-app" }).waitFor();
+
+  const m1 = page.locator(`[data-part=progress] a[data-milestone="${decodeURIComponent(KEY("M1"))}"]`);
+  await m1.focus();
+  await page.keyboard.press("Enter");
+  await page.locator("main h1", { hasText: "Board redesign" }).waitFor();
+  await page.keyboard.press("u");
+  await page.locator("main h1", { hasText: "sample-app" }).waitFor();
+  assert.equal(await selected(page), `#milestone?key=${KEY("M1")}`, "u returns to the project and selects the milestone you came from");
+  assert.equal(await m1.evaluate(row => row.classList.contains("came")), true, "and marks it");
+
+  await page.keyboard.press("g"); await page.keyboard.press("i");
+  await page.locator("main h1", { hasText: "All projects" }).waitFor();
+  assert.equal(await page.evaluate(() => !!document.activeElement.closest("[data-part=needs] [data-need]")), true, "g then i selects the first row of Needs you");
+  assert.equal(await page.evaluate(() => document.activeElement.closest("[data-need]") === document.querySelector("[data-part=needs] [data-need]")), true);
+
+  await page.keyboard.press("g"); await page.keyboard.press("p");
+  const menu = page.getByRole("menu", { name: "Projects" });
+  await menu.waitFor();
+  assert.ok((await menu.getByRole("menuitem").allTextContents()).some(item => item.startsWith("sample-app")), "g then p opens the list of projects");
+  await page.keyboard.press("Escape");
+  await menu.waitFor({ state: "detached" });
+  assert.equal(await page.evaluate(() => document.activeElement.getAttribute("aria-label")), "Projects", "Esc gives the focus back to the menu button");
+});
+
+test("T1250 keep place: Back and u return to the same scroll place and mark the row you came from", async t => {
+  const origin = await fixture(t), { page } = await newPage(t, 1440);
+  await page.setViewportSize({ width: 1440, height: 420 });
+  await page.goto(`${origin}/app/${LEVELS.l1}`);
+  await page.locator("main h1", { hasText: "sample-app" }).waitFor();
+  const done = page.locator("[data-part=done] a[data-task]").first();
+  await done.evaluate(row => row.scrollIntoView({ block: "center" }));
+  const y = await page.evaluate(() => scrollY), href = await done.getAttribute("href");
+  assert.ok(y > 200, `the project page scrolls: ${y}`);
+  await done.click();
+  await page.locator(".taskpage h1").waitFor();
+  await page.goBack();
+  await page.locator("main h1", { hasText: "sample-app" }).waitFor();
+  await page.waitForFunction(at => scrollY === at, y);
+  assert.equal(await selected(page), href, "Back selects the row you opened");
+  assert.equal(await done.evaluate(row => row.classList.contains("came")), true, "and marks it");
+  await shot(page, "keep-back-1440");
+
+  const m1 = page.locator(`[data-part=progress] a[data-milestone="${decodeURIComponent(KEY("M1"))}"]`);
+  await m1.evaluate(row => row.scrollIntoView({ block: "center" }));
+  const at = await page.evaluate(() => scrollY);
+  assert.ok(at > 0, `the milestone row is under the first screen: ${at}`);
+  await m1.click();
+  await page.locator("main h1", { hasText: "Board redesign" }).waitFor();
+  await page.evaluate(() => scrollTo(0, 120));
+  await page.keyboard.press("u");
+  await page.locator("main h1", { hasText: "sample-app" }).waitFor();
+  await page.waitForFunction(place => scrollY === place, at);
+  assert.equal(await selected(page), `#milestone?key=${KEY("M1")}`, "u selects the milestone you came from");
+  assert.equal(await m1.evaluate(row => row.classList.contains("came")), true, "and marks it");
+  await shot(page, "keep-up-1440");
+});
+
+for (const width of WIDTHS) {
+  test(`T1250 crumb menus at ${width} px: each part of the breadcrumb opens a menu of its siblings with their counts, by mouse and by keyboard`, async t => {
+    const origin = await fixture(t), { page } = await newPage(t, width);
+    await page.goto(`${origin}/app/${LEVELS.l3}`);
+    await page.locator(".tp-head .kind", { hasText: "Task in" }).waitFor();
+    const crumb = page.locator("header .lv-crumb");
+    assert.deepEqual(await crumb.getByRole("button").evaluateAll(list => list.map(button => [button.getAttribute("aria-label"), button.getAttribute("aria-haspopup"), button.getAttribute("aria-expanded")])),
+      [["Projects", "menu", "false"], ["Other projects", "menu", "false"], ["Other milestones", "menu", "false"]], "All projects, the project and the milestone each have a menu button");
+    const milestones = crumb.getByRole("button", { name: "Other milestones" });
+    await milestones.click();
+    const menu = page.getByRole("menu", { name: "Other milestones" });
+    await menu.waitFor();
+    assert.equal(await milestones.getAttribute("aria-expanded"), "true");
+    assert.equal(await milestones.getAttribute("aria-controls"), await menu.getAttribute("id"));
+    const items = await menu.getByRole("menuitem").evaluateAll(list => list.map(item => [item.querySelector("b").textContent, item.querySelector("span").textContent, item.getAttribute("aria-current")]));
+    const named = Object.fromEntries(items.map(([name, n, current]) => [name, [n, current]]));
+    assert.deepEqual(Object.keys(named).sort(), ["Board redesign", "No milestone", "Offline sync", "Sign-in rework"]);
+    assert.deepEqual([named["Offline sync"], named["Sign-in rework"]], [["0 of 2", null], ["2 of 2", null]], "a milestone counts its merged tasks of all");
+    assert.match(named["Board redesign"][0], /^\d+ of \d+$/);
+    assert.equal(named["Board redesign"][1], "true", "the milestone of the task is marked");
+    assert.match(named["No milestone"][0], /^\d+ open$/, "No milestone counts its open tasks");
+    assert.equal(items.at(-1)[0], "No milestone", "No milestone comes last");
+    const box = await menu.boundingBox();
+    assert.ok(box.x >= 0 && box.x + box.width <= width, `the menu fits the screen: ${JSON.stringify(box)}`);
+    await shot(page, `crumb-milestones-${width}`);
+    assert.equal(await page.evaluate(() => document.activeElement.getAttribute("role")), "menuitem", "the menu takes the focus");
+    assert.equal(await page.evaluate(() => document.activeElement.querySelector("b").textContent), "Board redesign", "the focus starts on the milestone of the task");
+    await page.keyboard.press("ArrowDown");
+    assert.equal(await page.evaluate(() => document.activeElement.querySelector("b").textContent), items[items.findIndex(([name]) => name === "Board redesign") + 1][0], "the arrow keys move in the menu");
+    await page.keyboard.press("Escape");
+    await menu.waitFor({ state: "detached" });
+    assert.equal(await page.evaluate(() => document.activeElement.getAttribute("aria-label")), "Other milestones", "Esc closes the menu and gives the focus back");
+
+    const projects = crumb.getByRole("button", { name: "Projects", exact: true });
+    await projects.focus();
+    await page.keyboard.press("Enter");
+    const list = page.getByRole("menu", { name: "Projects" });
+    await list.waitFor();
+    const rows = await list.getByRole("menuitem").evaluateAll(all => all.map(item => [item.querySelector("b").textContent, item.querySelector("span").textContent]));
+    assert.deepEqual(rows.map(([name]) => name), ["sample-app", "quiet-app"]);
+    assert.match(rows[0][1], /^\d+ needs? you$/, "a project with questions shows how many need you");
+    assert.equal(rows[1][1], "quiet", "a quiet project says so");
+    await list.getByRole("menuitem", { name: /quiet-app/ }).click();
+    await page.locator("main h1", { hasText: "quiet-app" }).waitFor();
+    assert.equal(await list.count(), 0, "a choice closes the menu");
+  });
+}
+
+test("T1250 phone bar at 390 px: Up, N need you and Find sit at the bottom of the first screen; the tree leaves, so switching projects is no longer 2400 px down", async t => {
+  const origin = await fixture(t), { page } = await newPage(t, 390);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${origin}/app/`);
+  await page.locator("main h1", { hasText: "All projects" }).waitFor();
+  const bar = page.getByRole("navigation", { name: "Phone bar" });
+  const needs = await page.locator("[data-part=needs] [data-need]").count();
+  assert.ok(needs > 1, "the sample has questions");
+  assert.deepEqual(await bar.locator(":scope > a, :scope > button, .lv-mbtn").evaluateAll(list => list.map(item => [item.textContent, item.getAttribute("aria-label"), item.disabled ?? null])),
+    [["↑ Up", "Up one level", true], [`${needs} need you`, null, false], ["Find", "Find a project", false]]);
+  assert.equal(await page.locator(".side .tree").boundingBox(), null, "the tree leaves at 390 px");
+  const find = await bar.getByRole("button", { name: "Find a project" }).boundingBox();
+  assert.ok(find.y + find.height <= 844 && find.y > 700, `Find, the project switch, is at the bottom of the first screen, not 2400 px down: ${JSON.stringify(find)}`);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "no sideways scroll");
+  await shot(page, "phone-bar-390");
+  await bar.getByRole("button", { name: "Find a project" }).click();
+  const menu = page.getByRole("menu", { name: "Find a project" });
+  await menu.waitFor();
+  const box = await menu.boundingBox();
+  assert.ok(box.y >= 0 && box.y + box.height <= find.y && box.x >= 0 && box.x + box.width <= 390, `the menu opens above the bar, on the screen: ${JSON.stringify(box)}`);
+  await shot(page, "phone-find-390");
+  await menu.getByRole("menuitem", { name: /sample-app/ }).click();
+  await page.locator("main h1", { hasText: "sample-app" }).waitFor();
+  await page.evaluate(() => scrollTo(0, document.body.scrollHeight));
+  await bar.getByRole("button", { name: `${needs} need you` }).click();
+  await page.locator("main h1", { hasText: "All projects" }).waitFor();
+  assert.equal(await page.evaluate(() => document.activeElement.closest("[data-need]") === document.querySelector("[data-part=needs] [data-need]")), true, "N need you opens All projects on its first question");
+  await page.goto(`${origin}/app/${LEVELS.l2}`);
+  await page.locator("main h1", { hasText: "Board redesign" }).waitFor();
+  await bar.getByRole("link", { name: "Up one level" }).click();
+  await page.locator("main h1", { hasText: "sample-app" }).waitFor();
+  assert.equal(await selected(page), `#milestone?key=${KEY("M1")}`, "Up keeps your place like u");
+});

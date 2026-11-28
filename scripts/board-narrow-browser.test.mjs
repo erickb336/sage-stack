@@ -136,7 +136,7 @@ test("T1159 (F-T1159-50): on a phone the board's shell is compact and never cove
     await page.locator("main h1").waitFor();
     const shell = await page.evaluate(() => {
       const top = document.querySelector("header.top"), box = element => element.getBoundingClientRect();
-      return { bottom: Math.round(box(top).bottom), third: Math.floor(innerHeight / 3), position: getComputedStyle(top).position, small: [...document.querySelectorAll(".nav a, header.top button")].filter(item => box(item).height < 44).map(item => item.textContent) };
+      return { bottom: Math.round(box(top).bottom), third: Math.floor(innerHeight / 3), position: getComputedStyle(top).position, small: [...document.querySelectorAll(".nav a, header.top button")].filter(item => item.getClientRects().length && box(item).height < 44).map(item => item.textContent) };
     });
     assert.ok(shell.bottom <= shell.third, `${name}: the header ends at ${shell.bottom} px, below the top third of the screen (${shell.third} px)`);
     assert.equal(shell.position, "static", `${name}: the header scrolls away, so it covers nothing`);

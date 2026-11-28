@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { goNeeds } from "./keys.jsx";
 import { DesignPreview, PairBox, PairNote, UndoButton, chiefLabel, markSeen, post, useAccess, useSeen } from "./actions.jsx";
 import { Start, ago, plural } from "./overview.jsx";
-import { projectNamed } from "./projects.jsx";
+import { projectNamed, useMenu } from "./projects.jsx";
 import { Name, Tag, controlsShown, milestoneLevelLink, questionLink, runLink, taskLink } from "./task.jsx";
 import { DESIGN_OPTIONS, MARKS, WORDS_MAX, prName, rowMark } from "../../sage-core/state-words.mjs";
 
@@ -32,19 +33,66 @@ export function placeOf(all, page) {
   return { level: page.hash, row, project, milestone: row?.milestone && all.milestones.find(item => item.key === row.milestone.key), loose: !!row && !row.milestone, run: page.params.get("run") };
 }
 
-export function Crumb({ all, page }) {
+export function crumbParts(all, page) {
   const place = all ? placeOf(all, page) : { level: page.hash };
-  const parts = [["All projects", "#"]];
-  if (place.project) parts.push([place.project.name, projectLink(place.project.key)]);
+  const parts = [["All projects", "#", "projects"]];
+  if (place.project) parts.push([place.project.name, projectLink(place.project.key), "projects"]);
   else if (place.level === "project") parts.push([KIND.project]);
-  if (place.milestone) parts.push([place.milestone.name, milestoneLevelLink(place.milestone.key)]);
-  else if (place.loose && place.project) parts.push(["No milestone", looseLink(place.project.key)]);
+  if (place.milestone) parts.push([place.milestone.name, milestoneLevelLink(place.milestone.key), "milestones"]);
+  else if (place.loose && place.project) parts.push(["No milestone", looseLink(place.project.key), "milestones"]);
   else if (place.level === "milestone") parts.push([KIND.milestone]);
   if (["task", "run"].includes(place.level)) parts.push([place.row?.name ?? KIND.task, place.row && taskLink(place.row.key)]);
   if (place.level === "run") parts.push([place.run || KIND.run]);
+  return { parts, place };
+}
+export const upLink = parts => parts.slice(0, -1).reverse().find(([, href]) => href)?.[1] ?? null;
+
+const needText = n => `${n} ${n === 1 ? "needs" : "need"} you`;
+const projectCount = (all, project) => project.needs ? needText(project.needs) : all.levels.projects[project.key]?.work.length ? `${all.levels.projects[project.key].work.length} at work` : "";
+const milestoneItems = (all, key) => [
+  ...(all.levels.projects[key]?.milestones ?? []).map(id => all.milestones.find(item => item.key === id)).filter(Boolean).map(milestone => ({ key: milestone.key, name: controlsShown(milestone.name), href: milestoneLevelLink(milestone.key), n: `${milestone.merged} of ${milestone.total}` })),
+  { key: "loose", name: "No milestone", href: looseLink(key), n: `${openCount(all.levels.loose[key])} open` },
+];
+const projectItems = all => all.projects.filter(project => !project.archived).map(project => ({ key: project.key, name: controlsShown(project.name), href: projectLink(project.key), n: projectCount(all, project) || (["quiet", "older"].includes(project.list) ? "quiet" : ""), need: project.needs > 0 }));
+export const liveNeeds = all => all.needs.filter(need => need.project === null || !all.projects.find(project => project.key === need.project)?.archived);
+
+function Menu({ label, items, current, kind, children }) {
+  const [open, setOpen, box] = useMenu(), list = useRef(null);
+  useEffect(() => { if (open) (list.current.querySelector("[aria-current]") ?? list.current.querySelector("a"))?.focus(); }, [open]);
+  const move = event => {
+    const links = [...list.current.querySelectorAll("a")], i = links.indexOf(document.activeElement);
+    const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: links.length - 1 }[event.key];
+    if (to === undefined) return;
+    event.preventDefault(); links[(to + links.length) % links.length]?.focus();
+  };
+  return (
+    <span className="lv-mb" ref={box}>
+      <button type="button" className="lv-mbtn" data-menu={kind} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? `menu-${kind}` : undefined} aria-label={label} onClick={() => setOpen(!open)}>{children}</button>
+      {open && <div className="menu pick-menu lv-menu" role="menu" id={`menu-${kind}`} aria-label={label} ref={list} onKeyDown={move}>
+        {items.map(item => <a key={item.key} role="menuitem" href={item.href} aria-current={item.key === current ? "true" : undefined}><b>{item.name}</b><span className={item.need ? "need" : "faint"}>{item.n}</span></a>)}
+      </div>}
+    </span>
+  );
+}
+
+export function Crumb({ all, page }) {
+  const { parts, place } = crumbParts(all, page);
+  const menu = (kind, i) => all && (kind === "projects" ? <Menu kind="projects" label={i ? "Other projects" : "Projects"} items={projectItems(all)} current={place.project?.key} />
+    : <Menu kind="milestones" label="Other milestones" items={milestoneItems(all, place.project.key)} current={place.milestone?.key ?? "loose"} />);
   return (
     <nav className="crumb lv-crumb" aria-label="Where you are">
-      {parts.map(([label, href], i) => i === parts.length - 1 ? <b key={i} aria-current="page">{controlsShown(label)}</b> : <span key={i}><a href={href}>{controlsShown(label)}</a><i aria-hidden="true">›</i></span>)}
+      {parts.map(([label, href, kind], i) => <span key={i} className="lv-cp">{i === parts.length - 1 ? <b aria-current="page">{controlsShown(label)}</b> : <a href={href}>{controlsShown(label)}</a>}{kind && menu(kind, i)}{i < parts.length - 1 && <i aria-hidden="true">›</i>}</span>)}
+    </nav>
+  );
+}
+
+export function PhoneBar({ all, up }) {
+  const n = all ? liveNeeds(all).length : 0;
+  return (
+    <nav className="pbar" aria-label="Phone bar">
+      {up ? <a href={up} aria-label="Up one level">↑ Up</a> : <button type="button" disabled aria-label="Up one level">↑ Up</button>}
+      <button type="button" className={n ? "need" : ""} onClick={goNeeds}>{n ? <Mark row="needs" /> : null}{n ? needText(n) : "Nothing needs you"}</button>
+      {all && <Menu kind="projects" label="Find a project" items={projectItems(all)}>Find</Menu>}
     </nav>
   );
 }
@@ -55,16 +103,14 @@ export function Tree({ all, page }) {
   const place = placeOf(all, page), open = place.project?.key;
   const quiet = all.projects.filter(project => ["quiet", "older"].includes(project.list)), archived = all.projects.filter(project => project.list === "archived");
   const node = project => {
-    const level = all.levels.projects[project.key], work = level?.work.length ?? 0;
     return [
       <a key={project.key} className={`d1${open === project.key && place.level === "project" ? " on" : ""}`} href={projectLink(project.key)} data-project={project.key} aria-current={open === project.key && place.level === "project" ? "page" : undefined}>
         <span className="nm">{controlsShown(project.name)}</span>
-        <span className={`n${project.needs ? " need" : ""}`}>{project.needs ? <><Mark row="needs" />{project.needs} {project.needs === 1 ? "needs" : "need"} you</> : work ? `${work} at work` : ""}</span>
+        <span className={`n${project.needs ? " need" : ""}`}>{project.needs > 0 && <Mark row="needs" />}{projectCount(all, project)}</span>
       </a>,
       ...open === project.key ? [
-        ...(level?.milestones ?? []).map(key => all.milestones.find(item => item.key === key)).filter(Boolean).map(milestone => (
-          <a key={milestone.key} className={`d2${place.milestone?.key === milestone.key && place.level === "milestone" ? " on" : ""}`} href={milestoneLevelLink(milestone.key)}><span className="nm">{controlsShown(milestone.name)}</span><span className="n">{milestone.merged} of {milestone.total}</span></a>)),
-        <a key="loose" className={`d2${place.loose && place.level === "milestone" ? " on" : ""}`} href={looseLink(project.key)}><span className="nm">No milestone</span><span className="n">{openCount(all.levels.loose[project.key])} open</span></a>,
+        ...milestoneItems(all, project.key).map(item => (
+          <a key={item.key} className={`d2${place.level === "milestone" && (place.milestone?.key ?? (place.loose && "loose")) === item.key ? " on" : ""}`} href={item.href}><span className="nm">{item.name}</span><span className="n">{item.n}</span></a>)),
       ] : [],
     ];
   };
@@ -86,7 +132,7 @@ const ref = (...parts) => <span className="ref">{parts.filter(Boolean).join(" ·
 
 function TaskRow({ row, project, fresh, indent, inMilestone }) {
   return (
-    <a className={`lv-row${indent ? " ind" : ""}`} href={taskLink(row.key)} data-task={row.key} data-row={row.row}>
+    <a className={`lv-row${indent ? " ind" : ""}`} href={taskLink(row.key)} data-task={row.key} data-row={row.row} data-nav>
       <span className={`mk ${row.tone}`} data-m={row.mark} aria-hidden="true" />
       <span className="tt">{fresh && <Dot />}<Name item={row} />: {controlsShown(row.says)}.{!inMilestone && row.milestone && <> <Tag milestone={row.milestone} /></>}</span>
       {ref(row.id, row.pr && prName(row.pr), project)}
@@ -100,7 +146,7 @@ const Flag = ({ flag }) => <span className={`fl ${flag.level}`}>{flag.text}</spa
 function RunRow({ run, project }) {
   const { flag } = run;
   return (
-    <a className="lv-row ind" href={runLink(run.task.key, run.id)} data-run={run.id} data-task={run.task.key}>
+    <a className="lv-row ind" href={runLink(run.task.key, run.id)} data-run={run.id} data-task={run.task.key} data-nav>
       {run.status === "running" ? <Mark row="work" /> : <span className="mk" aria-hidden="true" />}
       <span className="tt"><Name item={run.task} /></span>
       <span className="meta">{project && `${project} · `}{run.task.id} · {run.role} {run.id}{flag && <> · <Flag flag={flag} /></>}{run.why && ` · ${run.why}`}</span>
@@ -119,7 +165,7 @@ function Answer({ need, writes, archived }) {
   if (said?.ok) return <p className="lv-ans" role="status">You chose <b>{said.option}</b>. Recorded in the logbook. It waits for the chief to pick it up. <UndoButton logbook={need.logbook} gate={need.gate} onDone={done => done.ok && setSaid(null)} /></p>;
   return <>
     <div className="lv-acts">
-      {need.options.map((option, i) => <button type="button" key={option} className={`btn${option === need.recommendation ? " primary" : ""}`} disabled={!can} onClick={() => answer(i)}>{option}{option === need.recommendation && " (recommended)"}</button>)}
+      {need.options.map((option, i) => <button type="button" key={option} className={`btn${option === need.recommendation ? " primary" : ""}`} disabled={!can} onClick={() => answer(i)} data-option={i + 1}>{option}{option === need.recommendation && " (recommended)"}</button>)}
       <a className="lv-open" href={questionLink(need.key)}>Open</a>
       {archived ? <span className="faint">Restore the project to answer.</span> : writes === "unpaired" ? <span className="faint">Pair this browser to answer here, or answer in the chief's chat.</span> : writes === "off" ? <span className="faint">Answer in the chief's chat.</span> : null}
     </div>
@@ -153,11 +199,11 @@ export function Decide({ need, answered, archived = false, now, theme }) {
       <div className="lv-acts"><button type="button" className="btn primary" disabled={!can || !words.trim()} onClick={() => send(need.options.indexOf(DESIGN_OPTIONS[1]), words)}>Send</button><button type="button" className="btn" onClick={() => setWords(null)}>Cancel</button></div>
     </div>
     : <div className="lv-acts">
-      {need.options.map((option, i) => <button type="button" key={option} className={`btn${option === need.recommendation ? " primary" : ""}`} disabled={!can} onClick={() => need.design && option === DESIGN_OPTIONS[1] ? setWords("") : send(i)}>{option}{option === need.recommendation && " (recommended)"}</button>)}
+      {need.options.map((option, i) => <button type="button" key={option} className={`btn${option === need.recommendation ? " primary" : ""}`} disabled={!can} onClick={() => need.design && option === DESIGN_OPTIONS[1] ? setWords("") : send(i)} data-option={need.design ? undefined : i + 1}>{option}{option === need.recommendation && " (recommended)"}</button>)}
       {archived && <span className="faint">Restore the project to answer.</span>}
     </div>;
   return (
-    <section className="lv-decide" data-decide={need.key}>
+    <section className="lv-decide" data-decide={need.key} data-nav tabIndex={-1} data-design={design ? "" : undefined}>
       <p className="lbl2">{["Needs you", asked(need, now)].filter(Boolean).join(" · ")}</p>
       <h2>{need.question}</h2>
       {need.more.length > 0 && <p className="more">{need.more.join(" ")}</p>}
@@ -174,9 +220,9 @@ function NeedRow({ need, all, byProject, fresh, now, here }) {
   const link = need.task ? taskLink(need.task.key) : need.milestone ? milestoneLevelLink(need.milestone) : null;
   const where = [need.task?.id, byProject && project?.name, asked(need, now)].filter(Boolean).join(" · ");
   return (
-    <div className="lv-need" data-need={need.key}>
+    <div className="lv-need" data-need={need.key} data-nav tabIndex={-1} data-design={need.design ? "" : undefined}>
       <Mark row="needs" />
-      <span className="tt">{fresh && <Dot />}{link ? <a href={link}>{need.task ? <Name item={need.task} /> : need.question}</a> : need.question}{need.task?.milestone && need.task.milestone.key !== here && <> <Tag milestone={need.task.milestone} /></>}</span>
+      <span className="tt">{fresh && <Dot />}{link ? <a href={link} data-open>{need.task ? <Name item={need.task} /> : need.question}</a> : need.question}{need.task?.milestone && need.task.milestone.key !== here && <> <Tag milestone={need.task.milestone} /></>}</span>
       {where && <span className="meta">{where}</span>}
       <div className="body">
         {need.task && <p className="q">{need.question}</p>}
@@ -193,9 +239,9 @@ function NeedRow({ need, all, byProject, fresh, now, here }) {
 function AnsweredRow({ item, all, byProject, now, here }) {
   const project = all.projects.find(row => row.key === item.project);
   return (
-    <div className="lv-need answered" data-answered={item.key}>
+    <div className="lv-need answered" data-answered={item.key} data-nav tabIndex={-1}>
       <Mark row="done" />
-      <span className="tt"><a href={taskLink(item.task.key)}><Name item={item.task} /></a>{item.task.milestone && item.task.milestone.key !== here && <> <Tag milestone={item.task.milestone} /></>}</span>
+      <span className="tt"><a href={taskLink(item.task.key)} data-open><Name item={item.task} /></a>{item.task.milestone && item.task.milestone.key !== here && <> <Tag milestone={item.task.milestone} /></>}</span>
       <span className="meta">{[item.task.id, byProject && project?.name, `answered ${clock(item.at, now)}`].filter(Boolean).join(" · ")}</span>
       <div className="body"><p className="lv-ans">You chose <b>{item.answer}</b>. It waits for {chiefLabel(all.chiefs, item.logbook, item.owner)} to pick it up. <UndoButton logbook={item.logbook} gate={item.gateId} /></p></div>
     </div>
@@ -241,7 +287,7 @@ function WorkPart({ all, keys, rows, byProject, books }) {
         const calm = books.filter(book => book.project === project.key).flatMap(book => book.runs.filter(run => run.status === "running" && run.flag && !run.look).map(run => run.flag.text));
         const flags = [...new Set([...mine.map(item => item.run.flag?.text), ...calm].filter(Boolean))];
         return [
-          <button type="button" key={project.key} className="lv-wp" aria-expanded={opened.has(project.key)} onClick={() => toggle(project.key)} data-work={project.key}>
+          <button type="button" key={project.key} className="lv-wp" aria-expanded={opened.has(project.key)} onClick={() => toggle(project.key)} data-work={project.key} data-nav>
             <Mark row="work" /><span className="tt">{project.name}</span>
             <span className="meta">{plural(own.length, "task")} · {plural(all.levels.projects[project.key].agents, "agent")} · {flags.length ? flags.join(" · ") : <span className="faint">no flag</span>}</span>
             <span className="chev" aria-hidden="true">{opened.has(project.key) ? "▾" : "▸"}</span>
@@ -257,7 +303,7 @@ function WorkPart({ all, keys, rows, byProject, books }) {
 const Segs = ({ milestone, rows, inLink }) => <span className="lv-segs" {...inLink ? { "aria-hidden": true } : { role: "img", "aria-label": `${milestone.merged} of ${milestone.total} tasks merged` }}>{milestone.tasks.map(key => <i key={key} className={rows.get(key)?.tone} />)}</span>;
 function MilestoneRow({ milestone, rows, project }) {
   return (
-    <a className="lv-row" href={milestoneLevelLink(milestone.key)} data-milestone={milestone.key}>
+    <a className="lv-row" href={milestoneLevelLink(milestone.key)} data-milestone={milestone.key} data-nav>
       <span className={`mk ${milestone.tone}`} data-m={milestone.mark} aria-hidden="true" />
       <span className="tt"><Name item={milestone} />: {controlsShown(milestone.says)}.</span>
       {ref(milestone.id, project)}
@@ -273,7 +319,7 @@ function ProgressPart({ milestones, rows, names, byProject, loose }) {
       <h2 id="lv-progress">Milestones <span className="r">{milestones.length}</span></h2>
       <div className="lv-list">
         {milestones.map(milestone => <MilestoneRow key={milestone.key} milestone={milestone} rows={rows} project={byProject && names.get(milestone.project)} />)}
-        {loose && <a className="lv-row" href={looseLink(loose.project)} data-milestone="none"><span className="mk" aria-hidden="true" /><span className="tt"><span className="tn">No milestone</span>: {plural(loose.open, "open task")}.</span></a>}
+        {loose && <a className="lv-row" href={looseLink(loose.project)} data-milestone="none" data-nav><span className="mk" aria-hidden="true" /><span className="tt"><span className="tn">No milestone</span>: {plural(loose.open, "open task")}.</span></a>}
       </div>
     </section>
   );
@@ -352,7 +398,7 @@ export function LevelPage({ all, page, now }) {
   const scope = top ? all.levels.all : place.loose ? all.levels.loose[project.key] : place.milestone ? all.levels.milestones[place.milestone.key] : all.levels.projects[project.key];
   const inScope = new Set([...scope.needs, ...scope.work, ...scope.waits, ...scope.done]);
   const inPlace = (key, task, milestone) => top ? key === null || live(key) : place.level === "project" ? key === project.key : task ? inScope.has(task) : !!place.milestone && milestone === place.milestone.key;
-  const needs = all.needs.filter(need => inPlace(need.project, need.task?.key, need.milestone));
+  const needs = top ? liveNeeds(all) : all.needs.filter(need => inPlace(need.project, need.task?.key, need.milestone));
   const answered = all.answered.filter(item => inPlace(item.project, item.task.key));
   const books = all.agents.filter(book => top ? live(book.project) : book.project === project.key).map(book => ({ ...book, runs: book.runs.filter(run => top || place.level === "project" || inScope.has(run.task.key)) }));
   const milestones = top ? all.levels.all.milestones : place.level === "project" ? all.levels.projects[project.key].milestones : [];
