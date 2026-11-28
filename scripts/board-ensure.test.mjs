@@ -300,6 +300,29 @@ test("T216: two ensures at once start one board, and board.pid names the process
   } finally { await stop(dir, port); }
 });
 
+const SLOW_LISTEN = `--import=${JSON.stringify(fileURLToPath(new URL("./fixtures/slow-listen-board.mjs", import.meta.url)))}`;
+
+test("T1271: while the first ensure's board holds the port and does not answer yet, a second ensure waits for it and exits 0, with one board", async (t) => {
+  const { dir, env, config } = scratch(t);
+  const port = await boardCommandPort(), bound = join(dir, "bound");
+  try {
+    assert.equal((await board(CLI, ["--setup", "--port", String(port)], env)).status, 0);
+    const first = board(CLI, ["--ensure"], { ...env, NODE_OPTIONS: SLOW_LISTEN, BOARD_TEST_BOUND_FILE: bound });
+    for (const end = Date.now() + 10_000; !existsSync(bound) && Date.now() < end;) await new Promise((wake) => setTimeout(wake, 20));
+    assert.equal(existsSync(bound), true, "the first ensure's board holds the port");
+    const second = await board(CLI, ["--ensure"], env);
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(second.stdout, `Sage board is running: http://127.0.0.1:${port}/ · only on this Mac.\n`);
+    const started = await first;
+    assert.equal(started.status, 0, started.stderr);
+    assert.equal(started.stdout, `Sage board started: http://127.0.0.1:${port}/ · only on this Mac.\n`);
+    const log = readFileSync(join(dirname(config), "board.log"), "utf8");
+    assert.equal(log.split(`Sage board: http://127.0.0.1:${port}/ · only on this Mac.\n`).length, 2, "one server started");
+    const answering = (await get(port)).board.match(/pid=(\d+)/)[1];
+    assert.equal(readFileSync(join(dirname(config), "board.pid"), "utf8"), `${answering}\n`);
+  } finally { await stop(dir, port); }
+});
+
 test("T216: board --stop stops this config's board, and ensure says when the config changed after the start (F-T216-7)", async (t) => {
   const { dir, env, config } = scratch(t);
   const port = await boardCommandPort(), pidFile = join(dirname(config), "board.pid");
