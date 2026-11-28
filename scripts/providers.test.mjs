@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { chmodSync, cpSync, existsSync, lstatSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -28,7 +29,7 @@ function comparisonFixture(t) {
   const tool = createStateTool({ defaultRoot: () => env.SAGE_HOME });
   const command = (...args) => tool.command([...args, "--project", project], env);
   assert.equal(command("init").code, 0);
-  assert.equal(command("task", "add", "--title", "Synthetic comparison", "--size", "large", "--priority", "P2").code, 0);
+  assert.equal(command("task", "add", "--name", tname(), "--title", "Synthetic comparison", "--size", "large", "--priority", "P2").code, 0);
   assert.equal(command("run", "add", "T1", "--role", "pe").code, 0);
   const dir = tool.storeDir(project, env), file = join(dir, "kept/R1.json");
   const input = { project, task: "T1", run: "R1", sha256: reportDigest("STATUS blocked\nRESULT café 🙂\r\n ") };
@@ -85,7 +86,7 @@ test("T91: comparison validates stored identities, integrity and legacy records 
 
 test("T91: invalid input, unknown associations and wrong project remain errors without writes", t => {
   const f = comparisonFixture(t); f.retain();
-  assert.equal(f.command("task", "add", "--title", "Other", "--size", "tiny", "--priority", "P2").code, 0);
+  assert.equal(f.command("task", "add", "--name", tname(), "--title", "Other", "--size", "tiny", "--priority", "P2").code, 0);
   const before = f.snapshot();
   for (const change of [{ task: "T2" }, { task: "T99" }, { run: "R99" }, { run: "../R1" },
     { sha256: "bad" }, { sha256: "A".repeat(64) }, { project: "relative" }, { project: join(f.home, "absent") }, { extra: "no" }])
@@ -452,7 +453,7 @@ test("provider packages are complete outside the checkout, with no opposite adap
     const env = { ...process.env, SAGE_HOME: join(dir, "logbooks") };
     const run = (...args) => spawnSync(process.execPath, [join(plugin, "skills/sage/sage.mjs"), ...args, "--project", dir], { encoding: "utf8", env });
     assert.equal(run("init").status, 0);
-    const task = run("task", "add", "--priority", "P2", "--title", "Shared behavior", "--size", "small");
+    const task = run("task", "add", "--name", tname(), "--priority", "P2", "--title", "Shared behavior", "--size", "small");
     assert.equal(task.status, 0, task.stderr);
     assert.match(run("status").stdout, /tasks\s+1 · framed 1/);
     assert.equal(run("task", "T1", "set", "state=briefed").status, 0);
@@ -570,7 +571,7 @@ test("T8: command CLI consumes text as data and leaves isolated task state uncha
   const env = { ...process.env, SAGE_HOME: join(f.dir, "logbooks") };
   const cli = (...args) => execFileSync(process.execPath, [join(f.plugin, "skills/sage/sage.mjs"), ...args, "--project", f.dir], { env, encoding: "utf8" });
   cli("init");
-  cli("task", "add", "--priority", "P2", "--title", "Preserve this task", "--size", "small");
+  cli("task", "add", "--name", tname(), "--priority", "P2", "--title", "Preserve this task", "--size", "small");
   const snapshot = () => filesUnder(env.SAGE_HOME).map(path => [path, readFileSync(path, "utf8")]);
   const before = snapshot();
   const invoke = text => execFileSync(process.execPath, [script], { cwd: f.dir, env, input: JSON.stringify({ text }), encoding: "utf8" });
@@ -603,7 +604,7 @@ test("T10: installed logbook CLI reads and writes through a filesystem alias", t
   const script = join(alias, "skills/sage/sage.mjs");
   const cli = (...args) => execFileSync(process.execPath, [script, ...args, "--project", f.dir], { env, encoding: "utf8" });
   cli("init");
-  assert.match(cli("task", "add", "--priority", "P2", "--title", "Alias task", "--size", "small"), /T1 framed/);
+  assert.match(cli("task", "add", "--name", tname(), "--priority", "P2", "--title", "Alias task", "--size", "small"), /T1 framed/);
   assert.match(cli("board", "T1", "--view", "task"), /Alias task/);
   const url = pathToFileURL(join(f.plugin, "skills/sage/sage.mjs")).href;
   const imported = spawnSync(process.execPath, ["--input-type=module", "-"], {

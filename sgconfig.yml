@@ -1,4 +1,4 @@
-ruleDirs: [packages/sage-core/lint/rules]
+ruleDirs: [packages/sage-core/lint/rules, lint/rules]
 utilDirs: [packages/sage-core/lint/utils]
 languageInjections:
   - hostLanguage: yaml

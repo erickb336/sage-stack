@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -44,7 +45,7 @@ function world(t, { size = "large", risk = ["--risk", "input"], origin = true } 
   };
   const ok = (...args) => cli(...backed(args, { cli, keep: (fields) => keepReport(project, fields, env) }));
   cli("init");
-  ok("task", "add", "--priority", "P2", "--title", "t", "--size", size, ...risk);
+  ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "t", "--size", size, ...risk);
   ok("task", "T1", "set", "branch=sage/t1", "pr=41");
   for (const state of ["briefed", "building", "reviewing"]) ok("task", "T1", "set", `state=${state}`);
   return {

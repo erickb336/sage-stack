@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -54,7 +55,7 @@ else process.exit(1);
   return { ok, no, logbook, table, ghCalls };
 }
 
-const tasks = (w, n, size = "small") => { for (let i = 0; i < n; i++) w.ok("task", "add", "--priority", "P2", "--title", `t${i + 1}`, "--size", size); };
+const tasks = (w, n, size = "small") => { for (let i = 0; i < n; i++) w.ok("task", "add", "--name", tname(), "--priority", "P2", "--title", `t${i + 1}`, "--size", size); };
 const ASK = ["--question", "Which layout?", "--options", "one|two", "--recommend", "one"];
 
 test("T1124 R1: gate add --run records the run of the gate's task that asked; a run of another task, an unknown run or a gate with no task is refused", (t) => {

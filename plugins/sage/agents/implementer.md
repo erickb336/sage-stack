@@ -13,6 +13,7 @@ skills:
   - sage:principle-attack-the-premise
   - sage:principle-build-the-lever
   - sage:principle-sequence-verifiable-units
+  - sage:principle-model-the-domain
   - sage:dictionary
 ---
 

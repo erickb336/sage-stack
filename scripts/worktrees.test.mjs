@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -58,7 +59,7 @@ test("T927: worktrees lists each worktree with its branch, task, state and reaso
   w.commit(project, "main.txt");
   git(project, "push", "-q", "-u", "origin", "main");
   w.ok(["init"]);
-  for (let k = 1; k <= 10; k++) w.ok(["task", "add", "--title", `task ${k}`, "--size", "small", "--priority", "P2"]);
+  for (let k = 1; k <= 10; k++) w.ok(["task", "add", "--name", tname(), "--title", `task ${k}`, "--size", "small", "--priority", "P2"]);
   const branches = { T1: "claude/t1-merged", T2: "claude/t2-unpushed", T3: "claude/t3-abandoned", T4: "claude/t4-open", T6: "claude/t6-changed", T7: "claude/t7-untracked", T8: "claude/t8-locked", T9: "claude/t9-here", T10: "claude/t10-gone" };
   const wt = {};
   for (const [id, branch] of Object.entries(branches)) {
@@ -178,7 +179,7 @@ test("T927: the prune keeps a worktree that holds another worktree in an ignored
   git(w.project, "commit", "-q", "-m", "ignore");
   git(w.project, "push", "-q", "-u", "origin", "main");
   w.ok(["init"]);
-  w.ok(["task", "add", "--title", "outer", "--size", "small", "--priority", "P2"]);
+  w.ok(["task", "add", "--name", tname(), "--title", "outer", "--size", "small", "--priority", "P2"]);
   w.ok(["task", "T1", "set", "state=briefed", "branch=claude/t1-outer"]);
   w.cell("T1", "state", "merged");
   const outer = w.add("outer", "claude/t1-outer"), inner = join(outer, ".nest", "inner");
@@ -200,7 +201,7 @@ test("T937: the prune removes a clean worktree of a concluded task and of a bran
   git(project, "add", ".gitignore");
   git(project, "commit", "-q", "-m", "ignore");
   w.ok(["init"]);
-  for (let k = 1; k <= 3; k++) w.ok(["task", "add", "--title", `task ${k}`, "--size", "small", "--priority", "P2"]);
+  for (let k = 1; k <= 3; k++) w.ok(["task", "add", "--name", tname(), "--title", `task ${k}`, "--size", "small", "--priority", "P2"]);
   const wt = {};
   for (const [id, branch] of [["T1", "claude/t1-concluded"], ["T2", "claude/t2-env"], ["T3", "claude/t3-logs"]]) {
     wt[id] = w.add(id.toLowerCase(), branch);
@@ -256,7 +257,7 @@ test("T937: a whole ignored folder keeps the worktree, by any pattern; only node
   w.ok(["init"]);
   const names = { T1: "secrets", T2: "build", T3: "out", T4: "rebuilt", T5: "link", T6: "file" }, wt = {};
   for (const [id, name] of Object.entries(names)) {
-    w.ok(["task", "add", "--title", name, "--size", "small", "--priority", "P2"]);
+    w.ok(["task", "add", "--name", tname(), "--title", name, "--size", "small", "--priority", "P2"]);
     wt[id] = w.add(name, `claude/${id.toLowerCase()}-${name}`);
     w.ok(["task", id, "set", "state=briefed", `branch=claude/${id.toLowerCase()}-${name}`]);
     w.cell(id, "state", "merged");

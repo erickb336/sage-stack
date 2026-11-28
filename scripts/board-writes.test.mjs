@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { appendFileSync, chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -60,7 +61,7 @@ async function board(t, { ready = true, ...options } = {}) {
   const dir = claude.storeDir(project, env);
   writeFileSync(join(dir, "chiefs.tsv"), `id\tprovider\tnative\tat\nC1\tclaude\tclaude-1\t${new Date().toISOString()}\nC2\tcodex\tcodex-1\t${new Date().toISOString()}\n`);
   const as = (...args) => claude.sage([...args, "--project", project, "--chief", "C1"], env);
-  as("task", "add", "--title", "Sample share sheet", "--size", "small", "--priority", "P1");
+  as("task", "add", "--name", tname(), "--title", "Sample share sheet", "--size", "small", "--priority", "P1");
   as("gate", "add", "--message", QUESTION, "T1", "--question", "Can a viewer copy a shared list?", "--options", "yes|no", "--recommend", "yes");
   const config = join(base, "home", ".config", "sage-board", "board.json");
   const stateDir = join(base, "home", ".config", "sage-board", "state");

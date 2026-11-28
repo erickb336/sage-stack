@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -93,7 +94,7 @@ test("both chiefs are registered at sage mode on: C1 in Claude and C2 in Codex",
 
 test("first answer wins: a second answer to a plain or a takeover gate is refused, and names the first answer, its place and its time; a breakdown gate keeps its own rule", (t) => {
   const w = shared(t);
-  w.as("claude", "task", "add", "--title", "a", ...ADD);
+  w.as("claude", "task", "add", "--name", tname(), "--title", "a", ...ADD);
   w.as("claude", "gate", "add", "--message", QUESTION, "T1", "--question", "Which name?", "--options", "short|long", "--recommend", "short");
   assert.equal(w.owner("codex", "gate", "answer", "G1", "--option", "2", "--via", "codex-card"), "G1 answered · long");
   const { answered, picked } = w.gate("G1");
@@ -109,7 +110,7 @@ test("first answer wins: a second answer to a plain or a takeover gate is refuse
   assert.match(w.refused("codex", "gate", "answer", "G2", "--option", "1"), new RegExp(`^G2 has the answer "decline" already, from a Claude card at ${STAMP}: the first answer wins, so this answer is not recorded\\. To change the chief, open a new takeover gate\\. Nothing changed\\.$`));
   assert.equal(w.task("T1").chief, "C1");
 
-  w.as("claude", "task", "add", "--title", "b", ...ADD);
+  w.as("claude", "task", "add", "--name", tname(), "--title", "b", ...ADD);
   w.as("claude", "milestone", "propose", "--name", "M", "--goal", "g", "--pilot", "T1", "--tasks", "T2");
   w.owner("claude", "gate", "answer", "G3", "--option", "3");
   const drop = w.gate("G3").answered;
@@ -123,7 +124,7 @@ test("first answer wins: a second answer to a plain or a takeover gate is refuse
 
 test("T1156 F-T1156-40, T1219: in an archived project, every owner write (gate answer, undo and give, chief name) is refused with one text from every place and both providers; archive, restore and config name= stay open, and Restore lets the answer land", (t) => {
   const w = shared(t);
-  w.as("claude", "task", "add", "--title", "a", ...ADD);
+  w.as("claude", "task", "add", "--name", tname(), "--title", "a", ...ADD);
   w.as("claude", "gate", "add", "--message", QUESTION, "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes");
   w.owner("claude", "gate", "answer", "G1", "--option", "1", "--via", "board");
   w.owner("claude", "config", "archived=yes");
@@ -149,7 +150,7 @@ for (const owning of ["claude", "codex"]) {
   test(`a board answer only records; the ${owning} chief's hook applies it at its next step and records the pickup, and the other chief's hook leaves it`, (t) => {
     const w = shared(t);
     const me = w.chiefs[owning];
-    w.as(owning, "task", "add", "--title", "a", ...ADD);
+    w.as(owning, "task", "add", "--name", tname(), "--title", "a", ...ADD);
     w.as(owning, "gate", "add", "--message", QUESTION, "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes");
     const said = w.owner(other(owning), "gate", "answer", "G1", "--option", "2", "--via", "board");
     assert.match(said, new RegExp(`^G1 recorded · no · from the board, at ${STAMP}\\. It acts when ${me} \\(${owning}\\) picks it up at its next ${owning === "codex" ? "turn: a message in its chat, or its next tool call" : "step"}; until then, sage gate undo G1 takes it back\\.$`));
@@ -176,7 +177,7 @@ for (const owning of ["claude", "codex"]) {
 for (const owning of ["claude", "codex"]) {
   test(`T1156 F-T1156-49: a board answer recorded before an archive waits while the project is archived; the ${owning} chief's hook applies it only after Restore`, (t) => {
     const w = shared(t);
-    w.as(owning, "task", "add", "--title", "a", ...ADD);
+    w.as(owning, "task", "add", "--name", tname(), "--title", "a", ...ADD);
     w.as(owning, "gate", "add", "--message", QUESTION, "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes");
     w.owner(other(owning), "gate", "answer", "G1", "--option", "2", "--via", "board");
     w.owner(other(owning), "config", "archived=yes");
@@ -193,7 +194,7 @@ for (const owning of ["claude", "codex"]) {
 
 test("a board answer and a card answer race under the logbook lock, from both providers: the first one wins, and the other names it", async (t) => {
   const w = shared(t);
-  w.as("claude", "task", "add", "--title", "a", ...ADD);
+  w.as("claude", "task", "add", "--name", tname(), "--title", "a", ...ADD);
   const gates = 8;
   for (let i = 0; i < gates; i++) w.as("claude", "gate", "add", "--message", QUESTION, "T1", "--question", `Q${i}?`, "--options", "a|b", "--recommend", "a");
   const answer = (provider, gate, option, via) => new Promise((done) => {
@@ -216,7 +217,7 @@ test("a board answer and a card answer race under the logbook lock, from both pr
 
 test("Undo works only before the pickup: it clears a board answer so that a card answer can land, and it is refused for a card answer", (t) => {
   const w = shared(t);
-  w.as("claude", "task", "add", "--title", "a", ...ADD);
+  w.as("claude", "task", "add", "--name", tname(), "--title", "a", ...ADD);
   w.as("claude", "gate", "add", "--message", QUESTION, "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes");
   assert.equal(w.refused("codex", "gate", "undo", "G1"), "G1 has no answer, so there is nothing to undo. Nothing changed.");
   w.owner("codex", "gate", "answer", "G1", "--option", "2", "--via", "board");
@@ -232,7 +233,7 @@ test("Undo works only before the pickup: it clears a board answer so that a card
 
 test("Undo and the pickup race under the same lock: for each gate exactly one of them wins", async (t) => {
   const w = shared(t);
-  w.as("claude", "task", "add", "--title", "a", ...ADD);
+  w.as("claude", "task", "add", "--name", tname(), "--title", "a", ...ADD);
   const gates = 6;
   for (let i = 1; i <= gates; i++) w.as("claude", "gate", "add", "--message", QUESTION, "T1", "--question", `Q${i}?`, "--options", "a|b", "--recommend", "a");
   const run = (args, input) => new Promise((done) => {
@@ -266,7 +267,7 @@ test("Undo and the pickup race under the same lock: for each gate exactly one of
 for (const [from, to] of [["claude", "codex"], ["codex", "claude"]]) {
   test(`gate give hands a ${from} task to the ${to} chief through the one-recipient takeover gate, and the receiving chief applies a board approve`, (t) => {
     const w = shared(t);
-    w.as(from, "task", "add", "--title", "a", ...ADD);
+    w.as(from, "task", "add", "--name", tname(), "--title", "a", ...ADD);
     const receiver = w.chiefs[to];
     const opened = w.owner(from, "gate", "give", "T1", "--to", receiver);
     assert.match(opened, new RegExp(`^G1 open · Hand T1 from ${w.chiefs[from]} \\(${from}\\) to ${receiver} \\(${to}\\)\\? Runs that end as failed: none\\.`));
@@ -285,7 +286,7 @@ for (const [from, to] of [["claude", "codex"], ["codex", "claude"]]) {
 for (const provider of ["claude", "codex"]) {
   test(`F-T1059-47: in ${provider}, gate give refuses a second takeover question for a task while one is open to another chief`, (t) => {
     const w = shared(t);
-    w.as("claude", "task", "add", "--title", "a", ...ADD);
+    w.as("claude", "task", "add", "--name", tname(), "--title", "a", ...ADD);
     writeFileSync(join(w.dir, "chiefs.tsv"), `${readFileSync(join(w.dir, "chiefs.tsv"), "utf8")}C3\tclaude\tclaude-3\t2026-01-01T00:00:00Z\n`);
     assert.match(w.owner(provider, "gate", "give", "T1", "--to", "C2"), /^G1 open · /);
     const before = readFileSync(join(w.dir, "gates.tsv"), "utf8");
@@ -299,7 +300,7 @@ for (const provider of ["claude", "codex"]) {
 for (const provider of ["claude", "codex"]) {
   test(`F-T1076-10: in ${provider}, gate replace refuses a second takeover question for a task while one is open to another chief`, (t) => {
     const w = shared(t);
-    w.as("claude", "task", "add", "--title", "a", ...ADD);
+    w.as("claude", "task", "add", "--name", tname(), "--title", "a", ...ADD);
     writeFileSync(join(w.dir, "chiefs.tsv"), `${readFileSync(join(w.dir, "chiefs.tsv"), "utf8")}C3\tclaude\tclaude-3\t2026-01-01T00:00:00Z\n`);
     assert.match(w.owner(provider, "gate", "give", "T1", "--to", "C2"), /^G1 open · /);
     const before = readFileSync(join(w.dir, "gates.tsv"), "utf8");
@@ -313,7 +314,7 @@ for (const provider of ["claude", "codex"]) {
 
 test("a board answer that cannot act at the pickup is cleared, the gate opens again, and the chief hears why", (t) => {
   const w = shared(t);
-  w.as("claude", "task", "add", "--title", "a", ...ADD);
+  w.as("claude", "task", "add", "--name", tname(), "--title", "a", ...ADD);
   w.owner("claude", "gate", "give", "T1", "--to", "C2");
   w.owner("claude", "gate", "answer", "G1", "--option", "1", "--via", "board");
   w.as("claude", "run", "add", "T1", "--role", "qa");
@@ -325,7 +326,7 @@ test("a board answer that cannot act at the pickup is cleared, the gate opens ag
 
 test("gate add --message keeps the checked question message as gates/G<n>.json, and refuses another kind or a broken shape", (t) => {
   const w = shared(t);
-  w.as("claude", "task", "add", "--title", "a", ...ADD);
+  w.as("claude", "task", "add", "--name", tname(), "--title", "a", ...ADD);
   const file = join(w.base, "question.json");
   const message = { kind: "question", title: "Ship the new board?", blocks: [
     { t: "field", label: "Where", text: "The board is built." }, { t: "field", label: "Approve", text: "The release of the board." },
@@ -356,7 +357,7 @@ test("gate add --message keeps the checked question message as gates/G<n>.json, 
 
 test("T1178: gate add needs a question message, and on a task with pages a Page block (also one of another task's page) that the board's question view links; a takeover gate still opens with no message", (t) => {
   const w = shared(t);
-  for (const title of ["photo import", "consistency", "names"]) w.as("claude", "task", "add", "--title", title, ...ADD);
+  for (const title of ["photo import", "consistency", "names"]) w.as("claude", "task", "add", "--name", tname(), "--title", title, ...ADD);
   const file = join(w.base, "question.json"), asked = () => claude.read(w.dir, "gates").length;
   const ask = (task, blocks, ...extra) => {
     if (blocks) writeFileSync(file, JSON.stringify({ kind: "question", title: "Sign off on the design?", blocks }));
@@ -399,7 +400,7 @@ test("T1178: gate add needs a question message, and on a task with pages a Page 
 test("the Claude Stop hook asks an idle chief with open gates to start the gates wait once; it is quiet while work runs, and it hands over a board answer", (t) => {
   const w = shared(t);
   const stop = (tasks, active = false) => claudeEvent(w, { hook_event_name: "Stop", stop_hook_active: active, last_assistant_message: "ok", background_tasks: tasks });
-  w.as("claude", "task", "add", "--title", "a", ...ADD);
+  w.as("claude", "task", "add", "--name", tname(), "--title", "a", ...ADD);
   assert.equal(stop([])?.decision, undefined, "no open gate: no wait");
   w.as("claude", "gate", "add", "--message", QUESTION, "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes");
   assert.equal(stop([{ id: "a1", type: "subagent", status: "running" }])?.decision, undefined, "work runs, so it wakes the chief anyway");
@@ -420,7 +421,7 @@ test("the Claude Stop hook asks an idle chief with open gates to start the gates
 
 test("wait.mjs --gates ends when a board answer comes, names it, and times out with the step to run it again", async (t) => {
   const w = shared(t);
-  w.as("claude", "task", "add", "--title", "a", ...ADD);
+  w.as("claude", "task", "add", "--name", tname(), "--title", "a", ...ADD);
   w.as("claude", "gate", "add", "--message", QUESTION, "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes");
   const wait = (ms, ...args) => spawnSync(process.execPath, [WAIT, "--gates", ...args], { cwd: w.project, env: { ...w.env, SAGE_WAIT_MS: String(ms) }, encoding: "utf8", timeout: 60_000 });
   assert.equal(wait(300, "C1").stdout, "No answer yet to G1 after 0 minutes: run this command again, in the background.\n");
@@ -439,7 +440,7 @@ test("wait.mjs --gates ends when a board answer comes, names it, and times out w
 
 test("the hooks keep each run's brief and report as briefs/R<n>.md and reports/R<n>.md, in Claude and in Codex", async (t) => {
   const w = shared(t);
-  w.as("claude", "task", "add", "--title", "a", ...ADD);
+  w.as("claude", "task", "add", "--name", tname(), "--title", "a", ...ADD);
   w.as("claude", "task", "T1", "set", "state=briefed");
   w.as("claude", "task", "T1", "set", "state=building", "branch=sage/t1-a");
   w.as("claude", "run", "add", "T1", "--role", "implementer", "--branch", "sage/t1-a");
@@ -452,7 +453,7 @@ test("the hooks keep each run's brief and report as briefs/R<n>.md and reports/R
   claudeEvent(w, { hook_event_name: "SubagentStop", agent_id: "agent-1", agent_type: "sage:implementer", last_assistant_message: REPORT, stop_hook_active: false });
   assert.equal(readFileSync(join(w.dir, "reports", "R1.md"), "utf8"), REPORT, "Claude keeps the report at the agent's end");
 
-  w.as("codex", "task", "add", "--title", "b", ...ADD);
+  w.as("codex", "task", "add", "--name", tname(), "--title", "b", ...ADD);
   w.as("codex", "run", "add", "T2", "--role", "qa");
   const name = "sage_qa_t2_r2", transcript = join(w.base, "child.jsonl");
   writeFileSync(transcript, `${JSON.stringify({ type: "session_meta", payload: { id: "child-thread", agent_path: `/root/${name}` } })}\n`);
@@ -478,7 +479,7 @@ test("old gates.tsv rows still read and answer once; a logbook with no chiefs ge
   const w = scratch(t);
   const run = (...args) => claude.sage([...args, "--project", w.project], w.env);
   run("init");
-  run("task", "add", "--title", "a", ...ADD);
+  run("task", "add", "--name", tname(), "--title", "a", ...ADD);
   const dir = claude.storeDir(w.project, w.env);
   writeFileSync(join(dir, "gates.tsv"), "id\ttask\tquestion\toptions\trecommendation\tdefault\tanswer\tat\nG1\tT1\tOld?\tyes|no\tyes\t\tno\t2026-01-01T00:00:00Z\nG2\tT1\tOpen?\tyes|no\tyes\t\t\t2026-01-01T00:00:00Z\n");
   assert.match(run("status"), /gates {3}1 open · G2 Open\?/);
@@ -495,7 +496,7 @@ test("old gates.tsv rows still read and answer once; a logbook with no chiefs ge
 
 test("F-T1216-49: with an empty option in the stored text (|yes|no, yes||no), the board shows no empty button, and its number for an option records that option", (t) => {
   const w = shared(t);
-  w.as("claude", "task", "add", "--title", "a", ...ADD);
+  w.as("claude", "task", "add", "--name", tname(), "--title", "a", ...ADD);
   const stored = ["|yes|no", "yes||no"];
   for (const options of stored) w.as("claude", "gate", "add", "--message", QUESTION, "T1", "--question", "Ship it?", "--options", options, "--recommend", "yes");
   assert.deepEqual(claude.read(w.dir, "gates").map((g) => g.options), stored, "gate add keeps the options text as given");
@@ -516,7 +517,7 @@ for (const [from, to] of [["claude", "codex"], ["codex", "claude"]]) {
     const giver = w.chiefs[from], taker = w.chiefs[to];
     const wait = (chief) => spawnSync(process.execPath, [WAIT, "--gates", chief], { cwd: w.project, env: { ...w.env, SAGE_WAIT_MS: "300" }, encoding: "utf8", timeout: 60_000 }).stdout;
     const NONE = "No gate of yours waits for the owner, so there is nothing to wait for.\n", WAITS = "No answer yet to G1 after 0 minutes: run this command again, in the background.\n";
-    w.as(from, "task", "add", "--title", "a", ...ADD);
+    w.as(from, "task", "add", "--name", tname(), "--title", "a", ...ADD);
     w.as(from, "gate", "add", "--message", QUESTION, "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes");
     assert.deepEqual([wait(giver), wait(taker)], [WAITS, NONE]);
     w.owner(from, "gate", "give", "T1", "--to", taker);
@@ -540,7 +541,7 @@ for (const [from, to] of [["claude", "codex"], ["codex", "claude"]]) {
     const giver = w.chiefs[from], taker = w.chiefs[to];
     const wait = (chief) => spawnSync(process.execPath, [WAIT, "--gates", chief], { cwd: w.project, env: { ...w.env, SAGE_WAIT_MS: "300" }, encoding: "utf8", timeout: 60_000 }).stdout;
     const NONE = "No gate of yours waits for the owner, so there is nothing to wait for.\n", WAITS = "No answer yet to G1 after 0 minutes: run this command again, in the background.\n";
-    w.as(from, "task", "add", "--title", "a", ...ADD);
+    w.as(from, "task", "add", "--name", tname(), "--title", "a", ...ADD);
     w.as(from, "gate", "add", "--message", QUESTION, "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes");
     w.owner(from, "gate", "give", "T1", "--to", taker);
     w.owner(to, "gate", "answer", "G2", "--option", "1", "--via", `${to}-card`);
@@ -560,7 +561,7 @@ for (const [from, to] of [["claude", "codex"], ["codex", "claude"]]) {
 
 test("gate add refuses a task id that is not a task of the logbook, and writes no gate, page or folder for it; a gate with no task still opens", (t) => {
   const w = shared(t);
-  w.as("claude", "task", "add", "--title", "a", ...ADD);
+  w.as("claude", "task", "add", "--name", tname(), "--title", "a", ...ADD);
   const file = join(w.base, "question.json"), root = claude.pagesRoot(w.project, w.env);
   writeFileSync(file, JSON.stringify({ kind: "question", title: "Ship it?", long: { title: "Ship it, in short", main: "the page holds the whole question." }, blocks: [
     { t: "field", label: "Where", text: "a" }, { t: "field", label: "Approve", text: "b" }, { t: "field", label: "Choice", text: "c" },
@@ -584,7 +585,7 @@ test("the lint offer belongs to the chief that ran lint: its hook applies a boar
   execFileSync("git", ["-C", w.project, "commit", "-q", "-m", "code"], { env: gitEnv });
   const sha = execFileSync("git", ["-C", w.project, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
   execFileSync("git", ["-C", w.project, "update-ref", "refs/remotes/origin/main", sha]);
-  w.as("claude", "task", "add", "--title", "a", ...ADD);
+  w.as("claude", "task", "add", "--name", tname(), "--title", "a", ...ADD);
   assert.match(w.as("claude", "lint", "T1", "--sha", sha), /\nG1 open · Add sage's no-comments lint rules to this project/);
   assert.match(w.owner("codex", "gate", "answer", "G1", "--option", "1", "--via", "board"), /It acts when C1 \(claude\) picks it up/);
   assert.equal(contextOf(HOOKS.codex.step(w)), "", "the Codex chief did not run lint, so it does not pick up the offer");
@@ -595,7 +596,7 @@ test("the lint offer belongs to the chief that ran lint: its hook applies a boar
 
 test("in a shared logbook, the Claude hook asks a chief to name itself on a gate answer, so that the gate records which chief applied it", (t) => {
   const w = shared(t);
-  w.as("claude", "task", "add", "--title", "a", ...ADD);
+  w.as("claude", "task", "add", "--name", tname(), "--title", "a", ...ADD);
   w.as("claude", "gate", "add", "--message", QUESTION, "T1", "--question", "Ship it?", "--options", "yes|no", "--recommend", "yes");
   const pre = (command) => claudeEvent(w, { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } })?.hookSpecificOutput ?? {};
   const answer = `node ${TOOLS.claude} gate answer G1 --option 1 --via claude-card --project ${w.project}`;
@@ -609,7 +610,7 @@ test("T1177: in a logbook that is not shared, the Stop hook and the gates wait n
   const w = scratch(t);
   const run = (...args) => claude.sage([...args, "--project", w.project], w.env);
   run("init");
-  run("task", "add", "--title", "a", ...ADD);
+  run("task", "add", "--name", tname(), "--title", "a", ...ADD);
   const event = (session, e) => claudeEvent(w, { session_id: session, ...e });
   for (const session of ["claude-a", "claude-b"]) event(session, { hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
   const ask = (session, question) => {
@@ -642,7 +643,7 @@ test("T1177: in a logbook that is not shared, a milestone's breakdown gate and t
   const w = scratch(t);
   const run = (...args) => claude.sage([...args, "--project", w.project], w.env);
   run("init");
-  for (const title of ["a", "b"]) run("task", "add", "--title", title, ...ADD);
+  for (const title of ["a", "b"]) run("task", "add", "--name", tname(), "--title", title, ...ADD);
   const event = (session, e) => claudeEvent(w, { session_id: session, ...e });
   for (const session of ["claude-a", "claude-b"]) event(session, { hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
   const ask = (session, ...args) => {

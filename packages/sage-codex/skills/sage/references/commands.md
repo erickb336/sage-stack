@@ -49,8 +49,9 @@ sage's hooks run from the owner's Codex hooks file (`<CODEX_HOME>/hooks.json`) t
 | `init`, `status` | `init`, `status` | none |
 | `link` | `link --to <folder>`, `link --separate` | `to`, or `separate` as `true`. Call it only after the owner's answer in the chat. It adds this checkout's row to `bindings.tsv` in the shared root. A project with a legacy logbook refuses, because only the move takes it over. |
 | `move` | `move --preview`, `move --plan <plan>`, `move --gate <G>` | One of `preview` as `true`, `plan` (the 8 hex of the preview's plan) or `gate` (the move gate's id), when the owner asks to move the project into one shared logbook. Show the preview as it is. `plan` opens the move gate: put it to the owner word for word. Call it with `gate` only after the owner's answer in the chat. A plan that no longer matches moves nothing: show a new preview. While a move's plan is saved, every tool of the project refuses and names `sage move --gate <G>`: call `move` with that gate, from any checkout of the project. |
-| `task_add` | `task add` | `title`, `size`, `priority`, and `risk`, `add`, `why`, `no-arena`, `kind`, `waits`, `milestone` |
+| `task_add` | `task add` | `title`, `name`, `size`, `priority`, and `risk`, `add`, `why`, `no-arena`, `kind`, `waits`, `milestone` |
 | `task_set` | `task <T> set` | `task`, `fields` (for example `{"state": "briefed", "branch": "codex/t7-example"}`, or `{"release": "1.0"}` for a task outside a milestone, or `{"request": "<the user's words>"}` for the board's "Why"); a round hold needs `{"state":"building","approval":"G1"}` with an unused approved repair gate; `why`, the reason, goes only with the state abandoned. Any chief abandons a task with no owning chief: `fields` `{"state": "abandoned"}` alone, and `why` |
+| `task_names` | `task names --file <file>` | `file`, the absolute path of a file with one task id, a space and its name on each line ([Names](#priority-kind-name-project-name-and-archive)) |
 | `milestone_propose` | `milestone propose`, `milestone propose <M>` | `name`, `goal`, `pilot`, `tasks` for a new milestone; `milestone`, and the fields that change, to propose it again ([Milestones](#milestones)) |
 | `release_add` | `release add` | `name`, and `goal` ([Releases](#releases)) |
 | `milestone_set` | `milestone <M> set release=<name>` | `milestone`, and `release`, a release's name or `none` ([Releases](#releases)) |
@@ -77,7 +78,7 @@ node "$SAGE_CLI"
 node "$SAGE_CLI" init --project "$PROJECT"
 node "$SAGE_CLI" config --project "$PROJECT"
 node "$SAGE_CLI" standing --project "$PROJECT"
-node "$SAGE_CLI" task add --title "Describe the task" --size small --priority P2 --project "$PROJECT"
+node "$SAGE_CLI" task add --title "Describe the task" --name "Short name" --size small --priority P2 --project "$PROJECT"
 node "$SAGE_CLI" task T7 --project "$PROJECT"
 node "$SAGE_CLI" task T7 set branch=codex/t7-example --project "$PROJECT"
 node "$SAGE_CLI" task T7 set state=briefed --project "$PROJECT"
@@ -93,11 +94,13 @@ The no-argument command lists commands. These are syntax examples, not a script 
 
 Sizes are `tiny`, `small`, `large`, `investigate`. Risk flags `auth,data,schema,money,secrets,input` add security review to build routes. Use `--risk auth,input` when applicable. Added blocks need `--add <block-list> --why "reason"`. Read the framed route; do not omit its least required blocks.
 
-## Priority, kind, project name and archive
+## Priority, kind, name, project name and archive
 
 ```sh
-node "$SAGE_CLI" task add --title "Describe the task" --size small --priority P1 --kind bug-fix --project "$PROJECT"
+node "$SAGE_CLI" task add --title "Describe the task" --name "Short name" --size small --priority P1 --kind bug-fix --project "$PROJECT"
 node "$SAGE_CLI" task T7 set priority=P0 --project "$PROJECT"
+node "$SAGE_CLI" task T7 set name="Board names" --project "$PROJECT"
+node "$SAGE_CLI" task names --file /absolute/names.txt --project "$PROJECT"
 node "$SAGE_CLI" task T7 set kind=none --project "$PROJECT"
 node "$SAGE_CLI" config name="Council Record" --project "$PROJECT"
 node "$SAGE_CLI" config archived=yes --project "$PROJECT"
@@ -106,12 +109,14 @@ node "$SAGE_CLI" config start=sage-mode --project "$PROJECT"
 
 Every task needs a priority: `task_add` refuses without one, with the scale: P0 the owner's current focus and what blocks it; P1 next: function or safety bugs, work in flight, pre-pilot items; P2 later: polish, hardening lows, follow-ups; P3 parked but kept. An open task's priority does not clear. The kind is optional. The board shows both on the task's row on its Tasks page, and on the task page. An older open task with none shows "no priority" on its task page; `status` names those tasks. A kind is one of: design, ui, orchestration, optimization, bug-fix, logbook, docs, security, providers, checks. Choose the task's main one. Another value refuses, with the list, and `none` clears a kind, or the priority of an ended task.
 
+Every task needs a name too: 1 to 4 words of at most 32 characters, such as "Board names", that tell it from the other open tasks (not merged, concluded or abandoned). `task_add` refuses a missing name, a name of another open task (case and width do not count), a name in the form of an id (such as T12 or M3), the word none, and a colon, a middle dot (·) or a comma, because the board's sentence uses them; each refusal says what is wrong. A rename (`task_set` with `{"name": "<name>"}`) follows the same rules, and writes a decision row (`name <old> → <new>`); only the task's chief renames it. `task_names` is the naming pass: its file holds one task id, a space and its name on each line (`T12 Board names`). It changes every task of the file in one write, and checks that no two open tasks share a name after all its changes. A bad line refuses the whole file and names each bad line; nothing changes. A second call with the same file changes nothing and says so. A task that the tool frames itself (the follow-up task of `finding_move`, the task of the lint offer) has no name; `status` names the open tasks with no name, with the name that each shows from its title.
+
 `config name=`, `config archived=` and `config start=` set keys of the project's own logbook, never the config for all projects. Set them in a config command of their own, and only when the owner asks. The name is the project's name on the board: 1 to 60 characters, with no space at an end or two together, and no control, format or hidden character. `name=` alone removes it. Without a name, the board shows the repository name of the checkout's `upstream` remote, then of `origin`, then the folder. `archived=yes` archives the project, only for this chat's own project: it keeps the whole logbook and records the date, takes no task or run, starts no agent, ends queued runs as failed and merges nothing, while running agents finish. The board in the chat names it on one "Archived" line; `archived=no` restores it. When the owner asks in this chat, after the archive, for new work in an archived project, run `config archived=no` first and tell the owner in one line that you restored it. `start=sage-mode` starts each new session of the project in sage mode, from any checkout of the project, in Codex, and in Claude too when the two share the logbook; `start=normal` (the default) starts it with sage mode off. The off phrase still turns sage mode off for the rest of that session.
 
 ## Waits
 
 ```sh
-node "$SAGE_CLI" task add --title "Describe the task" --size small --priority P2 --waits T7,T9 --project "$PROJECT"
+node "$SAGE_CLI" task add --title "Describe the task" --name "Board rows" --size small --priority P2 --waits T7,T9 --project "$PROJECT"
 node "$SAGE_CLI" task T8 set waits=T7 --project "$PROJECT"
 node "$SAGE_CLI" task T8 set waits= --project "$PROJECT"
 ```
@@ -124,7 +129,7 @@ A task may wait for other tasks of the same logbook. A wait is met when that tas
 node "$SAGE_CLI" milestone propose --name "Codex support" --goal "Codex runs sage too." --pilot T7 --tasks T8,T9 --project "$PROJECT"
 node "$SAGE_CLI" milestone propose M1 --tasks T8 --project "$PROJECT"
 node "$SAGE_CLI" milestone propose M1 --pilot T9 --project "$PROJECT"
-node "$SAGE_CLI" task add --title "Describe the task" --size small --priority P2 --milestone M1 --waits T7 --project "$PROJECT"
+node "$SAGE_CLI" task add --title "Describe the task" --name "Chat rows" --size small --priority P2 --milestone M1 --waits T7 --project "$PROJECT"
 node "$SAGE_CLI" task T8 set milestone=M1 --project "$PROJECT"
 node "$SAGE_CLI" task T8 set milestone=none --project "$PROJECT"
 ```

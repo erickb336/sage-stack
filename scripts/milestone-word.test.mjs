@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -30,7 +31,7 @@ function setState(dir, id, state) {
 
 test("T1009: the T997 example, a milestone whose tasks need you and wait, is in progress on the board model and status, and the chat digest gives its count (T1217)", () => {
   const s = logbook();
-  for (const n of [1, 2, 3]) s.ok("task", "add", "--title", `Sample task ${n}`, "--size", "small", "--priority", "P2");
+  for (const n of [1, 2, 3]) s.ok("task", "add", "--name", tname(), "--title", `Sample task ${n}`, "--size", "small", "--priority", "P2");
   s.ok("milestone", "propose", "--name", "Sage feel", "--goal", "A sample goal", "--pilot", "T1", "--tasks", "T2");
   s.ok("gate", "answer", "G1", "--option", "1");
   s.ok("gate", "add", "--message", QUESTION, "T1", "--question", "Sample: which layout?", "--options", "first|second", "--recommend", "first");
@@ -52,7 +53,7 @@ test("T1009: the T997 example, a milestone whose tasks need you and wait, is in 
 
 test("T1009: a milestone whose only open task waits after its briefing has not started, on the board model and status, and the chat digest names its next task (T1217)", () => {
   const s = logbook();
-  for (const n of [1, 2]) s.ok("task", "add", "--title", `Sample task ${n}`, "--size", "small", "--priority", "P2");
+  for (const n of [1, 2]) s.ok("task", "add", "--name", tname(), "--title", `Sample task ${n}`, "--size", "small", "--priority", "P2");
   s.ok("milestone", "propose", "--name", "Sage feel", "--goal", "A sample goal", "--pilot", "T1", "--tasks", "T2");
   s.ok("gate", "answer", "G1", "--option", "1");
   setState(s.dir, "T2", "briefed");

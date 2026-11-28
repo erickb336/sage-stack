@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
-import { RULE_SET, astGrep, commentScan, ruleTestProblems } from "./lint-rules.mjs";
+import { RULE_SET, SAGE_RULES, astGrep, commentScan, lintProblems, ruleTestProblems } from "./lint-rules.mjs";
 
 const SUPPRESSION = ["ast-grep", "ignore"].join("-");
 
@@ -15,21 +15,27 @@ const MUTANTS = [
   { name: "the end anchor of the yamllint directive is gone, so free text after it passes", file: "rules/no-comments-yaml.yml", from: "( rule:[\\w-]+)*)$'", to: "( rule:[\\w-]+)*)'", fails: "no-comments-yaml" },
   { name: "the end anchor of the shellcheck directive is gone, so free text after it passes", file: "rules/no-comments-shell.yml", from: "=[\\w,./$-]+)+$'", to: "=[\\w,./$-]+)+'", fails: "no-comments-shell" },
   { name: "a comment inside an HTML attribute value is flagged", file: "rules/no-comments-html.yml", from: "\n      - inside: { kind: quoted_attribute_value }", to: "", fails: "no-comments-html" },
+  { name: "the end anchor of the id is gone, so a name such as R2D2 is an id", set: SAGE_RULES, file: "rules/no-hard-coded-ids.yml", from: "string_fragment, regex: '^[TRG][0-9]+$'", to: "string_fragment, regex: '^[TRG][0-9]+'", fails: "no-hard-coded-ids" },
+  { name: "an object key is no longer read, so { T1255: x } passes", set: SAGE_RULES, file: "rules/no-hard-coded-ids.yml", from: "\n    - { kind: property_identifier, regex: '^[TRG][0-9]+$' }", to: "", fails: "no-hard-coded-ids" },
 ];
 
-function copyOfRuleSet() {
+function copyOfRuleSet(set = RULE_SET) {
   const dir = mkdtempSync(join(realpathSync(tmpdir()), "sage-lint-"));
-  cpSync(RULE_SET, dir, { recursive: true });
+  cpSync(set, dir, { recursive: true });
   return dir;
 }
 
-function withCopy(change) {
-  const dir = copyOfRuleSet();
+function withCopy(change, set) {
+  const dir = copyOfRuleSet(set);
   try { return change(dir); } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
 test("the rule set passes its own rule tests", () => {
   assert.deepEqual(withCopy((dir) => ruleTestProblems(dir)), []);
+});
+
+test("sage's own rules pass their rule tests", () => {
+  assert.deepEqual(withCopy((dir) => ruleTestProblems(dir), SAGE_RULES), []);
 });
 
 for (const mutant of MUTANTS) {
@@ -40,7 +46,7 @@ for (const mutant of MUTANTS) {
     const run = astGrep(["test", "--skip-snapshot-tests"], dir);
     assert.notEqual(run.status, 0, `ast-grep test passed with the mutant:\n${run.stdout}${run.stderr}`);
     assert.match(run.stdout, new RegExp(`^FAIL ${mutant.fails} `, "m"));
-  }));
+  }, mutant.set));
 }
 
 test("F-T1027-1: a scan checks .js, .mjs, .cjs and .jsx files with the JavaScript rule, and in an HTML page its HTML comments, the JavaScript of each script block and the CSS of each style block", () => withCopy((dir) => {
@@ -190,6 +196,36 @@ test("F-T1027-11: the full scan reads the files that a nested .gitignore or .ign
     writeFileSync(join(root, "src", ".ignore"), "hidden-by-ignore.js\n");
     for (const name of ["hidden-by-git.js", "hidden-by-ignore.js", "node_modules/dep.js"]) writeFileSync(join(root, "src", name), "f(); // why\n");
     assert.deepEqual(commentScan(root, ["src"]).map((m) => m.file).sort(), ["src/hidden-by-git.js", "src/hidden-by-ignore.js"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("T1258: the root sgconfig.yml flags a hard-coded task, run or gate id in product code, and not in a test, a fixture or a script; the strip leaves it", () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "sage-scan-")));
+  try {
+    cpSync(fileURLToPath(new URL("../sgconfig.yml", import.meta.url)), join(root, "sgconfig.yml"));
+    cpSync(RULE_SET, join(root, "packages/sage-core/lint"), { recursive: true });
+    cpSync(SAGE_RULES, join(root, "lint"), { recursive: true });
+    const special = "if (task === \"T1216\") skip();\n";
+    const files = {
+      "packages/a.mjs": special,
+      "packages/state.mjs": "validateUsageWrite({ reference, result: { task: \"T1\", at: now() } });\n",
+      "packages/clean.mjs": "if (/^T[1-9]\\d*$/.test(task)) f(task); // why\n",
+      "packages/a.test.mjs": special,
+      "packages/x/fixtures/f.mjs": special,
+      "scripts/b.mjs": special,
+    };
+    for (const [name, code] of Object.entries(files)) {
+      mkdirSync(join(root, name, ".."), { recursive: true });
+      writeFileSync(join(root, name), code);
+    }
+    const problems = lintProblems(root, ["packages", "scripts"]).sort();
+    assert.equal(problems.length, 3, problems.join("\n"));
+    assert.match(problems[0], /^packages\/a\.mjs:1: no-hard-coded-ids, "T1216": A hard-coded task, run or gate id .*fragile-patterns\.md/);
+    assert.match(problems[1], /^packages\/clean\.mjs:1: a comment \(no-comments-js\)/);
+    assert.match(problems[2], /^packages\/state\.mjs:1: no-hard-coded-ids, "T1"/);
+    assert.deepEqual(commentScan(root, ["packages", "scripts"]).map((m) => `${m.file} ${m.ruleId}`), ["packages/clean.mjs no-comments-js"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

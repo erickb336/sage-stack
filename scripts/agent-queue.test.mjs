@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFile, execFileSync, spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, watch, writeFileSync } from "node:fs";
@@ -54,8 +55,8 @@ const status = (w, id) => w.runs().rows.find((r) => r.id === id)?.status;
 const shared = (w) => {
   w.claude("link", "--separate");
   w.claude("config", "max_agents=3");
-  w.claude("task", "add", "--title", "claude task", "--size", "tiny", "--priority", "P2");
-  w.codex("task", "add", "--title", "codex task", "--size", "tiny", "--priority", "P2");
+  w.claude("task", "add", "--name", tname(), "--title", "claude task", "--size", "tiny", "--priority", "P2");
+  w.codex("task", "add", "--name", tname(), "--title", "codex task", "--size", "tiny", "--priority", "P2");
 };
 
 test("T1057: a Claude chief and a Codex chief at the project's limit queue their runs, each spawn is refused with its place, and a run that ends admits the oldest", async (t) => {
@@ -344,7 +345,7 @@ test("T1057 F-T1057-23: when the spawn's PreToolUse wrote no start mark (the hoo
 
 const leadTask = (w) => {
   shared(w);
-  w.claude("task", "add", "--title", "lead task", "--size", "small", "--priority", "P2");
+  w.claude("task", "add", "--name", tname(), "--title", "lead task", "--size", "small", "--priority", "P2");
   w.claude("task", "T3", "set", "state=briefed");
   w.hook({ hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
   w.claude("run", "add", "T1", "--role", "qa");
@@ -402,7 +403,7 @@ test("T1057 F-T1057-41: a queued review or QA run of the task holds the merge, a
 test("T1057 F-T1057-47: a task with a queued lead run joins no milestone before its approval, as with a running one", (t) => {
   const w = world(t);
   leadTask(w);
-  w.claude("task", "add", "--title", "pilot", "--size", "small", "--priority", "P2");
+  w.claude("task", "add", "--name", tname(), "--title", "pilot", "--size", "small", "--priority", "P2");
   assert.match(w.claude("run", "add", "T3", "--role", "lead"), /^R4 is queued, place 1 · lead on T3/);
   assert.throws(() => w.claude("milestone", "propose", "--name", "Queue", "--goal", "g", "--pilot", "T4", "--tasks", "T3"), /T3 has R4 \(lead\) queued, so it joins M1 only after the owner approves its breakdown/);
   w.claude("run", "done", "R4", "--status", "failed", "--why", "stopped");
@@ -468,7 +469,7 @@ test("T1136 G200, G201: archive needs no chief; it ends queued and admitted runs
   const refusal = (what) => new RegExp(`this project is archived, so it takes no new ${what}: .* If this is new work that the owner asked for in this chat after the archive, restore the project first with sage config archived=no, tell the owner in one line that you restored it, then ${what === "run" ? "add the run" : "give the same command"} again\\. A lead does not restore a project: report blocked to your chief\\. Nothing changed\\.$`);
   assert.throws(() => w.claude("run", "add", "T1", "--role", "qa"), refusal("run"));
   assert.throws(() => w.codex("run", "add", "T2", "--role", "qa"), refusal("run"));
-  assert.throws(() => w.codex("task", "add", "--title", "new work", "--size", "tiny", "--priority", "P2"), refusal("task"));
+  assert.throws(() => w.codex("task", "add", "--name", tname(), "--title", "new work", "--size", "tiny", "--priority", "P2"), refusal("task"));
   w.hook({ hook_event_name: "UserPromptSubmit", prompt: "sage mode" });
   const noStart = /this project is archived, so no agent starts, also not for R3\. If this is new work that the owner asked for in this chat after the archive, restore the project first with sage config archived=no, tell the owner in one line that you restored it, then add a new run\.$/;
   assert.match(denied(w.hook(claudeSpawn("R3", "T1"))) ?? "", noStart, "Claude starts no agent, also for a run that still runs");

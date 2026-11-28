@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -45,20 +46,20 @@ async function openBoard(t, { viewport = { width: 1440, height: 1000 }, duringRe
   const dir = claude.storeDir(lantern, env);
   writeFileSync(join(dir, "chiefs.tsv"), `id\tprovider\tnative\tat\nC1\tclaude\tclaude-1\t${new Date().toISOString()}\n`);
   const as = (...args) => claude.sage([...args, "--project", lantern, "--chief", "C1"], env);
-  as("task", "add", "--title", "Sample import recipes", "--size", "small", "--priority", "P1");
+  as("task", "add", "--name", tname(), "--title", "Sample import recipes", "--size", "small", "--priority", "P1");
   as("task", "T1", "set", "pr=12", "branch=sage/t1-import");
-  as("task", "add", "--title", "Sample print a recipe", "--size", "small", "--priority", "P2");
+  as("task", "add", "--name", tname(), "--title", "Sample print a recipe", "--size", "small", "--priority", "P2");
   as("gate", "add", "--message", QUESTION, "T1", "--question", "Keep the old export format?", "--options", "keep|drop", "--recommend", "keep");
   const inClaude = { ...env, SAGE_HOME: join(env.CLAUDE_CONFIG_DIR, "sage") }, dirs = { lantern: dir };
   for (const name of PROJECTS) {
     const path = repository(base, name);
     claude.sage(["init", "--project", path], inClaude);
-    claude.sage(["task", "add", "--title", `Sample ${name} task`, "--size", "small", "--priority", "P2", "--project", path], inClaude);
+    claude.sage(["task", "add", "--name", tname(), "--title", `Sample ${name} task`, "--size", "small", "--priority", "P2", "--project", path], inClaude);
     dirs[name] = claude.storeDir(path, inClaude);
   }
   const meadow = repository(base, "meadow"), inCodex = { ...env, SAGE_HOME: join(env.CODEX_HOME, "sage") };
   codex.sage(["init", "--project", meadow], inCodex);
-  codex.sage(["task", "add", "--title", "Sample meadow task", "--size", "small", "--priority", "P2", "--project", meadow], inCodex);
+  codex.sage(["task", "add", "--name", tname(), "--title", "Sample meadow task", "--size", "small", "--priority", "P2", "--project", meadow], inCodex);
   claude.sage(["init", "--project", meadow], inClaude);
   dirs.meadow = codex.storeDir(meadow, inCodex);
   dirs.meadowClaude = claude.storeDir(meadow, inClaude);

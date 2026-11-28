@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -62,12 +63,12 @@ async function world(t) {
   claude.sage(["link", "--separate", "--project", lantern], own);
   const lanternDir = claude.storeDir(lantern, own);
   writeFileSync(join(lanternDir, "chiefs.tsv"), `id\tprovider\tnative\tat\nC1\tclaude\tclaude-1\t${new Date().toISOString()}\n`);
-  claude.sage(["task", "add", "--title", "Sample shared task", "--size", "small", "--priority", "P1", "--project", lantern, "--chief", "C1"], own);
+  claude.sage(["task", "add", "--name", tname(), "--title", "Sample shared task", "--size", "small", "--priority", "P1", "--project", lantern, "--chief", "C1"], own);
   const inClaude = { ...own, SAGE_HOME: join(env.CLAUDE_CONFIG_DIR, "sage") }, inCodex = { ...own, SAGE_HOME: join(env.CODEX_HOME, "sage") };
   claude.sage(["init", "--project", harbor], inClaude);
-  claude.sage(["task", "add", "--title", "Sample Claude task", "--size", "small", "--priority", "P2", "--project", harbor], inClaude);
+  claude.sage(["task", "add", "--name", tname(), "--title", "Sample Claude task", "--size", "small", "--priority", "P2", "--project", harbor], inClaude);
   codex.sage(["init", "--project", meadow], inCodex);
-  codex.sage(["task", "add", "--title", "Sample Codex task", "--size", "small", "--priority", "P2", "--project", meadow], inCodex);
+  codex.sage(["task", "add", "--name", tname(), "--title", "Sample Codex task", "--size", "small", "--priority", "P2", "--project", meadow], inCodex);
   const dirs = { lantern: lanternDir, harbor: claude.storeDir(harbor, inClaude), meadow: codex.storeDir(meadow, inCodex) };
   for (const dir of Object.values(dirs)) assert.ok(existsSync(join(dir, "tasks.tsv")), `${dir} is a logbook`);
   const config = join(base, "home", ".config", "sage-board", "board.json");

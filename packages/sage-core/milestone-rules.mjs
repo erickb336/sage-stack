@@ -143,9 +143,10 @@ export const progressOf = (tasks) => {
 export const progressText = ({ merged, total, abandoned }) => `${merged} of ${total} merged${abandoned.length ? ` · ${abandoned.join(", ")} abandoned` : ""}`;
 
 export const releaseKey = (name) => String(name ?? "").normalize("NFKC").toLowerCase();
+export const ID_FORM = /^(?:t|m|g|r|c|pg)[0-9]+$/;
 export function releaseNameProblem(name, releases) {
   const key = releaseKey(name);
-  if (/^(?:t|m|g|r|c|pg)[0-9]+$/.test(key)) return "has the form of a sage id (such as T12 or M5), so a line could read it as that id: give it a name such as 1.0 or Beta";
+  if (ID_FORM.test(key)) return "has the form of a sage id (such as T12 or M5), so a line could read it as that id: give it a name such as 1.0 or Beta";
   if (key === "none") return "is none, which takes a milestone or a single task out of its release: give it a name such as 1.0 or Beta";
   if (/[,·]/.test(key)) return "has a comma or a middle dot (·), which a value or a status line reads as a separator";
   const twin = releases.find((r) => releaseKey(r.name) === key);

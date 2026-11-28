@@ -24,7 +24,7 @@ The board and status phrases work at the start of your message. [Ask for the boa
 | `show board for all` or `sage board for all projects` | The board of every project. |
 | `show board for <project>` or `sage board for <project>` | The board of one project. |
 | `show board <task id>`, `sage board <task id>` or `board <task id>` | One task in full, for example `show board T1`. |
-| `show status` or `sage status` | The task states, the agents and what needs you, and the open tasks with no priority. |
+| `show status` or `sage status` | The task states, the agents and what needs you, and the open tasks with no priority or no name. |
 
 These words work inside a request. They switch nothing:
 
@@ -175,19 +175,22 @@ The prior-art index keeps those tables, one file for each topic, in `~/.sage/pri
 
 ### Fragile patterns
 
-Each design, engineering check (PE), code review and security review looks for four code patterns that break easily and cost much to keep. The agents follow one rule, in Claude and in Codex (`core/references/fragile-patterns.md` in the plugin's folder):
+Each design, engineering check (PE), code review and security review looks for code patterns that break easily and cost much to keep. The agents follow one rule, in Claude and in Codex (`core/references/fragile-patterns.md` in the plugin's folder).
 
-| Pattern | The structural option |
-| --- | --- |
-| A new hook rule | The state tool, the merge check or a shared rule module. A new hook rule needs proof that none of them can do the job. |
-| One rule written twice, once for Claude and once for Codex | One shared implementation in core, which both providers call. |
-| Parsing an agent's shell command to guess its intent | A structural boundary, such as a state tool command or a file permission. |
-| A special case next to an earlier fix of the same area | A fix of the shared cause. |
+The first pattern applies in every project, in any language. The other three apply only to sage's own code: its hooks and its two providers.
+
+| Pattern | Where | The structural option |
+| --- | --- | --- |
+| A special case that a general rule, a table or the data could hold, such as a branch on one customer id, one plan name or one feature-flag value, or a second table of the same facts. The strongest sign: it is next to an earlier fix of the same area. | Every project | A fix of the shared cause, or the case moved into the data or the one table that owns it. |
+| A new hook rule | sage's own code | The state tool, the merge check or a shared rule module. A new hook rule needs proof that none of them can do the job. |
+| One rule written twice, once for Claude and once for Codex | sage's own code | One shared implementation in core, which both providers call. |
+| Parsing an agent's shell command to guess its intent | sage's own code | A structural boundary, such as a state tool command or a file permission. |
 
 | Role | What it does with a pattern |
 | --- | --- |
 | Designer | Names it and its structural option in the design's rules part. |
 | PE | Rates the part CHANGE and names the structural option; QUESTION only when that option changes what you see or do. |
+| Implementer | Does not write the special case: it follows the model-the-domain principle. |
 | Code reviewer, security reviewer | Reports it as a finding of the class `fragile-pattern`. It is low, with the structural option, unless it breaks a function or a safety boundary. |
 | Chief | Names each open `fragile-pattern` finding under Weak points in its report to you. |
 
@@ -540,7 +543,7 @@ Nothing reaches main without a pull request, so a stopped task leaves at most a 
 
 ## The lint check
 
-A repository can have lint rules of its own: an [ast-grep](https://ast-grep.github.io) project file, `sgconfig.yml`, at its root. When the main branch has one, sage checks each pull request with those rules before it merges. Sage's own rules refuse code comments ([the no-comments rule set](../../packages/sage-core/lint/README.md)).
+A repository can have lint rules of its own: an [ast-grep](https://ast-grep.github.io) project file, `sgconfig.yml`, at its root. When the main branch has one, sage checks each pull request with those rules before it merges. Sage's own rules refuse code comments ([the no-comments rule set](../../packages/sage-core/lint/README.md)), and a hard-coded task, run or gate id such as `"T1216"` in sage's product code (`lint/rules/no-hard-coded-ids.yml`, pattern 4 of the [fragile patterns](#fragile-patterns)).
 
 - **What it checks:** only the lines that the pull request adds, also a moved or an edited line. A line that the pull request does not touch never fails.
 - **Whose rules:** the rules, `sgconfig.yml` and `.gitattributes` of the tip of `origin/main`, also when the pull request started before they changed. A pull request that changes a rule does not change its own check.
@@ -772,7 +775,7 @@ A moved folder with no Git commits, or that is no Git repository, has no first c
 
 | Who | Writes |
 | --- | --- |
-| The owning chief | Its own task: `task <T> set`, `round`, `run add`, `run done`, `finding add`, `triage`, `close`, `move`, `verdict`, `gate add <T>`, `milestone propose` for its pilot and each of its tasks, `log <T>` and `unclaim`. |
+| The owning chief | Its own task: `task <T> set`, `task names` for each task of its file, `round`, `run add`, `run done`, `finding add`, `triage`, `close`, `move`, `verdict`, `gate add <T>`, `milestone propose` for its pilot and each of its tasks, `log <T>` and `unclaim`. |
 | A lead | What the chief of its lead run may write, on the task of that run only, while that run runs. |
 | Any chief | `task add`, `pickup`, `gate add` with no task, `gate replace`, `init`, `standing add`, `standing retire`, `standing chief`, `config`, `log -`, `pages <T> record`, `observe`, `run usage`, `release add` and `milestone <M> set release=`. |
 | You | `gate answer`, in your own words, from either provider, `gate undo`, `gate give`, each form of `logbook repair` (`--accept-loss`, `--accept-change-loss`, or both), `projects rebuild` and `chief name`: each is your act and names no chief, so the line that sage prints works in your terminal. |

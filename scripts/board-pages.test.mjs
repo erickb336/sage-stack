@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
@@ -412,7 +413,7 @@ test("the message command, the index and the board agree on every file: a link t
   mkdirSync(join(folder, "real"));
   writeFileSync(join(folder, "real", "in.html"), "<p>SAMPLE</p>");
   symlinkSync(join(folder, "real"), join(folder, "via"));
-  assert.equal((await sage("task", "add", "--priority", "P2", "--title", "t2", "--size", "small")).status, 0);
+  assert.equal((await sage("task", "add", "--name", tname(), "--priority", "P2", "--title", "t2", "--size", "small")).status, 0);
   mkdirSync(elsewhere);
   writeFileSync(join(elsewhere, "x.html"), "<p>SAMPLE</p>");
   symlinkSync(elsewhere, t2);
@@ -446,7 +447,7 @@ async function messageSandbox(t) {
   execFileSync("git", ["-C", project, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "start"]);
   const sage = (...args) => new Promise((done) => execFile("node", [TOOL, ...args, "--project", project], { encoding: "utf8", env, timeout: 60_000 }, (error, stdout, stderr) => done({ status: error ? error.code : 0, out: (stdout + stderr).trim() })));
   assert.equal((await sage("init")).status, 0);
-  assert.equal((await sage("task", "add", "--priority", "P2", "--title", "t", "--size", "small")).status, 0);
+  assert.equal((await sage("task", "add", "--name", tname(), "--priority", "P2", "--title", "t", "--size", "small")).status, 0);
   const folder = (await sage("pages", "T1")).out, name = basename(dirname(dirname(folder)));
   const book = readdirSync(base, { recursive: true }).map((path) => join(base, path)).find((path) => basename(path) === name && !path.includes(`${join(base, "worktrees")}`));
   assert.ok(book, "the sandbox's logbook");

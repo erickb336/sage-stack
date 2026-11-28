@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import { appendSyntheticHistory } from "./fixtures/codex-history-padding.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -294,7 +295,7 @@ test("F-T957-1: through the launcher, a review child's stop keeps its report in 
   git("commit", "-q", "--allow-empty", "-m", "start");
   const ok = (...args) => { const r = spawnSync(process.execPath, [join(root, "skills/sage/sage.mjs"), ...args, "--project", project], { env: s.env, encoding: "utf8" }); assert.equal(r.status, 0, r.stderr); return r.stdout.trim(); };
   ok("init");
-  ok("task", "add", "--priority", "P2", "--title", "t1", "--size", "small");
+  ok("task", "add", "--name", tname(), "--priority", "P2", "--title", "t1", "--size", "small");
   const run = ok("run", "add", "T1", "--role", "qa").split(" ")[0];
   const transcript = join(s.dir, "child.jsonl");
   writeFileSync(transcript, JSON.stringify({ type: "session_meta", payload: { id: "01a1726e-0000-7000-8000-000000000001", agent_path: `/root/sage_qa_t1_${run.toLowerCase()}` } }) + "\n");

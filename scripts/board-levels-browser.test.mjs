@@ -1,4 +1,5 @@
 import "./test-env.mjs";
+import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -50,7 +51,7 @@ async function answering(t) {
   claude.sage(["link", "--separate", "--project", project], env);
   const dir = claude.storeDir(project, env), chief = claude.chiefFor(project, "s-a", env);
   const as = (...args) => claude.sage([...args, "--project", project, "--chief", chief], env);
-  for (const title of ["Sample shared list permissions", "Receipt mail", "Sample crash report screen"]) as("task", "add", "--title", title, "--size", "small", "--priority", "P1");
+  for (const title of ["Sample shared list permissions", "Receipt mail", "Sample crash report screen"]) as("task", "add", "--name", tname(), "--title", title, "--size", "small", "--priority", "P1");
   as("gate", "add", "--message", QUESTION, "T1", "--question", "Can a viewer copy a shared list?", "--options", "yes|no", "--recommend", "yes");
   as("task", "T2", "set", "state=designing");
   const pages = as("pages", "T2");

@@ -1,23 +1,37 @@
 # The fragile-pattern rule
 
-This rule names four code patterns that break easily and cost much to keep, and the structural option for each one. Designers, the PE, code reviewers and security reviewers apply it, in Claude and in Codex. The aim: stop these patterns before they enter the code, and flag the ones that are there now. The owner set the rule on 2026-11-16.
+This rule names four code patterns that break easily and cost much to keep, and the structural option for each one. Designers, the PE, code reviewers and security reviewers apply it, in Claude and in Codex. Implementers apply pattern 4 through the model-the-domain principle. The aim: stop these patterns before they enter the code, and flag the ones that are there now. The owner set the rule on 2026-11-16.
 
-## The patterns
+- **Pattern 4 applies in every project**, in any language.
+- **Patterns 1 to 3 apply only to sage's own code:** its hooks and its two providers, Claude and Codex. In another project, skip them.
+
+## Pattern 4, in every project
+
+| Pattern | Why it is fragile | The structural option |
+| --- | --- | --- |
+| 4. **A special case that a general rule, a table or the data could hold**: a branch on one customer id, one plan name, one country or one feature-flag value; a second table of the same facts; a copy of a rule for one caller. The strongest sign: it is next to an earlier fix of the same area. | The cause stays, so the next case needs one more patch, and the copies drift apart. | Fix the shared cause, by the root-cause principle. Or move the case into the data, or into the one table that owns it, by the model-the-domain principle. |
+
+Pattern 4 has two limits. A case that the domain truly has, such as a real variant of a discriminated union, is not a special case. Boring local code that is clear and unlikely to grow is fine.
+
+**An example from sage (T1258):** the state tool checked a usage write with the made-up task `"T1"`, before it read the run's real task. The fix checks it with the run's task. In sage's own code, the `no-hard-coded-ids` lint rule now refuses a task, run or gate id.
+
+## Patterns 1 to 3, in sage's own code only
 
 | Pattern | Why it is fragile | The structural option |
 | --- | --- | --- |
 | 1. **A new hook rule** | A hook reads one host's events. Each host needs its own copy, and each new case of the event needs one more patch. | Put the rule in the state tool, the merge check or a shared rule module that both hosts call. A new hook rule needs proof that none of them can do the job. |
 | 2. **One rule written twice**, once for Claude and once for Codex | The two copies drift apart, and a fix in one misses the other. | One shared implementation in core, which both thin adapters call. Two copies need proof that one shared implementation is impossible. |
 | 3. **Parsing an agent's shell command to guess its intent** | Each new form of the command (a quote, an option order, a wrapper program) is a new false refusal or a new way around. | A structural boundary: a state tool command, a file permission, or a tool that takes typed fields. |
-| 4. **A special case next to an earlier fix of the same area** | The cause stays, so the next case needs one more patch. | Fix the shared cause, by the root-cause principle. |
 
-## Examples from sage
+Examples from sage:
 
-- **Special cases on the hook's false refusals:** the hook refused normal commands by mistake. Four special cases fixed four forms, one at a time. Then a cause fix replaced all four, at a high cost. Pattern 4, and pattern 3 under it.
+- **Special cases on the hook's false refusals:** the hook refused normal commands by mistake. Four special cases fixed four forms, one at a time. Then a cause fix replaced all four, at a high cost. Pattern 3, with pattern 4 on top of it.
 - **The stop check of the repair-rule design (T1127):** the design added a hook check at the end of an agent's turn. The owner dropped it, because the state tool's close check already holds the same rule. Pattern 1.
 - **The lead slot (T1133):** the lead's slot behaved differently in each provider, and each provider got its own fix. Pattern 2.
 
 ## How each role applies it
+
+In a project that is not sage, each role checks pattern 4 only.
 
 - **Designer:** name each pattern that the design adds, and its structural option, in the design's rules part. When the design keeps a pattern, give the proof that the option cannot do the job.
 - **PE:** rate each part that adds a pattern CHANGE, and name the structural option. Rate it QUESTION only when the structural option changes what the user sees or does.

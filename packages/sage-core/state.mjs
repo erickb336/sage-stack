@@ -39,6 +39,7 @@ import { DESIGN_OPTIONS, WORDS_MAX, answerOption, taskWord, withWords } from "./
 import { AST_GREP_VERSION, LINT_CONFIG, LINT_KINDS, toolsAstGrep, lintBase, lintChange } from "./lint.mjs";
 import { adoptBrief, languageList, placeToolFiles, projectLanguages } from "./lint-offer.mjs";
 import { DOCS_RULE, docsNote, docsOnly, docsPathsProblem, globsOf } from "./docs-only.mjs";
+import { TASK_NAME_MAX, taskNameProblem, taskNameTwin, taskNames } from "./task-name.mjs";
 
 export const STUCK_WRITE = 'This command changed nothing. This project cannot save changes; other projects work. Tell the owner. There are two ways out. With a backup: the owner restores the folder that `sage logbook` prints; rows newer than the backup are lost. With no backup: after the owner accepts the loss of this saved change, the chief runs `sage logbook repair --accept-change-loss yes --project <the project>`, or the owner runs it in a terminal when the chief cannot; it keeps the file, and a half-published update keeps mixed tables. Do not remove review-pending.json by hand.';
 
@@ -112,7 +113,7 @@ const CHIEF_COLUMN = "chief";
 const CHECKOUT_COLUMN = "checkout";
 const ADMITTED_COLUMN = "admitted";
 const RELEASE_COLUMN = "release";
-const SPARSE = { tasks: [CHIEF_COLUMN, "offer", RELEASE_COLUMN, "request"], runs: [CHIEF_COLUMN, CHECKOUT_COLUMN, ADMITTED_COLUMN, "failure", ...SPEND_FIELDS], gates: ["kind", CHIEF_COLUMN, "answered", "picked", "run"], milestones: [RELEASE_COLUMN], decisions: ["handover"] };
+const SPARSE = { tasks: ["name", CHIEF_COLUMN, "offer", RELEASE_COLUMN, "request"], runs: [CHIEF_COLUMN, CHECKOUT_COLUMN, ADMITTED_COLUMN, "failure", ...SPEND_FIELDS], gates: ["kind", CHIEF_COLUMN, "answered", "picked", "run"], milestones: [RELEASE_COLUMN], decisions: ["handover"] };
 const TABLES = { ...PLAIN_TABLES, ...Object.fromEntries(Object.entries(SPARSE).map(([t, cols]) => [t, [...PLAIN_TABLES[t], ...cols]])) };
 const ADDED = { ...FILLED, ...Object.fromEntries(Object.entries(SPARSE).map(([t, cols]) => [t, [...(FILLED[t] ?? []), ...cols]])) };
 const RUN_ENDS = ["done", "blocked", "question", "failed"];
@@ -125,7 +126,8 @@ const OPTIONS = {
   "gate replace": ["to"],
   "gate give": ["to"],
   "projects rebuild": ["accept-listing"],
-  "task add": ["title", "size", "risk", "add", "no-arena", "why", "priority", "kind", "waits", "milestone"],
+  "task add": ["title", "name", "size", "risk", "add", "no-arena", "why", "priority", "kind", "waits", "milestone"],
+  "task names": ["file"],
   task: ["why"],
   round: ["why"],
   "task-adopt": ["source-logbook", "source-provider", "source-task", "pr", "branch"],
@@ -667,16 +669,17 @@ const usageWrites = recordedWrites({ schema: 7, tables: ["runs", "decisions"], f
   name: /^[0-9a-f]{64}\.json$/, receiptName: reference => createHash("sha256").update(JSON.stringify(reference)).digest("hex") + ".json", validate: validateUsageWrite });
 function enrichUsage(dir, id, opt) {
   const reference = usageReference(id, opt);
-  validateUsageWrite({ reference, result: { task: "T1", at: now() } });
   const runs = read(dir, "runs"), matches = runs.filter(r => r.id === id), run = matches[0];
   if (matches.length !== 1 || run.status === "running") refuse("Usage enrichment needs one ended run. Nothing changed.");
+  const result = { task: run.task, at: now() };
+  validateUsageWrite({ reference, result });
   const prior = usageWrites.readReceipt(dir, reference);
   if (prior) {
     if (run.tokens !== reference.tokens || run.usage_status !== "measured" || run.usage_source !== reference.source || run.usage_evidence !== reference.evidence) refuse("The usage receipt differs from the run. Nothing changed.");
     return `${id} usage measured (already recorded)`;
   }
   if (run.tokens || !["", "unavailable"].includes(run.usage_status)) refuse("A measured count never changes. Nothing changed.");
-  const result = { task: run.task, at: now() }, decisions = read(dir, "decisions");
+  const decisions = read(dir, "decisions");
   Object.assign(run, { tokens: reference.tokens, usage_status: "measured", usage_source: reference.source, usage_evidence: reference.evidence });
   decisions.push({ at: result.at, task: run.task, decision: `${id} usage measured`, why: JSON.stringify(reference) });
   usageWrites.commit(dir, { reference, result }, { runs: tableText("runs", runs), decisions: tableText("decisions", decisions) });
@@ -1864,6 +1867,45 @@ const missing = (what, ids) => refuse(`no ${what}. ${ids.length ? `The latest: $
 
 const roundKeys = (task) => String(task.keys ?? "").split(",").filter(Boolean);
 
+const NAME_RULE = `A task's name is 1 to 4 words of at most ${TASK_NAME_MAX} characters, such as "Board names", and no other open task has it.`;
+function taskNameOf(value, tasks, self) {
+  if (value === undefined) refuse(`task add needs --name "<name>". ${NAME_RULE} Nothing changed.`);
+  const name = String(value).normalize("NFC"), why = taskNameProblem(name), twin = !why && taskNameTwin(name, tasks, self);
+  if (why || twin) refuse(`the name "${visible(name)}" ${why ?? `is the name of ${twin.id} already (case and width do not count): give each open task its own name`}. ${NAME_RULE} Nothing changed.`);
+  return name;
+}
+
+function nameTasks(dir, file, chief) {
+  let text;
+  const path = resolve(file);
+  try { text = readRegular(path, { link: false, max: 1 << 20 }); } catch { text = undefined; }
+  if (text === undefined) refuse(`${visible(path)} is not a text file of at most 1 MiB that sage can read${isAbsolute(file) ? "" : ` (sage looked for ${visible(file)} in the folder ${visible(process.cwd())}): give the file's absolute path`}. Nothing changed.`);
+  const tasks = read(dir, "tasks"), byId = new Map(tasks.map((t) => [t.id, t])), lines = new Map(), bad = [];
+  text.split(/\r?\n/).forEach((raw, i) => {
+    const line = raw.trim(), at = `line ${i + 1}`, [, id, given] = /^(\S+)\s+(.+)$/u.exec(line) ?? [];
+    if (!line) return;
+    if (!id) return bad.push(`${at}: give a task id, a space and its name, such as T12 Board names`);
+    const task = byId.get(id), name = given.normalize("NFC"), why = task && taskNameProblem(name), bar = task && chief !== undefined && ownerBar(dir, task, chief);
+    if (!task) bad.push(`${at}: this logbook has no task ${visible(id)}`);
+    else if (lines.has(id)) bad.push(`${at}: ${id} is on ${lines.get(id).at} too: give each task once`);
+    else if (why || bar) bad.push(`${at}: ${why ? `the name "${visible(name)}" of ${id} ${why}` : bar}`);
+    else lines.set(id, { at, name });
+  });
+  if (!bad.length && !lines.size) refuse(`${visible(file)} names no task: give one task id and its name on each line, such as T12 Board names. Nothing changed.`);
+  const after = tasks.map((t) => (lines.has(t.id) ? { ...t, name: lines.get(t.id).name } : t));
+  for (const [id, { at, name }] of lines) {
+    const twin = taskNameTwin(name, after, id);
+    if (twin) bad.push(`${at}: the name "${visible(name)}" of ${id} is the name of ${twin.id}${lines.has(twin.id) ? ` on ${lines.get(twin.id).at}` : ""} too: give each open task its own name`);
+  }
+  if (bad.length) refuse(`${visible(file)} has ${bad.length} bad line${bad.length === 1 ? "" : "s"}, so no task changed:\n${bad.map((b) => `  ${b}`).join("\n")}\n${NAME_RULE} Fix the file and run it again.`);
+  const renamed = [...lines].filter(([id, { name }]) => byId.get(id).name !== name), same = lines.size - renamed.length;
+  if (!renamed.length) return `nothing changed: each of the ${lines.size} task${lines.size === 1 ? "" : "s"} in ${visible(file)} has that name already.`;
+  const at = now();
+  write(dir, "tasks", after);
+  write(dir, "decisions", [...read(dir, "decisions"), ...renamed.map(([id, { name }]) => ({ at, task: id, decision: `name ${byId.get(id).name || "none"} → ${name}`, why: "task names" }))]);
+  return `${renamed.length} task${renamed.length === 1 ? "" : "s"} named: ${renamed.map(([id]) => id).join(", ")}${same ? ` · ${same} had that name already` : ""}. Each change has a decision row.`;
+}
+
 function taskOf(dir, id) {
   const tasks = read(dir, "tasks");
   const task = tasks.find((t) => t.id === id) ?? missing(`task ${id}`, tasks.map((t) => t.id));
@@ -1937,6 +1979,10 @@ function planTaskChanges(before, id, changes, at, facts) {
     }
     else if (k === "branch") notHeld(task, "branch="), task.branch = v && (mayName(tasks, task, branchOf(v)) ? v : refuse(`${JSON.stringify(v)} is not a branch of ${task.id}: use [<prefix>/]${task.id.toLowerCase()}[-<words>], for example sage task ${task.id} set branch=sage/${task.id.toLowerCase()}, or the branch of another task of this logbook, to share its pull request`));
     else if (k === "title") task.title = v;
+    else if (k === "name") {
+      const was = task.name ?? "", to = taskNameOf(v, tasks, task.id);
+      if (to !== was) decided.push({ at, task: task.id, decision: `name ${was || "none"} → ${(task.name = to)}`, why: "task set" });
+    }
     else if (k === "request") task.request = v === "none" ? "" : v;
     else if (k === "priority") task.priority = priorityOf(v, task);
     else if (k === "kind") task.kind = tag(k, v);
@@ -1971,7 +2017,7 @@ function planTaskChanges(before, id, changes, at, facts) {
         task.release = to;
         decided.push({ at, task: task.id, decision: `release ${was || "none"} → ${to || "none"}`, why: "task set" });
       }
-    } else refuse(`task set takes state=, branch=, pr=, title=, request=, priority=, kind=, waits=, milestone=, release= or approval=`);
+    } else refuse(`task set takes state=, branch=, pr=, title=, name=, request=, priority=, kind=, waits=, milestone=, release= or approval=`);
   }
   return { task, tasks, runs, decisions: [...decisions, ...decided], note };
 }
@@ -2445,6 +2491,8 @@ function status(dir, save) {
   if (waiting.length) lines.push(`waits   ${waiting.length} waiting${waiting.map(([t, open]) => ` · ${t.id} for ${waitList(open)}`).join("")}`);
   const none = tasks.filter((t) => !ENDED.includes(t.state) && !t.priority).map((t) => t.id);
   if (none.length) lines.push(`priority ${none.length} open task${none.length === 1 ? " has" : "s have"} none: ${none.slice(0, 10).join(", ")}${none.length > 10 ? `, and ${none.length - 10} more` : ""} · set them with task <T> set priority=<P0 to P3>`);
+  const names = taskNames(tasks), unnamed = tasks.filter((t) => !ENDED.includes(t.state) && !names.get(t.id).given).map((t) => `${t.id} "${visible(names.get(t.id).name)}"`);
+  if (unnamed.length) lines.push(`names   ${unnamed.length} open task${unnamed.length === 1 ? " has" : "s have"} no name and show${unnamed.length === 1 ? "s" : ""} one from the title: ${unnamed.slice(0, 10).join(", ")}${unnamed.length > 10 ? `, and ${unnamed.length - 10} more` : ""} · name one with task <T> set name=<name>, or many with task names --file <file>`);
   const wordOf = statusWords(gates, graph);
   lines.push(...releasesOf(read(dir, "releases"), graph, wordOf).map(releaseLine), ...milestonesLine(graph, wordOf));
   const runsOf = new Map();
@@ -2453,7 +2501,8 @@ function status(dir, save) {
     const own = runsOf.get(t.id) ?? [];
     return `usage ${t.id} · ${spendText(own)} · ${usageSummary(own)}`;
   }));
-  const table = ["", "| Task | State | Size | Round | PR | Title |", "| --- | --- | --- | --- | --- | --- |", ...tasks.map((t) => `| ${t.id} | ${t.state} | ${t.size} | ${t.round} | ${t.pr} | ${t.title} |`)];
+  const nameCell = ({ name, given }) => { const text = name.replace(/[\\|*_<>`]/g, "\\$&"); return given ? text : `*${text}*`; };
+  const table = ["", "| Task | Name | State | Size | Round | PR | Title |", "| --- | --- | --- | --- | --- | --- | --- |", ...tasks.map((t) => `| ${t.id} | ${nameCell(names.get(t.id))} | ${t.state} | ${t.size} | ${t.round} | ${t.pr} | ${t.title} |`)];
   if (save) put(join(dir, "status.md"), [`# ${lines[0]}`, "", ...lines.slice(1).map((l) => `    ${l}`), ...table].join("\n") + "\n");
   return lines.join("\n");
 }
@@ -3340,8 +3389,8 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         if (odd.length) refuse(`unknown: ${odd.join(", ")}. Risks: ${RISKS.join(", ")}. Blocks: ${BLOCKS.join(", ")}`);
         if (size === "investigate" && list(opt.add).includes("build")) refuse("an investigation changes no code, so it takes no build block. Frame the build as its own task: sage task add --size tiny, small or large");
         const why = opt.add ? need(opt.why, "--why for the added blocks") : "";
-        const tags = { priority: priorityOf(opt.priority), ...(opt.kind !== undefined ? { kind: tag("kind", opt.kind) } : {}), ...chiefTag(opt) };
         const graph = graphOf(dir), next = { id: nextId(dir, "T"), state: "framed" };
+        const tags = { priority: priorityOf(opt.priority), name: taskNameOf(opt.name, [...graph.byId.values()]), ...(opt.kind !== undefined ? { kind: tag("kind", opt.kind) } : {}), ...chiefTag(opt) };
         if (opt.waits !== undefined) tags.waits = waitsValue(next, opt.waits, [...graph.byId.values()]);
         if (opt.milestone !== undefined) tags.milestone = milestoneValue(next, opt.milestone, graph);
         const byDefault = size === "large" && ARENA_KINDS.includes(tags.kind) && !list(opt.add).includes("arena");
@@ -3358,6 +3407,10 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         if (decided.length) write(dir, "decisions", [...read(dir, "decisions"), ...decided]);
         const arenaNote = arena ? ` · arena of ${count} by default for a large ${tags.kind} task (one designer instead: frame it with --no-arena "<reason>")` : "";
         return `${framed(task)}${arenaNote}${joined.note}`;
+      }
+      if (sub === "names") {
+        if (id !== undefined || opt.file === undefined) refuse(`task names takes --file <a file with one task id and its name on each line, such as T12 Board names>. Nothing changed.`);
+        return nameTasks(dir, opt.file, opt.chief);
       }
       const { tasks, task } = taskOf(dir, need(sub, "the task id"));
       let note = "";
