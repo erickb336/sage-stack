@@ -3,7 +3,7 @@ import { CopyCommand, GiveBox, PairBox, PairNote, UndoButton, chiefLabel, useAcc
 import { useNow, when } from "./use-model.js";
 import { StateIcon } from "./icons.jsx";
 import { Sessions } from "./sessions.jsx";
-import { chiefSub, milestoneLink, ofChief, questionLink, taskLink } from "./task.jsx";
+import { Name, chiefSub, milestoneLink, ofChief, questionLink, taskLink } from "./task.jsx";
 import { FLAGGED, LOOK_AT_IT, OBJECTS, STOPPED_NO_REPORT, UNKNOWN, chiefName, pickupLine } from "../../sage-core/state-words.mjs";
 
 export const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
@@ -62,7 +62,7 @@ function NeedRow({ need, now, archived }) {
         <p className="meta">
           {need.chief && <span>chief {need.chief}</span>}
           {need.gate && <span className="mono">{need.gate}</span>}
-          {need.task && <a href={taskLink(need.task.key)}>{need.task.id} · {need.task.title}</a>}
+          {need.task && <a href={taskLink(need.task.key)}>{need.task.id} · <Name item={need.task} /></a>}
           <span>{asked ? `asked ${asked}` : "time not recorded"}</span>
           {archived && <span className="need">Restore to answer</span>}
         </p>

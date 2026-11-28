@@ -898,7 +898,7 @@ test("T266-LEAD-SHOWN: status counts a lead run like any run, and the chat board
   s.ok("run", "add", "T1", "--role", "implementer", "--branch", "claude/t1");
   assert.match(s.ok("status"), /^agents {2}2 runs · 2 running · about 0k weighted tokens · 0 measured, 0 unavailable, 0 legacy-unrecorded$/m);
   const board = s.ok("board", "this");
-  assert.match(board, /\n### Moving now\n- t\. Not briefed yet, an agent at work, \d+ min\.\n/, board);
+  assert.match(board, /\n### Moving now\n- ▶ t: in the plan, 2 agents at work, \d+ min\.\n/u, board);
 });
 
 test("T266-MAX-AGENTS: the default max_agents is 10, one lead and its 9 children, and a value in config.json still wins", async () => {

@@ -356,8 +356,8 @@ for (const width of WIDTHS) {
     if (width === 390) assert.ok(await tag.evaluate(element => element.scrollWidth > element.clientWidth && getComputedStyle(element).textOverflow === "ellipsis"), "a long milestone name is cut with an ellipsis on a phone");
     await page.goto(`${origin}/app/${LEVELS.l3}`);
     await page.locator(".tp-head .kind", { hasText: "Task in" }).waitFor();
-    assert.match(await page.locator(".tp-head .kind").textContent(), /^Task in . Board redesignname from the title$/);
-    assert.match(await page.locator(".taskpage h1").textContent(), /^Sample shared limitsT3$/);
+    assert.match(await page.locator(".tp-head .kind").textContent(), /^Task in . Board redesign name from the title$/);
+    assert.match(await page.locator(".taskpage h1").textContent(), /^Sample shared limits T3$/);
     assert.equal(await page.locator(".tp-head .tp-what").textContent(), "What it is: Sample shared limits");
     await shot(page, `names-task-${width}`);
   });
