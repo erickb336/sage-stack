@@ -49,20 +49,32 @@ export const replaceQuestion = ({ from, to, task, pr, title, runs, label, releas
   const what = `${task}${pr ? ` and PR ${pr}` : ""}`;
   const ask = from ? `Hand ${what} from ${label(from)} to ${label(to)}?` : `Hand ${what} to ${label(to)}? ${task} has no owning chief${released ? `: ${label(released)} unclaimed it last` : moved ? `: it came in the move from the ${moved} logbook` : ""}.`;
   const approve = [`${to} owns ${task}.`, runs.length ? "Each of those runs ends as failed, and work that it did not report may be lost." : "", from ? `${from} can no longer write ${task}.` : "",
-    `The branch keeps its name${pr ? `, and PR ${pr} keeps its number` : ""}.`, fresh ? `The verdicts stay, and ${to} runs one fresh cycle on its head before it merges.` : "The verdicts on its head still count."].filter(Boolean).join(" ");
+    `The branch keeps its name${pr ? `, and PR ${pr} keeps its number` : ""}.`, fresh ? FRESH(to, "its head") : "The verdicts on its head still count."].filter(Boolean).join(" ");
   const decline = offered ? `${from} stays the owning chief, and ${OFFER_ENDS(to)}` : `nothing changes, and ${from ? `${from} stays the owning chief` : `${task} stays with no owning chief`}`;
   return `${ask} Runs that end as failed: ${runs.map((r) => `${r.id} (${r.role})`).join(", ") || "none"}. Approve: ${approve} Decline: ${decline}. Title of ${task}: ${title}`;
 };
 const OFFER_ENDS = (to) => `the offer to ${to} ends`;
+const FRESH = (to, head) => `The verdicts stay, and ${to} runs one fresh cycle on ${head} before it merges.`;
+const taskRef = (t) => `${t.id}${t.pr ? ` (PR ${t.pr})` : ""}`;
+export const batchQuestion = ({ from, to, tasks, runs, label, fresh }) => {
+  const n = tasks.length;
+  const approve = [`${to} owns the ${n} tasks.`, runs.length ? "Each of those runs ends as failed, and work that it did not report may be lost." : "", `${from} can no longer write them.`,
+    "Each branch keeps its name, and each PR keeps its number.", fresh ? FRESH(to, "each head") : "The verdicts on each head still count."].filter(Boolean).join(" ");
+  return `Hand ${n} tasks from ${label(from)} to ${label(to)}? Runs that end as failed: ${runs.length || "none"}. Approve: ${approve} Decline: nothing changes, and ${from} stays the owning chief of the ${n} tasks. Ref: ${tasks.map(taskRef).join(", ")}${runs.length ? ` · runs ${runs.map((r) => `${r.id} (${r.task} ${r.role})`).join(", ")}` : ""}`;
+};
 export const TAKEOVER_OPTIONS = "approve|decline";
 const ID = (c) => `(?<${c}>C[1-9]\\d*)(?: \\((?<${c}P>\\S+)\\))?`, RUNS = "(?<runs>none|R[1-9]\\d* \\([^)]*\\)(?:, R[1-9]\\d* \\([^)]*\\))*)";
-const HAND = new RegExp(`^Hand T[1-9]\\d*(?: and PR [1-9]\\d*)? (?:from ${ID("from")} to ${ID("to")}\\?|to ${ID("to2")}\\? T[1-9]\\d* has no owning chief(?:: (?:${ID("rel")} (?:unclaimed|released) it last|it came in the move from the (?<moved>\\S+) logbook))?\\.) Runs that end as failed: ${RUNS}\\. Approve: (?<approve>.*?) Decline: (?<decline>[^.]*)\\. `);
-const REPLACE = new RegExp(`^Replace chief ${ID("from")} of T[1-9]\\d* with ${ID("to")}\\? Runs that end as failed: ${RUNS}\\. Replace: `);
+const HAND = new RegExp(`^Hand (?<task>T[1-9]\\d*)(?: and PR [1-9]\\d*)? (?:from ${ID("from")} to ${ID("to")}\\?|to ${ID("to2")}\\? T[1-9]\\d* has no owning chief(?:: (?:${ID("rel")} (?:unclaimed|released) it last|it came in the move from the (?<moved>\\S+) logbook))?\\.) Runs that end as failed: ${RUNS}\\. Approve: (?<approve>.*?) Decline: (?<decline>[^.]*)\\. `);
+const REPLACE = new RegExp(`^Replace chief ${ID("from")} of (?<task>T[1-9]\\d*) with ${ID("to")}\\? Runs that end as failed: ${RUNS}\\. Replace: `);
+const REF = "T[1-9]\\d*(?: \\(PR [1-9]\\d*\\))?", BATCH_RUN = "R[1-9]\\d* \\([^)]*\\)";
+const BATCH = new RegExp(`^Hand (?<n>[1-9]\\d*) tasks from ${ID("from")} to ${ID("to")}\\? Runs that end as failed: (?:none|[1-9]\\d*)\\. Approve: (?<approve>.*?) Decline: (?<decline>[^.]*)\\. Ref: (?<list>${REF}(?:, ${REF})*)(?: · runs (?<runs>${BATCH_RUN}(?:, ${BATCH_RUN})*))?`);
 export function replaceOf(gate) {
-  const { from = "", fromP, to, toP, to2, to2P, relP, moved, runs, approve, decline } = (HAND.exec(gate.question) ?? REPLACE.exec(gate.question))?.groups ?? {};
-  const chief = to ?? to2;
-  return chief && { from, to: chief, fromProvider: fromP ?? relP ?? moved, toProvider: toP ?? to2P, runs: runs === "none" ? [] : runs.split(", ").map((r) => r.split(" ")[0]),
-    fresh: !!approve?.endsWith(`The verdicts stay, and ${chief} runs one fresh cycle on its head before it merges.`), offered: !!from && decline === `${from} stays the owning chief, and ${OFFER_ENDS(chief)}` };
+  const batch = BATCH.exec(gate.question)?.groups;
+  const { from = "", fromP, to, toP, to2, to2P, relP, moved, runs, approve, decline, task, list } = batch ?? (HAND.exec(gate.question) ?? REPLACE.exec(gate.question))?.groups ?? {};
+  const chief = to ?? to2, tasks = list ? list.split(", ").map((t) => t.split(" ")[0]) : [task];
+  if (!chief || (batch && Number(batch.n) !== tasks.length)) return undefined;
+  return { from, to: chief, tasks, fromProvider: fromP ?? relP ?? moved, toProvider: toP ?? to2P, runs: !runs || runs === "none" ? [] : runs.split(", ").map((r) => r.split(" ")[0]),
+    fresh: !!approve?.endsWith(FRESH(chief, batch ? "each head" : "its head")), offered: !batch && !!from && decline === `${from} stays the owning chief, and ${OFFER_ENDS(chief)}` };
 }
 export const crossed = (p) => (p.fromProvider || p.from ? p.fromProvider !== p.toProvider || !p.toProvider : false);
 

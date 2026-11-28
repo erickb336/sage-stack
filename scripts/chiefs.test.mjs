@@ -647,6 +647,127 @@ for (const [name, own, other] of pairs) {
     assert.throws(() => w.answer("G4", "--option", "1"), /T1 now belongs to chief C3, not to no chief, so G4 is out of date/, "T656: a gate of a task with no chief is out of date after a pick-up");
   });
 
+  const listOf = (w, count) => {
+    for (let n = 2; n <= count; n++) w.owner("task", "add", "--name", tname(), "--title", `task ${n}`, ...ADD);
+    return Array.from({ length: count }, (_, k) => `T${k + 1}`);
+  };
+  const providers = () => (name === "Claude" ? ["claude", "codex"] : ["codex", "claude"]);
+  const batchAsked = (n, ref, runs) => {
+    const [mine, theirs] = providers();
+    return `Hand ${n} tasks from C1 (${mine}) to C2 (${theirs})? Runs that end as failed: ${runs || "none"}. Approve: C2 owns the ${n} tasks.${runs ? " Each of those runs ends as failed, and work that it did not report may be lost." : ""} C1 can no longer write them. Each branch keeps its name, and each PR keeps its number. The verdicts stay, and C2 runs one fresh cycle on each head before it merges. Decline: nothing changes, and C1 stays the owning chief of the ${n} tasks. Ref: ${ref}`;
+  };
+
+  test(`T1267 ${name}: gate replace T1,T2,T3 opens one gate that names the 3 tasks; approve moves all 3 and ends each of their runs in one write`, (t) => {
+    const w = transfer(t);
+    listOf(w, 3);
+    setCells(w.dir, "tasks", (l) => l.startsWith("T2\t"), "pr", "7");
+    w.owner("run", "add", "T1", "--role", "qa");
+    w.owner("run", "add", "T3", "--role", "code-reviewer");
+    const question = batchAsked(3, "T1, T2 (PR 7), T3 · runs R1 (T1 qa), R2 (T3 code-reviewer)", 2);
+    assert.equal(w.intruder("gate", "replace", "T1,T2,T3", "--to", "C2"), `G1 open · ${question}${next("G1")}`);
+    assert.equal(w.cells("gates").trim().split("\n").length, 2, "one gate for the list");
+    const gate = row(w.cells("gates"), "G1");
+    assert.deepEqual([gate.kind, gate.task, gate.options, gate.chief], ["replace", "T1", "approve|decline", "C2"]);
+    assert.deepEqual(["T1", "T2", "T3"].map((id) => row(w.cells("tasks"), id).chief), ["C1", "C1", "C1"], "the gate alone moves nothing");
+    assert.match(w.intruder("gate", "replace", "T1,T2,T3", "--to", "C2"), /^G1 is open already · Hand 3 tasks /, "the same list again is the open gate");
+    assert.match(w.intruder("gate", "replace", "T2", "--to", "C2"), /^G1 is open already · Hand 3 tasks /, "a task of an open list asks no second question");
+    assert.throws(() => w.intruder("gate", "replace", "T2", "--to", "C1"), /T2 already belongs to C1/);
+    assert.equal(w.answer("G1", "--option", "1"), "G1 answered · approve · T1, T2, T3 chief C2 · R1, R2 failed");
+    assert.deepEqual(["T1", "T2", "T3"].map((id) => row(w.cells("tasks"), id).chief), ["C2", "C2", "C2"]);
+    assert.deepEqual(["R1", "R2"].map((id) => [row(w.cells("runs"), id).status, row(w.cells("runs"), id).failure]), [["failed", "ended when you gave T1 to C2 (G1)"], ["failed", "ended when you gave T3 to C2 (G1)"]]);
+    const [mine, theirs] = providers();
+    assert.deepEqual(JSON.parse(codex.read(w.dir, "decisions").at(-1).handover), { from: "C1", fromProvider: mine, toProvider: theirs, to: "C2", tasks: ["T1", "T2", "T3"] }, "one typed hand-over names every task");
+    for (const id of ["T2", "T3"]) assert.throws(() => w.owner("task", id, "set", "title=x"), new RegExp(`^Error: ${id} belongs to chief C2 \\(.*\\), not to C1\\. Nothing changed`));
+    assert.throws(() => w.answer("G1", "--option", "2"), /G1 has the answer "approve" already/);
+  });
+
+  test(`T1267 ${name}: decline of a list moves none and ends no run; own words do the same`, (t) => {
+    const w = transfer(t);
+    listOf(w, 3);
+    w.owner("run", "add", "T2", "--role", "qa");
+    w.intruder("gate", "replace", "T1,T2,T3", "--to", "C2");
+    const tasks = w.cells("tasks"), runs = w.cells("runs");
+    assert.equal(w.answer("G1", "--option", "2"), "G1 answered · decline · nothing replaced: none of the 3 tasks changes its chief, and no run ended. G1 is spent: to change the chief, open a new takeover gate.");
+    assert.equal(w.cells("tasks"), tasks);
+    assert.equal(w.cells("runs"), runs);
+    assert.match(w.intruder("gate", "replace", "T1,T2,T3", "--to", "C2"), /^G2 open · Hand 3 tasks /, "after the answer, a new gate opens");
+    assert.equal(w.answer("G2", "--other-hex", Buffer.from("approve").toString("hex")), "G2 answered · other: approve · nothing replaced: none of the 3 tasks changes its chief, and no run ended. G2 is spent: to change the chief, open a new takeover gate.");
+    assert.equal(w.cells("tasks"), tasks);
+    assert.equal(w.cells("runs"), runs);
+  });
+
+  test(`T1267 ${name}: a list with a task that cannot move refuses and names each one: missing, ended, moved already, of another chief, with no chief, or in an open question`, (t) => {
+    const w = transfer(t);
+    listOf(w, 7);
+    other.chiefFor(w.project, "session-c", w.env);
+    w.intruder("gate", "replace", "T2", "--to", "C2");
+    w.answer("G1", "--option", "1");
+    setCells(w.dir, "tasks", (l) => l.startsWith("T3\t"), "state", "merged");
+    w.intruder("gate", "replace", "T4", "--to", "C3");
+    w.answer("G2", "--option", "1");
+    w.intruder("gate", "replace", "T5", "--to", "C2");
+    w.answer("G3", "--option", "1");
+    w.intruder("unclaim", "T5");
+    w.intruder("gate", "replace", "T6", "--to", "C3");
+    const before = w.tables();
+    assert.throws(() => w.intruder("gate", "replace", "T1,T9,T2,T3,T4,T5,T6,T7", "--to", "C2"), { message: "one takeover question moves the tasks of one chief, and 6 of the 8 tasks in the list cannot move: T9 is not a task of this logbook; T2 already belongs to C2; T3 is merged; T4 belongs to C3, not to C1; T5 has no owning chief, so it needs a question of its own (gate replace T5 --to C2); T6 is in the open takeover question G4. Take them out of the list, and run it again. Nothing changed." });
+    assert.equal(w.tables(), before, "nothing changed");
+    assert.throws(() => w.intruder("gate", "replace", "T1", "T7", "--to", "C2"), /gate replace takes one task id, or a list of task ids joined by commas with no spaces, and --to <C id>: sage gate replace T1,T2,T3 --to C<n>\. Nothing changed\./);
+    assert.match(w.intruder("gate", "replace", "T1,T7", "--to", "C2"), /^G5 open · Hand 2 tasks from C1 \(\w+\) to C2 \(\w+\)\? .* Ref: T1, T7$/m, "the list without them opens");
+  });
+
+  test(`T1267 ${name}: a task twice in the list refuses and names it; nothing changes`, (t) => {
+    const w = transfer(t);
+    listOf(w, 2);
+    const before = w.tables();
+    assert.throws(() => w.intruder("gate", "replace", "T1,T2,T1", "--to", "C2"), { message: "one takeover question moves the tasks of one chief, and 1 of the 3 tasks in the list cannot move: T1 is in the list twice. Take them out of the list, and run it again. Nothing changed." });
+    assert.equal(w.tables(), before);
+  });
+
+  test(`T1267 ${name}: at answer time, one task that changed makes the whole list out of date: the answer refuses, names it and moves none`, (t) => {
+    const w = transfer(t);
+    listOf(w, 3);
+    w.intruder("gate", "replace", "T1,T2,T3", "--to", "C2");
+    w.owner("run", "add", "T2", "--role", "qa");
+    let before = w.tables();
+    assert.throws(() => w.answer("G1", "--option", "1"), { message: "R1 started after G1 opened, so G1 does not name each run that ends as failed. Answer decline, then open a new takeover gate. Nothing changed." });
+    assert.equal(w.tables(), before);
+    w.owner("run", "done", "R1", "--status", "failed", "--why", "stopped");
+    w.owner("unclaim", "T3");
+    before = w.tables();
+    assert.throws(() => w.answer("G1", "--option", "1"), { message: "T3 now belongs to no chief, not to C1, so G1 is out of date. Answer decline, then open a new takeover gate. Nothing changed." });
+    assert.equal(w.tables(), before);
+    assert.deepEqual(["T1", "T2", "T3"].map((id) => row(w.cells("tasks"), id).chief || ""), ["C1", "C1", ""]);
+  });
+
+  test(`T1267 ${name}: a list of 50 tasks reads as one question with a count in its title and the ids in its Ref line, and approve moves all 50`, (t) => {
+    const w = transfer(t);
+    const ids = listOf(w, 50);
+    const opened = w.intruder("gate", "replace", ids.join(","), "--to", "C2");
+    const { question } = row(w.cells("gates"), "G1");
+    assert.equal(question, batchAsked(50, ids.join(", ")));
+    assert.equal(opened, `G1 open · ${question}${next("G1")}`);
+    const [title, ref] = [question.slice(0, question.indexOf("?") + 1), question.slice(question.indexOf(" Ref: "))];
+    assert.match(title, /^Hand 50 tasks from C1 \(\w+\) to C2 \(\w+\)\?$/, "the title ends with ? and names a count, not 50 ids");
+    assert.doesNotMatch(question.slice(0, question.indexOf(" Ref: ")), /\bT[1-9]\d*\b/, "no task id before the Ref line");
+    assert.deepEqual([...ref.matchAll(/T[1-9]\d*/g)].map((m) => m[0]), ids);
+    assert.equal(w.answer("G1", "--option", "1"), `G1 answered · approve · ${ids.join(", ")} chief C2`);
+    assert.deepEqual(ids.filter((id) => row(w.cells("tasks"), id).chief !== "C2"), []);
+  });
+
+  test(`T1267 ${name}: after a list takeover from the other provider, each task of the list, not only the first, runs a fresh cycle before it merges`, (t) => {
+    const w = transfer(t);
+    listOf(w, 2);
+    w.owner("task", "T2", "set", "pr=42");
+    for (const kind of ["checks-pass", "review-clean", "qa-pass"]) w.owner(...backed(["verdict", "T2", "--sha", SHA, "--kind", kind, "--pr", "42"], { cli: w.owner, keep: (fields) => own.keepReport(w.project, fields, w.env) }));
+    const check = () => other.sage(["merge-check", "--sha", SHA, "--pr", "42", "--project", w.project, "--chief", "C2"], w.env);
+    w.intruder("gate", "replace", "T1,T2", "--to", "C2");
+    w.answer("G1", "--option", "1");
+    setCells(w.dir, "ledger", () => true, "at", "2026-01-01T00:00:00Z");
+    setCells(w.dir, "decisions", (l) => /→ approve\tthe user's answer(?:\t|$)/.test(l), "at", "2026-01-01T00:00:01Z");
+    assert.throws(check, /^Error: T2 came from a chief of another provider \(2026-01-01T00:00:01Z, by a takeover gate or a pick-up\), so the cycles before that do not merge it alone: /);
+  });
+
   test(`${name}: a Replace that stopped half way finishes at the next write of any chief, from the saved change alone`, (t) => {
     const w = transfer(t);
     w.owner("run", "add", "T1", "--role", "qa");

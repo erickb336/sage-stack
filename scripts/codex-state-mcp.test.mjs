@@ -194,6 +194,9 @@ test("the transfer commands through the server: unclaim, pickup and a Replace by
   assert.match(await s.call("verdict", { task: "T1", kind: "checks-pass", sha: SHA }), /^T1 checks-pass/);
   assert.match((await s.call("merge_check", { sha: SHA }, as)).error, /^sage: T1 belongs to chief C1 \(codex\), not to C2\. Nothing changed\./);
   assert.match((await s.call("merge_check", { sha: SHA })).error, /^sage: T1: 0 of 1 clean cycles on this SHA/, "the owning chief gets the cycle rule");
+  assert.match(await s.call("gate_replace", { task: "T1,T2", to: "C2" }, as), /^G3 open · Hand 2 tasks from C1 \(codex\) to C2 \(codex\)\? Runs that end as failed: none\. .* Ref: T1, T2\nAsk the owner to answer G3, in either chat\. Nothing changes until then\.$/, "T1267: a list of tasks in one gate");
+  assert.match((await s.call("gate_replace", { task: "T1, T2", to: "C2" }, as)).error ?? "", /task ids joined by commas/, "a list with a space is no task id");
+  assert.equal(await s.call("gate_answer", { gate: "G3", option: 1 }), "G3 answered · approve · T1, T2 chief C2");
 });
 
 const OFF_LIST = (name) => `sage: "${name.replaceAll("_", " ")}" is not on a lead's list. A lead records only its own task, with run add, run done, finding add, finding close, finding triage, verdict, lint, round, pages, and task set of state, branch, pr. Put what else the logbook needs in your report`;
