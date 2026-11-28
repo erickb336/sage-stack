@@ -31,7 +31,7 @@ before(async () => {
 });
 after(async () => { await browser?.close(); await close?.(); });
 
-async function walk(t, job, width, steps, start = "") {
+async function walk(t, job, width, steps, start = "", most = 2) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, colorScheme: "dark", reducedMotion: "reduce" });
   t.after(() => context.close());
   await context.route("**/*", route => route.request().url().startsWith(`${base}/`) ? route.continue() : route.abort());
@@ -43,7 +43,7 @@ async function walk(t, job, width, steps, start = "") {
   if (!start) assert.equal(new URL(page.url()).pathname, "/app/", "the board's address opens the app");
   await page.locator("main h1", { hasText: start ? /./ : "All projects" }).first().waitFor();
   await steps(page, click);
-  assert.ok(clicks <= 2, `${job} at ${width} px took ${clicks} clicks from All projects`);
+  assert.ok(clicks <= most, `${job} at ${width} px took ${clicks} clicks from All projects`);
   assert.deepEqual(problems, []);
   if (SHOTS) { mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: join(SHOTS, `${job}-${width}.png`), fullPage: width < 1000 ? false : true }); }
   return clicks;
@@ -76,14 +76,18 @@ for (const width of WIDTHS) {
     assert.equal(clicks, 2);
   });
 
-  test(`J3 at ${width} px: a task opens through its project in two clicks`, async t => {
+  const project = async (page, click) => {
+    if (width < 760) await click(page.locator(".pbar").getByRole("button", { name: "Find a project" }));
+    await click(width < 760 ? page.getByRole("menuitem").filter({ hasText: "sample-app" }) : page.locator(".tree a[data-project]").first());
+    await page.locator("main h1", { hasText: "sample-app" }).waitFor();
+  };
+  test(`J3 at ${width} px: a task opens through its project in ${width < 760 ? "three" : "two"} clicks`, async t => {
     const clicks = await walk(t, "J3", width, async (page, click) => {
-      await click(page.locator(".tree a[data-project]").first());
-      await page.locator("main h1", { hasText: "sample-app" }).waitFor();
+      await project(page, click);
       await click(part(page, "waits").locator(`a[data-task="${decodeURIComponent(KEY("T4"))}"]`));
       await page.locator(".taskpage h1", { hasText: "Sample queue" }).waitFor();
-    });
-    assert.equal(clicks, 2);
+    }, "", 3);
+    assert.equal(clicks, width < 760 ? 3 : 2);
   });
 
   test(`J4 at ${width} px: Progress shows each milestone with no click, and one click opens it`, async t => {
@@ -98,13 +102,12 @@ for (const width of WIDTHS) {
     assert.equal(clicks, 1);
   });
 
-  test(`J6 at ${width} px: the tree switches to a project in one click`, async t => {
+  test(`J6 at ${width} px: ${width < 760 ? "Find on the phone bar" : "the tree"} switches to a project in ${width < 760 ? "two clicks" : "one click"}`, async t => {
     const clicks = await walk(t, "J6", width, async (page, click) => {
-      await click(page.locator(".tree a[data-project]").first());
-      await page.locator("main h1", { hasText: "sample-app" }).waitFor();
+      await project(page, click);
       assert.match(await page.locator("header .lv-crumb").textContent(), /^All projects›sample-app$/);
     });
-    assert.equal(clicks, 1);
+    assert.equal(clicks, width < 760 ? 2 : 1);
   });
 
   test(`J7 at ${width} px: the since line and Done in the last 7 days say what was done, with no click`, async t => {

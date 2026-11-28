@@ -100,14 +100,14 @@ test("T1054: text and controls meet AA contrast in the dark and the light theme,
 test("T1054: the keyboard reaches each page link and the theme switch in order, with a visible focus ring", async t => {
   const { page } = await open(t);
   const reached = [];
-  for (let i = 0; i < 11; i++) {
+  for (let i = 0; i < 12; i++) {
     await page.keyboard.press("Tab");
     reached.push(await page.evaluate(() => {
       const element = document.activeElement, style = getComputedStyle(element);
       return { name: element.getAttribute("aria-label") ?? element.textContent.trim(), ring: `${style.outlineStyle} ${style.outlineWidth}` };
     }));
   }
-  assert.deepEqual(reached.map(item => item.name), ["All projects", "sample-app2 need you", "Overview2", "Tasks6", "Agents1", "Pull requests1", "Stats", "sample-app ▾", "Agents 1 of 10 · no chief 1", "Leads 0 of 5", "Switch to the light theme"]);
+  assert.deepEqual(reached.map(item => item.name), ["All projects", "sample-app2 need you", "Overview2", "Tasks6", "Agents1", "Pull requests1", "Stats", "sample-app ▾", "Agents 1 of 10 · no chief 1", "Leads 0 of 5", "? Keys", "Switch to the light theme"]);
   for (const item of reached) assert.equal(item.ring, "solid 2px", item.name);
   await page.keyboard.press("Enter");
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), "light", "Enter on the theme switch flips it");

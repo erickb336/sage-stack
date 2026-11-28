@@ -675,13 +675,32 @@ table.sr { left: 0; top: 0; white-space: normal; }
 .tree .n { margin-left: auto; color: var(--faint); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .tree .n.need { color: var(--text); }
 .tree summary { cursor: pointer; color: var(--faint); padding: 5px var(--s2); }
-.lv-crumb { flex-wrap: wrap; gap: 2px; min-width: 0; }
-.lv-crumb a { color: var(--muted); text-decoration: none; padding: 2px 4px; border-radius: 4px; }
-.lv-crumb a:hover { color: var(--text); text-decoration: underline; }
+.lv-crumb { position: relative; flex-wrap: wrap; gap: 2px; min-width: 0; }
+.lv-crumb > a, .lv-cp > a { color: var(--muted); text-decoration: none; padding: 2px 4px; border-radius: 4px; }
+.lv-cp > a:hover { color: var(--text); text-decoration: underline; }
 .lv-crumb i { font-style: normal; color: var(--faint); padding: 0 2px; }
 .lv-crumb b { padding: 2px 4px; }
-.lv-crumb > span, .lv-crumb b { display: inline-flex; min-width: 0; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lv-crumb a, .lv-crumb b { overflow: hidden; text-overflow: ellipsis; }
+.lv-cp { display: inline-flex; align-items: center; min-width: 0; }
+.lv-cp > :is(a, b) { min-width: 0; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lv-mbtn { border: 0; background: none; color: var(--faint); padding: 2px 4px; border-radius: 4px; cursor: pointer; }
+.lv-mbtn:hover, .lv-mbtn[aria-expanded=true] { background: var(--hover); color: var(--text); }
+.lv-crumb .lv-mbtn::after { content: "▾"; font-size: 15px; }
+.lv-menu { width: min(340px, calc(100vw - 32px)); }
+.keyhint { border: 0; background: none; color: var(--faint); font-size: var(--t4); padding: 4px 6px; border-radius: 4px; cursor: pointer; }
+dialog.keys { padding: 0; width: min(460px, calc(100vw - 32px)); border: 1px solid var(--line-2); border-radius: var(--r); background: var(--card); color: var(--text); box-shadow: var(--shadow); }
+dialog.keys::backdrop { background: rgb(0 0 0 / .5); }
+.keys > div { display: grid; gap: var(--s3); padding: var(--s4) var(--s5); }
+.keys h2 { font-size: var(--t2); }
+.keys dl { display: grid; gap: var(--s2); margin: 0; }
+.keys dl > div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: var(--s3); }
+.keys dd { margin: 0; color: var(--muted); }
+.keys .btn { justify-self: start; }
+kbd { font: 12px var(--mono); padding: 0 6px; margin-right: 4px; border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 4px; }
+.main [data-nav] { scroll-margin: 64px 0 88px; }
+.main [data-nav]:focus, .came { background: var(--hover); box-shadow: inset 2px 0 0 var(--focus); }
+.came { animation: came 1.6s ease-out; }
+@keyframes came { from { background: var(--line-2); } }
+.pbar { display: none; }
 .lv { max-width: 1120px; font-size: var(--t3); }
 .lv a { color: inherit; }
 .lv .kind { font-size: var(--t4); color: var(--faint); }
@@ -774,7 +793,14 @@ a.chipa:hover { background: var(--hover); }
   .lv-row > :nth-child(n+2) { grid-column: 2; }
   .lv-row .tt { overflow-wrap: anywhere; }
   .lv-line { grid-template-columns: minmax(0, 1fr); }
-  .lv-crumb > span, .lv-crumb b { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+  .lv-cp > :is(a, b) { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+  .app.levels { padding-bottom: 76px; }
+  .app.levels .side .tree, .keyhint { display: none; }
+  .pbar { display: flex; position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 25; gap: 6px; padding: 6px; border: 1px solid var(--line-2); border-radius: 14px; background: var(--card); box-shadow: var(--shadow); }
+  .pbar > :is(a, button), .pbar .lv-mb, .pbar .lv-mbtn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; border: 0; border-radius: 10px; background: none; text-decoration: none; color: var(--text); }
+  .pbar > .need { background: var(--need-fill); }
+  .pbar > button:disabled { opacity: .4; }
+  .pbar .menu { top: auto; bottom: calc(100% + 8px); width: auto; right: 0; }
   .lv-wp { grid-template-columns: 16px minmax(0, 1fr) auto; }
   .lv-wp .meta { grid-column: 2 / 4; }
   .lv-wp .chev { grid-column: 3; }

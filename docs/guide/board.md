@@ -148,6 +148,9 @@ The address of the board opens **All projects**. The board has five levels, and 
 - **The tree,** at the left, lists the projects that need you or have work, with "2 need you" or "3 at work". The open project shows its milestones under it, each with "merged of all", and "No milestone".
 - **Quiet and Archived:** projects with no work for 14 days fold into "Quiet", and archived projects into "Archived".
 - **The breadcrumb,** at the top, names where you are, for example "All projects › sample-app › Board redesign › Agent queue". A click on a part goes up to that level.
+- **Breadcrumb menus:** the `▾` after "All projects" and after a project lists the projects that are not archived, each with "2 need you", "3 at work" or "quiet". The `▾` after a milestone lists the milestones of its project, each with "merged of all", and "No milestone" with its open tasks. A click on a name opens it.
+- **Menus by keyboard:** Enter opens a breadcrumb menu, the arrow keys move in it, and Esc closes it.
+- **Keep place:** on All projects, a project or a milestone, Back, `u` and Up return to the scroll place where you were, and mark the row that you came from. For example, Back from a task opens its project at the same place, with the task's row marked. A task page opens at its top.
 
 **A row** reads as one sentence: the name, then where it stands, for example "**Shared limits**: built, in review, 1 of 2 cycles clean." The name is the task's short name, in bold; a task that the chief has not named yet shows a name from its title, in italics.
 
@@ -200,18 +203,41 @@ A part with nothing in it is not a card: the parts fold into one line, for examp
 
 **More.** The pages of the board before the levels stay under "More" in the side bar, until their parts move into the levels: the Overview (the chief chips, the sessions, the stopped chiefs and archive), Tasks, Agents, Pull requests and Stats. A project's level links to each of them for that project.
 
+### Keys
+
+Press `?`, or click "? Keys" at the top, for this list. No key acts while a text field has the focus, or while you hold Ctrl, Cmd or Alt.
+
+| Key | What it does |
+| --- | --- |
+| `j`, `k` | Selects the next row or the previous row. |
+| `Enter`, `o` | Opens the selected row. |
+| `u` | Goes up one level, back to your place. |
+| `1`, `2`, `3` | Answers the selected question with its first, second or third choice, in a paired browser. A design question takes no key: its key opens its task, where you look at the design first. |
+| `g` then `i` | Opens All projects with the first question of Needs you selected. |
+| `g` then `p` | Opens the list of projects. |
+| `?` | Shows the list of keys. |
+| `Esc` | Closes a menu or the list of keys. |
+
+### The phone bar
+
+Below 760 px, the five levels have a bar at the bottom of the screen, and the tree leaves the page:
+
+- **Up** goes up one level and keeps your place, as `u` does.
+- **"2 need you"** opens All projects at the first question of Needs you.
+- **Find** lists the projects, with their counts. Until the "/" search comes, Find gives the projects only.
+
 ## The eight jobs of the board
 
-Each job is at most two clicks from All projects, at 1440 px and at 390 px. Browser tests walk each path on sample data (`scripts/board-jobs-browser.test.mjs`, and `scripts/board-levels-browser.test.mjs` for the answers).
+Each job is at most two clicks from All projects, at 1440 px and at 390 px, except "Find one task" on a phone, which takes three until the "/" search comes. Browser tests walk each path on sample data (`scripts/board-jobs-browser.test.mjs`, and `scripts/board-levels-browser.test.mjs` for the answers).
 
 | Job | Clicks from All projects | Where |
 | --- | --- | --- |
 | Answer what needs you | 1; a design question 2 | A choice on its Needs you row; a design question: its row, then the choice on the task. |
 | See what moves now | 0, then 2 for one task | At work: a project's line, then a task. |
-| Find one task | 2 | The project in the tree, then the task. Search by words comes with the "/" search. |
+| Find one task | 2; 3 on a phone | The project in the tree (on a phone: Find, then the project), then the task. Search by words comes with the "/" search. |
 | See a goal's progress | 0, then 1 | Milestones, then a milestone. |
 | See the important designs | 1 or 2 | A design question on Needs you. The Designs cards come in a later version. |
-| Switch projects | 1 | The tree. |
+| Switch projects | 1; 2 on a phone | The tree; on a phone, Find on the phone bar, then the project. The breadcrumb menus also switch, in 2. |
 | See what was done | 0 | The since line and Done in the last 7 days. |
 | Look at a stuck agent | 1 | Its flagged row under At work opens its run. |
 
@@ -425,7 +451,7 @@ A page says "not written yet" while its run runs, "not kept" for a run older tha
 
 <img alt="All projects at the width of a phone, 390 pixels, with SAMPLE DATA: Needs you first, each row in one column, and the tree of projects at the end of the page." src="../assets/board-phone.png" width="40%">
 
-The board works from a desktop window down to a phone width of 390 px. Below 900 px, the menu moves above the page, and the cards and the answers stack in one column. On the five levels below 760 px, each row takes two lines, the choices are large enough for a finger, and the tree of projects goes to the end of the page, after the work.
+The board works from a desktop window down to a phone width of 390 px. Below 900 px, the menu moves above the page, and the cards and the answers stack in one column. On the five levels below 760 px, each row takes two lines, the choices are large enough for a finger, and [the phone bar](#the-phone-bar) takes the place of the tree of projects.
 
 In the question view below 900 px, the material goes under the answers; while an item is open, a bar at the bottom of the window keeps "‹ Question", a button for each answer and Send. The bar also shows the result of Send: the answer that the logbook recorded, or the reason that the board refused it.
 
