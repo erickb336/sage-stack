@@ -107,7 +107,7 @@ test("standalone current-checkout board and task commands work without explicit 
   for (const scope of ["this", "T1"]) {
     const result = spawnSync(process.execPath, [cli, "board", scope, "--config", config], { cwd: dir, env: process.env, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
-    assert.ok(result.stdout.includes(scope === "this" ? "\n- Sample CLI task. Briefed.\n" : "Sample CLI task"), result.stdout);
+    assert.ok(result.stdout.includes(scope === "this" ? "\n- ⧗ Sample CLI task: the build starts next.\n" : "Sample CLI task"), result.stdout);
     if (scope === "T1") assert.ok(result.stdout.includes("**Brief**"));
   }
 });

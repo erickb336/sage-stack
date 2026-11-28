@@ -459,7 +459,7 @@ test("provider packages are complete outside the checkout, with no opposite adap
     assert.equal(run("task", "T1", "set", "state=briefed").status, 0);
     const board = run("board", "this");
     assert.equal(board.status, 0, board.stderr);
-    assert.match(board.stdout, /\n- Shared behavior\. Briefed\.\n/);
+    assert.match(board.stdout, /\n- ⧗ Shared behavior: the build starts next\.\n/u);
     const mod = await import(pathToFileURL(join(plugin, "skills/sage/sage.mjs")).href);
     const tool = provider === "codex" ? mod.tool : mod;
     assert.equal(tool.sageRoot({ HOME: join(dir, "home") }), join(dir, "home", `.${provider}`, "sage"));

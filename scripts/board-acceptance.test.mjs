@@ -63,7 +63,7 @@ const clean = (id, number, sha, kinds = ["checks-pass", "review-clean", "qa-pass
 const known = f => writeFileSync(join(f.root, "projects.tsv"), `logbook\tat\thow\nproject-abcdef\t${AT}\tinit\n`);
 const partsOf = text => Object.fromEntries([...text.matchAll(/^### (?:🔴 )?([^\n]+)\n([\s\S]*?)(?=\n\n(?:### |Quiet: |Archived: |Incomplete source: |Setting ignored: |Logbook note: |More: )|(?![\s\S]))/gm)]
   .map(([, name, body]) => [name, body.split("\n").filter(line => line.startsWith("- "))]));
-const placesOf = text => Object.fromEntries(Object.entries(partsOf(text)).flatMap(([name, lines]) => lines.filter(line => /^- Sample T\d+\b/.test(line)).map(line => [line.match(/^- Sample (T\d+)\b/)[1], name])));
+const placesOf = text => Object.fromEntries(Object.entries(partsOf(text)).flatMap(([name, lines]) => lines.filter(line => /^- (?:[?▶⧗⊘○✓■!◌] )?Sample T\d+\b/u.test(line)).map(line => [line.match(/^- (?:[?▶⧗⊘○✓■!◌] )?Sample (T\d+)\b/u)[1], name])));
 
 test("T280 acceptance: the board shows a PR ready to merge only when sage's own merge check passes on its head", t => {
   const f = fixture(t);
@@ -77,7 +77,7 @@ test("T280 acceptance: the board shows a PR ready to merge only when sage's own 
   const before = snapshot(f.root), text = f.view("chat"), detail = plain(["T1", "T2", "T3", "T4", "T5"].map(id => f.view("task", { id })).join("\n"));
   assert.deepEqual(placesOf(text), { T1: "Needs you", T2: "Moving now", T3: "Moving now", T4: "Needs you", T5: "Moving now" });
   assert.ok(text.includes("\n- Sample T1. The board cannot tell if autopilot is on, so review and merge its PR.\n"), text);
-  assert.ok(text.includes("\n- Sample T2. The merge check refuses its last commit; the chief repairs it.\n"), "a refused merge is the chief's to repair");
+  assert.ok(text.includes("\n- ! Sample T2: ready to merge. The merge check refuses its last commit; the chief repairs it.\n"), "a refused merge is the chief's to repair");
   assert.ok(text.includes("\n- Sample T4. The merge check is not checked, because the board does not know the last commit of its PR.\n"), text);
   assert.match(detail, /The merge check refuses 5555555\. Stranger-123456 has verdicts on 5555555/, "the reason names the folder, not its path");
   assert.match(detail, /The merge check passes on 1111111\. The board does not check the PR's head branch\./);
@@ -97,7 +97,7 @@ test("T205 acceptance: the chat board's state columns describe the recorded task
   records(f.book, [{ task: "T6", kind: "completion", observedAt: recent, recordedAt: recent, data: { state: "merged", at: recent } }]);
   const before = snapshot(f.root), text = f.view("chat");
   assert.deepEqual(placesOf(text), { T2: "Moving now", T3: "Moving now", T4: "Moving now", T5: "Needs you", T6: "Done since yesterday" }, "T1 is in the backlog and T7 is abandoned: no line (T1217)");
-  assert.deepEqual(partsOf(text)["Moving now"], ["- Sample T2. In design.", "- Sample T3. Held by the chief.", "- Sample T4. In review, cycle 1 of 1."]);
+  assert.deepEqual(partsOf(text)["Moving now"], ["- ⧗ Sample T2: in design.", "- ⧗ Sample T3: held by the chief.", "- ⧗ Sample T4: built, in review."]);
   assert.deepEqual(snapshot(f.root), before);
 });
 
@@ -121,7 +121,7 @@ test("T205 acceptance: provider roots keep duplicate task identities separate an
   const f = fixture(t), other = f.add("second", [task("T1", "held", { title: "Sample second provider" })]);
   table(f.book, "tasks", [task("T1", "held")]);
   const before = [snapshot(f.root), snapshot(other.root)], text = f.view("chat", { scope: "this" });
-  assert.ok(text.includes("- Sample T1. Held by the chief.") && text.includes("- Sample second provider. Held by the chief."), text);
+  assert.ok(text.includes("- ⧗ Sample T1: held by the chief.") && text.includes("- ⧗ Sample second provider: held by the chief."), text);
   assert.ok(text.endsWith("\nRef: T1 T1"), "two task identities, one for each source");
   assert.throws(() => f.invoke("task", { id: "T1" }), /task is ambiguous/);
   const detail = f.view("task", { id: "T1", sourceScope: other.key });
@@ -137,7 +137,7 @@ test("T205 acceptance: owner questions and hostile text remain escaped, complete
   table(f.book, "tasks", [task("T1", "held", { title: "<script>sample</script> [sample](https://example.test)" })]);
   table(f.book, "gates", [{ id: "G1", task: "T1", question: "Pick <sample>?", options: "keep|change", recommendation: "keep", default: "keep", answer: "", at: AT }]);
   const text = f.view("chat");
-  assert.ok(text.includes("\n- ‹script›sample‹/script›. Pick ‹sample›?\n  Options: 1 keep · 2 change.\n  Recommended: keep.\n"), text);
+  assert.ok(text.includes("\n- ‹script›sample‹/script›… Pick ‹sample›?\n  Options: 1 keep · 2 change.\n  Recommended: keep.\n"), text);
   assert.ok(text.endsWith("\nRef: T1 sample/project-abcdef/G1"), "the Ref line gives the full gate key");
   assert.ok(!text.includes("[sample](https://example.test)") && !text.includes("<") && !text.includes(String.fromCharCode(92)), "no link, no HTML and no backslash");
 });
@@ -185,7 +185,7 @@ test("T205 acceptance: Done uses completion evidence and status preserves actual
   records(f.book, [{ task: "T1", kind: "completion", observedAt: recent, recordedAt: recent, data: { state: "merged", at: recent } }, { task: "T2", kind: "completion", observedAt: old, recordedAt: old, data: { state: "merged", at: old } }]);
   table(f.book, "decisions", [{ task: "T2", at: recent, decision: "renamed title", why: "sample" }, { task: "T3", at: recent, decision: "added note", why: "sample" }]);
   const text = f.view("chat"), status = f.view("status");
-  assert.deepEqual(partsOf(text)["Done since yesterday"], [`- Recent completion. Merged yesterday at ${String(new Date(recent).getHours()).padStart(2, "0")}:${String(new Date(recent).getMinutes()).padStart(2, "0")}.`]);
+  assert.deepEqual(partsOf(text)["Done since yesterday"], [`- ✓ Recent completion: merged yesterday at ${String(new Date(recent).getHours()).padStart(2, "0")}:${String(new Date(recent).getMinutes()).padStart(2, "0")}.`]);
   assert.ok(!text.includes("Old completion")); assert.ok(!text.includes("Unknown completion"));
   assert.equal(status.split("\n")[0], "Tasks: merged 2 · concluded 1");
   assert.equal(status.split("\n")[1], "Agents: 0 recorded running · 0 inferred PRs");
@@ -244,10 +244,10 @@ test("T922: in a sandbox that blocks every write, as Codex's does, the note's ch
     return run.stdout;
   };
   const first = board();
-  assert.deepEqual(partsOf(first)["Done since yesterday"].map(line => line.split(". ")[0]), ["- First merge"], first);
+  assert.deepEqual(partsOf(first)["Done since yesterday"].map(line => line.split(":")[0]), ["- ✓ First merge"], first);
   table(f.book, "tasks", [task("T1", "merged", { title: "First merge" }), task("T2", "merged", { title: "Second merge" })]);
   records(f.book, [done("T1", hour), done("T2", new Date().toISOString())]);
   const second = board();
-  assert.deepEqual(partsOf(second)["Done since yesterday"].map(line => line.split(". ")[0]), ["- Second merge", "- First merge"], "newest first; the list is since yesterday, not since the last board");
+  assert.deepEqual(partsOf(second)["Done since yesterday"].map(line => line.split(":")[0]), ["- ✓ Second merge", "- ✓ First merge"], "newest first; the list is since yesterday, not since the last board");
   assert.equal(existsSync(join(f.root, "board.json")), false);
 });

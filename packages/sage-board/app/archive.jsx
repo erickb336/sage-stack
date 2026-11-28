@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { PairBox, linkProject, post, useAccess } from "./actions.jsx";
 import { AlertIcon } from "./icons.jsx";
 import { ago, plural } from "./overview.jsx";
-import { questionLink, taskLink } from "./task.jsx";
+import { Name, questionLink, taskLink } from "./task.jsx";
 
 const UNDO_MS = 10_000, CLOSED_KEY = "board-welcome-closed";
 let state = { asking: null, opener: null, busy: null, note: null, undone: null };
@@ -165,7 +165,7 @@ export function WelcomeBack({ project, model, now }) {
         {!open.length ? <p>Every task was done when you archived. {needs.length ? "" : "Nothing waits for you. "}Ask the chief for new work when you want it.</p> : <>
           <h3 className="lbl">Where it stood</h3>
           <ul className="stood">{open.map(task => (
-            <li key={task.key}><a href={taskLink(task.key)}>{task.id} · {task.title}</a> <span className="badge">{task.state}</span>{(task.waits || task.why || task.step?.label) && <span className="hint"> {task.waits || task.why || task.step.label}</span>}</li>
+            <li key={task.key}><a href={taskLink(task.key)}>{task.id} · <Name item={task} /></a> <span className="badge">{task.state}</span>{(task.waits || task.why || task.step?.label) && <span className="hint"> {task.waits || task.why || task.step.label}</span>}</li>
           ))}</ul>
         </>}
         {needs.length > 0 && <>

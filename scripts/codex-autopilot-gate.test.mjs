@@ -93,6 +93,33 @@ const ALLOW = { hookSpecificOutput: { hookEventName: "PermissionRequest", decisi
 const READY = "Report the pull request as ready: the owner merges it in GitHub";
 const OFF = 'sage: autopilot is off, so the owner merges. Report the pull request as ready. To turn autopilot on while sage mode is on, the owner sends "autopilot on" alone, as a new message while Codex is idle (press Esc first if Codex is busy)';
 
+test("T1261: admission reports static binding reasons after owner authorization", async () => {
+  const event = (type, turn_id = TURN) => ({ type: "event_msg", payload: { type, turn_id, turn_attribution: { turn_trigger: "composer" } } });
+  const cases = [
+    ["invalid-call-id", { tool_use_id: undefined }],
+    ["invalid-call-id", { tool_use_id: "private/call-value" }],
+    ["invalid-turn-id", { turn_id: undefined }],
+    ["turn-start-indeterminate", { turn_id: "unmatched-private-turn" }],
+    ["turn-start-indeterminate", {}, [event("task_started")]],
+    ["turn-inactive", {}, [event("task_complete")]],
+    ["turn-inactive", {}, [event("turn_aborted")]],
+    ["turn-not-latest", {}, [event("task_started", "other-turn")]],
+    ["call-before-turn", { turn_id: "later-turn" }, [event("task_complete"), event("task_started", "later-turn")]],
+    ["competing-active-turn", { turn_id: "later-turn", tool_use_id: "nested-call" }, [event("task_started", "later-turn")]],
+    ["competing-active-turn", { turn_id: "later-turn", tool_use_id: "nested-call" }, [event("task_started"), event("task_started", "later-turn")]],
+    ["mark-session-mismatch", {}, [], { session: "private-other-session" }],
+    ["invalid-mark-source", {}, [], { source: "private-source" }],
+  ];
+  for (const [code, fields, extra = [], mark = {}] of cases) {
+    clearPermits();
+    const w = world({ mark: { lines: 0, pid: PPID, ...mark } });
+    for (const row of extra) appendFileSync(w.transcript, JSON.stringify(row) + "\n");
+    rmSync(GH_LOG, { force: true });
+    assert.equal(denied(await w.run(w.input(COMMAND, fields))), `sage: this merge dispatch has no matching active root turn since this session started (${code}). Investigate this reason before another merge attempt`, code);
+    assert.deepEqual([w.checks, permits(), ghCalls()], [[], [], []], code);
+  }
+});
+
 test("T1087: a trusted nested dispatch needs no standalone call row", async () => {
   clearPermits();
   const lines = withMode(RECORDS["exec-on"]).filter((row) => row.payload.type !== "task_complete" || row.payload.turn_id !== TURN);

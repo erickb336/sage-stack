@@ -74,7 +74,7 @@ export function boardView({ sources, scope = "all", project = null, logbookKey =
       if (!project) throw new RangeError("this board needs the current project");
       selected = groupsOfThis(snapshots, project, here, now);
     } else selected = groupsNamed(snapshots, scope, now);
-    if (!selected.length || scope !== "this" && selected.length !== 1) throw new RangeError(selected.length ? `The project is ambiguous. Choose: ${selected.flatMap(group => group.books).join(", ")}` : "No recorded project matches this board scope.");
+    if (!selected.length || scope !== "this" && selected.length !== 1) throw new RangeError(selected.length ? `The project is ambiguous. Choose: ${selected.flatMap(group => group.books).sort().join(", ")}` : "No recorded project matches this board scope.");
     keys = new Set(selected.flatMap(group => group.books));
   }
   const model = buildBoardModel(snapshots.map(source => ({ ...source, projects: source.projects.filter(book => keys.has(book.key)) })), { now, landing: landingRule(sources, logbookKey) });
@@ -82,7 +82,7 @@ export function boardView({ sources, scope = "all", project = null, logbookKey =
     const found = model.tasks.filter(task => task.id === taskId), own = found.filter(task => !task.old);
     const tasks = found.length > 1 && own.length === 1 ? own : found;
     if (tasks.length !== 1) {
-      if (tasks.length) throw new RangeError(`The task is ambiguous. Choose its project: ${tasks.map(task => task.project).join(", ")}`);
+      if (tasks.length) throw new RangeError(`The task is ambiguous. Choose its project: ${tasks.map(task => task.project).sort().join(", ")}`);
       const nearby = [...new Set(model.tasks.map(task => task.id))].sort((a,b) => Math.abs(Number(a.slice(1)) - Number(taskId.slice(1))) - Math.abs(Number(b.slice(1)) - Number(taskId.slice(1)))).slice(0, 3);
       throw new RangeError(`Unknown task ${taskId}. Nearest recorded ids: ${nearby.join(", ") || "none"}. No task was opened.`);
     }

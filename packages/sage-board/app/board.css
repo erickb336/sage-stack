@@ -525,7 +525,7 @@ p.waits.never { color: var(--fail); }
 .taskpage h1 { font-size: 22px; overflow-wrap: anywhere; outline: none; }
 .tp-head { display: grid; gap: 2px; overflow-wrap: anywhere; }
 .tp-head .kind { color: var(--faint); font-size: var(--t4); }
-.tid { font-size: 12px; margin-left: 10px; font-weight: 400; }
+.tid { font-size: 12px; margin-left: 6px; font-weight: 400; }
 .facts-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
 .facts-line code { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
 .atwork { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12.5px; }
@@ -687,7 +687,7 @@ table.sr { left: 0; top: 0; white-space: normal; }
 .lv .kind { font-size: var(--t4); color: var(--faint); }
 .lv h1, .taskpage h1 { font-size: var(--t1); margin: 2px 0 var(--s1); }
 .lv .sub { color: var(--muted); margin-bottom: var(--s4); }
-.lv .id { color: var(--faint); font-weight: 400; margin-left: 6px; font-size: var(--t4); }
+.lv .id { color: var(--faint); font-weight: 400; margin-left: 2px; font-size: var(--t4); }
 .lv-part { margin-bottom: var(--s5); }
 .lv-part > h2, .lv-decide h2 { display: flex; gap: var(--s2); align-items: baseline; font-size: var(--t2); margin-bottom: var(--s2); }
 .lv-part > h2 .r { font-size: var(--t4); font-weight: 400; color: var(--faint); }
@@ -701,7 +701,7 @@ table.sr { left: 0; top: 0; white-space: normal; }
 .lv .ref { font: 11.5px var(--mono); color: var(--faint); white-space: nowrap; }
 .tn { font-weight: 600; }
 .tn.fb { font-style: italic; font-weight: 500; }
-.lv .tag { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; margin-left: var(--s2); color: var(--muted); font-size: var(--t4); }
+.lv .tag { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; margin-left: var(--s1); color: var(--muted); font-size: var(--t4); }
 .lv .lede { font-size: var(--t2); margin-bottom: var(--s1); }
 .lv-segs { display: flex; gap: 3px; max-width: 260px; margin: var(--s1) 0; }
 .lv-segs i { flex: 1; height: 6px; border-radius: 2px; background: var(--line-2); }

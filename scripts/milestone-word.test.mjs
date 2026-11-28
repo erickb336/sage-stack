@@ -47,7 +47,7 @@ test("T1009: the T997 example, a milestone whose tasks need you and wait, is in 
   assert.deepEqual({
     board: board.milestones[0].word, chat, status: statusWord("milestone M1"),
     releaseOnBoard: board.releases[0].releases[0].word, releaseInStatus: statusWord("release 1\\.0"),
-  }, { board: "in progress", chat: "- Release 1.0: 0 of 3 tasks done.\n- Sage feel: 0 of 2 merged. Next, Sample task 1.", status: "in progress", releaseOnBoard: "in progress", releaseInStatus: "in progress" });
+  }, { board: "in progress", chat: "- ◎ Release 1.0: 0 of 3 tasks done.\n- ◫ Sage feel: 0 of 2 tasks merged, 1 waiting. Next, Sample task 1.", status: "in progress", releaseOnBoard: "in progress", releaseInStatus: "in progress" });
 });
 
 test("T1009: a milestone whose only open task waits after its briefing has not started, on the board model and status, and the chat digest names its next task (T1217)", () => {
@@ -63,5 +63,5 @@ test("T1009: a milestone whose only open task waits after its briefing has not s
     board: board.milestones[0].word,
     chat: renderBoardText(board).split("### Milestones\n")[1].split("\n\n")[0],
     status: s.ok("status").match(/^milestone M1 · (.+?) · /m)?.[1],
-  }, { board: "not started", chat: "- Sage feel: 0 of 2 merged. Next, Sample task 1.", status: "not started" });
+  }, { board: "not started", chat: "- ◫ Sage feel: 0 of 2 tasks merged, 1 waiting. Next, Sample task 1.", status: "not started" });
 });

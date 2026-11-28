@@ -71,7 +71,7 @@ function check(args, env, now) {
   try { mark = readState(permit.startFile); } catch { mark = undefined; }
   if (!isDeepStrictEqual(mark, permit.mark)) return { why: `the session start changed since this merge was admitted. ${AGAIN}` };
   const binding = dispatchBinding(record, mark, { session, turn: permit.turn, callId });
-  if (!binding || binding.turnStart !== permit.turnStart || state.onTurn !== permit.ownerTurn) return { why: `the admitted root turn or owner authorization changed. ${AGAIN}` };
+  if (binding.refused || binding.turnStart !== permit.turnStart || state.onTurn !== permit.ownerTurn) return { why: `the admitted root turn or owner authorization changed. ${AGAIN}` };
   return { repo: permit.repo, gh: permit.gh, path: permit.path };
 }
 
