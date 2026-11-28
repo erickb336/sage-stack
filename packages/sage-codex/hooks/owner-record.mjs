@@ -164,17 +164,27 @@ export const callInRecord = (record, callId, from) =>
   record.calls.has(callId) && record.calls.get(callId) >= from;
 
 export function dispatchBinding(record, mark, { session, turn, callId, child = false }) {
-  if (!dispatchId(session) || !dispatchId(turn) || !dispatchId(callId) || child) return null;
-  if (record.session !== session || !record.root || mark?.session !== session) return null;
-  if (!["startup", "resume", "clear", "fork"].includes(mark.source) || !Number.isInteger(mark.pid) || mark.pid <= 0) return null;
-  if (!Number.isInteger(mark.lines) || mark.lines < 0 || mark.lines > record.lines) return null;
+  if (!dispatchId(session)) return { refused: "invalid-session-id" };
+  if (!dispatchId(turn)) return { refused: "invalid-turn-id" };
+  if (!dispatchId(callId)) return { refused: "invalid-call-id" };
+  if (child) return { refused: "child-dispatch" };
+  if (record.session !== session) return { refused: "record-session-mismatch" };
+  if (!record.root) return { refused: "non-root-record" };
+  if (mark?.session !== session) return { refused: "mark-session-mismatch" };
+  if (!["startup", "resume", "clear", "fork"].includes(mark.source)) return { refused: "invalid-mark-source" };
+  if (!Number.isInteger(mark.pid) || mark.pid <= 0) return { refused: "invalid-mark-pid" };
+  if (!Number.isInteger(mark.lines) || mark.lines < 0 || mark.lines > record.lines) return { refused: "invalid-mark-boundary" };
   const start = record.turns.get(turn);
-  if (!Number.isInteger(start) || start !== record.latestStart || start < mark.lines || !record.active.has(turn) || record.aborted.has(turn)) return null;
+  if (!Number.isInteger(start)) return { refused: "turn-start-indeterminate" };
+  if (start !== record.latestStart) return { refused: "turn-not-latest" };
+  if (start < mark.lines) return { refused: "turn-before-boundary" };
+  if (!record.active.has(turn)) return { refused: "turn-inactive" };
+  if (record.aborted.has(turn)) return { refused: "turn-aborted" };
   for (const active of record.active) {
     const began = record.turns.get(active);
-    if (active !== turn && (!Number.isInteger(began) || began >= mark.lines)) return null;
+    if (active !== turn && (!Number.isInteger(began) || began >= mark.lines)) return { refused: "competing-active-turn" };
   }
-  if (record.calls.has(callId) && !callInRecord(record, callId, Math.max(mark.lines, start))) return null;
+  if (record.calls.has(callId) && !callInRecord(record, callId, Math.max(mark.lines, start))) return { refused: "call-before-turn" };
   return { turnStart: start };
 }
 

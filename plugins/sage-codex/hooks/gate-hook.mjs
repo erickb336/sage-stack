@@ -430,7 +430,7 @@ async function admit(f, merge, { env, check, ppid, temporary }) {
   if (owner.refused) return `sage: ${owner.refused}`;
   if (!owner.on) return `sage: ${owner.reason}, so the owner merges. ${READY}. To turn autopilot on, the owner sends "autopilot on" alone, ${NEW_ON}`;
   const binding = dispatchBinding(codexRecord, mark, { session: f.session, turn: f.turn, callId: f.toolUseId, child: f.child });
-  if (!binding) return "sage: this merge dispatch has no matching active root turn since this session started. Ask for the merge again";
+  if (binding.refused) return `sage: this merge dispatch has no matching active root turn since this session started (${binding.refused}). Investigate this reason before another merge attempt.`;
   if (inside(real(process.execPath) ?? process.execPath, roots)) return `sage: node runs from a folder that Codex's sandbox can write (${process.execPath}), so autopilot merges nothing. ${READY}`;
   const gh = trustedGh(roots, env);
   if (!gh) return `sage: sage found no gh outside the folders that Codex's sandbox can write, so autopilot merges nothing. ${READY}`;
