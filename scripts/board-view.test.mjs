@@ -30,7 +30,7 @@ test("rich chat board reads the recorded current project without writing the log
   run("task", "T1", "set", "state=briefed");
   const before = snapshot(root);
   let output; assert.doesNotThrow(() => { output = run("board", "this", "--view", "chat"); });
-  assert.ok(output.includes("### Moving now\n- Sample task. Briefed.\n"), output);
+  assert.ok(output.includes("### Moving now\n- ⧗ Sample task: the build starts next.\n"), output);
   assert.deepEqual(snapshot(root), before);
 });
 test("rich task lookup gives details and unknown tasks suggest nearest ids without opening one", t => {

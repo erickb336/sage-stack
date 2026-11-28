@@ -1,7 +1,7 @@
 const BUILT = "built", MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(" ");
 const PHRASE = {
   __proto__: null,
-  framed: () => "not started",
+  framed: f => f.agents ? `in ${f.step ?? "the plan"}` : "not started",
   designing: () => "in design",
   "awaiting-you": f => f.asked ? "in design" : "you answered; the chief moves it on",
   briefed: f => f.step ? `${f.step} starts next` : "briefed",
@@ -23,9 +23,8 @@ const OPEN = Object.keys(PHRASE).filter(state => !ENDS[state]);
 const cap = text => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 const andOf = list => list.length > 1 ? `${list.slice(0, -1).join(", ")} and ${list.at(-1)}` : list[0] ?? "";
 const dayOf = at => { const when = typeof at === "number" ? at : Date.parse(at); return Number.isFinite(when) ? ` ${new Date(when).getDate()} ${MONTHS[new Date(when).getMonth()]}` : ""; };
-const routeOf = route => Array.isArray(route) ? route : String(route ?? "").split(",").filter(Boolean);
-const factsOf = card => ({ asked: !!card?.reasons?.length, step: card?.loop?.name || null, made: routeOf(card?.route).includes("build") ? BUILT : routeOf(card?.route).length ? "report written" : null,
-  clean: card?.loop?.cycles?.clean ?? null, required: card?.loop?.cycles?.required ?? 1, day: dayOf(card?.completedAt) });
+const factsOf = card => ({ asked: !!card?.reasons?.length, step: card?.loop?.name || null, made: card?.loop?.build ? BUILT : card?.loop?.investigate ? "report written" : null,
+  clean: card?.loop?.cycles?.clean ?? null, required: card?.loop?.cycles?.required ?? 1, day: dayOf(card?.completedAt), agents: (card?.agents ?? []).length });
 const phraseOf = card => PHRASE[card.state](factsOf(card));
 
 export function taskWord(card) {
@@ -50,24 +49,25 @@ const needOf = reasons => !reasons.length ? null : reasons.length > 1 ? reasons.
 const neverOf = (wait, nameOf) => wait.odd ? "its waits cell is not a task id" : wait.breakdown ? `the breakdown of its milestone is ${wait.breakdown.state === "dropped" ? "dropped" : "lost"}`
   : wait.loop ? `its waits make a loop through ${nameOf(wait.id)}` : wait.state === null ? `${wait.id} is not in the logbook` : `${nameOf(wait.id)} was abandoned`;
 function waitsOf(waits, nameOf) {
-  const open = waits.filter(wait => !wait.met), never = open.filter(wait => wait.never), breakdown = open.filter(wait => wait.breakdown && !wait.never);
+  const never = waits.filter(wait => wait.never);
   if (never.length) return `cannot start, because ${andOf(never.map(wait => neverOf(wait, nameOf)))}`;
-  return `waits for ${andOf((breakdown.length ? breakdown : open).map(wait => wait.breakdown ? wait.breakdown.state === "changing" ? "the new breakdown" : "your approval of the breakdown" : nameOf(wait.id)))}`;
+  return `waits for ${andOf(waits.map(wait => wait.breakdown ? wait.breakdown.state === "changing" ? "the new breakdown" : "your approval of the breakdown" : nameOf(wait.id)))}`;
 }
-const TONE = { "needs you": "need", "in progress": "run", done: "done" };
+export const ROWS = { needs: ["needs you", "need"], work: ["in progress", "run"], waits: ["waiting", ""], done: ["done", "done"], stopped: ["stopped", ""] };
+export const rowMark = row => ({ mark: MARKS[ROWS[row]?.[0]] ?? MARKS.unknown, tone: ROWS[row]?.[1] ?? "" });
 export function taskSentence(card, nameOf = id => id, asks = card.state !== "abandoned") {
-  const { word } = taskWord(card), reasons = asks ? card.reasons ?? [] : [], problems = card.problems ?? [], agents = (card.agents ?? []).length;
+  const { word } = taskWord(card), reasons = asks ? card.reasons ?? [] : [], problems = card.problems ?? [], agents = ENDS[card.state] ? 0 : (card.agents ?? []).length;
   const waiting = !!word && !ENDS[card.state] && !!card.waitLine && ["framed", "briefed"].includes(card.state), never = waiting && !!card.waitLine.never;
-  const says = !word ? `the board cannot read the state "${card.state}"` : waiting ? waitsOf(card.waits ?? [], nameOf)
-    : `${phraseOf(card)}${agents && !ENDS[card.state] ? `, ${agents} ${agents === 1 ? "agent" : "agents"} at work` : ""}`;
+  const says = `${!word ? `the board cannot read the state "${card.state}"` : waiting ? waitsOf(card.waitLine.waits ?? [], nameOf) : phraseOf(card)}${agents ? `, ${agents} ${agents === 1 ? "agent" : "agents"} at work` : ""}`;
   const need = needOf(reasons), flag = problems[0]?.text ?? null;
-  const mark = need ? MARKS["needs you"] : flag ? MARKS.problem : never ? MARKS["cannot start"] : !word ? MARKS.unknown : waiting ? MARKS.waiting : MARKS[word];
-  return { says, need, flag, mark, tone: need ? "need" : flag || never ? "fail" : TONE[word] ?? "" };
+  const shown = rowMark(need ? "needs" : ENDS[card.state] === "stopped" ? "stopped" : ENDS[card.state] ? "done" : agents ? "work" : "waits");
+  const mark = need ? shown.mark : flag ? MARKS.problem : never ? MARKS["cannot start"] : !word ? MARKS.unknown : !agents && card.state === "framed" && !waiting ? MARKS["not started"] : shown.mark;
+  return { says, need, flag, mark, tone: !need && (flag || never) ? "fail" : shown.tone };
 }
 
 export function milestoneSentence(milestone, needs = []) {
   const { state, merged, total, abandoned = [], moving = 0, waiting = 0, cannotStart = [] } = milestone, asked = MILESTONE[state];
-  const done = state === "done" || total > 0 && merged + abandoned.length === total;
+  const done = state === "done";
   const says = asked && asked[0] !== "needs you" ? asked[1].charAt(0).toLowerCase() + asked[1].slice(1, -1) : done ? `done, ${merged === total ? `all ${total}` : `${merged} of ${total}`} ${total === 1 ? "task" : "tasks"} merged${abandoned.length ? `, ${abandoned.length} abandoned` : ""}${dayOf(milestone.doneAt)}`
     : [`${merged} of ${total} ${total === 1 ? "task" : "tasks"} merged`, moving && `${moving} at work`, waiting && `${waiting} waiting`, cannotStart.length && `${cannotStart.length} cannot start`].filter(Boolean).join(", ");
   const need = [asked?.[0] === "needs you" && asked[1], needs.length && `${andOf(needs)} ${needs.length === 1 ? "needs" : "need"} you.`].filter(Boolean).join(" ") || null;

@@ -40,7 +40,7 @@ The chat board is a digest that you read at once. It answers one question: "Do I
 It has four parts, always in this order:
 
 1. **Needs you:** each open question, with its options and the chief's recommendation; each problem of a milestone or a logbook; and each chief that stopped with open tasks. 🔴 marks the part only when something waits for you.
-2. **Moving now:** each task past the backlog that does not wait for you, or that an agent works on, with what it does and how long its agent has run. A task that the chief must repair (for example, the merge check refuses its last commit) says so here.
+2. **Moving now:** each task past the backlog that does not wait for you, or that an agent works on. It reads as its row on the board, with `▶` only while an agent works on it, then how long its agent has run. A task that the chief must repair (for example, the merge check refuses its last commit) says so here.
 3. **Done since yesterday:** the tasks merged or concluded today or yesterday, newest first, with the local time.
 4. **Milestones:** one line for each release that is not done, then one line for each open milestone, with its count of merged tasks and its next task.
 
@@ -55,7 +55,7 @@ Other rules of the digest:
 - It leaves out the backlog, the sessions, the pick-ups, the step lines, the priorities and the kinds. The browser shows them.
 - When two or more projects have work, each part groups its lines under the project's name, and the Ref line names the project too.
 - The head line gives the time in your local zone, and names the zone once.
-- Each task shows by its short name. A task that the chief has not named yet shows a name from its title: the words before its colon, or its first words.
+- Each task shows by its short name. A task that the chief has not named yet shows a name from its title: the words before its colon, or its first words, with "…" when they are cut.
 - Names longer than 60 characters end at a word, with "…".
 - Agent text shows as plain text: it makes no link, no image and no HTML in the chat.
 
@@ -78,18 +78,18 @@ sedalina
 
 ### Moving now
 sage-stack
-- Free hook slots. Building, 20 min.
+- ▶ Free hook slots: in the build, 1 agent at work, 20 min.
 
 sedalina
-- Cart total. Building, 1 h 15 min.
+- ▶ Cart total: in the build, 1 agent at work, 1 h 15 min.
 
 ### Done since yesterday
 sage-stack
-- Read-only roles. Merged at 09:40.
+- ✓ Read-only roles: merged at 09:40.
 
 ### Milestones
 sage-stack
-- Board redesign: 1 of 4 merged. Next, Free hook slots.
+- ◫ Board redesign: 1 of 4 tasks merged, 2 at work. Next, Free hook slots.
 
 Quiet: 1 other project has nothing that moves or needs you.
 
@@ -109,7 +109,7 @@ Each task, step, milestone and agent shows one of six state words, in the browse
 | not started | ○ | The task exists, and no agent works on it yet. |
 | waiting | ⧗ | It cannot start before another task, or before you approve its milestone. |
 | needs you | ? | It waits for your answer to a question, or for your merge. |
-| in progress | ▶ | Agents or the chief work on it. |
+| in progress | ▶ | Agents or the chief work on it. On a row, `▶` shows only while an agent works on it; with no agent at work, the row has `⧗`. |
 | done | ✓ | It merged, or it was a study that ended. |
 | stopped | ■ | Its work stopped for good. |
 
@@ -153,13 +153,13 @@ The address of the board opens **All projects**. The board has five levels, and 
 
 The phrase comes from one table of the board, so a task with no build step never says "built". Each row also has:
 
-- a mark at its left, never colour alone: `?` needs you, `▶` at work, `⧗` waits, `⊘` cannot start, `○` not started, `✓` done, `■` stopped, `!` a problem, `◌` a state that the board cannot read;
+- a mark at its left, never colour alone: `?` needs you, `▶` an agent works on it now, `⧗` waits (for another task, or for its next step with no agent at work), `⊘` cannot start, `○` not started, `✓` done, `■` stopped, `!` a problem, `◌` a state that the board cannot read;
 - an amber line, only when you must act, for example "Needs your answer." or "Needs you to merge it: autopilot is off.";
 - a red line for a problem that the chief repairs, for example "Checks failed on the recorded PR head; the chief repairs it.";
 - the milestone tag "◫ Board redesign" on a task row outside its milestone's page; a row with no tag is a single task. On a phone, a long milestone name ends with "…", and the tag's tooltip gives the full name;
 - the id and the PR, small at the right, to match the chat; on a phone, under the sentence.
 
-A milestone row has the `◫` mark, a sentence such as "**Board redesign**: 1 of 5 tasks merged, 2 at work, 2 waiting.", an amber line that names its tasks that need you, and a bar with one part for each task.
+A milestone row has the `◫` mark, a sentence such as "**Board redesign**: 1 of 5 tasks merged, 2 at work, 2 waiting." ("at work" counts the tasks that an agent works on now), an amber line that names its tasks that need you, and a bar with one part for each task.
 
 **The parts of a level, from the top:**
 
@@ -177,7 +177,7 @@ A part with nothing in it is not a card: the parts fold into one line, for examp
 
 **The milestone** opens with its name, its sentence ("Nothing needs you." when nothing does), its goal and its bar. Then "Its tasks" lists every task of the milestone, merged tasks of any age too, in "waits for" lines:
 
-- **First, Then, Last:** a task goes one line below the last task of the milestone that it waits for. Tasks on one line can run side by side.
+- **First, Then, Last:** a task goes one line below the last task of the milestone that it waits for. Tasks on one line do not wait for each other, so they can run side by side.
 - **One line:** a milestone with one line shows no First, Then or Last.
 - **A flag:** an agent with a flag shows above the lines.
 

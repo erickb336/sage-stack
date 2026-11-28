@@ -36,9 +36,9 @@ test("T1054: milestones come by the top priority of their open tasks, with progr
   const rows = overview().milestones.map(m => [m.id, m.priority, m.state, m.merged, m.total, m.moving, m.waiting, m.needsYou]);
   assert.deepEqual(rows, [
     ["M2", "P0", "active", 0, 2, 0, 1, 1],
-    ["M1", "P1", "active", 1, 4, 2, 1, 0],
+    ["M1", "P1", "active", 1, 4, 1, 1, 0],
     ["M3", null, "done", 2, 2, 0, 0, 0],
-  ], "T1223: a row has one state, so T10, which needs you, is not in progress too");
+  ], "T1223: a row has one state, so T10, which needs you, is not in progress too; T1263: at work counts only M1's task with a running agent");
   const later = overview(undefined, "2026-11-19T12:00:00.000Z");
   assert.deepEqual(later.milestones.map(m => m.id), ["M2", "M1"], "M3's last task merged 30 h before NOW, so it leaves after 7 days");
   assert.deepEqual(later.hiddenDone, { "sample-app-abc123": 1 }, "T1135: by project");
@@ -305,10 +305,18 @@ test("T1257: a milestone keeps every task, merged ones of any age too, in its wa
   assert.deepEqual(m1.tasks.map((task, i) => [task.split("/").at(-1), m1.depths[i]]), [["T1", 0], ["T2", 1], ["T3", 1], ["T14", 1], ["T4", 2]], "the pilot first, then each task one line below what it waits for");
   assert.deepEqual(levels.milestones[key("M1")].done, [key("T1"), key("T14")], "the milestone level keeps the merge of 24 days ago");
   assert.ok(!levels.projects["sample-app-abc123"].done.includes(key("T14")), "the project level keeps Done in the last 7 days");
-  assert.deepEqual([m1.name, m1.says, m1.need, m1.mark], ["Board redesign", "2 of 5 tasks merged, 2 at work, 1 waiting", null, "◫"]);
-  const t14 = tasks.find(row => row.id === "T14");
-  assert.deepEqual([t14.name, t14.named, t14.says, t14.milestone.name], ["Old budget", true, "merged 20 Oct", "Board redesign"]);
+  assert.deepEqual([m1.name, m1.says, m1.need, m1.mark], ["Board redesign", "2 of 5 tasks merged, 1 at work, 1 waiting", null, "◫"], "T1263: at work counts only the task that an agent works on");
+  const t14 = tasks.find(row => row.id === "T14"), merged = new Date("2026-10-20T12:00:00.000Z");
+  assert.deepEqual([t14.name, t14.named, t14.says, t14.milestone.name], ["Old budget", true, `merged ${merged.getDate()} ${merged.toLocaleString("en-US", { month: "short" })}`, "Board redesign"], "F-T1263-3: the day in the local zone, as the board makes it");
   const t4 = tasks.find(row => row.id === "T4");
   assert.deepEqual([t4.name, t4.named, t4.says, t4.mark], ["Sample queue", false, "waits for Sample chief records", "⧗"], "a task with no name: the name from its title, and its waits by name");
   assert.deepEqual(milestones.find(m => m.id === "M2").need, "Sample sync design needs you.");
+});
+
+test("T1263: a merged task with an open question needs you on its row and on its milestone's need line", () => {
+  const tables = appTables(NOW);
+  tables.tasks.push({ ...tables.tasks[0], id: "T14", name: "Old budget", title: "Sample old budget", state: "merged" });
+  tables.gates.push({ id: "G14", task: "T14", question: "Keep the old budget?", options: "yes|no", recommendation: "yes", default: "", answer: "", at: NOW });
+  const { milestones, tasks } = overview(tables), m1 = milestones.find(m => m.id === "M1");
+  assert.deepEqual([tasks.find(row => row.id === "T14").mark, m1.need, m1.needsYou], ["?", "Old budget needs you.", 1]);
 });

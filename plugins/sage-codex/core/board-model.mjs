@@ -212,8 +212,9 @@ function stepLine({ task, route, cycles, required, head, judged, reasons, proble
   NEXT["pr-ready"] = NEXT.verified;
   const AFTER = { replan: "The chief briefs it again after your answer.", "awaiting-you": `${cap(NAME.build)} is briefed after your answer.` };
   const next = who === "done" ? null : gate ? AFTER[state] ?? `${cap(name)} ${started ? "goes on" : "starts"} after your answer.` : NEXT[state];
-  if (!route.length) return { steps: [], current: null, name: null, cycles: null, now: needs ? { needs: true, text: needs } : { needs: false, stale: false, text: NO_ROUTE }, next: null };
-  return { steps, current: step, name: name || null, cycles: { clean: judged ? cycles.filter(clean).length : null, required }, now: needs ? { needs: true, text: needs } : { needs: false, stale: ["stale", "lost"].includes(status), text: nowText }, next };
+  const made = { build, investigate: route.includes("investigate") };
+  if (!route.length) return { steps: [], current: null, name: null, ...made, cycles: null, now: needs ? { needs: true, text: needs } : { needs: false, stale: false, text: NO_ROUTE }, next: null };
+  return { steps, current: step, name: name || null, ...made, cycles: { clean: judged ? cycles.filter(clean).length : null, required }, now: needs ? { needs: true, text: needs } : { needs: false, stale: ["stale", "lost"].includes(status), text: nowText }, next };
 }
 const NO_ROUTE = "The logbook records no route for this task, so the board shows no steps.";
 
@@ -244,8 +245,8 @@ function waitLine(task, waits, column) {
   if (!open.length) return null;
   const never = open.some(wait => wait.never), named = open.filter(wait => !wait.odd), odd = named.length < open.length ? " Its waits cell has text that is not a task id: the chief sets its waits again." : "";
   const loop = open.some(wait => wait.loop) ? " Its waits make a loop, which never ends: the chief sets its waits again." : "";
-  if (!named.length) return { never, text: `It cannot start.${odd}` };
-  return { never, text: `Waits for ${and(named.map(waitName))}${never ? ": it cannot start." : "."}${odd}${loop}${!never && column === "design" ? " Design and PE may run." : ""}` };
+  if (!named.length) return { never, waits: open, text: `It cannot start.${odd}` };
+  return { never, waits: open, text: `Waits for ${and(named.map(waitName))}${never ? ": it cannot start." : "."}${odd}${loop}${!never && column === "design" ? " Design and PE may run." : ""}` };
 }
 
 let stateTool;

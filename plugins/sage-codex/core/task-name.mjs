@@ -23,19 +23,29 @@ export function taskNameProblem(name) {
 export const taskNameTwin = (name, tasks, self) => !ENDED.includes(tasks.find((t) => t.id === self)?.state)
   && open(tasks).find((t) => t.id !== self && t.name && releaseKey(t.name) === releaseKey(name));
 
+const CLOSES = { __proto__: null, ")": "(", "]": "[", "}": "{" };
+const balanced = (text) => {
+  const open = [];
+  for (const c of text) if ("([{".includes(c)) open.push(c); else if (CLOSES[c] && open.pop() !== CLOSES[c]) return false;
+  return !open.length;
+};
+function shortName(text, whole) {
+  const all = wordsOf(text), words = all.slice(0, WORDS_MAX), name = () => `${words.join(" ")}${words.length < all.length ? "…" : ""}`;
+  while (words.length > 1 && (!balanced(words.join(" ")) || [...name()].length > TASK_NAME_MAX)) words.pop();
+  const chars = [...name()], cut = chars.length > TASK_NAME_MAX ? `${chars.slice(0, TASK_NAME_MAX - 1).join("")}…` : chars.join("");
+  return balanced(cut) && !(whole && cut.endsWith("…")) ? cut : null;
+}
+
 export function taskNames(tasks) {
-  const lead = (t) => String(t.title ?? "").split(":")[0].trim();
-  const firstWords = (t) => {
-    const words = wordsOf([...String(t.title ?? "")].map((c) => (separated(c) ? " " : c)).join("")).slice(0, WORDS_MAX);
-    while (words.length > 1 && [...words.join(" ")].length > TASK_NAME_MAX) words.pop();
-    const chars = [...words.join(" ")];
-    return chars.length > TASK_NAME_MAX ? `${chars.slice(0, TASK_NAME_MAX - 1).join("")}…` : chars.join("");
-  };
-  const shown = new Map(tasks.filter((t) => t.name).map((t) => [t, { name: t.name, given: true }]));
-  for (const closed of [false, true]) for (const pick of [lead, firstWords]) {
-    const want = new Map(tasks.filter((t) => ENDED.includes(t.state) === closed && !shown.has(t)).map((t) => [t, pick(t)])), taken = new Map();
-    for (const t of open(tasks)) { const key = releaseKey(shown.get(t)?.name ?? want.get(t)); taken.set(key, (taken.get(key) ?? 0) + 1); }
-    for (const [t, name] of want) if (!taskNameProblem(name) && (taken.get(releaseKey(name)) ?? 0) === (closed ? 0 : 1)) shown.set(t, { name, given: false });
+  const title = (t) => String(t.title ?? "");
+  const picks = [(t) => shortName(title(t).split(":")[0], true), (t) => shortName([...title(t)].map((c) => (separated(c) ? " " : c)).join(""), false)];
+  const isOpen = (t) => !ENDED.includes(t.state), scope = (t) => t.milestone ?? "";
+  const shown = new Map(tasks.filter((t) => t.name && !taskNameProblem(t.name)).map((t) => [t, { name: t.name, given: true }]));
+  for (const closed of [false, true]) for (const pick of picks) {
+    const want = new Map(tasks.filter((t) => !isOpen(t) === closed && !shown.has(t)).map((t) => [t, pick(t)]).filter(([, name]) => name && !taskNameProblem(name)));
+    const inScope = new Map(), inOpen = new Map(), add = (map, key) => map.set(key, (map.get(key) ?? 0) + 1), at = (t, name) => JSON.stringify([releaseKey(name), scope(t)]);
+    for (const [t, name] of [...[...shown].map(([t, { name }]) => [t, name]), ...want]) { add(inScope, at(t, name)); if (isOpen(t)) add(inOpen, releaseKey(name)); }
+    for (const [t, name] of want) if (inScope.get(at(t, name)) === 1 && (inOpen.get(releaseKey(name)) ?? 0) === (isOpen(t) ? 1 : 0)) shown.set(t, { name, given: false });
   }
   return new Map(tasks.map((t) => [t.id, shown.get(t) ?? { name: t.id, given: false }]));
 }

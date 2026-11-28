@@ -15,18 +15,18 @@ test("T996, T1217: the chat digest gives each release that is not done one line,
   const tables = releasesTables();
   tables.tasks.find(task => task.id === "T992").priority = "P0";
   const text = renderBoardText(model(tables));
-  assert.equal(partOf(text, "Milestones"), ["- Release 1.0: 1 of 10 tasks done.", "- Release 1.1: 0 of 3 tasks done.", "- Sage feel: 0 of 8 merged. Next, Presentation skill.", "- Faster reviews: the breakdown waits for you."].join("\n"), text);
+  assert.equal(partOf(text, "Milestones"), ["- ◎ Release 1.0: 1 of 10 tasks done.", "- ◎ Release 1.1: 0 of 3 tasks done.", "- ◫ Sage feel: 0 of 8 tasks merged, 7 waiting. Next, Presentation skill.", "- ◫ Faster reviews: 0 of 2 tasks merged, 2 waiting. See Needs you."].join("\n"), text);
   for (const title of ["Playbook: a new feature", "Fix a typo in the guide"]) assert.ok(!text.includes(title), `${title}: a waiting or backlog task has no line`);
 });
 test("T996, T1217: a done release has no line; a release that a cell names and the table lacks says so", () => {
   const tables = releasesTables();
   tables.tasks = tables.tasks.filter(task => ["T900", "T993"].includes(task.id));
   tables.milestones = []; tables.gates = [];
-  assert.equal(partOf(renderBoardText(model(tables)), "Milestones"), "- Release 1.1: 0 of 0 tasks done.", "1.1 is empty, so not started; 0.9 and 1.0 are done");
+  assert.equal(partOf(renderBoardText(model(tables)), "Milestones"), "- ◎ Release 1.1: 0 of 0 tasks done.", "1.1 is empty, so not started; 0.9 and 1.0 are done");
   tables.releases = tables.releases.slice(0, 2);
   assert.equal(partOf(renderBoardText(model(tables)), "Milestones"), "No milestone is open.");
   tables.releases = [];
-  assert.equal(partOf(renderBoardText(model(tables)), "Milestones"), ["0.9", "1.0"].map(name => `- Release ${name}: 1 of 1 task done. It is not in the logbook. Ask the chief to add it.`).join("\n"), "a missing release shows, also when its tasks are done");
+  assert.equal(partOf(renderBoardText(model(tables)), "Milestones"), ["0.9", "1.0"].map(name => `- ◎ Release ${name}: 1 of 1 task done. It is not in the logbook. Ask the chief to add it.`).join("\n"), "a missing release shows, also when its tasks are done");
 });
 test("T996: a logbook with no releases table, or an empty one, shows the board as before: no frame, no Releases tab, no release tag", t => {
   const root = mkdtempSync(join(tmpdir(), "sage-board-releases-")), project = join(root, "sample-abcdef");
@@ -47,11 +47,11 @@ test("T996: a logbook with no releases table, or an empty one, shows the board a
   const empty = views();
   assert.deepEqual(missing.data.releases, []);
   assert.ok(!missing.text.includes("Release"), missing.text);
-  assert.equal(partOf(missing.text, "Milestones"), "- Sample milestone: 0 of 1 merged. Next, Sample pilot.", "the Milestones part stays");
+  assert.equal(partOf(missing.text, "Milestones"), "- ◫ Sample milestone: 0 of 1 task merged. Next, Sample pilot.", "the Milestones part stays");
   sheet("releases", [["name", "goal", "at"], ["1.0", "Sample goal.", ""]]);
   const one = views();
   assert.equal(one.data.releases[0].releases[0].name, "1.0");
-  assert.ok(partOf(one.text, "Milestones").startsWith("- Release 1.0: "), one.text);
+  assert.ok(partOf(one.text, "Milestones").startsWith("- ◎ Release 1.0: "), one.text);
 });
 
 test("T996, T1217: a release name from the logbook is plain text on one line, with no HTML and no code fence", () => {
@@ -59,7 +59,7 @@ test("T996, T1217: a release name from the logbook is plain text on one line, wi
   tables.releases[1] = { ...tables.releases[1], name: hostile, goal };
   for (const row of [...tables.tasks, ...tables.milestones]) if (row.release === "1.0") row.release = hostile;
   const text = renderBoardText(model(tables));
-  assert.ok(partOf(text, "Milestones").startsWith("- Release ‹script›alert(1)‹/script› ``` # x: 1 of 10 tasks done.\n"), text);
+  assert.ok(partOf(text, "Milestones").startsWith("- ◎ Release ‹script›alert(1)‹/script› ``` # x: 1 of 10 tasks done.\n"), text);
   assert.ok(!text.includes("<") && !text.includes("onerror") && !text.includes("\n```"), text);
 });
 test("T996, T1217: a long release or milestone name is cut after 60 characters with an ellipsis", () => {
@@ -67,8 +67,8 @@ test("T996, T1217: a long release or milestone name is cut after 60 characters w
   tables.releases[1].name = "版本".repeat(30) + "x";
   tables.milestones[0].name = "M".repeat(200);
   const lines = partOf(renderBoardText(model(tables)), "Milestones").split("\n");
-  assert.equal(lines[0], `- Release ${"版本".repeat(30)}…: 0 of 0 tasks done.`);
-  assert.ok(lines.includes(`- ${"M".repeat(60)}…: 0 of 8 merged. Next, Presentation skill.`), lines.join("\n"));
+  assert.equal(lines[0], `- ◎ Release ${"版本".repeat(30)}…: 0 of 0 tasks done.`);
+  assert.ok(lines.includes(`- ◫ ${"M".repeat(60)}…: 0 of 8 tasks merged, 7 waiting. Next, Presentation skill.`), lines.join("\n"));
 });
 test("F-T996-1: a releases table that cannot be read is a Needs you item, and no release that a cell names shows as not in the logbook", t => {
   const data = buildBoardModel([damagedReleases(t)], { now: NOW });
@@ -89,7 +89,7 @@ test("F-T996-2, T1217: a dropped milestone with tasks still in it, in a done rel
   const data = model(tables), text = renderBoardText(data);
   assert.equal(data.releases[0].releases[0].word, "done", "0.9 holds a done task and a stopped milestone: done");
   assert.ok(!text.includes("Release 0.9"), "a done release has no line");
-  assert.ok(partOf(text, "Milestones").includes("\n- Old plan: dropped, with 1 task still in it. Ask the chief to take the task out of the milestone."), text);
+  assert.ok(partOf(text, "Milestones").includes("\n- ◫ Old plan: you dropped it. 1 task is still in it. Ask the chief to take the task out of the milestone."), text);
   tables.tasks = tables.tasks.filter(task => task.id !== "T950");
   assert.ok(!renderBoardText(model(tables)).includes("Old plan"));
 });
@@ -148,7 +148,7 @@ test("F-T996-42: the releases still show when an old logbook of the project is d
   Object.assign(old.projects[0], { key: "codex/sage-old111", name: "sage-old111", checkout: null, displayName: null, old: { provider: "codex", of: live.projects[0].key }, diagnostics: ["tasks: line 2 has 2 cells, and its header has 12"] });
   const data = buildBoardModel([live, old], { now: NOW });
   assert.ok(data.milestoneNeeds.some(need => need.kind === "logbook"), "Needs you still says that the old logbook cannot be read");
-  assert.ok(renderBoardText(data).includes("\n- Release 1.0: "), "the release shows");
+  assert.ok(renderBoardText(data).includes("\n- ◎ Release 1.0: "), "the release shows");
 });
 
 test("F-T996-36: an older logbook with programs.tsv (before the rename, T995) and a damaged milestones or tasks table gives no release", t => {
@@ -188,5 +188,5 @@ test("F-T996-12, F-T996-15, F-T996-16: owner text names a milestone by its level
 test("F-T996-13, T1217: a dropped milestone with tasks still in it gives its next step in the chat", () => {
   const tables = releasesTables();
   tables.gates.find(gate => gate.id === "G3").answer = "drop";
-  assert.ok(partOf(renderBoardText(model(tables)), "Milestones").includes("\n- Faster reviews: dropped, with 2 tasks still in it. Ask the chief to take each task out of the milestone."));
+  assert.ok(partOf(renderBoardText(model(tables)), "Milestones").includes("\n- ◫ Faster reviews: you dropped it. 2 tasks are still in it. Ask the chief to take each task out of the milestone."));
 });

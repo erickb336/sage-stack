@@ -82,7 +82,11 @@ To name many tasks at once, such as the open tasks of an older logbook, the chie
 
 In Codex, the chief uses the tools `task_set` and `task_names`.
 
-A task that sage frames itself, such as the follow-up task of a finding, has no name. It shows the title's words before the first colon, or else the first words of its title. When these words break a name rule or another open task shows them too, it shows its id.
+A task that sage frames itself, such as the follow-up task of a finding, has no name. It shows a name from its title:
+
+- the title's words before the first colon, or else its first words, with "…" when they are cut and no open bracket;
+- never a name that another open task of the logbook shows, or another task of its milestone, also an ended one (a name given by hand counts as taken);
+- its id when no such words are free, or when they break a name rule.
 
 A tiny task's route is only the build: it has no review and no QA, so it has no cycle. It is clean when its checks pass on its commit.
 

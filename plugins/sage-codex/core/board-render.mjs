@@ -1,10 +1,10 @@
 import { LINE } from "./logbook-fields.mjs";
 import { ENDED } from "./milestone-rules.mjs";
 import { rowState } from "./board-model.mjs";
-import { isMoving } from "./board-overview.mjs";
+import { isMoving, milestoneSays } from "./board-overview.mjs";
 import { BOARD_PORT } from "./message.mjs";
 import { localTime } from "./move-text.mjs";
-import { KINDS as KIND, MARKS, STEPS, UNKNOWN, chiefName, runWord, shown, stoppedAt } from "./state-words.mjs";
+import { KINDS as KIND, MARKS, STEPS, UNKNOWN, chiefName, runWord, shown, stoppedAt, taskSentence } from "./state-words.mjs";
 import { measureLabel } from "./usage.mjs";
 import { flagRank, needsLook } from "./agent-flag.mjs";
 const md = value => String(value ?? "").replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029]/g, " ").replace(/\p{Cf}/gu, "").replace(/[\\`*_{}\[\]()<>#+.!|&~:@]/g, c => String.fromCharCode(92) + c);
@@ -99,32 +99,24 @@ function problemLine(model, need, ref) {
     unread: () => `${name}: its state cannot be read. ${plain(need.text)}`,
   }[milestone && need.kind]?.() ?? sentence(cut(need.title), plain(need.text))}`;
 }
-function movingText(task) {
+function movingLine(task, tasks) {
   const run = task.runs.filter(run => run.status === "running").sort((a, b) => flagRank(a.flag) - flagRank(b.flag))[0];
-  const review = task.loop.steps.find(step => step.key.startsWith("review-") && step.status !== "done");
+  const { says, mark } = taskSentence(task, id => tasks.get(`${task.project}/${id}`)?.name ?? id, false);
   const problem = task.problems?.length ? ownText(task, task.problems[0].text).split(/(?<=\.)\s/)[0].replace(/\.$/, "") : null;
-  const what = problem ? /the chief repairs it/.test(problem) ? problem : `${problem}; the chief repairs it` : task.waitLine ? task.waitLine.never ? "Cannot start" : "Waits for another task" : {
-    framed: "Not briefed yet, an agent at work", designing: "In design", "awaiting-you": "In design", briefed: "Briefed", building: "Building", held: "Held by the chief", replan: "Needs a new plan",
-    repairing: `In repair, round ${Number(task.round) || 1}`, verifying: "The chief checks the verdicts", verified: "Ready to merge", "pr-ready": "Ready to merge",
-    reviewing: review ? review.label.replace(/^Review /, "In review, cycle ").replace(/^Evidence review/, "In evidence review") : "The reviews are clean",
-  }[task.state] ?? title(task.word || UNKNOWN);
   const clock = !run ? "" : needsLook(run.flag) ? `${run.flag.text} (run ${run.id})` : run.flag ? run.flag.why : task.runClocks?.[run.id]?.text;
-  return `${what}${clock ? `, ${clock}` : ""}.`;
+  return `- ${mark} ${cut(task.name)}: ${plain(says)}${clock ? `, ${clock}` : ""}.${problem ? ` ${title(/the chief repairs it/.test(problem) ? problem : `${problem}; the chief repairs it`)}.` : ""}`;
 }
 function doneText(task, today) {
   const at = localTime(new Date(task.completedAt).toISOString());
-  return `${task.state === "concluded" ? "Concluded" : "Merged"} ${at.date === today ? "" : "yesterday "}at ${at.time}.`;
+  return `${MARKS.done} ${cut(task.name)}: ${task.state === "concluded" ? "concluded" : "merged"} ${at.date === today ? "" : "yesterday "}at ${at.time}.`;
 }
 function milestoneText(milestone, tasks) {
   const name = milestone.name ? cut(milestone.name) : "A milestone with no name";
-  const next = milestone.next && tasks.get(milestone.next.key);
-  return `- ${name}: ${{
-    proposed: () => "the breakdown waits for you.",
-    changing: () => "the chief revises the breakdown.",
-    lost: () => "its breakdown question has a problem. See Needs you.",
-    stuck: () => "stuck. See Needs you.",
-    dropped: () => `dropped, with ${plural(milestone.open, "task")} still in it. Ask the chief to take ${milestone.open === 1 ? "the task" : "each task"} out of the milestone.`,
-  }[milestone.state]?.() ?? `${milestone.progress.merged} of ${milestone.progress.total} merged.${next ? ` Next, ${sentence(cut(next.name))}` : " No task can move now."}`}`;
+  const { says, need, mark } = milestoneSays(milestone, milestone.tasks.map(key => tasks.get(key)).filter(Boolean), false);
+  const next = milestone.state === "active" && (milestone.next ? tasks.get(milestone.next.key) : null);
+  const more = milestone.state === "dropped" ? ` ${plural(milestone.open, "task")} ${milestone.open === 1 ? "is" : "are"} still in it. Ask the chief to take ${milestone.open === 1 ? "the task" : "each task"} out of the milestone.`
+    : need ? " See Needs you." : milestone.state !== "active" ? "" : next ? ` Next, ${sentence(cut(next.name))}` : " No task can move now.";
+  return `- ${mark} ${name}: ${plain(says)}.${more}`;
 }
 const part = (label, groups, empty, grouped, extra = "") => {
   const shownGroups = groups.filter(group => group.lines.length);
@@ -157,9 +149,9 @@ export function renderBoardText(model, { port = BOARD_PORT } = {}) {
     const milestones = (model.milestones ?? []).filter(milestone => mine(milestone) && !milestone.archived && milestone.state !== "done" && !(milestone.state === "dropped" && !milestone.open));
     const lines = {
       needs,
-      moving: capped(moving, task => (ref([task.key, task.id], ...(task.pr ? [[`${task.key}/pr`, `PR ${task.pr}`]] : [])), [`- ${sentence(cut(task.name), movingText(task))}`])),
-      done: capped(done, task => (ref([task.key, task.id], ...(task.pr ? [[`${task.key}/pr`, `PR ${task.pr}`]] : [])), [`- ${sentence(cut(task.name), doneText(task, now.date))}`])),
-      milestones: [...releases.map(release => `- Release ${cut(release.name)}: ${release.done} of ${plural(release.total, "task")} done.${release.missing ? " It is not in the logbook. Ask the chief to add it." : ""}`),
+      moving: capped(moving, task => (ref([task.key, task.id], ...(task.pr ? [[`${task.key}/pr`, `PR ${task.pr}`]] : [])), [movingLine(task, tasks)])),
+      done: capped(done, task => (ref([task.key, task.id], ...(task.pr ? [[`${task.key}/pr`, `PR ${task.pr}`]] : [])), [`- ${doneText(task, now.date)}`])),
+      milestones: [...releases.map(release => `- ${MARKS.release} Release ${cut(release.name)}: ${release.done} of ${plural(release.total, "task")} done.${release.missing ? " It is not in the logbook. Ask the chief to add it." : ""}`),
         ...milestones.map(milestone => (ref([milestone.key, milestone.id]), milestoneText(milestone, tasks)))],
     };
     return { ...group, lines, refs, any: Object.values(lines).some(list => list.length) };
