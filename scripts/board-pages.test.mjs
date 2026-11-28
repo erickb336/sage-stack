@@ -10,7 +10,10 @@ import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createBoardConfig } from "../packages/sage-board/cli.mjs";
 import { createBoardServer, loadBoardApp } from "../packages/sage-board/server.mjs";
+import { configId } from "../packages/sage-core/board-probe.mjs";
+import { boardCommandPort } from "./fixtures/board-port.mjs";
 import { SWITCH_SCRIPT } from "../packages/sage-core/message-page.mjs";
 import { renderMessage } from "../packages/sage-core/message-checks.mjs";
 import { pagePath } from "../packages/sage-core/message.mjs";
@@ -400,6 +403,27 @@ test("T1208: a message's Page block gives the board's link first when the board 
   assert.ok(down.out.endsWith(`\nPage · Showing visuals in every app\n  ${path}\n  The board does not answer now; open the file, or start the board with \`${ensure}\`.\n  ${url}`), down.out);
 });
 
+test("T1218 F-T1218-4: a board of another config, or a board with no id, on the port of board.port is not this board, so the Page block gives the path first", async (t) => {
+  const { sage, folder, name, server, sources, portFile } = await messageSandbox(t);
+  await server.close();
+  writeFileSync(join(folder, "research.html"), "<p>SAMPLE</p>");
+  const question = JSON.parse(readFileSync(join(HERE, "fixtures", "messages", "02-question.json"), "utf8"));
+  const msg = { ...question, blocks: question.blocks.map((b) => (b.t === "page" ? { ...b, task: "T1", file: "research.html" } : b)) };
+  const ensure = `node ${fileURLToPath(new URL("../plugins/sage/board/cli.mjs", import.meta.url))} board --ensure`;
+  for (const [what, id] of [["another config", "0123456789abcdef"], ["no id", undefined]]) {
+    const other = createBoardServer({ sources, port: 0, ...(id && { id }) });
+    const { port } = await other.start();
+    await other.ready();
+    try {
+      writeFileSync(portFile, `${port}\n`);
+      assert.equal((await get({ port }, `/pages/${name}/T1/research.html`)).status, 200, `${what}: that board serves the page`);
+      const r = await sage("message", "T1", "--json", JSON.stringify(msg));
+      assert.equal(r.status, 0, r.out);
+      assert.ok(r.out.endsWith(`\nPage · Showing visuals in every app\n  ${join(folder, "research.html")}\n  The board does not answer now; open the file, or start the board with \`${ensure}\`.\n  http://127.0.0.1:${port}/pages/${name}/T1/research.html`), `${what}: ${r.out}`);
+    } finally { await other.close(); }
+  }
+});
+
 test("the message command, the index and the board agree on every file: a link that the command prints or the index lists opens", async (t) => {
   const { base, sage, folder, name, port } = await messageSandbox(t);
   const t2 = dirname(folder) + "/T2", elsewhere = join(base, "elsewhere");
@@ -453,11 +477,13 @@ async function messageSandbox(t) {
   assert.ok(book, "the sandbox's logbook");
   const before = process.env.SAGE_WORKTREES;
   process.env.SAGE_WORKTREES = env.SAGE_WORKTREES;
-  const server = createBoardServer({ sources: [{ id: "sample", path: dirname(book) }], port: 0 });
+  const sources = [{ id: "sample", path: dirname(book) }], config = join(env.HOME, ".config", "sage-board", "board.json");
+  createBoardConfig(config, { sources, port: await boardCommandPort() });
+  const server = createBoardServer({ sources, port: 0, id: configId(config) });
   t.after(async () => { await server.close(); if (before === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = before; });
   const { port } = await server.start();
   await server.ready();
   mkdirSync(join(env.HOME, ".config", "sage-board"), { recursive: true });
   writeFileSync(join(env.HOME, ".config", "sage-board", "board.port"), `${port}\n`);
-  return { base, sage, folder, name, port, server };
+  return { base, sage, folder, name, port, server, sources, portFile: join(env.HOME, ".config", "sage-board", "board.port") };
 }

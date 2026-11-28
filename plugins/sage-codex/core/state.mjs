@@ -3048,7 +3048,7 @@ function readMessage(file, json, project, env) {
 }
 function writeMessage(project, taskId, { input, logbook }, shape, env) {
   const folder = taskId && pagesDir(project, taskId, env);
-  const port = boardPort(env), down = () => (boardAnswers(port) ? undefined : boardDownLine());
+  const port = boardPort(env), down = () => (boardAnswers(env) ? undefined : boardDownLine());
   const out = renderMessage(input, folder ? { pagePath: (name) => join(folder, name), pageUrl: (name) => pageUrl(logbook, taskId, name, port), down } : { down });
   if (out.problems) refuse(`the message is not in its kind's shape, so ${shape}. Nothing written.\n${out.problems.map((p) => `- ${p}`).join("\n")}`);
   if (!out.page) return out.text;

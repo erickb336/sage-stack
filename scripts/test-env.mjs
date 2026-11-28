@@ -10,6 +10,8 @@ process.env.PATH = `${join(import.meta.dirname, "fixtures", "fake-gh")}:${proces
 process.env.GIT_CONFIG_NOSYSTEM = "1";
 
 process.env.SAGE_TEST_MACHINE_ID = "test-machine";
+const { LOG, withGuard } = await import("./fixtures/owner-board-guard.mjs");
+process.env.NODE_OPTIONS = withGuard(process.env.NODE_OPTIONS);
 
 import os from "node:os";
 import childProcess from "node:child_process";
@@ -31,6 +33,7 @@ for (const name of ["spawn", "spawnSync", "execFile", "execFileSync", "exec", "e
   childProcess[name] = function (...args) {
     const options = args.find((arg) => arg && typeof arg === "object" && !Array.isArray(arg)), caller = callerOf(new Error().stack);
     if (options?.env && !options.env.HOME && !caller.includes("/node_modules/")) refuse(`${name}() with an env that has no HOME`, caller);
+    if (options?.env) { options.env.NODE_OPTIONS = withGuard(options.env.NODE_OPTIONS ?? ""); options.env[LOG] ??= process.env[LOG]; }
     if (options?.env && !["NODE_TEST_CONTEXT", "SAGE_TEST_PIDS", "SAGE_TEST_MACHINE_ID"].some((mark) => Object.hasOwn(options.env, mark))) options.env.SAGE_TEST_PIDS = "{}";
     return call.apply(this, args);
   };

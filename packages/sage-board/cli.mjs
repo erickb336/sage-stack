@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { accessSync, chmodSync, closeSync, constants, fstatSync, mkdirSync, lstatSync, statSync, openSync, readSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { createHash, randomBytes } from "node:crypto";
+import { accessSync, chmodSync, closeSync, constants, fstatSync, mkdirSync, lstatSync, statSync, openSync, readSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { request } from "node:http";
 import { createServer as createNetServer } from "node:net";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { BOARD_PORT, boardFolder, boardProjectKey, boardView, PORT_FILE, probeBoard as probe, sharedRoot } from "../sage-core/index.mjs";
+import { BOARD_CONFIG, BOARD_PORT, boardFolder, boardProjectKey, boardView, configId, PORT_FILE, probeBoard as probe, sharedRoot } from "../sage-core/index.mjs";
 import { installBoard, stableNodePath, writeLoginFile } from "./install.mjs";
 import { createBoardServer } from "./server.mjs";
 import { startLink, startPairing, stateFolder } from "./access.mjs";
@@ -86,9 +86,8 @@ export const readSources = (sources, env = process.env) => {
   const at = sources.findIndex(source => resolve(source.path) === sharedRoot(env));
   return at < 0 ? [...sources, SHARED_SOURCE(env)] : sources.map((source, i) => i === at ? { ...source, id: "shared" } : source);
 };
-export const defaultConfigPath = (env = process.env) => join(boardFolder(env), "board.json");
+export const defaultConfigPath = (env = process.env) => join(boardFolder(env), BOARD_CONFIG);
 
-export const configId = configPath => createHash("sha256").update(`sage-board-config:${realpathSync(configPath)}`).digest("hex").slice(0, 16);
 function boardCommand(option, configPath, env, explicit = false) {
   const quote = text => /[^\w@%+=:,./-]/.test(text) ? `'${text.replaceAll("'", "'\\''")}'` : text;
   return ["node", quote(fileURLToPath(import.meta.url)), "board", option, ...(!explicit && configPath === defaultConfigPath(env) ? [] : ["--config", quote(configPath)])].join(" ");
@@ -126,6 +125,12 @@ async function ensureBoard(configPath, config, env, link = false, project = null
     const changed = lstatSync(configPath).mtimeMs > found.started ? `${configPath} changed` : code > found.started ? "the board command was updated" : null;
     return changed ? `Sage board is running: ${url}, but ${changed} after it started. Restart needed: run ${boardCommand("--stop", configPath, env)} then ask for the board again.` : ready("is running");
   }
+  if (await bind(config.port) === "EADDRINUSE") {
+    const now = await probe(config), problem = notOurs(now, configPath, config, env);
+    if (now.kind === "board" && !problem) return ready("is running");
+    if (problem) throw new Error(problem);
+    throw Object.assign(new Error(`a program listens on 127.0.0.1:${config.port}, but this shell cannot connect to it (for example a sandbox), so ensure starts no second board. If it is the board, open ${address()} in a browser.${pairs} If it is another program: ${moveHint(configPath, config, env)}`), { exitCode: UNREACHABLE_EXIT });
+  }
   const log = join(dirname(configPath), "board.log");
   const out = openSync(log, constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_APPEND, 0o600), from = fstatSync(out).size;
   const served = () => logSince(log, from).includes(`Sage board: ${url} · only on this Mac.\n`);
@@ -161,14 +166,14 @@ export async function checkBoardLinks(links, { env = process.env, budgetMs = 20_
   try { config = readBoardConfig(configPath); } catch (error) { setup = error.code === "ENOENT" ? "the board has no config yet" : `the board config cannot be read (${error.message})`; }
   const port = config?.port ?? BOARD_PORT, end = Date.now() + budgetMs;
   const ownLink = link => { try { const url = new URL(link); return url.protocol === "http:" && ["127.0.0.1", "localhost"].includes(url.hostname) && Number(url.port) === port ? [url.href] : []; } catch { return []; } };
-  let left = [...new Set(links.flatMap(ownLink))].slice(0, 5).map(href => ({ url: new URL(href) })), started = null;
-  while (left.length) {
+  let left = [...new Set(links.flatMap(ownLink))].slice(0, 5).map(href => ({ url: new URL(href) })), started = config ? null : setup;
+  while (config && left.length) {
     const timeout = Math.max(100, Math.min(2000, end - Date.now()));
     await Promise.all(left.map(async link => { link.answer = await linkAnswer(link.url, port, timeout); }));
     left = left.filter(link => link.answer !== 200);
     if (!left.length || left.some(link => link.answer === "blocked")) return null;
     if (!started && left.some(link => link.answer === "none")) {
-      started = config ? await ensureBoard(configPath, config, env).then(() => "started", error => `the board did not start: ${error.message}`) : setup;
+      started = await ensureBoard(configPath, config, env).then(() => "started", error => `the board did not start: ${error.message}`);
       if (started === "started") continue;
       break;
     }
@@ -176,7 +181,7 @@ export async function checkBoardLinks(links, { env = process.env, budgetMs = 20_
     await new Promise(wake => setTimeout(wake, 250));
   }
   if (!left.length) return null;
-  const answers = left.map(({ url, answer }) => `${url.href} gives ${answer === 503 ? `503 after ${Math.round(budgetMs / 1000)} s, because the board still reads its logbooks` : SAID[answer] ?? answer}`).join("; ");
+  const answers = left.map(({ url, answer }) => answer === undefined ? url.href : `${url.href} gives ${answer === 503 ? `503 after ${Math.round(budgetMs / 1000)} s, because the board still reads its logbooks` : SAID[answer] ?? answer}`).join("; ");
   const todo = left.every(link => link.answer === 404) ? "Fix the path of the link (the logbook, the task or the file name)"
     : left.every(link => link.answer === 503) ? "Wait a few seconds, then check the link again"
     : `Run ${boardCommand("--ensure", configPath, env)} and read its message`;

@@ -1,8 +1,22 @@
-import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { closeSync, constants, existsSync, fstatSync, openSync, readSync, realpathSync } from "node:fs";
 import { request } from "node:http";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Worker, isMainThread, workerData } from "node:worker_threads";
 
+export const boardFolder = (env = process.env) => join(env.HOME || homedir(), ".config", "sage-board");
+export const PORT_FILE = "board.port";
+export const BOARD_CONFIG = "board.json";
+export function servedPort(env = process.env) {
+  let fd;
+  try {
+    fd = openSync(join(boardFolder(env), PORT_FILE), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const bytes = Buffer.alloc(8), port = Number(/^([1-9]\d{3,4})\n?$/.exec(bytes.subarray(0, fstatSync(fd).isFile() ? readSync(fd, bytes, 0, 8, 0) : 0).toString("ascii"))?.[1]);
+    return port >= 1024 && port <= 65535 ? port : null;
+  } catch { return null; } finally { if (fd !== undefined) closeSync(fd); }
+}
 export const probeBoard = ({ port }, timeout = 2000) => new Promise(done => {
   const req = request({ host: "127.0.0.1", port, path: "/", method: "HEAD", agent: false, timeout, headers: { Host: `127.0.0.1:${port}` } }, response => {
     response.resume();
@@ -17,9 +31,15 @@ export const probeBoard = ({ port }, timeout = 2000) => new Promise(done => {
   req.end();
 });
 
-export function boardAnswers(port, timeout = 1000) {
+export const configId = configPath => createHash("sha256").update(`sage-board-config:${realpathSync(configPath)}`).digest("hex").slice(0, 16);
+
+export function boardAnswers(env = process.env, timeout = 1000) {
+  const port = servedPort(env);
+  let id;
+  try { id = configId(join(boardFolder(env), BOARD_CONFIG)); } catch { return false; }
+  if (!port) return false;
   const flag = new Int32Array(new SharedArrayBuffer(4));
-  const worker = new Worker(new URL(import.meta.url), { workerData: { probe: { port, timeout, flag } } });
+  const worker = new Worker(new URL(import.meta.url), { workerData: { probe: { port, id, timeout, flag } } });
   worker.unref();
   Atomics.wait(flag, 0, 0, timeout + 1000);
   worker.terminate();
@@ -47,6 +67,6 @@ export async function boardLinkStop(input, { budgetMs, env = process.env } = {})
 }
 
 if (!isMainThread && workerData?.probe) {
-  const { port, timeout, flag } = workerData.probe;
-  probeBoard({ port }, timeout).then(found => { Atomics.store(flag, 0, ["board", "older"].includes(found.kind) ? 1 : 2); Atomics.notify(flag, 0); });
+  const { port, id, timeout, flag } = workerData.probe;
+  probeBoard({ port }, timeout).then(found => { Atomics.store(flag, 0, found.kind === "board" && found.id === id ? 1 : 2); Atomics.notify(flag, 0); });
 }

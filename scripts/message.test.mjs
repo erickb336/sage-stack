@@ -3,7 +3,7 @@ import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { test } from "node:test";
@@ -14,6 +14,7 @@ import { PAGE_POLICY, SWITCH_SCRIPT, messagePage } from "../packages/sage-core/m
 import { kindOf, messageMiss, pageProblems, renderMessage, textProblems } from "../packages/sage-core/message-checks.mjs";
 import { columns, openBoxes, pictureSvg } from "../packages/sage-core/picture.mjs";
 import { boardCommandPort } from "./fixtures/board-port.mjs";
+import { LOG } from "./fixtures/owner-board-guard.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = join(HERE, "fixtures", "messages");
@@ -588,7 +589,7 @@ test("T1023: the presentation skill's before and after example: the check notes 
 function sandbox() {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "sage-t984-")));
   const env = { ...process.env, HOME: join(base, "home"), SAGE_HOME: join(base, "sage"), SAGE_TEST_PIDS: "{}", SAGE_TEST_KILLS: join(base, "kills"),
-    NODE_OPTIONS: `--import=${JSON.stringify(join(HERE, "kill-spy.mjs"))}` };
+    NODE_OPTIONS: `--import=${JSON.stringify(join(HERE, "kill-spy.mjs"))}`, [LOG]: join(base, "owner-port.log") };
   delete env.SAGE_WORKTREES;
   mkdirSync(join(base, "home", ".config", "sage-board"), { recursive: true });
   writeFileSync(join(base, "home", ".config", "sage-board", "board.port"), `${NO_BOARD}\n`);
@@ -653,6 +654,9 @@ test("the message command resolves a Page block in a task's pages folder, and re
   assert.ok(moved.out.endsWith(`\n  http://127.0.0.1:${other}/pages/${logbook}/T1/research.html`), `T1079: the link names the port of the board that started last: ${moved.out}`);
   writeFileSync(join(boardFolder, "board.port"), "80\n");
   assert.ok(sage("message", "T1", "--file", file("q.json", local)).out.includes("\n  http://127.0.0.1:43123/pages/"), "T1079: a port out of 1024 to 65535 gives the default port");
+  rmSync(join(boardFolder, "board.port"));
+  assert.ok(sage("message", "T1", "--file", file("q.json", local)).out.includes("\n  The board does not answer now; "), "with no board.port, the board is down");
+  assert.equal(existsSync(join(base, "owner-port.log")), false, "T1218 F-T1218-1: with no board config, no board.port or a bad one, the message command tries no connection: the default port in its link is the owner's board");
   for (const page of [{ task: "T1", file: "../T2/x.html" }, { task: "T1", file: "/etc/passwd" }, { task: "../T1", file: "x.html" }, { path: "/etc/passwd" },
     { task: "T1", file: ".research.html" }, { task: "T1", file: "a/.b/x.html" }, { task: "T1", file: "state.json" }, { task: "T1", file: "run.log" }, { task: "T1", file: "a/b/c/d/x.html" },
     { task: "T1", file: "v1..v2.html" }, { task: "T1", file: "notes..md" }, { task: "T1", file: "a..b/x.html" }])
