@@ -323,6 +323,35 @@ test("T1271: while the first ensure's board holds the port and does not answer y
   } finally { await stop(dir, port); }
 });
 
+test("T1271: a start lock left by an ensure that stopped part way does not hold the next ensure, which starts the board and removes the lock", async (t) => {
+  const { dir, env, config } = scratch(t);
+  const port = await boardCommandPort(), lock = join(dirname(config), "board.lock");
+  try {
+    assert.equal((await board(CLI, ["--setup", "--port", String(port)], env)).status, 0);
+    writeFileSync(lock, "4242 left\n", { mode: 0o600 });
+    const old = new Date(Date.now() - 60_000); utimesSync(lock, old, old);
+    const run = await board(CLI, ["--ensure"], env);
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(run.stdout, `Sage board started: http://127.0.0.1:${port}/ · only on this Mac.\n`);
+    assert.equal(existsSync(lock), false);
+  } finally { await stop(dir, port); }
+});
+
+test("T1271, F-T1218-2: a shell that cannot write the board's folder takes no start lock, and still says that a program listens that it cannot connect to", async (t) => {
+  const { dir, env, config } = scratch(t);
+  const port = await boardCommandPort();
+  createBoardConfig(config, { sources: [{ id: "sample", path: join(dir, "logbooks") }], port });
+  const holder = createServer();
+  await new Promise((done) => holder.listen(port, "127.0.0.1", done));
+  chmodSync(dirname(config), 0o500);
+  try {
+    const run = await board(CLI, ["--ensure"], { ...env, NODE_OPTIONS: UNREACHABLE });
+    assert.equal(run.stderr, listensLine(port));
+    assert.equal(run.status, 3);
+    assert.deepEqual(readdirSync(dirname(config)), ["board.json"]);
+  } finally { chmodSync(dirname(config), 0o700); await new Promise((done) => holder.close(done)); await stop(dir, port); }
+});
+
 test("T216: board --stop stops this config's board, and ensure says when the config changed after the start (F-T216-7)", async (t) => {
   const { dir, env, config } = scratch(t);
   const port = await boardCommandPort(), pidFile = join(dirname(config), "board.pid");

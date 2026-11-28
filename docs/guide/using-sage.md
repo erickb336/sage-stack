@@ -947,7 +947,7 @@ After a restore, the old move gate moves nothing: to move again, ask the chief f
 - **The shared root**: `~/.sage/`, or `SAGE_SHARED_HOME`. It holds the logbooks that Claude and Codex share, `bindings.tsv` (which checkout uses which logbook), `plugins.tsv` (which providers ran) and the cycle counts of the shared logbooks. See [Shared logbooks](#shared-logbooks).
 - **The hook's state**: `~/.claude/sage/.hooks/`. It keeps the mode, autopilot and the agent slots.
 - **The pages** of each task: `~/sage-worktrees/<project>-<hash>/pages/<task>/`, outside the logbook. Agents save their research pages and designs there. The chief makes the folder and prints its path.
-- **The board's config**: `~/.config/sage-board/`, when you use the board server. It holds `board.json`, `board.log` and `board.pid`.
+- **The board's config**: `~/.config/sage-board/`, when you use the board server. It holds `board.json`, `board.log` and `board.pid`, and `board.lock` while `board --ensure` starts the board.
 - **The board's login service**, when you install it ([Optional login startup](../../packages/sage-board/README.md#optional-login-startup)): the login file `~/Library/LaunchAgents/dev.sage.board.plist`, and the installed copy of the board in `~/.local/share/sage-board/service/`.
 - **The board's old export folder**: `~/.local/share/sage-board/pages/`, when an older board's setup named it. An older board saved its HTML file exports there; the board of today exports nothing.
 

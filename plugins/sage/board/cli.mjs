@@ -113,7 +113,18 @@ function linkProject(config, { project, "name-hex": hex }, env) {
     return name !== null || project ? boardProjectKey({ sources: readSources(config.sources, env), project: name === null ? boundedPath(project) : null, name, providerRoots: providerRoots(env) }) : null;
   } catch { return null; }
 }
-async function ensureBoard(configPath, config, env, link = false, project = null) {
+const LOCK_OF_A_STOPPED_ENSURE_MS = 30_000;
+async function ensureBoard(configPath, ...rest) {
+  const lock = join(dirname(configPath), "board.lock"), mine = `${process.pid} ${randomBytes(8).toString("hex")}\n`;
+  for (;;) {
+    try { writeFileSync(lock, mine, { flag: "wx", mode: 0o600 }); break; }
+    catch (error) { const cannotStartABoardHere = error.code !== "EEXIST"; if (cannotStartABoardHere) return ensureAlone(configPath, ...rest); }
+    if (Date.now() - (lstatSync(lock, { throwIfNoEntry: false })?.mtimeMs ?? Date.now()) > LOCK_OF_A_STOPPED_ENSURE_MS) { replaceFile(lock, mine); break; }
+    await new Promise(wake => setTimeout(wake, 100));
+  }
+  try { return await ensureAlone(configPath, ...rest); } finally { if (logSince(lock, 0) === mine) rmSync(lock, { force: true }); }
+}
+async function ensureAlone(configPath, config, env, link = false, project = null) {
   const url = `http://127.0.0.1:${config.port}/`, opens = project && `project=${project}`;
   const address = () => link ? `${url}app/#pair=${startLink(stateFolder(configPath))}${opens ? `&${opens}` : ""}` : `${url}${opens ? `app/#${opens}` : ""}`;
   const pairs = link ? " The link pairs the first browser that opens it, once, within 10 minutes." : "";
