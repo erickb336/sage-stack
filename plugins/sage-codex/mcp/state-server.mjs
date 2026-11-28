@@ -48,9 +48,9 @@ export const TOOLS = {
     argv: () => ["task", "add"],
   },
   task_set: {
-    describe: "Change a task: its state, branch, pr, name (1 to 4 words; the decision trail keeps the old name), request (the owner's request in the owner's words, one line; none clears it), priority, kind, waits, milestone or release (only for a task outside a milestone: a task of a milestone is in its milestone's release). Resuming a round hold needs approval=<G>, an unused owner-approved repair gate for this task and round limit. The tool refuses a move that the route does not allow. Any chief may abandon a task with no owning chief: fields {\"state\": \"abandoned\"} alone, with why.",
+    describe: "Change a task: its state, branch, pr, name (1 to 4 words; the decision trail keeps the old name), request (the owner's request in the owner's words, one line; none clears it), priority, kind, waits, milestone or release (only for a task outside a milestone: a task of a milestone is in its milestone's release). drop=ux-review with why takes the UX review out of a large task whose kind is not ui or design; the size, its clean cycles and every other step stay. Resuming a round hold needs approval=<G>, an unused owner-approved repair gate for this task and round limit. The tool refuses a move that the route does not allow. Any chief may abandon a task with no owning chief: fields {\"state\": \"abandoned\"} alone, with why.",
     input: { task, fields: z.record(z.string().regex(/^[a-z]+$/), z.string()).describe('the keys and values to set, for example {"state": "building", "branch": "codex/t7-name"}'),
-      why: optional("the reason of an abandon, only with the state abandoned; needed to abandon a task with no owning chief") },
+      why: optional("the reason of an abandon, only with the state abandoned (needed to abandon a task with no owning chief), or of drop=ux-review, which it needs") },
     pos: ["task", "fields"],
     argv: (i) => ["task", i.task, "set", ...Object.entries(i.fields).map(([k, v]) => `${k}=${v}`)],
   },
@@ -94,7 +94,7 @@ export const TOOLS = {
   run_add: {
     describe: "Record an agent run of a task before the agent starts. It prints the run id, and the reasoning_effort to give spawn_agent when the role has one.",
     input: { task, role: z.string().describe("lead, implementer, pe, designer, arena-judge, code-reviewer, security-reviewer, ux-reviewer, qa, investigate or evidence-review"),
-      branch: optional("the run's branch"), candidate: count("the arena candidate number"),
+      branch: optional("the run's branch; needed for an implementer, an arena-judge and an arena candidate, not for a designer outside an arena"), candidate: count("the arena candidate number"),
       "usage-interface": optional("collaboration-tools, for a Codex agent: its agent tools give no token count, so the report gate keeps the count at the agent's stop") },
     pos: ["task"], argv: (i) => ["run", "add", i.task],
   },
@@ -129,8 +129,9 @@ export const TOOLS = {
     input: { task, key: z.string().describe("the finding key") }, pos: ["task", "key"], argv: (i) => ["finding", "close", i.task, i.key],
   },
   finding_move: {
-    describe: "Move an open medium or low finding to a new follow-up task, which the tool frames (to, the title, and size), or into an open task of this logbook (into, the task id). Give to or into. The finding arrives triaged fix: close it after a re-check confirms the fix.",
-    input: { task, key: z.string().describe("the finding key"), to: optional("the title of a new follow-up task, never a task id"), into: id("T", "an open task to move the finding into").optional(), size: optional("tiny, small or large (small by default); not with into") },
+    describe: "Move an open medium or low finding to a new follow-up task, which the tool frames (to, the title, and size), or into an open task of this logbook (into, the task id). Give to or into. The finding arrives triaged fix: close it after a re-check confirms the fix. A fix key of the task's current round moves with why when it is low, and only after the owner's gate when it is medium.",
+    input: { task, key: z.string().describe("the finding key"), to: optional("the title of a new follow-up task, never a task id"), into: id("T", "an open task to move the finding into").optional(), size: optional("tiny, small or large (small by default); not with into"),
+      why: optional("the reason of the move, which the decision trail keeps; needed for a low fix key of the current round") },
     pos: ["task", "key"], argv: (i) => ["finding", "move", i.task, i.key],
   },
   verdict: {

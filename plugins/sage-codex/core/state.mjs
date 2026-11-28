@@ -139,7 +139,7 @@ const OPTIONS = {
   "run usage": ["tokens", "usage-source", "usage-evidence"],
   "finding add": ["source", "severity", "summary", "key", "run", "class"],
   "finding triage": ["reason", "proof"],
-  "finding move": ["to", "into", "size"],
+  "finding move": ["to", "into", "size", "why"],
   verdict: ["sha", "kind", "cycle", "pr", "run"],
   lint: ["sha"],
   "gate add": ["question", "options", "recommend", "default", "message", "run", "design"],
@@ -534,8 +534,9 @@ function runFrame(dir, project, task, role, branch, candidate, env) {
     if (same) refuse(`${same.id} is the ${same.status} lead run of ${task.id}, and a task has one running lead. Finish ${same.id} first (sage run done ${same.id} --status done, blocked, question or failed).`);
     if (leads.length >= config(env, dir).max_leads) refuse(`the project has ${leads.length} running${leads.some((r) => r.status === "queued") ? " or queued" : ""} lead runs, the most it holds: ${leads.map((r) => `${r.id} on ${r.task}`).join(", ")}. Finish one of them first (sage run done <R> --status done, blocked, question or failed).`);
   }
-  if (WRITERS.includes(role)) {
-    if (!branch) refuse(`the ${role} run needs --branch`);
+  const pagesOnly = role === "designer" && !branch && !candidate && !arenaOpen(task, read(dir, "runs"));
+  if (WRITERS.includes(role) && !pagesOnly) {
+    if (!branch) refuse(`the ${role} run needs --branch${role === "designer" ? `: ${candidate ? "an arena candidate" : `${task.id}'s arena step is open, so each designer is a candidate (--candidate <k>) that`} writes on its own branch. A designer outside an arena needs no branch: it writes only into the pages folder` : ""}`);
     const runs = read(dir, "runs"), there = runs.filter(row => sameBranch(row.branch, branch));
     const judge = role === "arena-judge", seat = !judge && candidate;
     const clash = there.find(row => (seat && row.role === "arena-judge") || (isCandidate(row) && !(row.task === task.id && row.role === role && row.candidate === candidate)));
@@ -1985,8 +1986,16 @@ function planTaskChanges(before, id, changes, at, facts) {
     }
     else if (k === "request") task.request = v === "none" ? "" : v;
     else if (k === "priority") task.priority = priorityOf(v, task);
-    else if (k === "kind") task.kind = tag(k, v);
-    else if (k === "waits") {
+    else if (k === "kind") {
+      task.kind = tag(k, v);
+      if (task.size === "large" && ARENA_KINDS.includes(task.kind) && !list(task.route).includes("ux-review")) refuse(`${task.id} is large and its route has no ux-review, and a large task of kind ${task.kind} keeps its ux-review. Nothing changed.`);
+    } else if (k === "drop") {
+      const bar = v !== "ux-review" ? `${visible(v)} is not ux-review` : task.size !== "large" ? `${task.id} is ${task.size}` : ARENA_KINDS.includes(task.kind) ? `${task.id} is of kind ${task.kind}`
+        : !list(task.route).includes("ux-review") ? `${task.id}'s route has no ux-review` : ENDED.includes(task.state) ? `${task.id} is ${task.state}` : !facts.reason ? "it has no --why" : "";
+      if (bar) refuse(`drop= takes only ux-review, from a large task whose kind is not ${ARENA_KINDS.join(" or ")}, with the reason: sage task ${task.id} set drop=ux-review --why "<reason>". The size, the clean cycles and every other step stay. Here ${bar}. Nothing changed.`);
+      task.route = list(task.route).filter((b) => b !== "ux-review").join(",");
+      decided.push({ at, task: task.id, decision: "dropped ux-review", why: facts.reason });
+    } else if (k === "waits") {
       const was = task.waits ?? "";
       task.waits = waitsValue(task, v, tasks);
       const milestone = graph.milestones.get(task.milestone);
@@ -2017,7 +2026,7 @@ function planTaskChanges(before, id, changes, at, facts) {
         task.release = to;
         decided.push({ at, task: task.id, decision: `release ${was || "none"} → ${to || "none"}`, why: "task set" });
       }
-    } else refuse(`task set takes state=, branch=, pr=, title=, name=, request=, priority=, kind=, waits=, milestone=, release= or approval=`);
+    } else refuse(`task set takes state=, branch=, pr=, title=, name=, request=, priority=, kind=, waits=, milestone=, release=, drop= or approval=`);
   }
   return { task, tasks, runs, decisions: [...decisions, ...decided], note };
 }
@@ -3414,11 +3423,11 @@ function act(cmd, pos, opt, dir, env, skip, project) {
       }
       const { tasks, task } = taskOf(dir, need(sub, "the task id"));
       let note = "";
-      if (opt.why !== undefined && (id !== "set" || !more.includes("state=abandoned") || !cell(opt.why))) refuse(`--why gives the reason of an abandon: give a reason with state=abandoned, for example sage task ${task.id} set state=abandoned --why "<reason>". Nothing changed.`);
+      if (opt.why !== undefined && (id !== "set" || !more.some((kv) => kv === "state=abandoned" || kv.startsWith("drop=")) || !cell(opt.why))) refuse(`--why gives the reason of an abandon or of a dropped step: give a reason with state=abandoned or drop=ux-review, for example sage task ${task.id} set state=abandoned --why "<reason>". Nothing changed.`);
       const why = opt.why === undefined ? undefined : [cell(opt.why), opt.chief && `abandoned by ${opt.chief}${task.chief ? "" : ", with no owning chief"}`].filter(Boolean).join(" · ");
       if (id === "set") {
         const before = { tasks, runs: read(dir, "runs"), decisions: read(dir, "decisions") };
-        const planned = planTaskChanges(before, task.id, more, now(), { ...Object.fromEntries(["findings", "ledger", "gates", "milestones", "releases"].map((t) => [t, read(dir, t)])), maxRounds: config(env, dir).max_rounds, why, project, env });
+        const planned = planTaskChanges(before, task.id, more, now(), { ...Object.fromEntries(["findings", "ledger", "gates", "milestones", "releases"].map((t) => [t, read(dir, t)])), maxRounds: config(env, dir).max_rounds, why, reason: cell(opt.why ?? ""), project, env });
         const bar = moveBar(more, planned);
         if (bar) refuse(bar);
         const merging = task.state !== "merged" && planned.task.state === "merged";
@@ -3675,8 +3684,13 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         if (/^T\d+$/i.test(cell(opt.to))) refuse(`--to takes the title of a new follow-up task, and ${JSON.stringify(cell(opt.to))} is a task id. To move ${f.key} into that open task, use --into ${cell(opt.to).toUpperCase()}. Nothing changed.`);
         if (f.status !== "open") refuse(`${f.key} is ${f.status}: only an open finding moves.`);
         if (f.severity === "high") refuse(`${f.key} is high, so it blocks ${id} until it is fixed: a high finding never moves to a follow-up task.`);
-        if (roundKeys(taskOf(dir, id).task).includes(f.key) && !read(dir, "gates").some((g) => g.task === id && g.question.split(/[^\w-]+/).includes(f.key) && g.answer && g.answer === optionsOf(g)[0])) {
-          refuse(`${f.key} is a fix of ${id}'s current round, so it stays on ${id}: it is fixed in a round, or dismissed with a reason. It moves to a follow-up task only after the owner chose the first option of a gate of ${id} whose question names ${f.key}: sage gate add ${id} --question "Move ${f.key} to a follow-up task?" --options "move|keep" --recommend <move or keep> --message <the question message file>.`);
+        const reason = cell(opt.why ?? "");
+        if (opt.why !== undefined && !reason) refuse(`--why needs the reason: --why "<reason>". Nothing changed.`);
+        if (roundKeys(taskOf(dir, id).task).includes(f.key)) {
+          if (f.severity === "low" && !reason) refuse(`${f.key} is a low fix of ${id}'s current round: it moves to a follow-up task with your reason, which the decision trail keeps: sage finding move ${id} ${f.key} --to "<title>" --why "<reason>". Nothing changed.`);
+          if (f.severity !== "low" && !read(dir, "gates").some((g) => g.task === id && g.question.split(/[^\w-]+/).includes(f.key) && g.answer && g.answer === optionsOf(g)[0])) {
+            refuse(`${f.key} is a fix of ${id}'s current round, so it stays on ${id}: it is fixed in a round, or dismissed with a reason. It moves to a follow-up task only after the owner chose the first option of a gate of ${id} whose question names ${f.key}: sage gate add ${id} --question "Move ${f.key} to a follow-up task?" --options "move|keep" --recommend <move or keep> --message <the question message file>. Only a low fix of the round moves with --why alone, and ${f.key} is ${f.severity}.`);
+          }
         }
         let to, tasks;
         if (into === undefined) {
@@ -3695,7 +3709,7 @@ function act(cmd, pos, opt, dir, env, skip, project) {
         Object.assign(f, { task: to.id, key: nextId(dir, `F-${to.id}-`), round: to.round, triage: "fix", reason: `moved from ${was}`, run: "" });
         write(dir, "findings", findings);
         const reopened = into !== undefined && ["verified", "pr-ready"].includes(to.state) ? to.state : "";
-        write(dir, "decisions", [...read(dir, "decisions"), { at: now(), task: id, decision: `${was} moved to ${to.id} as ${f.key}: ${f.summary}`, why: `${into === undefined ? "the follow-up task" : "the open task"}${from ? ` (from ${from}, ${f.severity})` : ""}: ${to.title}` }, ...(reopened ? [{ at: now(), task: to.id, decision: `${reopened} → reviewing`, why: `${f.key} moved in from ${id}` }] : [])]);
+        write(dir, "decisions", [...read(dir, "decisions"), { at: now(), task: id, decision: `${was} moved to ${to.id} as ${f.key}: ${f.summary}`, why: `${reason ? `${reason} · ` : ""}${into === undefined ? "the follow-up task" : "the open task"}${from ? ` (from ${from}, ${f.severity})` : ""}: ${to.title}` }, ...(reopened ? [{ at: now(), task: to.id, decision: `${reopened} → reviewing`, why: `${f.key} moved in from ${id}` }] : [])]);
         if (reopened) {
           move(to, "reviewing");
           write(dir, "tasks", tasks);

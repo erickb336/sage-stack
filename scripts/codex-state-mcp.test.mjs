@@ -1557,7 +1557,7 @@ test("T85 synthetic designer prototype, separate PE report and chief artifact re
   const folder = await s.call("pages", { task: "T1" });
   assert.equal(typeof folder, "string");
   const branch = "codex/t1-sample-design";
-  assert.match((await s.call("run_add", { task: "T1", role: "designer" })).error, /designer run needs --branch/);
+  assert.match((await s.call("run_add", { task: "T1", role: "implementer" })).error, /implementer run needs --branch/);
   assert.match(await s.call("run_add", { task: "T1", role: "designer", branch }), /^R1 running/);
   for (const role of ["designer", "implementer"]) {
     assert.match((await s.call("run_add", { task: "T1", role, branch })).error, /branch has one writer/);
