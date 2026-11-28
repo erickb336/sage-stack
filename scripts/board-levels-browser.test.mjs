@@ -2,7 +2,7 @@ import "./test-env.mjs";
 import { tname } from "./task-names.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { requireBrowser } from "./browser-prerequisite.mjs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -191,7 +191,8 @@ test("T1216: each level shows its empty state in one line, not empty cards", asy
   await shot(page, "l1-empty-1440");
   await page.goto(`${origin}/app/#milestone?key=${KEY("M3")}`);
   await page.locator("main h1", { hasText: "Sign-in rework" }).waitFor();
-  assert.match(await page.locator("[data-part=fold]").textContent(), /^Here: no agent at work · nothing waits/);
+  assert.equal(await page.locator("[data-part=fold], [data-part=needs]").count(), 0, "a milestone page lists its tasks, so it has no empty line");
+  assert.equal(await page.locator("[data-part=lines] .lv-row").count(), 2, "both merged tasks stay on the milestone page");
   await shot(page, "l2-empty-1440");
   await page.goto(`${origin}/app/#task?key=${KEY("T4")}`);
   await page.getByText("No agent works on this task now.").waitFor();
@@ -206,7 +207,7 @@ test("T1216: each level shows its failure and keeps the rest of the page", async
   for (const level of ["l0", "l1", "l2"]) {
     await page.goto(`${origin}/app/${LEVELS[level]}`);
     await page.locator("[data-part=failure]").filter({ hasText: "the board cannot read the runs table of its Shared logbook" }).waitFor();
-    assert.ok(await page.locator("[data-part=needs], [data-part=work], [data-part=progress]").count() > 0, `${level} keeps its parts`);
+    assert.ok(await page.locator("[data-part=needs], [data-part=work], [data-part=progress], [data-part=lines]").count() > 0, `${level} keeps its parts`);
     await shot(page, `${level}-failure-1440`);
   }
   await context.route(`${origin}/app/task/**`, route => route.fulfill({ status: 503, contentType: "text/plain", body: "The board is reading again. Try again in a moment.\n" }));
@@ -237,10 +238,10 @@ test("F-T1216-24, F-T1216-33: the back link of a task page that a link opened go
   const origin = await fixture(t), { page } = await newPage(t, 1440);
   await page.goto(`${origin}/app/${LEVELS.l3}`);
   const back = page.locator(".taskpage a.back");
-  await back.filter({ hasText: "Milestone 1" }).waitFor();
-  assert.deepEqual([await back.textContent(), await back.getAttribute("href")], ["‹ Milestone 1: Board redesign", `#milestone?key=${KEY("M1")}`]);
+  await back.filter({ hasText: "Board redesign" }).waitFor();
+  assert.deepEqual([await back.textContent(), await back.getAttribute("href")], ["‹ Board redesign", `#milestone?key=${KEY("M1")}`]);
   await back.click();
-  await page.locator("main h1", { hasText: "Milestone 1: Board redesign" }).waitFor();
+  await page.locator("main h1", { hasText: "Board redesign" }).waitFor();
   assert.equal(await page.goto(`${origin}/app/#task?key=${KEY("T3")}`).then(() => back.filter({ hasText: "Milestone" }).textContent()), "‹ Milestone", "a level page in the history: the back link goes back to it");
   await page.goto("about:blank");
   await page.goto(`${origin}/app/#task?key=${KEY("T30")}`);
@@ -304,7 +305,7 @@ test("F-T1216-17, F-T1216-22: a failed run shows the flag words of the model; a 
   const merge = page.locator(`[data-part=needs] .lv-need`).filter({ has: page.locator(`a[href="#task?key=${encodeURIComponent(key("T12", "claude/order-chaser-"))}"]`) });
   assert.match(await merge.locator(".q").textContent(), /PR 41/);
   assert.equal(await merge.locator(".body .more").last().textContent(), "Next: merge it in the chief's chat. The chief runs the merge check first.");
-  assert.equal(await merge.locator(".meta").textContent(), "order-chaser", "no ask time for a row that is not a question");
+  assert.equal(await merge.locator(".meta").textContent(), "T12 · order-chaser", "no ask time for a row that is not a question");
   await shot(page, "merge-row-1440");
 });
 
@@ -318,3 +319,46 @@ test("F-T1216-18: the since line counts the questions and the flags of the rows 
   assert.match(await page.locator("[data-part=since]").textContent(), new RegExp(` · ${asked} new questions? · ${flags} with a flag now`));
   await shot(page, "since-1440");
 });
+
+async function named(t) {
+  const dir = mkdtempSync(join(tmpdir(), "sage-board-levels-names-")), saved = process.env.SAGE_WORKTREES, logbooks = join(dir, "logbooks"), book = join(logbooks, "sample-app-abc123");
+  process.env.SAGE_WORKTREES = join(dir, "worktrees");
+  writeTasksLogbook(logbooks, join(dir, "worktrees"), new Date().toISOString(), {});
+  const row = (table, values) => { const file = join(book, `${table}.tsv`); appendFileSync(file, `${readFileSync(file, "utf8").split("\n")[0].split("\t").map(column => values[column] ?? "").join("\t")}\n`); };
+  row("tasks", { id: "T15", title: "Sample lone task of a milestone with a long name", size: "small", route: "build,code-review,qa", state: "building", round: "0", milestone: "M4" });
+  row("gates", { id: "G9", task: "T15", question: "Approve milestone M4? No task builds before you approve.", options: "approve|change|drop", recommendation: "approve", answer: "approve", at: new Date(Date.now() - 3_600_000).toISOString() });
+  row("milestones", { id: "M4", name: "A milestone whose name runs on and on past the width of a phone", goal: "Sample goal.", pilot: "T15", gate: "G9", at: new Date(Date.now() - 3_600_000).toISOString() });
+  const server = quietBoard({ sources: [{ id: "shared", path: logbooks, label: "Shared" }], port: 0, app: APP });
+  const { port } = await server.start();
+  await server.ready();
+  t.after(async () => { await server.close(); if (saved === undefined) delete process.env.SAGE_WORKTREES; else process.env.SAGE_WORKTREES = saved; rmSync(dir, { recursive: true, force: true }); });
+  return `http://127.0.0.1:${port}`;
+}
+
+for (const width of WIDTHS) {
+  test(`T1257 at ${width} px: rows read "name: where it stands", a milestone lists its tasks in waits-for lines, and a task outside its milestone carries the milestone tag`, async t => {
+    const origin = await named(t), { page } = await newPage(t, width);
+    await page.goto(`${origin}/app/${LEVELS.l2}`);
+    await page.locator("main h1", { hasText: "Board redesign" }).waitFor();
+    const lines = page.locator("[data-part=lines]");
+    assert.deepEqual(await lines.locator(".lv-line .ln").allTextContents(), ["First", "Then", "Last"]);
+    assert.deepEqual(await lines.locator(".lv-line").evaluateAll(list => list.map(line => [...line.querySelectorAll("[data-task]")].map(row => row.dataset.task.split("/").at(-1)))), [["T1"], ["T2", "T3"], ["T4"]]);
+    assert.equal(await lines.locator(".tag").count(), 0, "no milestone tag inside the milestone's own page");
+    assert.equal(await lines.locator(`[data-task$="/T4"] .tt`).textContent(), "Sample queue: waits for Sample chief records.");
+    assert.equal(await lines.locator(`[data-task$="/T4"] .tn.fb`).evaluate(name => getComputedStyle(name).fontStyle), "italic", "a name from the title shows in italics");
+    await page.goto(`${origin}/app/#milestone?key=${KEY("M4")}`);
+    await page.locator("main h1", { hasText: "A milestone whose name" }).waitFor();
+    assert.equal(await page.locator("[data-part=lines] .ln").count(), 0, "a milestone with one line has no First, Then or Last");
+    await page.goto(`${origin}/app/${LEVELS.l1}`);
+    const tag = page.locator(`[data-part=waits] [data-task$="/T15"] .tag`);
+    await tag.waitFor();
+    assert.equal(await tag.getAttribute("title"), "A milestone whose name runs on and on past the width of a phone");
+    if (width === 390) assert.ok(await tag.evaluate(element => element.scrollWidth > element.clientWidth && getComputedStyle(element).textOverflow === "ellipsis"), "a long milestone name is cut with an ellipsis on a phone");
+    await page.goto(`${origin}/app/${LEVELS.l3}`);
+    await page.locator(".tp-head .kind", { hasText: "Task in" }).waitFor();
+    assert.match(await page.locator(".tp-head .kind").textContent(), /^Task in . Board redesignname from the title$/);
+    assert.match(await page.locator(".taskpage h1").textContent(), /^Sample shared limitsT3$/);
+    assert.equal(await page.locator(".tp-head .tp-what").textContent(), "What it is: Sample shared limits");
+    await shot(page, `names-task-${width}`);
+  });
+}

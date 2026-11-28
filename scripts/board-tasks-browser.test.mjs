@@ -47,7 +47,7 @@ async function openBoard(t, options = {}, path = "/app/#overview") {
 
 const KEY = id => `shared/sample-app-abc123/${id}`;
 const row = (page, id) => page.locator(`a.row[data-task="${KEY(id)}"]`);
-const taskTitle = page => page.locator(".taskpage h1");
+const taskTitle = page => page.locator(".taskpage .tp-what");
 const taskPage = id => `/app/#task?key=${encodeURIComponent(KEY(id))}`;
 const groupTitles = page => page.locator(".group h2").allTextContents();
 const rowIds = page => page.locator("a.row .id").allTextContents();
@@ -331,7 +331,7 @@ test("T1061 (F-T1061-12), T1083: a title of 3,000 characters with no space wraps
   const { page } = await open(t, { edge: true }, taskPage("T60"));
   const heading = taskTitle(page).filter({ hasText: "SampleSample" });
   await heading.waitFor();
-  assert.equal(await heading.evaluate(element => element.firstChild.textContent.length), 3000);
+  assert.equal(await heading.evaluate(element => element.lastChild.textContent.length), 3000);
   const box = await heading.evaluate(element => ({ scroll: element.scrollWidth, client: element.clientWidth, page: document.documentElement.scrollWidth - innerWidth }));
   assert.deepEqual(box, { scroll: box.client, client: box.client, page: 0 }, "the whole title shows, with no sideways scroll");
 });
@@ -342,7 +342,7 @@ test("T1061 (F-T1061-3, F-T1061-11): an open task page says so when its task lea
   assert.equal(await page.locator(".stale").count(), 0, "no notice while the page is current");
   editTasks(logbook, task => task.id === "T30" ? [] : [task]);
   await page.locator(".stale").filter({ hasText: "This task is no longer on the board. The page shows what it read last." }).waitFor();
-  assert.equal(await taskTitle(page).textContent(), "Sample crash reportsT30", "the page keeps what it read, under the notice");
+  assert.equal(await taskTitle(page).textContent(), "What it is: Sample crash reports", "the page keeps what it read, under the notice");
 
   await page.goto(page.url().replace(/T30$/, "T3"));
   await taskTitle(page).filter({ hasText: "Sample shared limits" }).waitFor();
@@ -443,7 +443,7 @@ test("T1080 (F-T1080-23, F-T1080-26): a group name in the address that is a buil
 test("T1080 (F-T1080-8, F-T1080-9, F-T1080-12): invisible characters show as escapes in paths and in prose, while emoji, flags and joined words show whole", async t => {
   const { page } = await open(t, { unicode: true }, taskPage("T40"));
   await taskTitle(page).filter({ hasText: "Sample \\u202eevil title" }).waitFor();
-  assert.equal(await taskTitle(page).evaluate(element => element.firstChild.textContent), "Sample \\u202eevil title", "the title shows the override as an escape");
+  assert.equal(await taskTitle(page).evaluate(element => element.lastChild.textContent), "Sample \\u202eevil title", "the title shows the override as an escape");
   assert.deepEqual(await page.locator(".callout code").allTextContents(), [
     "src/a\\u034fb\\u115fc\\u3164d\\uffa0e\\u180bf\\u17b4g\\u200dh\\u200ci\\ufe0fj\\u{e0100}k.js",
     UNICODE_TEXT.emoji,

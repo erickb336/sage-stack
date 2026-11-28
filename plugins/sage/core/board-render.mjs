@@ -81,7 +81,7 @@ function askText(model, task, reason) {
 function needLines(model, task, reason, ref) {
   const { text, lost } = askText(model, task, reason);
   ref([task.key, task.id], ...(reason.breakdown ? [[reason.breakdown.key, reason.breakdown.id]] : []), [reason.key, reason.gateId && reason.key], ...(task.pr ? [[`${task.key}/pr`, `PR ${task.pr}`]] : []), ...lost.map(milestone => [milestone.key, milestone.id]));
-  return [`- ${sentence(cut(reason.breakdown?.name || task.title), text)}`, ...(reason.options?.length ? [`  Options: ${reason.options.map((option, i) => `${i + 1} ${plain(option)}`).join(" · ")}.`] : []),
+  return [`- ${sentence(cut(reason.breakdown?.name || task.name), text)}`, ...(reason.options?.length ? [`  Options: ${reason.options.map((option, i) => `${i + 1} ${plain(option)}`).join(" · ")}.`] : []),
     ...(reason.recommendation ? [`  Recommended: ${sentence(ownText(task, reason.recommendation))}`] : [])];
 }
 function problemLine(model, need, ref) {
@@ -124,7 +124,7 @@ function milestoneText(milestone, tasks) {
     lost: () => "its breakdown question has a problem. See Needs you.",
     stuck: () => "stuck. See Needs you.",
     dropped: () => `dropped, with ${plural(milestone.open, "task")} still in it. Ask the chief to take ${milestone.open === 1 ? "the task" : "each task"} out of the milestone.`,
-  }[milestone.state]?.() ?? `${milestone.progress.merged} of ${milestone.progress.total} merged.${next ? ` Next, ${cut(next.title)}${/[.?!…]$/.test(cut(next.title)) ? "" : "."}` : " No task can move now."}`}`;
+  }[milestone.state]?.() ?? `${milestone.progress.merged} of ${milestone.progress.total} merged.${next ? ` Next, ${sentence(cut(next.name))}` : " No task can move now."}`}`;
 }
 const part = (label, groups, empty, grouped, extra = "") => {
   const shownGroups = groups.filter(group => group.lines.length);
@@ -157,8 +157,8 @@ export function renderBoardText(model, { port = BOARD_PORT } = {}) {
     const milestones = (model.milestones ?? []).filter(milestone => mine(milestone) && !milestone.archived && milestone.state !== "done" && !(milestone.state === "dropped" && !milestone.open));
     const lines = {
       needs,
-      moving: capped(moving, task => (ref([task.key, task.id], ...(task.pr ? [[`${task.key}/pr`, `PR ${task.pr}`]] : [])), [`- ${sentence(cut(task.title), movingText(task))}`])),
-      done: capped(done, task => (ref([task.key, task.id], ...(task.pr ? [[`${task.key}/pr`, `PR ${task.pr}`]] : [])), [`- ${sentence(cut(task.title), doneText(task, now.date))}`])),
+      moving: capped(moving, task => (ref([task.key, task.id], ...(task.pr ? [[`${task.key}/pr`, `PR ${task.pr}`]] : [])), [`- ${sentence(cut(task.name), movingText(task))}`])),
+      done: capped(done, task => (ref([task.key, task.id], ...(task.pr ? [[`${task.key}/pr`, `PR ${task.pr}`]] : [])), [`- ${sentence(cut(task.name), doneText(task, now.date))}`])),
       milestones: [...releases.map(release => `- Release ${cut(release.name)}: ${release.done} of ${plural(release.total, "task")} done.${release.missing ? " It is not in the logbook. Ask the chief to add it." : ""}`),
         ...milestones.map(milestone => (ref([milestone.key, milestone.id]), milestoneText(milestone, tasks)))],
     };

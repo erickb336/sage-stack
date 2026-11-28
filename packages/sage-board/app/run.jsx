@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { age, span } from "./agent.jsx";
 import { clock } from "./levels.jsx";
-import { controlsShown, readLink, taskLink, useTask } from "./task.jsx";
+import { Name, controlsShown, readLink, taskLink, useTask } from "./task.jsx";
 import { answerOf, problemOf } from "./use-model.js";
 import { runWord } from "../../sage-core/state-words.mjs";
 
@@ -42,7 +42,7 @@ export function RunPage({ taskKey, runId, all }) {
   if (!runId) return <div className="lv"><p className="kind">Run</p><h1>The link names no run</h1><p className="sub">Open the task and pick one of its runs. <a href={taskLink(task.key)}>Open the task</a></p></div>;
   const unreadRuns = all?.projects.find(item => item.key === all.tasks.find(row => row.key === taskKey)?.project)?.unread?.some(book => book.tables.includes("runs"));
   if (!run && unreadRuns) return <div className="lv"><p className="kind">Run</p><h1>The board cannot read this run now</h1><p className="lv-note bad" role="alert" data-part="failure">The board cannot read the runs table of this logbook, so it cannot show {runId}. Ask the chief to repair the logbook. <a href={taskLink(task.key)}>Open the task</a></p></div>;
-  if (!run) return <div className="lv"><p className="kind">Run</p><h1>This run is not in the logbook</h1><p className="sub">{task.title} has no run {runId}. <a href={taskLink(task.key)}>Open the task</a></p></div>;
+  if (!run) return <div className="lv"><p className="kind">Run</p><h1>This run is not in the logbook</h1><p className="sub">{controlsShown(task.name)} has no run {runId}. <a href={taskLink(task.key)}>Open the task</a></p></div>;
   const atWork = run.status === "running" && run.flag?.level !== "red", stopped = run.status === "failed" || run.status === "running" && !atWork;
   const kept = task.files.kept.find(item => item.run === run.id), said = facts(run, live, kept), now = Date.parse(task.at) || Date.now();
   const last = actions?.at(-1);
@@ -50,7 +50,7 @@ export function RunPage({ taskKey, runId, all }) {
     <div className="lv" data-level="run">
       <p className="kind">Run</p>
       <h1>{run.role}<span className="id">{run.id}</span></h1>
-      <p className="sub">Of <a href={taskLink(task.key)}>{controlsShown(task.title)}</a> · {run.status === "queued" ? `queued ${clock(run.started, task.at)}` : run.ended ? `ended ${clock(run.ended, task.at)}, after ${age(run, now)}` : `started ${clock(run.started, task.at)}, ${span(now - Date.parse(run.started))} ago`}</p>
+      <p className="sub">Of <a href={taskLink(task.key)}><Name item={task} /></a> · {run.status === "queued" ? `queued ${clock(run.started, task.at)}` : run.ended ? `ended ${clock(run.ended, task.at)}, after ${age(run, now)}` : `started ${clock(run.started, task.at)}, ${span(now - Date.parse(run.started))} ago`}</p>
       {problem && <p className="lv-note" role="status">{problem === "read" ? "The page could not refresh. It shows what it read last." : problem}</p>}
       <section className={`lv-facts ${said.tone}`} data-part="facts">
         <p className="lbl2">What happened</p>

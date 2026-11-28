@@ -137,7 +137,7 @@ test("T205 acceptance: owner questions and hostile text remain escaped, complete
   table(f.book, "tasks", [task("T1", "held", { title: "<script>sample</script> [sample](https://example.test)" })]);
   table(f.book, "gates", [{ id: "G1", task: "T1", question: "Pick <sample>?", options: "keep|change", recommendation: "keep", default: "keep", answer: "", at: AT }]);
   const text = f.view("chat");
-  assert.ok(text.includes("\n- ‹script›sample‹/script› [sample] (https://example.test). Pick ‹sample›?\n  Options: 1 keep · 2 change.\n  Recommended: keep.\n"), text);
+  assert.ok(text.includes("\n- ‹script›sample‹/script›. Pick ‹sample›?\n  Options: 1 keep · 2 change.\n  Recommended: keep.\n"), text);
   assert.ok(text.endsWith("\nRef: T1 sample/project-abcdef/G1"), "the Ref line gives the full gate key");
   assert.ok(!text.includes("[sample](https://example.test)") && !text.includes("<") && !text.includes(String.fromCharCode(92)), "no link, no HTML and no backslash");
 });
