@@ -115,7 +115,7 @@ test("T1261: admission reports static binding reasons after owner authorization"
     const w = world({ mark: { lines: 0, pid: PPID, ...mark } });
     for (const row of extra) appendFileSync(w.transcript, JSON.stringify(row) + "\n");
     rmSync(GH_LOG, { force: true });
-    assert.equal(denied(await w.run(w.input(COMMAND, fields))), `sage: this merge dispatch has no matching active root turn since this session started (${code}). Ask for the merge again`, code);
+    assert.equal(denied(await w.run(w.input(COMMAND, fields))), `sage: this merge dispatch has no matching active root turn since this session started (${code}). Investigate this reason before another merge attempt`, code);
     assert.deepEqual([w.checks, permits(), ghCalls()], [[], [], []], code);
   }
 });
